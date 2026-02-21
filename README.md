@@ -30,6 +30,8 @@ ADLS_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...;AccountKey
 ADLS_FILE_SYSTEM=your-container
 ADLS_DIRECTORY=optional/subfolder
 ADLS_TARGET_FILENAME=optional-fixed-name.csv
+DISCOVER_HEADLESS=false
+DISCOVER_TIMEOUT_MS=60000
 ```
 
 ### Run
@@ -38,4 +40,10 @@ ADLS_TARGET_FILENAME=optional-fixed-name.csv
 python discover_activity_to_adls.py
 ```
 
-> Note: If Discover prompts for MFA/CAPTCHA, complete it manually in the opened browser window.
+Optional flags:
+
+```bash
+python discover_activity_to_adls.py --headless --download-dir downloads --timeout-ms 90000
+```
+
+> Note: If Discover prompts for MFA/CAPTCHA, complete it manually (use non-headless mode).
