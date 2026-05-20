@@ -1,0 +1,4 @@
+interface:
+  display_name: "RepoOps Custodian"
+  short_description: "Audit-first repository cleanup and maintenance"
+  default_prompt: "Use $repoops-custodian to audit this repository and produce a dry-run cleanup plan."
