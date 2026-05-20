@@ -1,0 +1,4 @@
+interface:
+  display_name: "Performance Attribution & Return Decomposition Analyst"
+  short_description: "Attribute returns with institutional rigor"
+  default_prompt: "Use $performance-attribution-return-decomposition-analyst to explain where portfolio or strategy returns came from, separate alpha from exposure, and judge whether the results are durable."

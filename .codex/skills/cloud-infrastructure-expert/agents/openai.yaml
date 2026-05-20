@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cloud Infrastructure Expert"
+  short_description: "Cloud infra design, IaC, and ops guidance"
+  default_prompt: "Use $cloud-infrastructure-expert to review this Terraform change for security, reliability, and cost risks."

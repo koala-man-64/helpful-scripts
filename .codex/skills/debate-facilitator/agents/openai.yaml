@@ -1,0 +1,4 @@
+interface:
+  display_name: "Debate Facilitator"
+  short_description: "Moderate structured agent debates"
+  default_prompt: "Use $debate-facilitator to run a structured multi-agent debate and produce minutes plus a decision record."
