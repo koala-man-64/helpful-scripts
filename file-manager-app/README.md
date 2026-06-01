@@ -1,11 +1,32 @@
 
-  # Minimal Web Application Layout
+# Assistant Shell Mock
 
-  This is a code bundle for Minimal Web Application Layout. The original project is available at https://www.figma.com/design/AxPRfYRTvPPvZ0Xx1KBGd6/Minimal-Web-Application-Layout.
+This demo reframes the original file manager mock as a host-shell-style assistant landing page with:
 
-  ## Running the code
+- a narrow left navigation rail
+- a centered greeting and composer surface
+- floating launcher buttons for chat and workspace access
+- a hidden right-side document workspace that preserves the original file tree and file viewer behavior
 
-  Run `npm i` to install the dependencies.
+## Screenshots
 
-  Run `npm run dev` to start the development server.
+Tracked screenshots live in [docs/screenshots/README.md](docs/screenshots/README.md).
+
+![Assistant landing page](docs/screenshots/01-assistant-landing-desktop.png)
+
+## Running the code
+
+```bash
+pnpm install
+pnpm run dev
+```
+
+## Demo capture routes
+
+These URL params are intended for documentation/screenshots:
+
+- `?workspace=open` opens the document workspace on load
+- `?chat=open` opens the chat window on load
+- `?chat=minimized` opens the minimized chat state on load
+- `?prompt=...` seeds the composer text on load
   

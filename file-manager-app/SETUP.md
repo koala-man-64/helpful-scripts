@@ -1,6 +1,6 @@
 # Setup Instructions
 
-This file manager application was built using Figma Make. To run it locally:
+This file manager application was built using Figma Make. It now defaults to an assistant-shell landing page with the original file manager preserved inside a right-side document workspace.
 
 ## Option 1: View in Figma Make
 
@@ -69,21 +69,33 @@ file-manager-app/
 - Icon-based mode selector
 
 ### ChatWindow Component
-- Floating chat bubble interface
+- Floating chat interface
 - Preset prompts for common tasks
 - Context selector (current document vs all selected)
 - Resizable window (drag from edges/corners)
 - Minimize/restore functionality
 - Real-time message timestamps
 
+### Assistant Shell
+- Left navigation rail and branded landing view
+- Centered greeting/composer layout matching the embedded-host mock
+- Recommended actions block with workspace entry point
+- Floating launchers for chat and workspace
+- URL params for documentation capture:
+  - `?workspace=open`
+  - `?chat=open`
+  - `?chat=minimized`
+  - `?prompt=...`
+
 ## Features
 
-- **Responsive Panels**: Resize file tree and viewer panels
+- **Responsive Panels**: Resize file tree and viewer panels inside the workspace
 - **File Filtering**: Only document types (.md, .txt, .pdf, .docx)
 - **Search**: Filter files by name with highlight
 - **Selection Management**: Checkbox selection with parent/child relationship
 - **Document Analysis**: Multiple AI-powered analysis types
 - **Chat Integration**: Context-aware AI assistant
+- **Host Shell Mock**: Assistant landing page shell for embedded-app demos
 
 ## Technologies
 
@@ -104,3 +116,5 @@ file-manager-app/
 - Analysis results are pre-generated examples
 
 For the complete source code, see the src/ directory.
+
+Tracked screenshots live in `docs/screenshots/`.
