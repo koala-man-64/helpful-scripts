@@ -88,15 +88,29 @@ else
 
     private int currentIndex;
     private AnalysisType analysisType = AnalysisType.Original;
+    private bool initialStateApplied;
 
     [Parameter]
     public IReadOnlyList<SelectedFile> SelectedFiles { get; set; } = [];
+
+    [Parameter]
+    public int InitialFileIndex { get; set; }
+
+    [Parameter]
+    public AnalysisType InitialAnalysisType { get; set; } = AnalysisType.Original;
 
     [Parameter]
     public EventCallback<int> OnFileIndexChange { get; set; }
 
     protected override void OnParametersSet()
     {
+        if (!initialStateApplied)
+        {
+            initialStateApplied = true;
+            currentIndex = InitialFileIndex;
+            analysisType = InitialAnalysisType;
+        }
+
         if (SelectedFiles.Count == 0)
         {
             currentIndex = 0;
