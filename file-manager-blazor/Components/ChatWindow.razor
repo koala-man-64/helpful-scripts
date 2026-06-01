@@ -1,0 +1,169 @@
+@if (IsOpen && IsMinimized)
+{
+    <section class="chat-minimized" aria-label="Minimized chat">
+        <div class="chat-minimized-title">
+            <span class="chat-dot" aria-hidden="true"></span>
+            <strong>Chat</strong>
+        </div>
+        <div class="chat-window-actions">
+            <button type="button" class="icon-button" @onclick="OnMinimize" aria-label="Restore chat">Open</button>
+            <button type="button" class="icon-button" @onclick="OnClose" aria-label="Close chat">x</button>
+        </div>
+    </section>
+}
+else if (IsOpen)
+{
+    var currentFile = GetCurrentFile();
+
+    <section class="chat-window" aria-label="Chat support">
+        <header class="chat-header">
+            <div class="chat-title">
+                <span class="chat-dot" aria-hidden="true"></span>
+                <h2>Chat Support</h2>
+            </div>
+            <div class="chat-window-actions">
+                <button type="button" class="icon-button inverted" @onclick="OnMinimize" aria-label="Minimize chat">Min</button>
+                <button type="button" class="icon-button inverted" @onclick="OnClose" aria-label="Close chat">x</button>
+            </div>
+        </header>
+
+        @if (SelectedFiles.Count > 0)
+        {
+            <section class="context-panel" aria-label="Document context">
+                <div class="context-row">
+                    <strong>Document Context</strong>
+                    <div class="segmented-control">
+                        <button type="button"
+                                class="@(contextMode == "current" ? "active" : "")"
+                                @onclick='() => contextMode = "current"'>
+                            Current
+                        </button>
+                        <button type="button"
+                                class="@(contextMode == "all" ? "active" : "")"
+                                @onclick='() => contextMode = "all"'>
+                            All (@SelectedFiles.Count)
+                        </button>
+                    </div>
+                </div>
+                <p>
+                    @if (contextMode == "current" && currentFile is not null)
+                    {
+                        @currentFile.Name
+                    }
+                    else
+                    {
+                        @($"{SelectedFiles.Count} document{(SelectedFiles.Count == 1 ? "" : "s")} selected")
+                    }
+                </p>
+            </section>
+        }
+
+        <div class="messages" aria-live="polite">
+            @foreach (var message in messages)
+            {
+                <article class="message-row @(message.Sender == ChatSender.User ? "user" : "assistant")">
+                    <div class="message-bubble">
+                        <p>@message.Text</p>
+                        <time>@message.Timestamp.ToString("hh:mm tt")</time>
+                    </div>
+                </article>
+            }
+        </div>
+
+        <footer class="chat-composer">
+            <div class="preset-row">
+                @foreach (var preset in MockFileData.PresetPrompts)
+                {
+                    <button type="button"
+                            class="@(selectedPresetId == preset.Id ? "preset active" : "preset")"
+                            @onclick="() => UsePreset(preset)">
+                        @preset.Label
+                    </button>
+                }
+            </div>
+
+            <div class="input-row">
+                <input type="text"
+                       placeholder="Type your message..."
+                       @bind="inputValue"
+                       @bind:event="oninput"
+                       @onkeydown="HandleKeyDown" />
+                <button type="button"
+                        class="send-button"
+                        disabled="@string.IsNullOrWhiteSpace(inputValue)"
+                        @onclick="() => SendAsync()"
+                        aria-label="Send message">
+                    Send
+                </button>
+            </div>
+        </footer>
+    </section>
+}
+
+@code {
+    private readonly List<ChatMessage> messages =
+    [
+        new("1", "Hello! How can I help you today?", ChatSender.Assistant, DateTime.Now)
+    ];
+
+    private string inputValue = string.Empty;
+    private string? selectedPresetId;
+    private string contextMode = "current";
+
+    [Parameter]
+    public bool IsOpen { get; set; }
+
+    [Parameter]
+    public bool IsMinimized { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    [Parameter]
+    public EventCallback OnMinimize { get; set; }
+
+    [Parameter]
+    public IReadOnlyList<SelectedFile> SelectedFiles { get; set; } = [];
+
+    [Parameter]
+    public int CurrentFileIndex { get; set; }
+
+    private SelectedFile? GetCurrentFile()
+    {
+        return SelectedFiles.Count > 0 && CurrentFileIndex >= 0 && CurrentFileIndex < SelectedFiles.Count
+            ? SelectedFiles[CurrentFileIndex]
+            : null;
+    }
+
+    private void UsePreset(PresetPrompt preset)
+    {
+        selectedPresetId = preset.Id;
+        inputValue = preset.Prompt;
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter" && !args.ShiftKey)
+        {
+            await SendAsync();
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        var text = inputValue.Trim();
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        messages.Add(new ChatMessage(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(), text, ChatSender.User, DateTime.Now));
+        inputValue = string.Empty;
+        selectedPresetId = null;
+
+        await Task.Delay(600);
+
+        messages.Add(new ChatMessage(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString(), "I'm a demo assistant. I've received your message!", ChatSender.Assistant, DateTime.Now));
+    }
+}

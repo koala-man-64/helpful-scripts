@@ -1,0 +1,102 @@
+@if (ShouldShow)
+{
+    <div role="treeitem" aria-expanded="@(IsFolder ? ShouldExpand : null)">
+        <div class="tree-row" style="@IndentStyle">
+            @if (IsFolder)
+            {
+                <button type="button"
+                        class="tree-expand-button"
+                        @onclick="() => OnExpandToggle.InvokeAsync(Node)"
+                        aria-label="@($"{(ShouldExpand ? "Collapse" : "Expand")} {Node.Name}")">
+                    @(ShouldExpand ? "v" : ">")
+                </button>
+            }
+            else
+            {
+                <span class="tree-spacer" aria-hidden="true"></span>
+            }
+
+            <input type="checkbox"
+                   checked="@IsSelected"
+                   @onchange="() => OnToggle.InvokeAsync(Node)"
+                   aria-label="@($"Select {Node.Name}")" />
+
+            <span class="node-icon @(IsFolder ? "folder-icon" : "file-icon")" aria-hidden="true"></span>
+            <span class="node-name @(MatchesSearch && !string.IsNullOrWhiteSpace(SearchTerm) ? "search-match" : "")">@Node.Name</span>
+        </div>
+
+        @if (IsFolder && ShouldExpand && Node.Children is { Count: > 0 } children)
+        {
+            <div role="group">
+                @foreach (var child in children)
+                {
+                    <FileTreeItem Node="child"
+                                  Level="@(Level + 1)"
+                                  SelectedIds="SelectedIds"
+                                  ExpandedIds="ExpandedIds"
+                                  SearchTerm="@SearchTerm"
+                                  ExpandedBySearch="ExpandedBySearch"
+                                  OnToggle="OnToggle"
+                                  OnExpandToggle="OnExpandToggle" />
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public FileNode Node { get; set; } = default!;
+
+    [Parameter]
+    public int Level { get; set; }
+
+    [Parameter]
+    public IReadOnlySet<string> SelectedIds { get; set; } = new HashSet<string>();
+
+    [Parameter]
+    public IReadOnlySet<string> ExpandedIds { get; set; } = new HashSet<string>();
+
+    [Parameter]
+    public string SearchTerm { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool ExpandedBySearch { get; set; }
+
+    [Parameter]
+    public EventCallback<FileNode> OnToggle { get; set; }
+
+    [Parameter]
+    public EventCallback<FileNode> OnExpandToggle { get; set; }
+
+    private bool IsFolder => Node.Type == FileNodeType.Folder;
+
+    private bool IsSelected => SelectedIds.Contains(Node.Id);
+
+    private bool MatchesSearch =>
+        string.IsNullOrWhiteSpace(SearchTerm) ||
+        Node.Name.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase);
+
+    private bool ShouldShow =>
+        IsAllowedByType &&
+        (string.IsNullOrWhiteSpace(SearchTerm) || MatchesSearch || (IsFolder && Node.Children?.Any(HasMatchingChild) == true));
+
+    private bool ShouldExpand => ExpandedBySearch || ExpandedIds.Contains(Node.Id);
+
+    private bool IsAllowedByType =>
+        Node.Type == FileNodeType.File
+            ? MockFileData.IsAllowedFile(Node.Name)
+            : MockFileData.HasAllowedFiles(Node);
+
+    private string IndentStyle => $"padding-left: {Level * 20 + 8}px";
+
+    private bool HasMatchingChild(FileNode node)
+    {
+        if (node.Name.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return node.Children?.Any(HasMatchingChild) == true;
+    }
+}

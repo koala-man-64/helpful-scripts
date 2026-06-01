@@ -1,0 +1,160 @@
+<div class="file-tree-card">
+    <div class="panel-title-row">
+        <h2>Select Files</h2>
+        <div class="panel-title-actions">
+            <span class="selected-count">@selectedIds.Count selected</span>
+            <button type="button" class="icon-button" @onclick="OnCollapse" aria-label="Collapse panel">
+                Hide
+            </button>
+        </div>
+    </div>
+
+    <div class="tree-toolbar">
+        <label class="search-box">
+            <span class="search-mark" aria-hidden="true">Search</span>
+            <input type="search"
+                   placeholder="Search files and folders..."
+                   value="@searchTerm"
+                   @oninput="HandleSearchInput" />
+        </label>
+        <button type="button" class="secondary-button" @onclick="SelectAllAsync">Select All</button>
+        <button type="button" class="secondary-button" @onclick="SelectNoneAsync">Select None</button>
+    </div>
+
+    <div class="tree-list" role="tree">
+        @foreach (var node in Data)
+        {
+            <FileTreeItem Node="node"
+                          Level="0"
+                          SelectedIds="selectedIds"
+                          ExpandedIds="expandedIds"
+                          SearchTerm="@searchTerm"
+                          ExpandedBySearch="@(!string.IsNullOrWhiteSpace(searchTerm))"
+                          OnToggle="ToggleNodeAsync"
+                          OnExpandToggle="ToggleExpansion" />
+        }
+    </div>
+</div>
+
+@code {
+    private readonly HashSet<string> selectedIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> expandedIds = new(StringComparer.Ordinal);
+    private string searchTerm = string.Empty;
+
+    [Parameter]
+    public IReadOnlyList<FileNode> Data { get; set; } = [];
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<SelectedFile>> OnSelectionChange { get; set; }
+
+    [Parameter]
+    public EventCallback OnCollapse { get; set; }
+
+    private void HandleSearchInput(ChangeEventArgs args)
+    {
+        searchTerm = args.Value?.ToString() ?? string.Empty;
+    }
+
+    private async Task ToggleNodeAsync(FileNode node)
+    {
+        if (selectedIds.Contains(node.Id))
+        {
+            selectedIds.Remove(node.Id);
+
+            if (node.Type == FileNodeType.Folder)
+            {
+                foreach (var childId in GetAllChildIds(node))
+                {
+                    selectedIds.Remove(childId);
+                }
+            }
+        }
+        else
+        {
+            selectedIds.Add(node.Id);
+
+            if (node.Type == FileNodeType.Folder)
+            {
+                foreach (var childId in GetAllChildIds(node))
+                {
+                    selectedIds.Add(childId);
+                }
+            }
+        }
+
+        await NotifySelectionChangedAsync();
+    }
+
+    private void ToggleExpansion(FileNode node)
+    {
+        if (!expandedIds.Add(node.Id))
+        {
+            expandedIds.Remove(node.Id);
+        }
+    }
+
+    private async Task SelectAllAsync()
+    {
+        selectedIds.Clear();
+
+        foreach (var id in Data.SelectMany(GetAllChildIds))
+        {
+            selectedIds.Add(id);
+        }
+
+        await NotifySelectionChangedAsync();
+    }
+
+    private async Task SelectNoneAsync()
+    {
+        selectedIds.Clear();
+        await NotifySelectionChangedAsync();
+    }
+
+    private async Task NotifySelectionChangedAsync()
+    {
+        await OnSelectionChange.InvokeAsync(GetSelectedFiles(Data));
+    }
+
+    private static IEnumerable<string> GetAllChildIds(FileNode node)
+    {
+        yield return node.Id;
+
+        if (node.Children is null)
+        {
+            yield break;
+        }
+
+        foreach (var child in node.Children)
+        {
+            foreach (var childId in GetAllChildIds(child))
+            {
+                yield return childId;
+            }
+        }
+    }
+
+    private IReadOnlyList<SelectedFile> GetSelectedFiles(IEnumerable<FileNode> nodes, string parentPath = "")
+    {
+        var files = new List<SelectedFile>();
+
+        foreach (var node in nodes)
+        {
+            var currentPath = string.IsNullOrWhiteSpace(parentPath)
+                ? node.Name
+                : $"{parentPath}/{node.Name}";
+
+            if (node.Type == FileNodeType.File && selectedIds.Contains(node.Id))
+            {
+                files.Add(new SelectedFile(node.Id, node.Name, currentPath));
+            }
+
+            if (node.Children is not null)
+            {
+                files.AddRange(GetSelectedFiles(node.Children, currentPath));
+            }
+        }
+
+        return files;
+    }
+}

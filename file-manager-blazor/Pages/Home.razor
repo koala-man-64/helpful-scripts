@@ -1,0 +1,127 @@
+@page "/"
+
+<PageTitle>File Manager</PageTitle>
+
+<div class="app-shell">
+    <nav class="side-nav" aria-label="Primary navigation">
+        <div class="brand">My App</div>
+
+        <a class="nav-link active" href="" aria-current="page">
+            <span class="nav-mark" aria-hidden="true">H</span>
+            <span>Home</span>
+        </a>
+        <a class="nav-link" href="#">
+            <span class="nav-mark" aria-hidden="true">U</span>
+            <span>Users</span>
+        </a>
+        <a class="nav-link" href="#">
+            <span class="nav-mark" aria-hidden="true">D</span>
+            <span>Documents</span>
+        </a>
+        <a class="nav-link" href="#">
+            <span class="nav-mark" aria-hidden="true">S</span>
+            <span>Settings</span>
+        </a>
+    </nav>
+
+    <main class="main-panel">
+        <header class="page-header">
+            <h1>File Manager</h1>
+        </header>
+
+        <section class="workspace" aria-label="File manager workspace">
+            @if (!isTreeCollapsed)
+            {
+                <aside class="tree-column" aria-label="File selection panel">
+                    <FileTree Data="fileStructure"
+                              OnSelectionChange="HandleSelectionChanged"
+                              OnCollapse="CollapseTree" />
+                </aside>
+            }
+            else
+            {
+                <div class="restore-column">
+                    <button type="button" class="icon-button bordered" @onclick="RestoreTree" aria-label="Show file tree">
+                        Show
+                    </button>
+                </div>
+            }
+
+            <section class="viewer-column" aria-label="File preview panel">
+                <FileViewer SelectedFiles="selectedFiles"
+                            OnFileIndexChange="HandleFileIndexChanged" />
+            </section>
+        </section>
+    </main>
+
+    @if (!isChatOpen)
+    {
+        <button type="button" class="chat-bubble" @onclick="ToggleChat" aria-label="Open chat">
+            Chat
+        </button>
+    }
+
+    <ChatWindow IsOpen="isChatOpen"
+                IsMinimized="isChatMinimized"
+                OnClose="CloseChat"
+                OnMinimize="ToggleChatMinimized"
+                SelectedFiles="selectedFiles"
+                CurrentFileIndex="currentFileIndex" />
+</div>
+
+@code {
+    private readonly IReadOnlyList<FileNode> fileStructure = MockFileData.FileStructure;
+    private List<SelectedFile> selectedFiles = [];
+    private int currentFileIndex;
+    private bool isTreeCollapsed;
+    private bool isChatOpen;
+    private bool isChatMinimized;
+
+    private void HandleSelectionChanged(IReadOnlyList<SelectedFile> files)
+    {
+        selectedFiles = files.ToList();
+
+        if (selectedFiles.Count == 0 || currentFileIndex >= selectedFiles.Count)
+        {
+            currentFileIndex = 0;
+        }
+    }
+
+    private void HandleFileIndexChanged(int index)
+    {
+        currentFileIndex = index;
+    }
+
+    private void CollapseTree()
+    {
+        isTreeCollapsed = true;
+    }
+
+    private void RestoreTree()
+    {
+        isTreeCollapsed = false;
+    }
+
+    private void ToggleChat()
+    {
+        if (isChatOpen && isChatMinimized)
+        {
+            isChatMinimized = false;
+            return;
+        }
+
+        isChatOpen = !isChatOpen;
+        isChatMinimized = false;
+    }
+
+    private void CloseChat()
+    {
+        isChatOpen = false;
+        isChatMinimized = false;
+    }
+
+    private void ToggleChatMinimized()
+    {
+        isChatMinimized = !isChatMinimized;
+    }
+}
