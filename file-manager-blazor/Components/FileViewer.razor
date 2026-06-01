@@ -1,0 +1,214 @@
+@using System.Net
+@using System.Text
+
+@if (SelectedFiles.Count == 0)
+{
+    <div class="viewer-card empty-viewer">
+        <div class="empty-icon" aria-hidden="true"></div>
+        <p>No files selected</p>
+        <span>Select files from the tree to view their content</span>
+    </div>
+}
+else
+{
+    var currentFile = SelectedFiles[currentIndex];
+    var content = MockFileData.GetContent(currentFile.Name, analysisType);
+    var fileType = GetFileType(currentFile.Name);
+
+    <div class="viewer-card">
+        <header class="viewer-header">
+            <div class="viewer-file-title">
+                <h2>@currentFile.Name</h2>
+                <p>@currentFile.Path</p>
+            </div>
+
+            @if (SelectedFiles.Count > 1)
+            {
+                <div class="viewer-nav">
+                    <span>@(currentIndex + 1) of @SelectedFiles.Count</span>
+                    <button type="button" class="icon-button bordered" @onclick="ShowPreviousAsync" aria-label="Previous file">&lt;</button>
+                    <button type="button" class="icon-button bordered" @onclick="ShowNextAsync" aria-label="Next file">&gt;</button>
+                </div>
+            }
+
+            <div class="analysis-selector" role="group" aria-label="Analysis mode">
+                @foreach (var option in AnalysisTypes)
+                {
+                    <button type="button"
+                            class="@GetAnalysisButtonClass(option)"
+                            @onclick="() => analysisType = option">
+                        @option.Label()
+                    </button>
+                }
+            </div>
+        </header>
+
+        <div class="viewer-content">
+            @if (analysisType == AnalysisType.Original && fileType == "pdf")
+            {
+                <div class="document-preview dashed-preview">
+                    <div class="preview-icon" aria-hidden="true"></div>
+                    <strong>@currentFile.Name</strong>
+                    <span>PDF Document Preview</span>
+                    <pre>@content</pre>
+                </div>
+            }
+            else if (analysisType == AnalysisType.Original && fileType == "docx")
+            {
+                <div class="document-preview dashed-preview word-preview">
+                    <div class="preview-icon word" aria-hidden="true"></div>
+                    <strong>@currentFile.Name</strong>
+                    <span>Word Document Preview</span>
+                    <pre>@content</pre>
+                </div>
+            }
+            else if (analysisType == AnalysisType.Original && (fileType == "txt" || fileType == "md"))
+            {
+                <pre class="plain-document">@content</pre>
+            }
+            else
+            {
+                <div class="analysis-content">
+                    @FormatAsHtml(content)
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly AnalysisType[] AnalysisTypes =
+    [
+        AnalysisType.Original,
+        AnalysisType.Summary,
+        AnalysisType.KeyPoints,
+        AnalysisType.Sentiment,
+        AnalysisType.Entities
+    ];
+
+    private int currentIndex;
+    private AnalysisType analysisType = AnalysisType.Original;
+
+    [Parameter]
+    public IReadOnlyList<SelectedFile> SelectedFiles { get; set; } = [];
+
+    [Parameter]
+    public EventCallback<int> OnFileIndexChange { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (SelectedFiles.Count == 0)
+        {
+            currentIndex = 0;
+            return;
+        }
+
+        if (currentIndex >= SelectedFiles.Count)
+        {
+            currentIndex = 0;
+        }
+    }
+
+    private async Task ShowPreviousAsync()
+    {
+        currentIndex = currentIndex > 0 ? currentIndex - 1 : SelectedFiles.Count - 1;
+        await OnFileIndexChange.InvokeAsync(currentIndex);
+    }
+
+    private async Task ShowNextAsync()
+    {
+        currentIndex = currentIndex < SelectedFiles.Count - 1 ? currentIndex + 1 : 0;
+        await OnFileIndexChange.InvokeAsync(currentIndex);
+    }
+
+    private string GetAnalysisButtonClass(AnalysisType option) =>
+        analysisType == option ? "mode-button active" : "mode-button";
+
+    private static string GetFileType(string fileName)
+    {
+        return Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".pdf" => "pdf",
+            ".docx" => "docx",
+            ".txt" => "txt",
+            ".md" => "md",
+            ".jpg" or ".jpeg" or ".png" or ".gif" or ".svg" => "image",
+            _ => "unknown"
+        };
+    }
+
+    private static MarkupString FormatAsHtml(string text)
+    {
+        var builder = new StringBuilder();
+        var paragraphs = text.ReplaceLineEndings("\n").Split("\n\n", StringSplitOptions.None);
+
+        foreach (var rawParagraph in paragraphs)
+        {
+            var paragraph = rawParagraph.Trim();
+
+            if (string.IsNullOrWhiteSpace(paragraph))
+            {
+                continue;
+            }
+
+            if (paragraph.StartsWith("- ", StringComparison.Ordinal))
+            {
+                builder.Append("<ul>");
+
+                foreach (var line in paragraph.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var item = line.Trim();
+
+                    if (item.StartsWith("- ", StringComparison.Ordinal))
+                    {
+                        builder.Append("<li>")
+                            .Append(WebUtility.HtmlEncode(item[2..]))
+                            .Append("</li>");
+                    }
+                }
+
+                builder.Append("</ul>");
+                continue;
+            }
+
+            if (paragraph.StartsWith("Overall Sentiment:", StringComparison.Ordinal) ||
+                paragraph.StartsWith("Time Period:", StringComparison.Ordinal) ||
+                paragraph.StartsWith("Organizations:", StringComparison.Ordinal))
+            {
+                builder.Append("<h3>")
+                    .Append(WebUtility.HtmlEncode(paragraph).Replace("\n", "<br>"))
+                    .Append("</h3>");
+                continue;
+            }
+
+            if (paragraph.Contains(":\n  -", StringComparison.Ordinal))
+            {
+                foreach (var line in paragraph.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var trimmed = line.Trim();
+
+                    if (!line.StartsWith(' ') && trimmed.Contains(':', StringComparison.Ordinal))
+                    {
+                        builder.Append("<p class=\"key-line\">")
+                            .Append(WebUtility.HtmlEncode(trimmed))
+                            .Append("</p>");
+                    }
+                    else
+                    {
+                        builder.Append("<p class=\"indented-line\">")
+                            .Append(WebUtility.HtmlEncode(trimmed))
+                            .Append("</p>");
+                    }
+                }
+
+                continue;
+            }
+
+            builder.Append("<p>")
+                .Append(WebUtility.HtmlEncode(paragraph).Replace("\n", "<br>"))
+                .Append("</p>");
+        }
+
+        return new MarkupString(builder.ToString());
+    }
+}
