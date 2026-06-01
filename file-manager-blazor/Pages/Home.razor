@@ -53,20 +53,6 @@
             </section>
         </section>
     </main>
-
-    @if (!isChatOpen)
-    {
-        <button type="button" class="chat-bubble" @onclick="ToggleChat" aria-label="Open chat">
-            Chat
-        </button>
-    }
-
-    <ChatWindow IsOpen="isChatOpen"
-                IsMinimized="isChatMinimized"
-                OnClose="CloseChat"
-                OnMinimize="ToggleChatMinimized"
-                SelectedFiles="selectedFiles"
-                CurrentFileIndex="currentFileIndex" />
 </div>
 
 @code {
@@ -74,8 +60,6 @@
     private List<SelectedFile> selectedFiles = [];
     private int currentFileIndex;
     private bool isTreeCollapsed;
-    private bool isChatOpen;
-    private bool isChatMinimized;
 
     private void HandleSelectionChanged(IReadOnlyList<SelectedFile> files)
     {
@@ -100,28 +84,5 @@
     private void RestoreTree()
     {
         isTreeCollapsed = false;
-    }
-
-    private void ToggleChat()
-    {
-        if (isChatOpen && isChatMinimized)
-        {
-            isChatMinimized = false;
-            return;
-        }
-
-        isChatOpen = !isChatOpen;
-        isChatMinimized = false;
-    }
-
-    private void CloseChat()
-    {
-        isChatOpen = false;
-        isChatMinimized = false;
-    }
-
-    private void ToggleChatMinimized()
-    {
-        isChatMinimized = !isChatMinimized;
     }
 }
