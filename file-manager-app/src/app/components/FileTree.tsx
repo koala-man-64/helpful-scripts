@@ -44,10 +44,12 @@ function TreeItem({ node, level, selectedIds, onToggle, searchTerm, expandedBySe
   const isFolder = node.type === 'folder';
   const isSelected = selectedIds.has(node.id);
 
+  // Filter: Only show allowed file types
   if (node.type === 'file' && !isAllowedFile(node.name)) {
     return null;
   }
 
+  // Filter: Only show folders that contain allowed files
   if (isFolder && !hasAllowedFiles(node)) {
     return null;
   }
@@ -194,6 +196,7 @@ export default function FileTree({ data, onSelectionChange, onCollapse }: FileTr
     const newSelected = new Set(selectedIds);
 
     if (newSelected.has(id)) {
+      // Unselect this item and all its children if it's a folder
       newSelected.delete(id);
       if (isFolder && children) {
         children.forEach((child) => {
@@ -201,6 +204,7 @@ export default function FileTree({ data, onSelectionChange, onCollapse }: FileTr
         });
       }
     } else {
+      // Select this item and all its children if it's a folder
       newSelected.add(id);
       if (isFolder && children) {
         children.forEach((child) => {
