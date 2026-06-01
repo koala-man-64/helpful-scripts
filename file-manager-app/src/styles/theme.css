@@ -39,6 +39,30 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --shell-background: #f7f9fc;
+  --shell-surface: #fbfcff;
+  --shell-surface-subtle: #f2f5fa;
+  --shell-foreground: #22324a;
+  --shell-heading: #2a3853;
+  --shell-muted: #6d7a90;
+  --shell-placeholder: #9aa5b8;
+  --shell-accent: #4a9f37;
+  --shell-accent-mid: #2f8f65;
+  --shell-accent-strong: #117f8b;
+  --shell-rail-background: rgba(255, 255, 255, 0.78);
+  --shell-rail-border: rgba(31, 57, 93, 0.08);
+  --shell-rail-border-strong: rgba(31, 57, 93, 0.2);
+  --shell-composer-border: rgba(38, 66, 105, 0.11);
+  --shell-composer-border-strong: rgba(38, 66, 105, 0.2);
+  --shell-composer-radius: 1.35rem;
+  --shell-composer-shadow: 0 14px 36px rgba(35, 62, 96, 0.08);
+  --shell-composer-shadow-focus: 0 20px 44px rgba(24, 53, 92, 0.14);
+  --shell-icon: #163b69;
+  --shell-icon-shadow: 0 10px 24px rgba(25, 47, 78, 0.06);
+  --shell-avatar-shadow: 0 12px 24px rgba(34, 65, 92, 0.16);
+  --shell-float-border: rgba(27, 73, 111, 0.14);
+  --shell-float-shadow: 0 18px 36px rgba(24, 48, 80, 0.18);
+  --shell-handle: rgba(39, 69, 105, 0.1);
 }
 
 .dark {
@@ -126,6 +150,10 @@
 
   body {
     @apply bg-background text-foreground;
+    font-family: "Aptos", "Segoe UI", "Helvetica Neue", sans-serif;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
   /**

@@ -226,7 +226,7 @@ export default function FileTree({ data, onSelectionChange, onCollapse }: FileTr
   };
 
   return (
-    <div className="border border-gray-200 rounded-lg p-4 bg-white">
+    <div className="flex h-full min-h-0 flex-col rounded-lg border border-gray-200 bg-white p-4">
       <div className="mb-4 flex items-center justify-between">
         <h3 className="font-semibold">Select Files</h3>
         <div className="flex items-center gap-2">
@@ -270,7 +270,7 @@ export default function FileTree({ data, onSelectionChange, onCollapse }: FileTr
         </button>
       </div>
 
-      <div className="space-y-0.5 max-h-96 overflow-y-auto">
+      <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
         {data.map((node) => (
           <TreeItem
             key={node.id}
