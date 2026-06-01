@@ -89,6 +89,18 @@ const sampleFileStructure: TreeNode[] = [
   },
 ];
 
+function getInitialDemoState() {
+  const params = new URLSearchParams(window.location.search);
+  const chatState = params.get('chat');
+
+  return {
+    composerValue: params.get('prompt') ?? '',
+    isWorkspaceOpen: params.get('workspace') === 'open',
+    isChatOpen: chatState === 'open' || chatState === 'minimized',
+    isChatMinimized: chatState === 'minimized',
+  };
+}
+
 interface HostSidebarProps {
   onWorkspaceOpen: () => void;
 }
@@ -381,12 +393,13 @@ function DocumentWorkspace({
 }
 
 export default function App() {
+  const initialDemoState = getInitialDemoState();
   const [selectedFiles, setSelectedFiles] = useState<Array<{ id: string; name: string; path: string }>>([]);
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
-  const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [isChatMinimized, setIsChatMinimized] = useState(false);
-  const [composerValue, setComposerValue] = useState('');
+  const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(initialDemoState.isWorkspaceOpen);
+  const [isChatOpen, setIsChatOpen] = useState(initialDemoState.isChatOpen);
+  const [isChatMinimized, setIsChatMinimized] = useState(initialDemoState.isChatMinimized);
+  const [composerValue, setComposerValue] = useState(initialDemoState.composerValue);
 
   const openChat = () => {
     setIsChatOpen(true);
