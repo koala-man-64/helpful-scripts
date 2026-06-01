@@ -11,7 +11,7 @@
 
     <div class="tree-toolbar">
         <label class="search-box">
-            <span class="search-mark" aria-hidden="true">Search</span>
+            <span class="search-mark" aria-hidden="true"></span>
             <input type="search"
                    placeholder="Search files and folders..."
                    value="@searchTerm"
@@ -40,15 +40,51 @@
     private readonly HashSet<string> selectedIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> expandedIds = new(StringComparer.Ordinal);
     private string searchTerm = string.Empty;
+    private bool initialStateApplied;
 
     [Parameter]
     public IReadOnlyList<FileNode> Data { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<string> InitialSelectedIds { get; set; } = [];
+
+    [Parameter]
+    public IReadOnlyList<string> InitialExpandedIds { get; set; } = [];
+
+    [Parameter]
+    public string InitialSearchTerm { get; set; } = string.Empty;
 
     [Parameter]
     public EventCallback<IReadOnlyList<SelectedFile>> OnSelectionChange { get; set; }
 
     [Parameter]
     public EventCallback OnCollapse { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (initialStateApplied)
+        {
+            return;
+        }
+
+        initialStateApplied = true;
+        searchTerm = InitialSearchTerm;
+
+        foreach (var id in InitialSelectedIds)
+        {
+            selectedIds.Add(id);
+        }
+
+        foreach (var id in InitialExpandedIds)
+        {
+            expandedIds.Add(id);
+        }
+
+        if (selectedIds.Count > 0)
+        {
+            await NotifySelectionChangedAsync();
+        }
+    }
 
     private void HandleSearchInput(ChangeEventArgs args)
     {

@@ -1,32 +1,76 @@
 @page "/"
+@inject NavigationManager NavigationManager
 
-<PageTitle>File Manager</PageTitle>
+<PageTitle>Assistant Shell File Manager</PageTitle>
 
 <div class="app-shell">
     <nav class="side-nav" aria-label="Primary navigation">
-        <div class="brand">My App</div>
+        <div class="rail-top">
+            <a class="brand" href="" aria-label="Strider home">
+                <span class="brand-mark">S</span>
+            </a>
 
-        <a class="nav-link active" href="" aria-current="page">
-            <span class="nav-mark" aria-hidden="true">H</span>
-            <span>Home</span>
-        </a>
-        <a class="nav-link" href="#">
-            <span class="nav-mark" aria-hidden="true">U</span>
-            <span>Users</span>
-        </a>
-        <a class="nav-link" href="#">
-            <span class="nav-mark" aria-hidden="true">D</span>
-            <span>Documents</span>
-        </a>
-        <a class="nav-link" href="#">
-            <span class="nav-mark" aria-hidden="true">S</span>
-            <span>Settings</span>
-        </a>
+            <button type="button" class="rail-action-button" aria-label="Create new workspace">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="rail-divider"></div>
+
+        <div class="rail-nav-group">
+            <button type="button" class="rail-icon-button" aria-label="Recent activity">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 7v5l3 2" />
+                    <path d="M4 12a8 8 0 1 0 2.34-5.66" />
+                    <path d="M4 4v4h4" />
+                </svg>
+            </button>
+
+            <button type="button" class="rail-icon-button" aria-label="Documents">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 8h16" />
+                    <path d="M6 4h12l1 4H5l1-4Z" />
+                    <path d="M7 8v8a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V8" />
+                </svg>
+            </button>
+
+            <button type="button" class="rail-icon-button" aria-label="Trust center">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3 5 6v6c0 4.4 2.9 8.5 7 9 4.1-.5 7-4.6 7-9V6l-7-3Z" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="rail-bottom">
+            <button type="button" class="rail-icon-button" aria-label="Settings">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 8.5A3.5 3.5 0 1 0 12 15.5A3.5 3.5 0 1 0 12 8.5Z" />
+                    <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a1 1 0 0 1 0 1.4l-1.2 1.2a1 1 0 0 1-1.4 0l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a1 1 0 0 1-1 1h-1.6a1 1 0 0 1-1-1v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a1 1 0 0 1-1.4 0l-1.2-1.2a1 1 0 0 1 0-1.4l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a1 1 0 0 1-1-1v-1.6a1 1 0 0 1 1-1h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a1 1 0 0 1 0-1.4l1.2-1.2a1 1 0 0 1 1.4 0l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a1 1 0 0 1 1-1h1.6a1 1 0 0 1 1 1v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a1 1 0 0 1 1.4 0l1.2 1.2a1 1 0 0 1 0 1.4l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6h.2a1 1 0 0 1 1 1v1.6a1 1 0 0 1-1 1h-.2a1 1 0 0 0-.9.6Z" />
+                </svg>
+            </button>
+
+            <div class="rail-avatar" aria-label="Rudy profile">RP</div>
+        </div>
     </nav>
 
     <main class="main-panel">
         <header class="page-header">
-            <h1>File Manager</h1>
+            <p class="page-kicker">Assistant shell styling</p>
+            <div class="page-header-copy">
+                <div>
+                    <h1>File manager workspace</h1>
+                    <p>
+                        Browse mock documents, switch analysis modes, and review the Blazor demo
+                        inside the updated shell visual system.
+                    </p>
+                </div>
+                <div class="page-header-meta">
+                    <span class="meta-pill">@VisibleFileCount files</span>
+                    <span class="meta-pill">@VisibleFolderCount folders</span>
+                </div>
+            </div>
         </header>
 
         <section class="workspace" aria-label="File manager workspace">
@@ -34,6 +78,9 @@
             {
                 <aside class="tree-column" aria-label="File selection panel">
                     <FileTree Data="fileStructure"
+                              InitialSelectedIds="demoState.SelectedIds"
+                              InitialExpandedIds="demoState.ExpandedIds"
+                              InitialSearchTerm="@demoState.SearchTerm"
                               OnSelectionChange="HandleSelectionChanged"
                               OnCollapse="CollapseTree" />
                 </aside>
@@ -41,14 +88,17 @@
             else
             {
                 <div class="restore-column">
-                    <button type="button" class="icon-button bordered" @onclick="RestoreTree" aria-label="Show file tree">
-                        Show
+                    <button type="button" class="icon-button bordered restore-button" @onclick="RestoreTree" aria-label="Show file tree">
+                        <span class="restore-glyph" aria-hidden="true">+</span>
+                        <span>Show tree</span>
                     </button>
                 </div>
             }
 
             <section class="viewer-column" aria-label="File preview panel">
                 <FileViewer SelectedFiles="selectedFiles"
+                            InitialFileIndex="demoState.FileIndex"
+                            InitialAnalysisType="demoState.AnalysisType"
                             OnFileIndexChange="HandleFileIndexChanged" />
             </section>
         </section>
@@ -56,10 +106,47 @@
 </div>
 
 @code {
+    private static readonly string[] AllSelectableIds = GetAllIds(MockFileData.FileStructure).ToArray();
+    private static readonly string[] AllFolderIds = GetFolderIds(MockFileData.FileStructure).ToArray();
+    private static readonly IReadOnlyDictionary<string, DemoState> DemoStates = new Dictionary<string, DemoState>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["home-empty-state"] = new([], []),
+        ["tree-expanded-pdf-original"] = new(["1-1-1"], ["1", "1-1"]),
+        ["summary-analysis"] = new(["1-1-1"], ["1", "1-1"], AnalysisType: AnalysisType.Summary),
+        ["sentiment-analysis"] = new(["1-1-1"], ["1", "1-1"], AnalysisType: AnalysisType.Sentiment),
+        ["entities-analysis"] = new(["1-1-1"], ["1", "1-1"], AnalysisType: AnalysisType.Entities),
+        ["multiple-files-key-points-navigation"] = new(["1-1-1", "1-1-2"], ["1", "1-1"], AnalysisType: AnalysisType.KeyPoints, FileIndex: 1),
+        ["search-filter"] = new([], [], SearchTerm: "review"),
+        ["docx-original-preview"] = new(["1-1-2"], ["1", "1-1"]),
+        ["markdown-original-preview"] = new(["3-1"], ["3"]),
+        ["file-tree-collapsed"] = new(["1-1-1"], ["1", "1-1"], CollapseTree: true),
+        ["select-all-multiple-documents"] = new(AllSelectableIds, AllFolderIds),
+        ["select-none-reset"] = new([], AllFolderIds),
+        ["mobile-responsive-layout"] = new(["1-1-1"], ["1", "1-1"]),
+        ["mobile-expanded-selection"] = new(["1-1-1"], ["1", "1-1", "2", "3"])
+    };
+
     private readonly IReadOnlyList<FileNode> fileStructure = MockFileData.FileStructure;
     private List<SelectedFile> selectedFiles = [];
+    private DemoState demoState = new([], []);
     private int currentFileIndex;
     private bool isTreeCollapsed;
+
+    private int VisibleFileCount => fileStructure.Sum(CountFiles);
+    private int VisibleFolderCount => fileStructure.Sum(CountFolders);
+
+    protected override void OnInitialized()
+    {
+        demoState = ResolveDemoState();
+        isTreeCollapsed = demoState.CollapseTree;
+        currentFileIndex = demoState.FileIndex;
+        selectedFiles = GetSelectedFilesByIds(fileStructure, new HashSet<string>(demoState.SelectedIds, StringComparer.Ordinal));
+
+        if (selectedFiles.Count == 0 || currentFileIndex >= selectedFiles.Count)
+        {
+            currentFileIndex = 0;
+        }
+    }
 
     private void HandleSelectionChanged(IReadOnlyList<SelectedFile> files)
     {
@@ -85,4 +172,136 @@
     {
         isTreeCollapsed = false;
     }
+
+    private DemoState ResolveDemoState()
+    {
+        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
+        var stateName = GetQueryValue(uri, "state");
+
+        if (!string.IsNullOrWhiteSpace(stateName) &&
+            DemoStates.TryGetValue(stateName, out var state))
+        {
+            return state;
+        }
+
+        return DemoStates["home-empty-state"];
+    }
+
+    private static IEnumerable<string> GetAllIds(IEnumerable<FileNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            yield return node.Id;
+
+            if (node.Children is null)
+            {
+                continue;
+            }
+
+            foreach (var childId in GetAllIds(node.Children))
+            {
+                yield return childId;
+            }
+        }
+    }
+
+    private static IEnumerable<string> GetFolderIds(IEnumerable<FileNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.Type == FileNodeType.Folder)
+            {
+                yield return node.Id;
+            }
+
+            if (node.Children is null)
+            {
+                continue;
+            }
+
+            foreach (var childId in GetFolderIds(node.Children))
+            {
+                yield return childId;
+            }
+        }
+    }
+
+    private static int CountFiles(FileNode node)
+    {
+        if (node.Type == FileNodeType.File)
+        {
+            return 1;
+        }
+
+        return node.Children?.Sum(CountFiles) ?? 0;
+    }
+
+    private static int CountFolders(FileNode node)
+    {
+        if (node.Type != FileNodeType.Folder)
+        {
+            return 0;
+        }
+
+        return 1 + (node.Children?.Sum(CountFolders) ?? 0);
+    }
+
+    private static List<SelectedFile> GetSelectedFilesByIds(IEnumerable<FileNode> nodes, IReadOnlySet<string> selectedIds, string parentPath = "")
+    {
+        var files = new List<SelectedFile>();
+
+        foreach (var node in nodes)
+        {
+            var currentPath = string.IsNullOrWhiteSpace(parentPath)
+                ? node.Name
+                : $"{parentPath}/{node.Name}";
+
+            if (node.Type == FileNodeType.File && selectedIds.Contains(node.Id))
+            {
+                files.Add(new SelectedFile(node.Id, node.Name, currentPath));
+            }
+
+            if (node.Children is null)
+            {
+                continue;
+            }
+
+            files.AddRange(GetSelectedFilesByIds(node.Children, selectedIds, currentPath));
+        }
+
+        return files;
+    }
+
+    private static string? GetQueryValue(Uri uri, string key)
+    {
+        var query = uri.Query;
+
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return null;
+        }
+
+        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pieces = pair.Split('=', 2);
+            var currentKey = Uri.UnescapeDataString(pieces[0]);
+
+            if (!string.Equals(currentKey, key, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return pieces.Length == 2 ? Uri.UnescapeDataString(pieces[1]) : string.Empty;
+        }
+
+        return null;
+    }
+
+    private sealed record DemoState(
+        IReadOnlyList<string> SelectedIds,
+        IReadOnlyList<string> ExpandedIds,
+        string SearchTerm = "",
+        AnalysisType AnalysisType = AnalysisType.Original,
+        int FileIndex = 0,
+        bool CollapseTree = false);
 }
