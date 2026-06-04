@@ -1,0 +1,4 @@
+interface:
+  display_name: "Communication Facilitator"
+  short_description: "Coordinate clear multi-agent handoffs"
+  default_prompt: "Use $communication-facilitator to coordinate a multi-agent workflow, surface blockers, and tighten handoffs."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Critical Counterbalance Agent"
+  short_description: "Constructive devil's advocate for team decisions"
+  default_prompt: "Use $critical-counterbalance-agent to pressure-test this proposal before we commit."

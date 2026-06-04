@@ -1,0 +1,42 @@
+{
+  "repo": "asset-allocation-jobs",
+  "source_path": "C:\\Users\\rdpro\\Projects\\asset-allocation-jobs",
+  "exported_at": "2026-06-04T03:33:31Z",
+  "files": [
+    {
+      "path": "hooks/hook_utils.py",
+      "sha256": "8c914b5ca5d2a112d25a5681d87d7234a607dca3a229f471d216e553c0919360",
+      "size": 6212
+    },
+    {
+      "path": "hooks/pre_tool_use_bash_guard.py",
+      "sha256": "6206836e4b37bd7d296ef1d4edbeabf27666f749f8972891cc07073b906c9fb2",
+      "size": 8877
+    },
+    {
+      "path": "hooks/session_start_team_context.py",
+      "sha256": "8babfbd07505f1075398e83d8c0f3e73b9958e2fac77aab31e3d712b4764a3b3",
+      "size": 1744
+    },
+    {
+      "path": "hooks/stop_gateway_bookkeeper_recap.py",
+      "sha256": "09788b20fc29a2f64a9721b2240f17f93d7e8fdec4c40b0103be3b4aba10fb51",
+      "size": 2478
+    },
+    {
+      "path": "hooks/stop_team_closeout.py",
+      "sha256": "ccaaada14d502c07436a9315db8f4f94f161088029edbf9b6d427ad5cbbeb94b",
+      "size": 2748
+    },
+    {
+      "path": "hooks/user_prompt_submit_router.py",
+      "sha256": "932aa952266b82da69f51031dea18407d74254eda1e6ea82f086a3f8a965029b",
+      "size": 4941
+    },
+    {
+      "path": "hooks.json",
+      "sha256": "ef4d61553c5ccbfa389d14e06ca546e44d817b229fd1737edfe27224c502629c",
+      "size": 3194
+    }
+  ]
+}

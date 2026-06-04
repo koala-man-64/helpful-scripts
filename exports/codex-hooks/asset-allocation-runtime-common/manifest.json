@@ -1,0 +1,42 @@
+{
+  "repo": "asset-allocation-runtime-common",
+  "source_path": "C:\\Users\\rdpro\\.codex\\worktrees\\e98f\\asset-allocation-runtime-common",
+  "exported_at": "2026-06-04T03:33:31Z",
+  "files": [
+    {
+      "path": "hooks/hook_utils.py",
+      "sha256": "891db9504761489f9a8e9c866360c19d3bd1c5579555486dad8e939caeabc8e8",
+      "size": 14053
+    },
+    {
+      "path": "hooks/pre_tool_use_bash_guard.py",
+      "sha256": "aab5e60213aa79120d89afd90b9aedac7e70fa6af2727033e5f174ae2dae39c3",
+      "size": 8907
+    },
+    {
+      "path": "hooks/session_start_team_context.py",
+      "sha256": "539cbccb7dc1a4eb774469ccf264ce18119d6ec977dcbf1b95dd7031afdc12df",
+      "size": 1400
+    },
+    {
+      "path": "hooks/stop_gateway_bookkeeper_recap.py",
+      "sha256": "69028cbe2e733574218947414eefa73faf9e9973bf18597bbe6a6fc27c69bc7b",
+      "size": 2649
+    },
+    {
+      "path": "hooks/stop_team_closeout.py",
+      "sha256": "d1ff439867c6282398ed546b8acbb6473851510ce6328694e751b8f7482f6e73",
+      "size": 4896
+    },
+    {
+      "path": "hooks/user_prompt_submit_router.py",
+      "sha256": "5139bfc5d4db36e3807e513606f7a462fde218e30bcdd9b07e1c548543648bdf",
+      "size": 10080
+    },
+    {
+      "path": "hooks.json",
+      "sha256": "ef4d61553c5ccbfa389d14e06ca546e44d817b229fd1737edfe27224c502629c",
+      "size": 3194
+    }
+  ]
+}
