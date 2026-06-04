@@ -1,0 +1,4 @@
+interface:
+  display_name: "PipelineMedic"
+  short_description: "Repair failing Azure DevOps Pipeline runs"
+  default_prompt: "Use $actionmedic to diagnose failing Azure DevOps Pipeline runs, repair the root cause, push to Azure Repos, and iterate until the latest commit is green."

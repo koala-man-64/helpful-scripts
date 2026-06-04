@@ -1,0 +1,4 @@
+interface:
+  display_name: "Azure DevOps Bookkeeper"
+  short_description: "Operational Azure Boards tracking and reporting"
+  default_prompt: "Use $gateway-bookkeeper to summarize current Azure DevOps work tracking, risks, and cleanup actions."

@@ -1,0 +1,701 @@
+{
+  "generated_at": "2026-06-04T03:33:31Z",
+  "copilot_duplicate_preference": {
+    "business-partner-agent": "repo-local",
+    "data-engineer-data-architect-advisor": "repo-local",
+    "git-hygiene-orchestrator": "repo-local",
+    "strict-branch-and-merge-discipline": "repo-local"
+  },
+  "sources": [
+    {
+      "id": "repo-local",
+      "source_path": "C:\\Users\\rdpro\\.codex\\worktrees\\e98f\\asset-allocation-runtime-common\\.codex\\skills",
+      "raw_export_path": "exports/codex-skills/repo-local",
+      "copied_file_count": 154,
+      "entries": [
+        {
+          "relative_path": "actionmedic",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "agent-io-auditor",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "application-project-analyst-technical-explainer",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "architecture-review-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "azure-devops-cicd-expert",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "business-partner-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "catalyst-calendar-monitor",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "cleanup-change-debris-auditor",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "cloud-cost-optimization-efficiency-architect",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "cloud-infrastructure-expert",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "cloud-networking-architect",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "cloud-security-vulnerability-expert",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "code-drift-sentinel",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "code-humanizer",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "code-hygiene-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "codebase-transition-sleuth",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "communication-facilitator",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "critical-counterbalance-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "data-engineer-data-architect-advisor",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "db-steward",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "debate-facilitator",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "delivery-engineer-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "delivery-orchestrator-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "execution-quality-tca-analyst",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "fail-fast-enforcement-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "forensic-debugger",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "frontend-design",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "gateway-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "gateway-bookkeeper",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "git-hygiene-orchestrator",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "maintainability-steward",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "market-data-integrity-corporate-actions-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "performance-attribution-return-decomposition-analyst",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "performance-bottleneck-investigator",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "portfolio-risk-exposure-controller",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "project-workflow-auditor-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "project-workflow-enforcer-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "provisioning-configuration-and-disaster-recovery-expert",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "qa-release-gate-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "regime-scenario-analyst",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "repoops-custodian",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "research-librarian-evidence-packager",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "software-testing-validation-architect",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "strategy-validation-model-risk-reviewer",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "strict-branch-and-merge-discipline",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "technical-writer-dev-advocate",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "thesis-drift-what-changed-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "trader-behavior-process-reviewer",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "trading-compliance-surveillance-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "ui-testing-expert",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        }
+      ]
+    },
+    {
+      "id": "home-shared",
+      "source_path": "C:\\Users\\rdpro\\.codex\\skills",
+      "raw_export_path": "exports/codex-skills/home-shared",
+      "copied_file_count": 58,
+      "entries": [
+        {
+          "relative_path": ".system",
+          "concrete_skill": false,
+          "raw_only_support_tree": true,
+          "nested_concrete_skills": [
+            "imagegen",
+            "openai-docs",
+            "plugin-creator",
+            "skill-creator",
+            "skill-installer"
+          ]
+        },
+        {
+          "relative_path": "business-partner-agent",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "codex-primary-runtime",
+          "concrete_skill": false,
+          "raw_only_support_tree": true,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "data-engineer-data-architect-advisor",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "git-hygiene-orchestrator",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        },
+        {
+          "relative_path": "strict-branch-and-merge-discipline",
+          "concrete_skill": true,
+          "raw_only_support_tree": false,
+          "nested_concrete_skills": []
+        }
+      ]
+    }
+  ],
+  "selected_copilot_exports": {
+    "actionmedic": {
+      "source_id": "repo-local",
+      "source_relative_path": "actionmedic",
+      "copilot_skill_path": ".github/skills/actionmedic",
+      "copilot_agent_path": ".github/agents/actionmedic.agent.md"
+    },
+    "agent-io-auditor": {
+      "source_id": "repo-local",
+      "source_relative_path": "agent-io-auditor",
+      "copilot_skill_path": ".github/skills/agent-io-auditor",
+      "copilot_agent_path": ".github/agents/agent-io-auditor.agent.md"
+    },
+    "application-project-analyst-technical-explainer": {
+      "source_id": "repo-local",
+      "source_relative_path": "application-project-analyst-technical-explainer",
+      "copilot_skill_path": ".github/skills/application-project-analyst-technical-explainer",
+      "copilot_agent_path": ".github/agents/application-project-analyst-technical-explainer.agent.md"
+    },
+    "architecture-review-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "architecture-review-agent",
+      "copilot_skill_path": ".github/skills/architecture-review-agent",
+      "copilot_agent_path": ".github/agents/architecture-review-agent.agent.md"
+    },
+    "azure-devops-cicd-expert": {
+      "source_id": "repo-local",
+      "source_relative_path": "azure-devops-cicd-expert",
+      "copilot_skill_path": ".github/skills/azure-devops-cicd-expert",
+      "copilot_agent_path": ".github/agents/azure-devops-cicd-expert.agent.md"
+    },
+    "business-partner-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "business-partner-agent",
+      "copilot_skill_path": ".github/skills/business-partner-agent",
+      "copilot_agent_path": ".github/agents/business-partner-agent.agent.md"
+    },
+    "catalyst-calendar-monitor": {
+      "source_id": "repo-local",
+      "source_relative_path": "catalyst-calendar-monitor",
+      "copilot_skill_path": ".github/skills/catalyst-calendar-monitor",
+      "copilot_agent_path": ".github/agents/catalyst-calendar-monitor.agent.md"
+    },
+    "cleanup-change-debris-auditor": {
+      "source_id": "repo-local",
+      "source_relative_path": "cleanup-change-debris-auditor",
+      "copilot_skill_path": ".github/skills/cleanup-change-debris-auditor",
+      "copilot_agent_path": ".github/agents/cleanup-change-debris-auditor.agent.md"
+    },
+    "cloud-cost-optimization-efficiency-architect": {
+      "source_id": "repo-local",
+      "source_relative_path": "cloud-cost-optimization-efficiency-architect",
+      "copilot_skill_path": ".github/skills/cloud-cost-optimization-efficiency-architect",
+      "copilot_agent_path": ".github/agents/cloud-cost-optimization-efficiency-architect.agent.md"
+    },
+    "cloud-infrastructure-expert": {
+      "source_id": "repo-local",
+      "source_relative_path": "cloud-infrastructure-expert",
+      "copilot_skill_path": ".github/skills/cloud-infrastructure-expert",
+      "copilot_agent_path": ".github/agents/cloud-infrastructure-expert.agent.md"
+    },
+    "cloud-networking-architect": {
+      "source_id": "repo-local",
+      "source_relative_path": "cloud-networking-architect",
+      "copilot_skill_path": ".github/skills/cloud-networking-architect",
+      "copilot_agent_path": ".github/agents/cloud-networking-architect.agent.md"
+    },
+    "cloud-security-vulnerability-expert": {
+      "source_id": "repo-local",
+      "source_relative_path": "cloud-security-vulnerability-expert",
+      "copilot_skill_path": ".github/skills/cloud-security-vulnerability-expert",
+      "copilot_agent_path": ".github/agents/cloud-security-vulnerability-expert.agent.md"
+    },
+    "code-drift-sentinel": {
+      "source_id": "repo-local",
+      "source_relative_path": "code-drift-sentinel",
+      "copilot_skill_path": ".github/skills/code-drift-sentinel",
+      "copilot_agent_path": ".github/agents/code-drift-sentinel.agent.md"
+    },
+    "code-humanizer": {
+      "source_id": "repo-local",
+      "source_relative_path": "code-humanizer",
+      "copilot_skill_path": ".github/skills/code-humanizer",
+      "copilot_agent_path": ".github/agents/code-humanizer.agent.md"
+    },
+    "code-hygiene-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "code-hygiene-agent",
+      "copilot_skill_path": ".github/skills/code-hygiene-agent",
+      "copilot_agent_path": ".github/agents/code-hygiene-agent.agent.md"
+    },
+    "codebase-transition-sleuth": {
+      "source_id": "repo-local",
+      "source_relative_path": "codebase-transition-sleuth",
+      "copilot_skill_path": ".github/skills/codebase-transition-sleuth",
+      "copilot_agent_path": ".github/agents/codebase-transition-sleuth.agent.md"
+    },
+    "communication-facilitator": {
+      "source_id": "repo-local",
+      "source_relative_path": "communication-facilitator",
+      "copilot_skill_path": ".github/skills/communication-facilitator",
+      "copilot_agent_path": ".github/agents/communication-facilitator.agent.md"
+    },
+    "critical-counterbalance-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "critical-counterbalance-agent",
+      "copilot_skill_path": ".github/skills/critical-counterbalance-agent",
+      "copilot_agent_path": ".github/agents/critical-counterbalance-agent.agent.md"
+    },
+    "data-engineer-data-architect-advisor": {
+      "source_id": "repo-local",
+      "source_relative_path": "data-engineer-data-architect-advisor",
+      "copilot_skill_path": ".github/skills/data-engineer-data-architect-advisor",
+      "copilot_agent_path": ".github/agents/data-engineer-data-architect-advisor.agent.md"
+    },
+    "db-steward": {
+      "source_id": "repo-local",
+      "source_relative_path": "db-steward",
+      "copilot_skill_path": ".github/skills/db-steward",
+      "copilot_agent_path": ".github/agents/db-steward.agent.md"
+    },
+    "debate-facilitator": {
+      "source_id": "repo-local",
+      "source_relative_path": "debate-facilitator",
+      "copilot_skill_path": ".github/skills/debate-facilitator",
+      "copilot_agent_path": ".github/agents/debate-facilitator.agent.md"
+    },
+    "delivery-engineer-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "delivery-engineer-agent",
+      "copilot_skill_path": ".github/skills/delivery-engineer-agent",
+      "copilot_agent_path": ".github/agents/delivery-engineer-agent.agent.md"
+    },
+    "delivery-orchestrator-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "delivery-orchestrator-agent",
+      "copilot_skill_path": ".github/skills/delivery-orchestrator-agent",
+      "copilot_agent_path": ".github/agents/delivery-orchestrator-agent.agent.md"
+    },
+    "execution-quality-tca-analyst": {
+      "source_id": "repo-local",
+      "source_relative_path": "execution-quality-tca-analyst",
+      "copilot_skill_path": ".github/skills/execution-quality-tca-analyst",
+      "copilot_agent_path": ".github/agents/execution-quality-tca-analyst.agent.md"
+    },
+    "fail-fast-enforcement-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "fail-fast-enforcement-agent",
+      "copilot_skill_path": ".github/skills/fail-fast-enforcement-agent",
+      "copilot_agent_path": ".github/agents/fail-fast-enforcement-agent.agent.md"
+    },
+    "forensic-debugger": {
+      "source_id": "repo-local",
+      "source_relative_path": "forensic-debugger",
+      "copilot_skill_path": ".github/skills/forensic-debugger",
+      "copilot_agent_path": ".github/agents/forensic-debugger.agent.md"
+    },
+    "frontend-design": {
+      "source_id": "repo-local",
+      "source_relative_path": "frontend-design",
+      "copilot_skill_path": ".github/skills/frontend-design",
+      "copilot_agent_path": ".github/agents/frontend-design.agent.md"
+    },
+    "gateway-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "gateway-agent",
+      "copilot_skill_path": ".github/skills/gateway-agent",
+      "copilot_agent_path": ".github/agents/gateway-agent.agent.md"
+    },
+    "gateway-bookkeeper": {
+      "source_id": "repo-local",
+      "source_relative_path": "gateway-bookkeeper",
+      "copilot_skill_path": ".github/skills/gateway-bookkeeper",
+      "copilot_agent_path": ".github/agents/gateway-bookkeeper.agent.md"
+    },
+    "git-hygiene-orchestrator": {
+      "source_id": "repo-local",
+      "source_relative_path": "git-hygiene-orchestrator",
+      "copilot_skill_path": ".github/skills/git-hygiene-orchestrator",
+      "copilot_agent_path": ".github/agents/git-hygiene-orchestrator.agent.md"
+    },
+    "imagegen": {
+      "source_id": "home-shared",
+      "source_relative_path": ".system/imagegen",
+      "copilot_skill_path": ".github/skills/imagegen",
+      "copilot_agent_path": ".github/agents/imagegen.agent.md"
+    },
+    "maintainability-steward": {
+      "source_id": "repo-local",
+      "source_relative_path": "maintainability-steward",
+      "copilot_skill_path": ".github/skills/maintainability-steward",
+      "copilot_agent_path": ".github/agents/maintainability-steward.agent.md"
+    },
+    "market-data-integrity-corporate-actions-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "market-data-integrity-corporate-actions-agent",
+      "copilot_skill_path": ".github/skills/market-data-integrity-corporate-actions-agent",
+      "copilot_agent_path": ".github/agents/market-data-integrity-corporate-actions-agent.agent.md"
+    },
+    "openai-docs": {
+      "source_id": "home-shared",
+      "source_relative_path": ".system/openai-docs",
+      "copilot_skill_path": ".github/skills/openai-docs",
+      "copilot_agent_path": ".github/agents/openai-docs.agent.md"
+    },
+    "performance-attribution-return-decomposition-analyst": {
+      "source_id": "repo-local",
+      "source_relative_path": "performance-attribution-return-decomposition-analyst",
+      "copilot_skill_path": ".github/skills/performance-attribution-return-decomposition-analyst",
+      "copilot_agent_path": ".github/agents/performance-attribution-return-decomposition-analyst.agent.md"
+    },
+    "performance-bottleneck-investigator": {
+      "source_id": "repo-local",
+      "source_relative_path": "performance-bottleneck-investigator",
+      "copilot_skill_path": ".github/skills/performance-bottleneck-investigator",
+      "copilot_agent_path": ".github/agents/performance-bottleneck-investigator.agent.md"
+    },
+    "plugin-creator": {
+      "source_id": "home-shared",
+      "source_relative_path": ".system/plugin-creator",
+      "copilot_skill_path": ".github/skills/plugin-creator",
+      "copilot_agent_path": ".github/agents/plugin-creator.agent.md"
+    },
+    "portfolio-risk-exposure-controller": {
+      "source_id": "repo-local",
+      "source_relative_path": "portfolio-risk-exposure-controller",
+      "copilot_skill_path": ".github/skills/portfolio-risk-exposure-controller",
+      "copilot_agent_path": ".github/agents/portfolio-risk-exposure-controller.agent.md"
+    },
+    "project-workflow-auditor-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "project-workflow-auditor-agent",
+      "copilot_skill_path": ".github/skills/project-workflow-auditor-agent",
+      "copilot_agent_path": ".github/agents/project-workflow-auditor-agent.agent.md"
+    },
+    "project-workflow-enforcer-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "project-workflow-enforcer-agent",
+      "copilot_skill_path": ".github/skills/project-workflow-enforcer-agent",
+      "copilot_agent_path": ".github/agents/project-workflow-enforcer-agent.agent.md"
+    },
+    "provisioning-configuration-and-disaster-recovery-expert": {
+      "source_id": "repo-local",
+      "source_relative_path": "provisioning-configuration-and-disaster-recovery-expert",
+      "copilot_skill_path": ".github/skills/provisioning-configuration-and-disaster-recovery-expert",
+      "copilot_agent_path": ".github/agents/provisioning-configuration-and-disaster-recovery-expert.agent.md"
+    },
+    "qa-release-gate-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "qa-release-gate-agent",
+      "copilot_skill_path": ".github/skills/qa-release-gate-agent",
+      "copilot_agent_path": ".github/agents/qa-release-gate-agent.agent.md"
+    },
+    "regime-scenario-analyst": {
+      "source_id": "repo-local",
+      "source_relative_path": "regime-scenario-analyst",
+      "copilot_skill_path": ".github/skills/regime-scenario-analyst",
+      "copilot_agent_path": ".github/agents/regime-scenario-analyst.agent.md"
+    },
+    "repoops-custodian": {
+      "source_id": "repo-local",
+      "source_relative_path": "repoops-custodian",
+      "copilot_skill_path": ".github/skills/repoops-custodian",
+      "copilot_agent_path": ".github/agents/repoops-custodian.agent.md"
+    },
+    "research-librarian-evidence-packager": {
+      "source_id": "repo-local",
+      "source_relative_path": "research-librarian-evidence-packager",
+      "copilot_skill_path": ".github/skills/research-librarian-evidence-packager",
+      "copilot_agent_path": ".github/agents/research-librarian-evidence-packager.agent.md"
+    },
+    "skill-creator": {
+      "source_id": "home-shared",
+      "source_relative_path": ".system/skill-creator",
+      "copilot_skill_path": ".github/skills/skill-creator",
+      "copilot_agent_path": ".github/agents/skill-creator.agent.md"
+    },
+    "skill-installer": {
+      "source_id": "home-shared",
+      "source_relative_path": ".system/skill-installer",
+      "copilot_skill_path": ".github/skills/skill-installer",
+      "copilot_agent_path": ".github/agents/skill-installer.agent.md"
+    },
+    "software-testing-validation-architect": {
+      "source_id": "repo-local",
+      "source_relative_path": "software-testing-validation-architect",
+      "copilot_skill_path": ".github/skills/software-testing-validation-architect",
+      "copilot_agent_path": ".github/agents/software-testing-validation-architect.agent.md"
+    },
+    "strategy-validation-model-risk-reviewer": {
+      "source_id": "repo-local",
+      "source_relative_path": "strategy-validation-model-risk-reviewer",
+      "copilot_skill_path": ".github/skills/strategy-validation-model-risk-reviewer",
+      "copilot_agent_path": ".github/agents/strategy-validation-model-risk-reviewer.agent.md"
+    },
+    "strict-branch-and-merge-discipline": {
+      "source_id": "repo-local",
+      "source_relative_path": "strict-branch-and-merge-discipline",
+      "copilot_skill_path": ".github/skills/strict-branch-and-merge-discipline",
+      "copilot_agent_path": ".github/agents/strict-branch-and-merge-discipline.agent.md"
+    },
+    "technical-writer-dev-advocate": {
+      "source_id": "repo-local",
+      "source_relative_path": "technical-writer-dev-advocate",
+      "copilot_skill_path": ".github/skills/technical-writer-dev-advocate",
+      "copilot_agent_path": ".github/agents/technical-writer-dev-advocate.agent.md"
+    },
+    "thesis-drift-what-changed-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "thesis-drift-what-changed-agent",
+      "copilot_skill_path": ".github/skills/thesis-drift-what-changed-agent",
+      "copilot_agent_path": ".github/agents/thesis-drift-what-changed-agent.agent.md"
+    },
+    "trader-behavior-process-reviewer": {
+      "source_id": "repo-local",
+      "source_relative_path": "trader-behavior-process-reviewer",
+      "copilot_skill_path": ".github/skills/trader-behavior-process-reviewer",
+      "copilot_agent_path": ".github/agents/trader-behavior-process-reviewer.agent.md"
+    },
+    "trading-compliance-surveillance-agent": {
+      "source_id": "repo-local",
+      "source_relative_path": "trading-compliance-surveillance-agent",
+      "copilot_skill_path": ".github/skills/trading-compliance-surveillance-agent",
+      "copilot_agent_path": ".github/agents/trading-compliance-surveillance-agent.agent.md"
+    },
+    "ui-testing-expert": {
+      "source_id": "repo-local",
+      "source_relative_path": "ui-testing-expert",
+      "copilot_skill_path": ".github/skills/ui-testing-expert",
+      "copilot_agent_path": ".github/agents/ui-testing-expert.agent.md"
+    }
+  }
+}
