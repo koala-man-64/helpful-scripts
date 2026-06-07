@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch FileManagerBlazor",
+      "type": "blazorwasm",
+      "request": "launch",
+      "cwd": "${workspaceFolder}\\file-manager-blazor",
+      "url": "http://localhost:5167",
+      "webRoot": "${workspaceFolder}\\file-manager-blazor\\wwwroot",
+      "preLaunchTask": "run file-manager-blazor"
+    }
+  ]
+}

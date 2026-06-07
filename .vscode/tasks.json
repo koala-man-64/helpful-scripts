@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build file-manager-blazor",
+      "type": "shell",
+      "command": "${env:USERPROFILE}\\.dotnet\\dotnet.exe",
+      "args": [
+        "build",
+        "${workspaceFolder}\\file-manager-blazor\\FileManagerBlazor.csproj"
+      ],
+      "problemMatcher": "$msCompile",
+      "group": "build"
+    },
+    {
+      "label": "run file-manager-blazor",
+      "type": "shell",
+      "command": "${env:USERPROFILE}\\.dotnet\\dotnet.exe",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}\\file-manager-blazor\\FileManagerBlazor.csproj",
+        "--launch-profile",
+        "http"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "blazor",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Building|Determining projects to restore",
+          "endsPattern": "Now listening on:"
+        }
+      }
+    }
+  ]
+}
