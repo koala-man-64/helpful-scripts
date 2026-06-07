@@ -1,0 +1,252 @@
+@page "/file-manager"
+@inject NavigationManager NavigationManager
+
+<PageTitle>File Manager</PageTitle>
+
+<header class="page-header">
+    <p class="page-kicker">Document workspace</p>
+    <div class="page-header-copy">
+        <div>
+            <h1>File manager workspace</h1>
+            <p>
+                Browse mock documents, switch analysis modes, and review the Blazor demo
+                inside the updated shell visual system.
+            </p>
+        </div>
+        <div class="page-header-meta">
+            <span class="meta-pill">@VisibleFileCount files</span>
+            <span class="meta-pill">@VisibleFolderCount folders</span>
+        </div>
+    </div>
+</header>
+
+<section class="workspace" aria-label="File manager workspace">
+    @if (!isTreeCollapsed)
+    {
+        <aside class="tree-column" aria-label="File selection panel">
+            <FileTree Data="fileStructure"
+                      InitialSelectedIds="demoState.SelectedIds"
+                      InitialExpandedIds="demoState.ExpandedIds"
+                      InitialSearchTerm="@demoState.SearchTerm"
+                      OnSelectionChange="HandleSelectionChanged"
+                      OnCollapse="CollapseTree" />
+        </aside>
+    }
+    else
+    {
+        <div class="restore-column">
+            <button type="button" class="icon-button bordered restore-button" @onclick="RestoreTree" aria-label="Show file tree">
+                <span class="restore-glyph" aria-hidden="true">+</span>
+                <span>Show tree</span>
+            </button>
+        </div>
+    }
+
+    <section class="viewer-column" aria-label="File preview panel">
+        <FileViewer SelectedFiles="selectedFiles"
+                    InitialFileIndex="demoState.FileIndex"
+                    InitialAnalysisType="demoState.AnalysisType"
+                    OnFileIndexChange="HandleFileIndexChanged" />
+    </section>
+</section>
+
+@code {
+    private static readonly string[] AllSelectableIds = GetAllIds(MockFileData.FileStructure).ToArray();
+    private static readonly string[] AllFolderIds = GetFolderIds(MockFileData.FileStructure).ToArray();
+    private static readonly IReadOnlyDictionary<string, DemoState> DemoStates = new Dictionary<string, DemoState>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["home-empty-state"] = new([], []),
+        ["tree-expanded-pdf-original"] = new(["1-1-1"], ["1", "1-1"]),
+        ["summary-analysis"] = new(["1-1-1"], ["1", "1-1"], AnalysisType: AnalysisType.Summary),
+        ["sentiment-analysis"] = new(["1-1-1"], ["1", "1-1"], AnalysisType: AnalysisType.Sentiment),
+        ["entities-analysis"] = new(["1-1-1"], ["1", "1-1"], AnalysisType: AnalysisType.Entities),
+        ["multiple-files-key-points-navigation"] = new(["1-1-1", "1-1-2"], ["1", "1-1"], AnalysisType: AnalysisType.KeyPoints, FileIndex: 1),
+        ["search-filter"] = new([], [], SearchTerm: "review"),
+        ["docx-original-preview"] = new(["1-1-2"], ["1", "1-1"]),
+        ["markdown-original-preview"] = new(["3-1"], ["3"]),
+        ["file-tree-collapsed"] = new(["1-1-1"], ["1", "1-1"], CollapseTree: true),
+        ["select-all-multiple-documents"] = new(AllSelectableIds, AllFolderIds),
+        ["select-none-reset"] = new([], AllFolderIds),
+        ["mobile-responsive-layout"] = new(["1-1-1"], ["1", "1-1"]),
+        ["mobile-expanded-selection"] = new(["1-1-1"], ["1", "1-1", "2", "3"])
+    };
+
+    private readonly IReadOnlyList<FileNode> fileStructure = MockFileData.FileStructure;
+    private List<SelectedFile> selectedFiles = [];
+    private DemoState demoState = new([], []);
+    private int currentFileIndex;
+    private bool isTreeCollapsed;
+
+    private int VisibleFileCount => fileStructure.Sum(CountFiles);
+    private int VisibleFolderCount => fileStructure.Sum(CountFolders);
+
+    protected override void OnInitialized()
+    {
+        demoState = ResolveDemoState();
+        isTreeCollapsed = demoState.CollapseTree;
+        currentFileIndex = demoState.FileIndex;
+        selectedFiles = GetSelectedFilesByIds(fileStructure, new HashSet<string>(demoState.SelectedIds, StringComparer.Ordinal));
+
+        if (selectedFiles.Count == 0 || currentFileIndex >= selectedFiles.Count)
+        {
+            currentFileIndex = 0;
+        }
+    }
+
+    private void HandleSelectionChanged(IReadOnlyList<SelectedFile> files)
+    {
+        selectedFiles = files.ToList();
+
+        if (selectedFiles.Count == 0 || currentFileIndex >= selectedFiles.Count)
+        {
+            currentFileIndex = 0;
+        }
+    }
+
+    private void HandleFileIndexChanged(int index)
+    {
+        currentFileIndex = index;
+    }
+
+    private void CollapseTree()
+    {
+        isTreeCollapsed = true;
+    }
+
+    private void RestoreTree()
+    {
+        isTreeCollapsed = false;
+    }
+
+    private DemoState ResolveDemoState()
+    {
+        var uri = NavigationManager.ToAbsoluteUri(NavigationManager.Uri);
+        var stateName = GetQueryValue(uri, "state");
+
+        if (!string.IsNullOrWhiteSpace(stateName) &&
+            DemoStates.TryGetValue(stateName, out var state))
+        {
+            return state;
+        }
+
+        return DemoStates["home-empty-state"];
+    }
+
+    private static IEnumerable<string> GetAllIds(IEnumerable<FileNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            yield return node.Id;
+
+            if (node.Children is null)
+            {
+                continue;
+            }
+
+            foreach (var childId in GetAllIds(node.Children))
+            {
+                yield return childId;
+            }
+        }
+    }
+
+    private static IEnumerable<string> GetFolderIds(IEnumerable<FileNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.Type == FileNodeType.Folder)
+            {
+                yield return node.Id;
+            }
+
+            if (node.Children is null)
+            {
+                continue;
+            }
+
+            foreach (var childId in GetFolderIds(node.Children))
+            {
+                yield return childId;
+            }
+        }
+    }
+
+    private static int CountFiles(FileNode node)
+    {
+        if (node.Type == FileNodeType.File)
+        {
+            return 1;
+        }
+
+        return node.Children?.Sum(CountFiles) ?? 0;
+    }
+
+    private static int CountFolders(FileNode node)
+    {
+        if (node.Type != FileNodeType.Folder)
+        {
+            return 0;
+        }
+
+        return 1 + (node.Children?.Sum(CountFolders) ?? 0);
+    }
+
+    private static List<SelectedFile> GetSelectedFilesByIds(IEnumerable<FileNode> nodes, IReadOnlySet<string> selectedIds, string parentPath = "")
+    {
+        var files = new List<SelectedFile>();
+
+        foreach (var node in nodes)
+        {
+            var currentPath = string.IsNullOrWhiteSpace(parentPath)
+                ? node.Name
+                : $"{parentPath}/{node.Name}";
+
+            if (node.Type == FileNodeType.File && selectedIds.Contains(node.Id))
+            {
+                files.Add(new SelectedFile(node.Id, node.Name, currentPath));
+            }
+
+            if (node.Children is null)
+            {
+                continue;
+            }
+
+            files.AddRange(GetSelectedFilesByIds(node.Children, selectedIds, currentPath));
+        }
+
+        return files;
+    }
+
+    private static string? GetQueryValue(Uri uri, string key)
+    {
+        var query = uri.Query;
+
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return null;
+        }
+
+        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pieces = pair.Split('=', 2);
+            var currentKey = Uri.UnescapeDataString(pieces[0]);
+
+            if (!string.Equals(currentKey, key, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return pieces.Length == 2 ? Uri.UnescapeDataString(pieces[1]) : string.Empty;
+        }
+
+        return null;
+    }
+
+    private sealed record DemoState(
+        IReadOnlyList<string> SelectedIds,
+        IReadOnlyList<string> ExpandedIds,
+        string SearchTerm = "",
+        AnalysisType AnalysisType = AnalysisType.Original,
+        int FileIndex = 0,
+        bool CollapseTree = false);
+}

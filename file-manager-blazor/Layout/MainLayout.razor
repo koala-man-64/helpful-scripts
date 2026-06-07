@@ -1,3 +1,93 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject ChatContextState ChatContext
 
-@Body
+<div class="app-shell">
+    <nav class="side-nav" aria-label="Primary navigation">
+        <div class="rail-top">
+            <NavLink class="brand" href="" Match="NavLinkMatch.All" aria-label="Strider home">
+                <span class="brand-mark">S</span>
+            </NavLink>
+
+            <NavLink class="rail-action-button" href="bulk-analysis" aria-label="Open Bulk Analysis">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14" />
+                </svg>
+            </NavLink>
+        </div>
+
+        <div class="rail-divider"></div>
+
+        <div class="rail-nav-group">
+            <NavLink class="rail-icon-button" href="" Match="NavLinkMatch.All" aria-label="Home">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 11.5 12 4l8 7.5" />
+                    <path d="M6.5 10.5V20h11v-9.5" />
+                    <path d="M10 20v-5h4v5" />
+                </svg>
+            </NavLink>
+
+            <NavLink class="rail-icon-button" href="bulk-analysis" aria-label="Bulk Analysis">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M8 4h9a2 2 0 0 1 2 2v12" />
+                    <path d="M5 7h9a2 2 0 0 1 2 2v11H7a2 2 0 0 1-2-2Z" />
+                    <path d="M8.5 12h4" />
+                    <path d="M8.5 15h5.5" />
+                </svg>
+            </NavLink>
+
+            <NavLink class="rail-icon-button" href="file-manager" aria-label="File manager">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 8h16" />
+                    <path d="M6 4h12l1 4H5l1-4Z" />
+                    <path d="M7 8v8a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V8" />
+                </svg>
+            </NavLink>
+
+            <button type="button" class="rail-icon-button" aria-label="Trust center">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3 5 6v6c0 4.4 2.9 8.5 7 9 4.1-.5 7-4.6 7-9V6l-7-3Z" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="rail-bottom">
+            @if (ChatContext.HasLoadedContext)
+            {
+                <NavLink class="rail-context-dot" href="" aria-label="@($"Using {ChatContext.LoadedItems.Count} SOP analysis results")">
+                    @ChatContext.LoadedItems.Count
+                </NavLink>
+            }
+
+            <button type="button" class="rail-icon-button" aria-label="Settings">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 8.5A3.5 3.5 0 1 0 12 15.5A3.5 3.5 0 1 0 12 8.5Z" />
+                    <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a1 1 0 0 1 0 1.4l-1.2 1.2a1 1 0 0 1-1.4 0l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a1 1 0 0 1-1 1h-1.6a1 1 0 0 1-1-1v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a1 1 0 0 1-1.4 0l-1.2-1.2a1 1 0 0 1 0-1.4l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a1 1 0 0 1-1-1v-1.6a1 1 0 0 1 1-1h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a1 1 0 0 1 0-1.4l1.2-1.2a1 1 0 0 1 1.4 0l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a1 1 0 0 1 1-1h1.6a1 1 0 0 1 1 1v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a1 1 0 0 1 1.4 0l1.2 1.2a1 1 0 0 1 0 1.4l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6h.2a1 1 0 0 1 1 1v1.6a1 1 0 0 1-1 1h-.2a1 1 0 0 0-.9.6Z" />
+                </svg>
+            </button>
+
+            <div class="rail-avatar" aria-label="Rudy profile">RP</div>
+        </div>
+    </nav>
+
+    <main class="main-panel">
+        @Body
+    </main>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        ChatContext.Changed += HandleChatContextChanged;
+    }
+
+    private void HandleChatContextChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        ChatContext.Changed -= HandleChatContextChanged;
+    }
+}
