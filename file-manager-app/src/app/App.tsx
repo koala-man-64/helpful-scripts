@@ -89,6 +89,14 @@ const sampleFileStructure: TreeNode[] = [
   },
 ];
 
+const workflowHeader = {
+  title: 'Document Review',
+  description:
+    'Review files, keep your working context together, and ask Strider follow-up questions without leaving the flow.',
+  currentStep: 1,
+  totalSteps: 3,
+};
+
 function getInitialDemoState() {
   const params = new URLSearchParams(window.location.search);
   const chatState = params.get('chat');
@@ -191,78 +199,112 @@ function AssistantLanding({
   onWorkspaceOpen,
   onChatOpen,
 }: AssistantLandingProps) {
+  const progressWidth = `${(workflowHeader.currentStep / workflowHeader.totalSteps) * 100}%`;
+
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-[1040px] flex-col px-6 pb-16 pt-[clamp(4.5rem,13vh,7.75rem)] sm:px-10 lg:px-16">
-      <div className="mx-auto flex w-full max-w-[960px] flex-1 flex-col">
-        <section className="mx-auto w-full max-w-[820px] text-center">
-          <h1 className="text-[clamp(2.85rem,5vw,4.25rem)] font-semibold tracking-[-0.06em] text-[var(--shell-heading)]">
-            Hello,{' '}
-            <span className="bg-gradient-to-r from-[var(--shell-accent)] via-[var(--shell-accent-mid)] to-[var(--shell-accent-strong)] bg-clip-text text-transparent">
-              Rudy
-            </span>
+    <div className="mx-auto flex min-h-screen w-full max-w-[1080px] flex-col px-6 pb-16 pt-[clamp(2.75rem,9vh,5.5rem)] sm:px-10 lg:px-14">
+      <div className="mx-auto flex w-full max-w-[920px] flex-1 flex-col">
+        <section className="w-full">
+          <h1 className="text-[clamp(2.4rem,4.2vw,3.2rem)] font-semibold tracking-[-0.05em] text-[var(--shell-heading)]">
+            {workflowHeader.title}
           </h1>
-          <p className="mt-2 text-[clamp(2.2rem,4vw,3.5rem)] font-medium tracking-[-0.055em] text-[var(--shell-heading)]">
-            How can I assist you?
+          <p className="mt-3 max-w-[760px] text-[1.04rem] leading-8 text-[var(--shell-muted)]">
+            {workflowHeader.description}
           </p>
-          <p className="mx-auto mt-6 max-w-[660px] text-[1.12rem] leading-8 text-[var(--shell-muted)]">
-            I can help you with documentation guidance with internal processes, Support
-            Inquiries, and more.
-          </p>
-        </section>
-
-        <section className="mx-auto mt-12 w-full max-w-[960px]">
-          <div className="relative overflow-hidden rounded-[var(--shell-composer-radius)] border border-[var(--shell-composer-border)] bg-white shadow-[var(--shell-composer-shadow)] transition-all focus-within:-translate-y-0.5 focus-within:border-[var(--shell-accent)] focus-within:shadow-[var(--shell-composer-shadow-focus)] hover:border-[var(--shell-composer-border-strong)]">
-            <textarea
-              value={composerValue}
-              onChange={(event) => onComposerChange(event.target.value)}
-              placeholder="Ask Strider, use @ to select an agent"
-              rows={3}
-              className="min-h-[92px] w-full resize-none border-0 bg-transparent px-5 pb-14 pt-4 text-[1.06rem] text-[var(--shell-heading)] placeholder:text-[var(--shell-placeholder)] focus:outline-none"
-            />
-
-            <button
-              type="button"
-              onClick={onWorkspaceOpen}
-              className="absolute bottom-3 left-3 flex h-9 w-9 items-center justify-center rounded-full text-[var(--shell-placeholder)] transition-colors hover:bg-[var(--shell-surface-subtle)] hover:text-[var(--shell-accent-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--shell-accent-strong)]"
-              aria-label="Attach files"
+          <div className="mt-7 max-w-[840px]">
+            <div
+              className="h-2.5 overflow-hidden rounded-full bg-[var(--shell-progress-track)]"
+              aria-label="Workflow progress"
             >
-              <Paperclip size={19} />
-            </button>
-
-            <button
-              type="button"
-              onClick={onChatOpen}
-              className="absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-full text-[var(--shell-placeholder)] transition-colors hover:bg-[var(--shell-surface-subtle)] hover:text-[var(--shell-accent-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--shell-accent-strong)]"
-              aria-label="Open microphone assistant"
-            >
-              <Mic size={18} />
-            </button>
+              <div
+                className="h-full rounded-full bg-[linear-gradient(90deg,var(--shell-accent)_0%,var(--shell-accent-strong)_100%)]"
+                style={{ width: progressWidth }}
+              />
+            </div>
+            <div className="mt-3 text-[0.95rem] font-semibold text-[var(--shell-heading)]">
+              Step {workflowHeader.currentStep} of {workflowHeader.totalSteps}
+            </div>
           </div>
-
-          <p className="px-4 pt-4 text-[0.95rem] text-[var(--shell-muted)]">
-            AI can make mistakes. Please verify critical information.{' '}
-            <button
-              type="button"
-              onClick={onChatOpen}
-              className="font-semibold text-[var(--shell-heading)] transition-colors hover:text-[var(--shell-accent-strong)]"
-            >
-              Auto Agent
-            </button>
-          </p>
+          <div className="mt-7 h-px w-full bg-[var(--shell-divider)]" />
         </section>
 
-        <section className="mx-auto mt-7 w-full max-w-[960px]">
-          <h2 className="text-[2rem] font-medium tracking-[-0.045em] text-[var(--shell-heading)]">
-            Recommended Actions for you
+        <section className="mt-8 w-full">
+          <div className="rounded-[30px] border border-[var(--shell-card-border)] bg-white p-6 shadow-[var(--shell-card-shadow)] sm:p-8">
+            <div className="max-w-[760px]">
+              <h2 className="text-[2rem] font-semibold tracking-[-0.04em] text-[var(--shell-heading)]">
+                Ask Strider
+              </h2>
+              <p className="mt-2 text-[1rem] leading-7 text-[var(--shell-muted)]">
+                Open the document workspace to select files, then describe the summary,
+                comparison, or draft you need.
+              </p>
+            </div>
+
+            <div className="relative mt-5 overflow-hidden rounded-[var(--shell-composer-radius)] border border-[var(--shell-composer-border)] bg-[var(--shell-surface)] shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] transition-all focus-within:border-[var(--shell-accent)] focus-within:shadow-[var(--shell-composer-shadow-focus)] hover:border-[var(--shell-composer-border-strong)]">
+              <textarea
+                value={composerValue}
+                onChange={(event) => onComposerChange(event.target.value)}
+                placeholder="Ask Strider, use @ to select an agent"
+                rows={3}
+                className="min-h-[96px] w-full resize-none border-0 bg-transparent px-5 pb-14 pt-4 text-[1.02rem] text-[var(--shell-heading)] placeholder:text-[var(--shell-placeholder)] focus:outline-none"
+              />
+
+              <button
+                type="button"
+                onClick={onWorkspaceOpen}
+                className="absolute bottom-3 left-3 flex h-9 w-9 items-center justify-center rounded-full text-[var(--shell-placeholder)] transition-colors hover:bg-white hover:text-[var(--shell-accent-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--shell-accent-strong)]"
+                aria-label="Attach files"
+              >
+                <Paperclip size={19} />
+              </button>
+
+              <button
+                type="button"
+                onClick={onChatOpen}
+                className="absolute bottom-3 right-3 flex h-9 w-9 items-center justify-center rounded-full text-[var(--shell-placeholder)] transition-colors hover:bg-white hover:text-[var(--shell-accent-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--shell-accent-strong)]"
+                aria-label="Open microphone assistant"
+              >
+                <Mic size={18} />
+              </button>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={onWorkspaceOpen}
+                className="inline-flex items-center gap-2 rounded-xl bg-[linear-gradient(180deg,#5ba94d_0%,#3d8b4c_100%)] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_22px_rgba(61,139,76,0.24)] transition-transform hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--shell-accent-strong)]"
+              >
+                <FolderOpen size={16} />
+                Open document workspace
+              </button>
+              <button
+                type="button"
+                onClick={onChatOpen}
+                className="inline-flex items-center gap-2 rounded-xl border border-[var(--shell-rail-border-strong)] bg-white px-4 py-3 text-sm font-semibold text-[var(--shell-heading)] transition-colors hover:border-[var(--shell-accent)] hover:text-[var(--shell-accent-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--shell-accent-strong)]"
+              >
+                <Sparkles size={16} />
+                Open Auto Agent
+              </button>
+            </div>
+
+            <p className="pt-4 text-[0.95rem] text-[var(--shell-muted)]">
+              AI can make mistakes. Please verify critical information.
+            </p>
+          </div>
+        </section>
+
+        <section className="mt-8 w-full max-w-[720px]">
+          <h2 className="text-[0.88rem] font-semibold uppercase tracking-[0.2em] text-[var(--shell-muted)]">
+            Recommended actions
           </h2>
-          <div className="mt-4 max-w-[370px] rounded-[30px] border border-transparent px-1 py-1">
+          <div className="mt-3 rounded-[24px] border border-[var(--shell-card-border)] bg-[rgba(255,255,255,0.8)] px-5 py-5 shadow-[0_12px_28px_rgba(23,47,80,0.04)]">
             <p className="text-[1rem] leading-8 text-[var(--shell-heading)]">
-              No recommended actions available at this time.
+              No recommended actions are available at this time.
             </p>
             <button
               type="button"
               onClick={onWorkspaceOpen}
-              className="mt-2 inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-[var(--shell-accent-strong)] transition-colors hover:bg-[var(--shell-surface-subtle)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--shell-accent-strong)]"
+              className="mt-3 inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium text-[var(--shell-accent-strong)] transition-colors hover:bg-[var(--shell-surface-subtle)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--shell-accent-strong)]"
             >
               <FolderOpen size={16} />
               Open document workspace

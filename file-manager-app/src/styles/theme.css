@@ -49,6 +49,10 @@
   --shell-accent: #4a9f37;
   --shell-accent-mid: #2f8f65;
   --shell-accent-strong: #117f8b;
+  --shell-divider: rgba(31, 57, 93, 0.12);
+  --shell-progress-track: #e6ebee;
+  --shell-card-border: rgba(31, 57, 93, 0.09);
+  --shell-card-shadow: 0 18px 42px rgba(23, 47, 80, 0.07);
   --shell-rail-background: rgba(255, 255, 255, 0.78);
   --shell-rail-border: rgba(31, 57, 93, 0.08);
   --shell-rail-border-strong: rgba(31, 57, 93, 0.2);
