@@ -5,53 +5,92 @@
 <PageTitle>Strider Assistant</PageTitle>
 
 <section class="assistant-landing" aria-labelledby="landing-title">
-    <div class="landing-copy">
-        <h1 id="landing-title">Hello, <span>Rudy</span></h1>
-        <p class="landing-prompt">How can I assist you?</p>
-        <p class="landing-description">
-            I can help you prepare SOP analysis context, review documents, and route work through focused assistant workflows.
-        </p>
-    </div>
-
-    <section class="composer-card" aria-label="Chat composer">
-        @if (ChatContext.HasLoadedContext)
-        {
-            <div class="chat-context-strip" data-testid="chat-context-strip">
-                <div>
-                    <strong>@($"Using {ChatContext.LoadedItems.Count} SOP analysis result{(ChatContext.LoadedItems.Count == 1 ? "" : "s")}")</strong>
-                    <span>@($"{FormatTokens(ChatContext.LoadedTokenEstimate)} / {FormatTokens(ChatContextState.ContextLimitTokens)} context used")</span>
-                </div>
-                <div class="strip-chip-row">
-                    @foreach (var item in ChatContext.LoadedItems.Take(2))
-                    {
-                        <span class="context-chip">@item.SopTitle - @item.AnalysisType</span>
-                    }
-                    @if (ChatContext.LoadedItems.Count > 2)
-                    {
-                        <span class="context-chip muted">@($"+{ChatContext.LoadedItems.Count - 2} more")</span>
-                    }
-                    <button type="button" class="link-button" @onclick="ClearLoadedContext">Clear</button>
-                </div>
-            </div>
-        }
-
-        <textarea placeholder="Ask Strider, use @@ to select an agent" rows="3" aria-label="Message composer"></textarea>
-        <div class="composer-actions">
-            <a class="composer-icon-button" href="file-manager" aria-label="Attach files">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M21 12.5 12.2 21a6 6 0 0 1-8.4-8.6l9.3-9a4 4 0 0 1 5.7 5.6l-8.9 8.6a2 2 0 0 1-2.8-2.8l8.2-8" />
-                </svg>
-            </a>
-            <button type="button" class="composer-icon-button" aria-label="Send prompt">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="m5 12 14-7-5 14-3-6-6-1Z" />
-                </svg>
-            </button>
+    <header class="workflow-header">
+        <div class="workflow-copy">
+            <h1 id="landing-title">Document Review</h1>
+            <p class="workflow-description">
+                Review files, keep your working context together, and ask Strider follow-up questions without leaving the flow.
+            </p>
         </div>
+        <div class="workflow-progress" aria-label="Workflow progress">
+            <div class="workflow-progress-track">
+                <span class="workflow-progress-fill"></span>
+            </div>
+            <p class="workflow-step">Step 1 of 3</p>
+        </div>
+        <div class="workflow-divider" aria-hidden="true"></div>
+    </header>
+
+    <section class="composer-shell" aria-labelledby="composer-title">
+        <div class="composer-shell-copy">
+            <h2 id="composer-title">Ask Strider</h2>
+            <p>
+                Open the document workspace to select files, then describe the summary, comparison, or draft you need.
+            </p>
+        </div>
+
+        <section class="composer-card" aria-label="Chat composer">
+            @if (ChatContext.HasLoadedContext)
+            {
+                <div class="chat-context-strip" data-testid="chat-context-strip">
+                    <div>
+                        <strong>@($"Using {ChatContext.LoadedItems.Count} SOP analysis result{(ChatContext.LoadedItems.Count == 1 ? "" : "s")}")</strong>
+                        <span>@($"{FormatTokens(ChatContext.LoadedTokenEstimate)} / {FormatTokens(ChatContextState.ContextLimitTokens)} context used")</span>
+                    </div>
+                    <div class="strip-chip-row">
+                        @foreach (var item in ChatContext.LoadedItems.Take(2))
+                        {
+                            <span class="context-chip">@item.SopTitle - @item.AnalysisType</span>
+                        }
+                        @if (ChatContext.LoadedItems.Count > 2)
+                        {
+                            <span class="context-chip muted">@($"+{ChatContext.LoadedItems.Count - 2} more")</span>
+                        }
+                        <button type="button" class="link-button" @onclick="ClearLoadedContext">Clear</button>
+                    </div>
+                </div>
+            }
+
+            <textarea placeholder="Ask Strider, use @@ to select an agent" rows="3" aria-label="Message composer"></textarea>
+            <div class="composer-actions">
+                <a class="composer-icon-button" href="file-manager" aria-label="Attach files">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M21 12.5 12.2 21a6 6 0 0 1-8.4-8.6l9.3-9a4 4 0 0 1 5.7 5.6l-8.9 8.6a2 2 0 0 1-2.8-2.8l8.2-8" />
+                    </svg>
+                </a>
+                <button type="button" class="composer-icon-button" aria-label="Send prompt">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m5 12 14-7-5 14-3-6-6-1Z" />
+                    </svg>
+                </button>
+            </div>
+        </section>
+
+        <div class="composer-primary-actions">
+            <a class="workflow-action-button primary" href="file-manager">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 8h16" />
+                    <path d="M6 4h12l1 4H5l1-4Z" />
+                    <path d="M7 8v8a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V8" />
+                </svg>
+                Open document workspace
+            </a>
+            <a class="workflow-action-button secondary" href="bulk-analysis">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M8 4h9a2 2 0 0 1 2 2v12" />
+                    <path d="M5 7h9a2 2 0 0 1 2 2v11H7a2 2 0 0 1-2-2Z" />
+                    <path d="M8.5 12h4" />
+                    <path d="M8.5 15h5.5" />
+                </svg>
+                Open bulk analysis
+            </a>
+        </div>
+
+        <p class="composer-disclaimer">AI can make mistakes. Please verify critical information.</p>
     </section>
 
     <section class="shortcut-section" aria-labelledby="shortcut-title">
-        <div class="section-title-row">
+        <div class="section-title-row compact">
             <div>
                 <h2 id="shortcut-title">Recommended actions</h2>
                 <p>Select a focused workspace to prepare context or review files.</p>
