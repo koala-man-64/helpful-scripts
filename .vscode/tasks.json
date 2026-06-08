@@ -13,6 +13,18 @@
       "group": "build"
     },
     {
+      "label": "free port 5167 for file-manager-blazor",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-Command",
+        "$connection = Get-NetTCPConnection -LocalPort 5167 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if ($connection) { $process = Get-CimInstance Win32_Process -Filter \"ProcessId = $($connection.OwningProcess)\"; if ($process.CommandLine -match 'FileManagerBlazor|blazor-devserver') { Stop-Process -Id $connection.OwningProcess -Force } }"
+      ],
+      "problemMatcher": []
+    },
+    {
       "label": "run file-manager-blazor",
       "type": "shell",
       "command": "${env:USERPROFILE}\\.dotnet\\dotnet.exe",
@@ -23,6 +35,10 @@
         "--launch-profile",
         "http"
       ],
+      "dependsOn": [
+        "free port 5167 for file-manager-blazor"
+      ],
+      "dependsOrder": "sequence",
       "isBackground": true,
       "problemMatcher": {
         "owner": "blazor",
