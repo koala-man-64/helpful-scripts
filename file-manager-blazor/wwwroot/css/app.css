@@ -2112,6 +2112,67 @@ svg {
     letter-spacing: -0.03em;
 }
 
+.title-tooltip-trigger {
+    position: relative;
+    display: inline-flex;
+    max-width: 100%;
+    cursor: help;
+    text-decoration-line: underline;
+    text-decoration-style: dotted;
+    text-decoration-color: rgba(17, 127, 139, 0.34);
+    text-underline-offset: 0.18em;
+}
+
+.title-tooltip-trigger::before,
+.title-tooltip-trigger::after {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(0.25rem);
+    transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.title-tooltip-trigger::before {
+    top: calc(100% + 0.35rem);
+    left: 1.25rem;
+    z-index: 5;
+    border-right: 0.45rem solid transparent;
+    border-bottom: 0.45rem solid rgba(34, 50, 74, 0.96);
+    border-left: 0.45rem solid transparent;
+    content: "";
+}
+
+.title-tooltip-trigger::after {
+    top: calc(100% + 0.75rem);
+    left: 0;
+    z-index: 4;
+    width: min(24rem, calc(100vw - 4rem));
+    padding: 0.75rem 0.85rem;
+    border: 1px solid rgba(17, 127, 139, 0.24);
+    border-radius: 0.9rem;
+    background: rgba(34, 50, 74, 0.96);
+    box-shadow: 0 18px 40px rgba(23, 47, 80, 0.22);
+    color: #f7fbff;
+    font-size: 0.84rem;
+    font-weight: 500;
+    line-height: 1.5;
+    white-space: normal;
+    content: attr(data-tooltip);
+}
+
+.title-tooltip-trigger:hover::before,
+.title-tooltip-trigger:hover::after,
+.title-tooltip-trigger:focus-visible::before,
+.title-tooltip-trigger:focus-visible::after {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.title-tooltip-trigger:focus-visible {
+    outline: none;
+    text-decoration-color: var(--shell-accent-strong);
+}
+
 .step-one-preview-header p:not(.page-kicker) {
     margin-top: 0.3rem;
     color: var(--shell-muted);
