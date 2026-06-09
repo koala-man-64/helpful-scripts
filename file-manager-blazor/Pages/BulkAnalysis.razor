@@ -15,6 +15,8 @@
         ? null
         : activeDocument.Document.Results.FirstOrDefault(result => string.Equals(result.AnalysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase));
     var selectedContextItems = GetSelectedContextItems();
+    var selectedPreviewDocument = GetSelectionPreviewDocument(selectedDocuments);
+    var selectedPreviewOrdinal = GetSelectionPreviewOrdinal(selectedDocuments, selectedPreviewDocument);
     var selectedTokens = selectedContextItems.Sum(item => item.EstimatedTokens);
     var isOverLimit = selectedTokens > ChatContextState.ContextLimitTokens;
     var usagePercent = Math.Min(100, selectedTokens * 100.0 / ChatContextState.ContextLimitTokens);
@@ -37,106 +39,169 @@
     <div class="workflow-divider" aria-hidden="true"></div>
 </header>
 
-<section class="guided-analysis-page" aria-label="Bulk Analysis workflow">
+<section class="@($"guided-analysis-page {(workflowStep == WorkflowStep.SelectDocuments ? "document-step-page" : "")}")" aria-label="Bulk Analysis workflow">
     @if (workflowStep == WorkflowStep.SelectDocuments)
     {
-        <section class="workflow-card" aria-labelledby="select-documents-title">
-            <div class="workflow-card-header">
-                <div>
-                    <h2 id="select-documents-title">Select documents</h2>
-                    <p>Choose the documents you want included in the bulk analysis review.</p>
+        <div class="document-step-layout">
+            <section class="workflow-card document-selection-card" aria-labelledby="select-documents-title">
+                <div class="workflow-card-header">
+                    <div>
+                        <h2 id="select-documents-title">Select documents</h2>
+                        <p>Choose the documents you want included in the bulk analysis review.</p>
+                    </div>
+                    <span class="selected-count">@($"{selectedDocumentIds.Count} selected")</span>
                 </div>
-                <span class="selected-count">@($"{selectedDocumentIds.Count} selected")</span>
-            </div>
 
-            <div class="selection-toolbar">
-                <label class="form-control search-box">
-                    <span class="control-label">Search</span>
-                    <input type="search"
-                           placeholder="Search documents, folders, or source files..."
-                           value="@documentSearchTerm"
-                           @oninput="HandleDocumentSearchInput" />
-                </label>
-                <div class="inline-actions">
-                    <button type="button" class="secondary-button" @onclick="SelectVisibleDocuments">Select visible</button>
-                    <button type="button" class="secondary-button" @onclick="ClearDocumentSelection">Clear</button>
+                <div class="selection-toolbar">
+                    <label class="form-control search-box">
+                        <span class="control-label">Search</span>
+                        <input type="search"
+                               placeholder="Search documents, folders, or source files..."
+                               value="@documentSearchTerm"
+                               @oninput="HandleDocumentSearchInput" />
+                    </label>
+                    <div class="inline-actions">
+                        <button type="button" class="secondary-button" @onclick="SelectVisibleDocuments">Select visible</button>
+                        <button type="button" class="secondary-button" @onclick="ClearDocumentSelection">Clear</button>
+                    </div>
                 </div>
-            </div>
 
-            @{
-                var visibleDocumentPanels = GetVisibleDocumentPanels();
-            }
+                @{
+                    var visibleDocumentPanels = GetVisibleDocumentPanels();
+                }
 
-            <div class="document-selection-list">
-                @foreach (var folderPanel in visibleDocumentPanels)
-                {
-                    var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
-                    var selectedInFolder = folderPanel.VisibleDocuments.Count(document => selectedDocumentIds.Contains(document.Id));
-                    var folderSelectionState = GetFolderSelectionState(folderPanel);
+                <div class="document-selection-list">
+                    @foreach (var folderPanel in visibleDocumentPanels)
+                    {
+                        var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
+                        var selectedInFolder = folderPanel.VisibleDocuments.Count(document => selectedDocumentIds.Contains(document.Id));
+                        var folderSelectionState = GetFolderSelectionState(folderPanel);
 
-                    <section class="@GetFolderPanelClass(folderPanel)" style="@($"--folder-depth: {folderPanel.Depth};")">
-                        <div class="document-folder-header">
-                            <button type="button"
-                                    class="@GetFolderSelectClass(folderSelectionState)"
-                                    role="checkbox"
-                                    aria-checked="@GetAriaChecked(folderSelectionState)"
-                                    aria-label="@($"Select all documents under {folderPanel.Folder.DisplayName}")"
-                                    @onclick="() => ToggleFolderSelection(folderPanel)"></button>
-                            <button type="button"
-                                    class="folder-collapse-button"
-                                    aria-expanded="@(!isCollapsed)"
-                                    aria-label="@($"Toggle {folderPanel.Folder.DisplayName}")"
-                                    @onclick="() => ToggleFolderPanel(folderPanel.Folder.Id)">
-                                <span aria-hidden="true">@(isCollapsed ? ">" : "v")</span>
-                            </button>
-                            <div class="document-folder-heading">
-                                <div>
-                                    <h3>@folderPanel.Folder.DisplayName</h3>
-                                    @if (!string.IsNullOrWhiteSpace(folderPanel.Folder.ParentDisplayName))
+                        <section class="@GetFolderPanelClass(folderPanel)" style="@($"--folder-depth: {folderPanel.Depth};")">
+                            <div class="document-folder-header">
+                                <button type="button"
+                                        class="@GetFolderSelectClass(folderSelectionState)"
+                                        role="checkbox"
+                                        aria-checked="@GetAriaChecked(folderSelectionState)"
+                                        aria-label="@($"Select all documents under {folderPanel.Folder.DisplayName}")"
+                                        @onclick="() => ToggleFolderSelection(folderPanel)"></button>
+                                <button type="button"
+                                        class="folder-collapse-button"
+                                        aria-expanded="@(!isCollapsed)"
+                                        aria-label="@($"Toggle {folderPanel.Folder.DisplayName}")"
+                                        @onclick="() => ToggleFolderPanel(folderPanel.Folder.Id)">
+                                    <span aria-hidden="true">@(isCollapsed ? ">" : "v")</span>
+                                </button>
+                                <div class="document-folder-heading">
+                                    <div>
+                                        <h3>@folderPanel.Folder.DisplayName</h3>
+                                        @if (!string.IsNullOrWhiteSpace(folderPanel.Folder.ParentDisplayName))
+                                        {
+                                            <p>@folderPanel.Folder.ParentDisplayName</p>
+                                        }
+                                    </div>
+                                    <span>@($"{selectedInFolder} of {folderPanel.VisibleDocumentCount} selected")</span>
+                                </div>
+                            </div>
+
+                            @if (!isCollapsed && folderPanel.Documents.Count > 0)
+                            {
+                                <div class="document-option-list">
+                                    @foreach (var document in folderPanel.Documents)
                                     {
-                                        <p>@folderPanel.Folder.ParentDisplayName</p>
+                                        <label class="@GetDocumentOptionClass(document.Id)">
+                                            <input type="checkbox"
+                                                   checked="@selectedDocumentIds.Contains(document.Id)"
+                                                   @onchange="() => ToggleDocumentSelection(document.Id)" />
+                                            <span>
+                                                <strong>@document.Title</strong>
+                                                <small>@document.OriginalFileName - @($"{document.Results.Count} available analysis result{(document.Results.Count == 1 ? "" : "s")}")</small>
+                                            </span>
+                                        </label>
                                     }
                                 </div>
-                                <span>@($"{selectedInFolder} of {folderPanel.VisibleDocumentCount} selected")</span>
-                            </div>
-                        </div>
-
-                        @if (!isCollapsed && folderPanel.Documents.Count > 0)
-                        {
-                            <div class="document-option-list">
-                                @foreach (var document in folderPanel.Documents)
-                                {
-                                    <label class="@GetDocumentOptionClass(document.Id)">
-                                        <input type="checkbox"
-                                               checked="@selectedDocumentIds.Contains(document.Id)"
-                                               @onchange="() => ToggleDocumentSelection(document.Id)" />
-                                        <span>
-                                            <strong>@document.Title</strong>
-                                            <small>@document.OriginalFileName - @($"{document.Results.Count} available analysis result{(document.Results.Count == 1 ? "" : "s")}")</small>
-                                        </span>
-                                    </label>
-                                }
-                            </div>
-                        }
-                    </section>
-                }
-            </div>
-
-            @if (visibleDocumentPanels.Count == 0)
-            {
-                <div class="workflow-empty-state">
-                    <strong>No matching documents</strong>
-                    <span>Clear the search or enter a different folder, file, or document name.</span>
+                            }
+                        </section>
+                    }
                 </div>
-            }
 
-            <footer class="workflow-footer">
-                <span>@($"{AllDocuments.Count} documents available")</span>
-                <button type="button" class="workflow-action-button primary" disabled="@(selectedDocumentIds.Count == 0)" @onclick="GoToAnalysisStep">
-                    Next
-                </button>
-            </footer>
-        </section>
+                @if (visibleDocumentPanels.Count == 0)
+                {
+                    <div class="workflow-empty-state">
+                        <strong>No matching documents</strong>
+                        <span>Clear the search or enter a different folder, file, or document name.</span>
+                    </div>
+                }
+
+                <footer class="workflow-footer">
+                    <span>@($"{AllDocuments.Count} documents available")</span>
+                    <button type="button" class="workflow-action-button primary" disabled="@(selectedDocumentIds.Count == 0)" @onclick="GoToAnalysisStep">
+                        Next
+                    </button>
+                </footer>
+            </section>
+
+            <aside class="workflow-card step-one-preview-card" aria-labelledby="step-one-preview-title">
+                <div class="step-one-preview-header">
+                    <div>
+                        <p class="page-kicker">Step 1</p>
+                        <h2 id="step-one-preview-title">Review inputs</h2>
+                        <p>Cycle through selected source documents before choosing bulk analysis outputs.</p>
+                    </div>
+                    @if (selectedPreviewDocument is not null)
+                    {
+                        <span class="selected-count">@($"{selectedPreviewOrdinal} of {selectedDocuments.Count}")</span>
+                    }
+                </div>
+
+                @if (selectedPreviewDocument is null)
+                {
+                    <div class="workflow-empty-state step-preview-empty">
+                        <strong>No input selected</strong>
+                        <span>Select documents from the left panel to preview the Step 1 input set.</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="source-preview-summary">
+                        <div>
+                            <strong>@selectedPreviewDocument.Document.Title</strong>
+                            <span>@selectedPreviewDocument.Document.OriginalFileName</span>
+                        </div>
+                    </div>
+
+                    @if (selectedDocuments.Count > 1)
+                    {
+                        <div class="preview-cycle-actions" aria-label="Cycle selected source documents">
+                            <button type="button" class="icon-button bordered" @onclick="() => PreviousSelectionPreviewDocument(selectedDocuments)" aria-label="Previous selected source document">&lt;</button>
+                            <button type="button" class="icon-button bordered" @onclick="() => NextSelectionPreviewDocument(selectedDocuments)" aria-label="Next selected source document">&gt;</button>
+                        </div>
+                    }
+
+                    <div class="source-preview-body">
+                        <dl class="source-preview-details">
+                            <div>
+                                <dt>Folder</dt>
+                                <dd>@selectedPreviewDocument.Folder.DisplayName</dd>
+                            </div>
+                            <div>
+                                <dt>Available outputs</dt>
+                                <dd>@GetAnalysisTypeSummary(selectedPreviewDocument.Document)</dd>
+                            </div>
+                            <div>
+                                <dt>Context estimate</dt>
+                                <dd>@FormatTokens(BulkAnalysisContextItem.FromSourceDocument(selectedPreviewDocument.Folder, selectedPreviewDocument.Document).EstimatedTokens)</dd>
+                            </div>
+                        </dl>
+
+                        <div class="source-preview-original">
+                            <p class="control-label">Original content</p>
+                            <pre>@GetOriginalDocumentContent(selectedPreviewDocument.Document)</pre>
+                        </div>
+                    </div>
+                }
+            </aside>
+        </div>
     }
     else if (workflowStep == WorkflowStep.SelectAnalysisTypes)
     {
@@ -394,6 +459,7 @@
     private string documentSearchTerm = string.Empty;
     private string? activeDocumentId;
     private string? activeAnalysisType;
+    private string? selectionPreviewDocumentId;
 
     private IReadOnlyList<BulkAnalysisFolder> AllFolders => allFolders;
 
@@ -623,6 +689,7 @@
         }
 
         PruneAnalysisTypeSelection();
+        EnsureSelectionPreviewTarget();
         EnsureActiveTargets();
     }
 
@@ -652,6 +719,7 @@
         }
 
         PruneAnalysisTypeSelection();
+        EnsureSelectionPreviewTarget();
         EnsureActiveTargets();
     }
 
@@ -665,6 +733,7 @@
         }
 
         PruneAnalysisTypeSelection();
+        EnsureSelectionPreviewTarget();
         EnsureActiveTargets();
     }
 
@@ -675,6 +744,7 @@
         selectedContextIds.Clear();
         activeDocumentId = null;
         activeAnalysisType = null;
+        selectionPreviewDocumentId = null;
     }
 
     private void ToggleAnalysisType(string analysisType)
@@ -814,6 +884,57 @@
         var currentIndex = Math.Max(0, selectedAnalysisTypes.ToList().FindIndex(type => string.Equals(type, current, StringComparison.OrdinalIgnoreCase)));
         var nextIndex = currentIndex >= selectedAnalysisTypes.Count - 1 ? 0 : currentIndex + 1;
         activeAnalysisType = selectedAnalysisTypes[nextIndex];
+    }
+
+    private DocumentWithFolder? GetSelectionPreviewDocument(IReadOnlyList<DocumentWithFolder> selectedDocuments) =>
+        selectedDocuments.FirstOrDefault(entry => string.Equals(entry.Document.Id, selectionPreviewDocumentId, StringComparison.Ordinal)) ??
+        selectedDocuments.FirstOrDefault();
+
+    private int GetSelectionPreviewOrdinal(
+        IReadOnlyList<DocumentWithFolder> selectedDocuments,
+        DocumentWithFolder? selectedPreviewDocument)
+    {
+        if (selectedPreviewDocument is null)
+        {
+            return 0;
+        }
+
+        var index = selectedDocuments.ToList().FindIndex(entry => string.Equals(entry.Document.Id, selectedPreviewDocument.Document.Id, StringComparison.Ordinal));
+        return index < 0 ? 1 : index + 1;
+    }
+
+    private void PreviousSelectionPreviewDocument(IReadOnlyList<DocumentWithFolder> selectedDocuments)
+    {
+        if (selectedDocuments.Count == 0)
+        {
+            return;
+        }
+
+        var currentDocument = GetSelectionPreviewDocument(selectedDocuments);
+        var currentIndex = Math.Max(0, selectedDocuments.ToList().FindIndex(entry => string.Equals(entry.Document.Id, currentDocument?.Document.Id, StringComparison.Ordinal)));
+        var nextIndex = currentIndex == 0 ? selectedDocuments.Count - 1 : currentIndex - 1;
+        selectionPreviewDocumentId = selectedDocuments[nextIndex].Document.Id;
+    }
+
+    private void NextSelectionPreviewDocument(IReadOnlyList<DocumentWithFolder> selectedDocuments)
+    {
+        if (selectedDocuments.Count == 0)
+        {
+            return;
+        }
+
+        var currentDocument = GetSelectionPreviewDocument(selectedDocuments);
+        var currentIndex = Math.Max(0, selectedDocuments.ToList().FindIndex(entry => string.Equals(entry.Document.Id, currentDocument?.Document.Id, StringComparison.Ordinal)));
+        var nextIndex = currentIndex >= selectedDocuments.Count - 1 ? 0 : currentIndex + 1;
+        selectionPreviewDocumentId = selectedDocuments[nextIndex].Document.Id;
+    }
+
+    private void EnsureSelectionPreviewTarget()
+    {
+        if (selectionPreviewDocumentId is null || !selectedDocumentIds.Contains(selectionPreviewDocumentId))
+        {
+            selectionPreviewDocumentId = GetSelectedDocuments().FirstOrDefault()?.Document.Id;
+        }
     }
 
     private void EnsureActiveTargets()
@@ -1061,6 +1182,14 @@
 
         return "Generated bulk analysis output for selected documents.";
     }
+
+    private static string GetAnalysisTypeSummary(BulkAnalysisDocument document) =>
+        document.Results.Count == 0
+            ? "No generated outputs available"
+            : string.Join(", ", document.Results.Select(result => result.AnalysisType).Distinct(StringComparer.OrdinalIgnoreCase));
+
+    private static string GetOriginalDocumentContent(BulkAnalysisDocument document) =>
+        MockFileData.GetContent(document.OriginalFileName, AnalysisType.Original);
 
     private MarkupString RenderMarkdown(BulkAnalysisResult result) =>
         new(Markdown.ToHtml(result.Markdown, MarkdownPipeline));

@@ -2069,6 +2069,148 @@ svg {
     padding: 1.8rem;
 }
 
+.guided-analysis-page.document-step-page {
+    width: min(100%, 94rem);
+}
+
+.document-step-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(22rem, 0.65fr);
+    gap: 1rem;
+    align-items: stretch;
+}
+
+.document-selection-card,
+.step-one-preview-card {
+    min-width: 0;
+}
+
+.step-one-preview-card {
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 2rem);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    overflow: hidden;
+}
+
+.step-one-preview-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--shell-line);
+}
+
+.step-one-preview-header h2 {
+    margin-top: 0.25rem;
+    color: var(--shell-heading);
+    font-size: 1.15rem;
+    font-weight: 650;
+    letter-spacing: -0.03em;
+}
+
+.step-one-preview-header p:not(.page-kicker) {
+    margin-top: 0.3rem;
+    color: var(--shell-muted);
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+
+.source-preview-summary {
+    min-width: 0;
+    padding: 0.85rem;
+    border: 1px solid var(--shell-line);
+    border-radius: 0.95rem;
+    background: rgba(246, 248, 252, 0.78);
+}
+
+.source-preview-summary strong,
+.source-preview-summary span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.source-preview-summary strong {
+    color: var(--shell-heading);
+    font-size: 0.98rem;
+}
+
+.source-preview-summary span {
+    margin-top: 0.25rem;
+    color: var(--shell-muted);
+    font-size: 0.84rem;
+}
+
+.preview-cycle-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.source-preview-body {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: auto;
+    padding-right: 0.2rem;
+}
+
+.source-preview-details {
+    display: grid;
+    gap: 0.65rem;
+    margin: 0 0 1rem;
+}
+
+.source-preview-details div {
+    padding: 0.75rem;
+    border: 1px solid var(--shell-line);
+    border-radius: 0.9rem;
+    background: rgba(255, 255, 255, 0.8);
+}
+
+.source-preview-details dt {
+    color: var(--shell-muted);
+    font-size: 0.73rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.source-preview-details dd {
+    margin: 0.25rem 0 0;
+    color: var(--shell-heading);
+    font-size: 0.9rem;
+    line-height: 1.45;
+}
+
+.source-preview-original {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.source-preview-original pre {
+    max-height: 24rem;
+    margin: 0;
+    padding: 0.85rem;
+    border: 1px solid var(--shell-line);
+    border-radius: 0.95rem;
+    background: #ffffff;
+    overflow: auto;
+    color: #33435e;
+    font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+    font-size: 0.82rem;
+    line-height: 1.62;
+    white-space: pre-wrap;
+}
+
+.step-preview-empty {
+    min-height: 20rem;
+}
+
 .workflow-card-header,
 .document-folder-header,
 .workflow-footer,
@@ -2587,6 +2729,15 @@ svg {
         grid-template-columns: 1fr;
     }
 
+    .document-step-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .step-one-preview-card {
+        position: static;
+        max-height: none;
+    }
+
     .results-grid,
     .assistant-context-grid {
         grid-template-columns: 1fr;
@@ -2681,6 +2832,7 @@ svg {
 
     .chat-context-strip,
     .bulk-card-title-row,
+    .step-one-preview-header,
     .preview-header {
         align-items: stretch;
         flex-direction: column;
@@ -2713,6 +2865,7 @@ svg {
     }
 
     .workflow-card-header,
+    .step-one-preview-header,
     .selection-toolbar,
     .workflow-footer,
     .document-folder-header {
