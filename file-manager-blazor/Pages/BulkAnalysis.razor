@@ -63,42 +63,59 @@
                 </div>
             </div>
 
-            <div class="document-selection-list">
-                @foreach (var folderGroup in GetFilteredDocumentGroups())
-                {
-                    var selectedInFolder = folderGroup.Documents.Count(document => selectedDocumentIds.Contains(document.Id));
+            @{
+                var visibleDocumentPanels = GetVisibleDocumentPanels();
+            }
 
-                    <section class="document-folder-card">
+            <div class="document-selection-list">
+                @foreach (var folderPanel in visibleDocumentPanels)
+                {
+                    var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
+                    var selectedInFolder = folderPanel.VisibleDocuments.Count(document => selectedDocumentIds.Contains(document.Id));
+
+                    <section class="@GetFolderPanelClass(folderPanel)" style="@($"--folder-depth: {folderPanel.Depth};")">
                         <div class="document-folder-header">
-                            <div>
-                                <h3>@folderGroup.Folder.DisplayName</h3>
-                                @if (!string.IsNullOrWhiteSpace(folderGroup.Folder.ParentDisplayName))
+                            <button type="button"
+                                    class="folder-collapse-button"
+                                    aria-expanded="@(!isCollapsed)"
+                                    aria-label="@($"Toggle {folderPanel.Folder.DisplayName}")"
+                                    @onclick="() => ToggleFolderPanel(folderPanel.Folder.Id)">
+                                <span aria-hidden="true">@(isCollapsed ? ">" : "v")</span>
+                            </button>
+                            <div class="document-folder-heading">
+                                <div>
+                                    <h3>@folderPanel.Folder.DisplayName</h3>
+                                    @if (!string.IsNullOrWhiteSpace(folderPanel.Folder.ParentDisplayName))
+                                    {
+                                        <p>@folderPanel.Folder.ParentDisplayName</p>
+                                    }
+                                </div>
+                                <span>@($"{selectedInFolder} of {folderPanel.VisibleDocumentCount} selected")</span>
+                            </div>
+                        </div>
+
+                        @if (!isCollapsed && folderPanel.Documents.Count > 0)
+                        {
+                            <div class="document-option-list">
+                                @foreach (var document in folderPanel.Documents)
                                 {
-                                    <p>@folderGroup.Folder.ParentDisplayName</p>
+                                    <label class="@GetDocumentOptionClass(document.Id)">
+                                        <input type="checkbox"
+                                               checked="@selectedDocumentIds.Contains(document.Id)"
+                                               @onchange="() => ToggleDocumentSelection(document.Id)" />
+                                        <span>
+                                            <strong>@document.Title</strong>
+                                            <small>@document.OriginalFileName - @($"{document.Results.Count} available analysis result{(document.Results.Count == 1 ? "" : "s")}")</small>
+                                        </span>
+                                    </label>
                                 }
                             </div>
-                            <span>@($"{selectedInFolder} of {folderGroup.Documents.Count} selected")</span>
-                        </div>
-
-                        <div class="document-option-list">
-                            @foreach (var document in folderGroup.Documents)
-                            {
-                                <label class="@GetDocumentOptionClass(document.Id)">
-                                    <input type="checkbox"
-                                           checked="@selectedDocumentIds.Contains(document.Id)"
-                                           @onchange="() => ToggleDocumentSelection(document.Id)" />
-                                    <span>
-                                        <strong>@document.Title</strong>
-                                        <small>@document.OriginalFileName - @($"{document.Results.Count} available analysis result{(document.Results.Count == 1 ? "" : "s")}")</small>
-                                    </span>
-                                </label>
-                            }
-                        </div>
+                        }
                     </section>
                 }
             </div>
 
-            @if (GetFilteredDocumentGroups().Count == 0)
+            @if (visibleDocumentPanels.Count == 0)
             {
                 <div class="workflow-empty-state">
                     <strong>No matching documents</strong>
@@ -365,6 +382,7 @@
     private readonly HashSet<string> selectedDocumentIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> selectedAnalysisTypeIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> selectedContextIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> collapsedFolderIds = new(StringComparer.Ordinal);
     private WorkflowStep workflowStep = WorkflowStep.SelectDocuments;
     private string documentSearchTerm = string.Empty;
     private string? activeDocumentId;
@@ -373,10 +391,10 @@
     private IReadOnlyList<BulkAnalysisFolder> AllFolders => allFolders;
 
     private IReadOnlyList<DocumentWithFolder> AllDocuments =>
-        allFolders.SelectMany(folder => folder.Documents.Select(document => new DocumentWithFolder(folder, document))).ToArray();
+        allFolders.SelectMany(EnumerateDocuments).ToArray();
 
     private IReadOnlyList<BulkAnalysisResult> AllResults =>
-        allFolders.SelectMany(folder => folder.Documents).SelectMany(document => document.Results).ToArray();
+        AllDocuments.SelectMany(entry => entry.Document.Results).ToArray();
 
     private int CurrentStepNumber =>
         workflowStep switch
@@ -455,29 +473,86 @@
         }
     }
 
-    private IReadOnlyList<DocumentFolderGroup> GetFilteredDocumentGroups()
+    private static IEnumerable<DocumentWithFolder> EnumerateDocuments(BulkAnalysisFolder folder)
     {
-        var groups = new List<DocumentFolderGroup>();
-
-        foreach (var folder in AllFolders)
+        foreach (var document in folder.Documents)
         {
-            var documents = folder.Documents
-                .Where(document => MatchesDocumentSearch(folder, document))
-                .OrderBy(document => document.Title, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
+            yield return new DocumentWithFolder(folder, document);
+        }
 
-            if (documents.Length > 0)
+        foreach (var childFolder in folder.ChildFolders)
+        {
+            foreach (var document in EnumerateDocuments(childFolder))
             {
-                groups.Add(new DocumentFolderGroup(folder, documents));
+                yield return document;
+            }
+        }
+    }
+
+    private IReadOnlyList<DocumentFolderPanel> GetFilteredDocumentPanels()
+    {
+        var panels = new List<DocumentFolderPanel>();
+
+        foreach (var folder in AllFolders.OrderBy(folder => folder.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            var panel = BuildDocumentPanel(folder, depth: 0, ancestorMatched: false);
+            if (panel is not null)
+            {
+                panels.Add(panel);
             }
         }
 
-        return groups
-            .OrderBy(group => group.Folder.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        return panels;
     }
 
-    private bool MatchesDocumentSearch(BulkAnalysisFolder folder, BulkAnalysisDocument document)
+    private DocumentFolderPanel? BuildDocumentPanel(BulkAnalysisFolder folder, int depth, bool ancestorMatched)
+    {
+        var folderMatches = ancestorMatched || MatchesFolderSearch(folder);
+        var documents = folder.Documents
+            .Where(document => folderMatches || MatchesDocumentSearch(document))
+            .OrderBy(document => document.Title, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var childPanels = folder.ChildFolders
+            .OrderBy(child => child.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .Select(child => BuildDocumentPanel(child, depth + 1, folderMatches))
+            .Where(panel => panel is not null)
+            .Select(panel => panel!)
+            .ToArray();
+
+        return documents.Length == 0 && childPanels.Length == 0
+            ? null
+            : new DocumentFolderPanel(folder, documents, childPanels, depth);
+    }
+
+    private IReadOnlyList<DocumentFolderPanel> GetVisibleDocumentPanels()
+    {
+        var panels = new List<DocumentFolderPanel>();
+
+        foreach (var panel in GetFilteredDocumentPanels())
+        {
+            AddVisibleDocumentPanels(panel, panels);
+        }
+
+        return panels;
+    }
+
+    private void AddVisibleDocumentPanels(DocumentFolderPanel panel, List<DocumentFolderPanel> panels)
+    {
+        panels.Add(panel);
+
+        if (IsFolderCollapsed(panel.Folder.Id))
+        {
+            return;
+        }
+
+        foreach (var childPanel in panel.Children)
+        {
+            AddVisibleDocumentPanels(childPanel, panels);
+        }
+    }
+
+    private bool MatchesFolderSearch(BulkAnalysisFolder folder)
     {
         if (string.IsNullOrWhiteSpace(documentSearchTerm))
         {
@@ -485,8 +560,17 @@
         }
 
         return Contains(folder.DisplayName, documentSearchTerm) ||
-            Contains(folder.ParentDisplayName, documentSearchTerm) ||
-            Contains(document.Title, documentSearchTerm) ||
+            Contains(folder.ParentDisplayName, documentSearchTerm);
+    }
+
+    private bool MatchesDocumentSearch(BulkAnalysisDocument document)
+    {
+        if (string.IsNullOrWhiteSpace(documentSearchTerm))
+        {
+            return true;
+        }
+
+        return Contains(document.Title, documentSearchTerm) ||
             Contains(document.OriginalFileName, documentSearchTerm);
     }
 
@@ -513,7 +597,9 @@
 
     private void SelectVisibleDocuments()
     {
-        foreach (var document in GetFilteredDocumentGroups().SelectMany(group => group.Documents))
+        foreach (var document in GetVisibleDocumentPanels()
+            .Where(panel => !IsFolderCollapsed(panel.Folder.Id))
+            .SelectMany(panel => panel.Documents))
         {
             selectedDocumentIds.Add(document.Id);
         }
@@ -794,6 +880,34 @@
     private string GetDocumentOptionClass(string documentId) =>
         selectedDocumentIds.Contains(documentId) ? "document-option-row selected" : "document-option-row";
 
+    private bool IsFolderCollapsed(string folderId) =>
+        collapsedFolderIds.Contains(folderId);
+
+    private void ToggleFolderPanel(string folderId)
+    {
+        if (!collapsedFolderIds.Add(folderId))
+        {
+            collapsedFolderIds.Remove(folderId);
+        }
+    }
+
+    private string GetFolderPanelClass(DocumentFolderPanel panel)
+    {
+        var classes = new List<string> { "document-folder-card" };
+
+        if (panel.Depth == 0)
+        {
+            classes.Add("root-folder-card");
+        }
+
+        if (IsFolderCollapsed(panel.Folder.Id))
+        {
+            classes.Add("collapsed");
+        }
+
+        return string.Join(' ', classes);
+    }
+
     private string GetAnalysisOptionClass(string analysisType) =>
         selectedAnalysisTypeIds.Contains(analysisType) ? "analysis-type-option selected" : "analysis-type-option";
 
@@ -879,7 +993,17 @@
 
     private sealed record DocumentWithFolder(BulkAnalysisFolder Folder, BulkAnalysisDocument Document);
 
-    private sealed record DocumentFolderGroup(BulkAnalysisFolder Folder, IReadOnlyList<BulkAnalysisDocument> Documents);
+    private sealed record DocumentFolderPanel(
+        BulkAnalysisFolder Folder,
+        IReadOnlyList<BulkAnalysisDocument> Documents,
+        IReadOnlyList<DocumentFolderPanel> Children,
+        int Depth)
+    {
+        public int VisibleDocumentCount => Documents.Count + Children.Sum(child => child.VisibleDocumentCount);
+
+        public IReadOnlyList<BulkAnalysisDocument> VisibleDocuments =>
+            Documents.Concat(Children.SelectMany(child => child.VisibleDocuments)).ToArray();
+    }
 
     private enum WorkflowStep
     {

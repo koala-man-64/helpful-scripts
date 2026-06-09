@@ -4,11 +4,14 @@ public sealed record BulkAnalysisFolder(
     string Id,
     string DisplayName,
     string? ParentDisplayName,
-    IReadOnlyList<BulkAnalysisDocument> Documents)
+    IReadOnlyList<BulkAnalysisDocument> Documents,
+    IReadOnlyList<BulkAnalysisFolder> ChildFolders)
 {
-    public int DocumentCount => Documents.Count;
+    public int DocumentCount => Documents.Count + ChildFolders.Sum(folder => folder.DocumentCount);
 
-    public int ResultCount => Documents.Sum(document => document.Results.Count);
+    public int ResultCount =>
+        Documents.Sum(document => document.Results.Count) +
+        ChildFolders.Sum(folder => folder.ResultCount);
 }
 
 public sealed record BulkAnalysisDocument(

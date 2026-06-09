@@ -2125,21 +2125,89 @@ svg {
 }
 
 .document-folder-card {
+    position: relative;
+    margin-left: calc(var(--folder-depth, 0) * 1.05rem);
     border: 1px solid rgba(35, 55, 89, 0.1);
     border-radius: 1rem;
     background: rgba(246, 248, 252, 0.58);
     padding: 1rem;
 }
 
+.document-folder-card:not(.root-folder-card)::before {
+    position: absolute;
+    top: -0.72rem;
+    bottom: 50%;
+    left: -0.72rem;
+    width: 0.72rem;
+    border-bottom: 1px solid rgba(35, 55, 89, 0.16);
+    border-left: 1px solid rgba(35, 55, 89, 0.16);
+    border-bottom-left-radius: 0.55rem;
+    content: "";
+}
+
+.root-folder-card {
+    background: rgba(255, 255, 255, 0.92);
+}
+
 .document-folder-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
     align-items: center;
     margin-bottom: 0.85rem;
 }
 
+.document-folder-card.collapsed .document-folder-header {
+    margin-bottom: 0;
+}
+
+.folder-collapse-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid rgba(35, 55, 89, 0.14);
+    border-radius: 999px;
+    background: #ffffff;
+    color: var(--shell-heading);
+    cursor: pointer;
+    font-size: 0.84rem;
+    font-weight: 800;
+    line-height: 1;
+    transition:
+        border-color 120ms ease,
+        background 120ms ease,
+        color 120ms ease,
+        transform 120ms ease;
+}
+
+.folder-collapse-button:hover {
+    transform: translateY(-1px);
+    border-color: rgba(17, 127, 139, 0.34);
+    background: rgba(236, 248, 246, 0.9);
+    color: var(--shell-accent-strong);
+}
+
+.folder-collapse-button:focus-visible {
+    outline: 3px solid rgba(17, 127, 139, 0.22);
+    outline-offset: 2px;
+}
+
+.document-folder-heading {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
 .document-folder-header h3 {
+    overflow: hidden;
     color: var(--shell-heading);
     font-size: 1rem;
     font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .document-folder-header p,
@@ -2636,6 +2704,21 @@ svg {
     .document-folder-header {
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .document-folder-card {
+        margin-left: calc(var(--folder-depth, 0) * 0.55rem);
+    }
+
+    .document-folder-header {
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+    }
+
+    .document-folder-heading {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.25rem;
     }
 
     .analysis-type-grid {
