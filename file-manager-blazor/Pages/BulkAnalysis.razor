@@ -46,8 +46,16 @@
             <section class="workflow-card document-selection-card" aria-labelledby="select-documents-title">
                 <div class="workflow-card-header">
                     <div>
-                        <h2 id="select-documents-title">Select documents</h2>
-                        <p>Choose the documents you want included in the bulk analysis review.</p>
+                        <h2 id="select-documents-title">
+                            <span class="title-tooltip-trigger"
+                                  tabindex="0"
+                                  title="Choose the documents you want included in the bulk analysis review."
+                                  data-tooltip="Choose the documents you want included in the bulk analysis review."
+                                  aria-describedby="select-documents-tooltip">
+                                Select documents
+                            </span>
+                        </h2>
+                        <span id="select-documents-tooltip" class="sr-only">Choose the documents you want included in the bulk analysis review.</span>
                     </div>
                     <span class="selected-count">@($"{selectedDocumentIds.Count} selected")</span>
                 </div>
@@ -145,8 +153,16 @@
                 <div class="step-one-preview-header">
                     <div>
                         <p class="page-kicker">Step 1</p>
-                        <h2 id="step-one-preview-title">Review inputs</h2>
-                        <p>Cycle through selected source documents before choosing bulk analysis outputs.</p>
+                        <h2 id="step-one-preview-title">
+                            <span class="title-tooltip-trigger"
+                                  tabindex="0"
+                                  title="Cycle through selected source documents before choosing bulk analysis outputs."
+                                  data-tooltip="Cycle through selected source documents before choosing bulk analysis outputs."
+                                  aria-describedby="step-one-preview-tooltip">
+                                Review inputs
+                            </span>
+                        </h2>
+                        <span id="step-one-preview-tooltip" class="sr-only">Cycle through selected source documents before choosing bulk analysis outputs.</span>
                     </div>
                     @if (selectedPreviewDocument is not null)
                     {
