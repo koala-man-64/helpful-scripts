@@ -54,7 +54,7 @@
         <div class="rail-bottom">
             @if (ChatContext.HasLoadedContext)
             {
-                <NavLink class="rail-context-dot" href="" aria-label="@($"Using {ChatContext.LoadedItems.Count} SOP analysis results")">
+                <NavLink class="rail-context-dot" href="assistant-context" aria-label="@($"Using {ChatContext.LoadedItems.Count} context items")">
                     @ChatContext.LoadedItems.Count
                 </NavLink>
             }

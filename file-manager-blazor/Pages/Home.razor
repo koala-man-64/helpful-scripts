@@ -34,13 +34,13 @@
             {
                 <div class="chat-context-strip" data-testid="chat-context-strip">
                     <div>
-                        <strong>@($"Using {ChatContext.LoadedItems.Count} SOP analysis result{(ChatContext.LoadedItems.Count == 1 ? "" : "s")}")</strong>
+                        <strong>@($"Using {ChatContext.LoadedItems.Count} context item{(ChatContext.LoadedItems.Count == 1 ? "" : "s")}")</strong>
                         <span>@($"{FormatTokens(ChatContext.LoadedTokenEstimate)} / {FormatTokens(ChatContextState.ContextLimitTokens)} context used")</span>
                     </div>
                     <div class="strip-chip-row">
                         @foreach (var item in ChatContext.LoadedItems.Take(2))
                         {
-                            <span class="context-chip">@item.SopTitle - @item.AnalysisType</span>
+                            <span class="context-chip">@item.DisplayName</span>
                         }
                         @if (ChatContext.LoadedItems.Count > 2)
                         {

@@ -6,347 +6,353 @@
 @inject NavigationManager NavigationManager
 
 @{
-    var filteredGroups = GetFilteredGroups();
-    var visibleResultIds = filteredGroups.SelectMany(folder => folder.Results).Select(result => result.Id).ToHashSet(StringComparer.Ordinal);
-    var selectedResults = GetSelectedResults();
-    var selectedTokens = selectedResults.Sum(result => result.EstimatedTokens);
+    var selectedSops = GetSelectedSops();
+    var availableAnalysisTypes = GetAvailableAnalysisTypes(selectedSops);
+    var selectedAnalysisTypes = GetSelectedAnalysisTypes(availableAnalysisTypes);
+    var activeSop = GetActiveSop(selectedSops);
+    var activeAnalysisType = GetActiveAnalysisType(selectedAnalysisTypes);
+    var activeResult = activeSop is null || activeAnalysisType is null
+        ? null
+        : activeSop.Sop.Results.FirstOrDefault(result => string.Equals(result.AnalysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase));
+    var selectedContextItems = GetSelectedContextItems();
+    var selectedTokens = selectedContextItems.Sum(item => item.EstimatedTokens);
     var isOverLimit = selectedTokens > ChatContextState.ContextLimitTokens;
     var usagePercent = Math.Min(100, selectedTokens * 100.0 / ChatContextState.ContextLimitTokens);
-    var hiddenSelectedCount = selectedResultIds.Count(id => !visibleResultIds.Contains(id));
-    var previewResult = GetPreviewResult();
-    var filterChips = GetActiveFilterChips();
+    var loadedIds = ChatContext.LoadedItems.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+    var hasDirtyLoadedContext = ChatContext.HasLoadedContext && !loadedIds.SetEquals(selectedContextIds);
 }
 
 <PageTitle>Bulk Analysis</PageTitle>
 
-<header class="page-header bulk-page-header">
-    <p class="page-kicker">Context builder</p>
-    <div class="page-header-copy">
-        <div>
-            <h1>Bulk Analysis</h1>
-            <p>Select SOP analysis results and load them into chat context.</p>
+<header class="guided-workflow-header">
+    <p class="page-kicker">Bulk SOP analysis</p>
+    <h1>@HeaderTitle</h1>
+    <p>@HeaderDescription</p>
+    <div class="workflow-progress" aria-label="Workflow progress">
+        <div class="workflow-progress-track">
+            <span class="workflow-progress-fill" style="@($"width: {CurrentStepNumber * 100 / 3}%;")"></span>
         </div>
-        <div class="page-header-meta">
-            <span class="meta-pill">@AllResults.Count results</span>
-            <span class="meta-pill">@AllFolders.Sum(folder => folder.SopCount) SOPs</span>
-        </div>
+        <p class="workflow-step">Step @CurrentStepNumber of 3</p>
     </div>
+    <div class="workflow-divider" aria-hidden="true"></div>
 </header>
 
-<section class="bulk-analysis-page" aria-label="Bulk Analysis workspace">
-    <section class="filter-scope-card" aria-label="Filter and scope">
-        <div class="bulk-card-title-row">
-            <div>
-                <h2>Filter &amp; Scope</h2>
-                @if (!isFilterPanelExpanded)
-                {
-                    <p>@(filterChips.Count == 0 ? "No filters applied" : $"{filterChips.Count} filters applied")</p>
-                }
+<section class="guided-analysis-page" aria-label="Bulk Analysis workflow">
+    @if (workflowStep == WorkflowStep.SelectSops)
+    {
+        <section class="workflow-card" aria-labelledby="select-sops-title">
+            <div class="workflow-card-header">
+                <div>
+                    <h2 id="select-sops-title">Select SOPs</h2>
+                    <p>Choose the procedures you want included in the bulk analysis review.</p>
+                </div>
+                <span class="selected-count">@($"{selectedSopIds.Count} selected")</span>
             </div>
-            <div class="bulk-card-actions">
-                @if (!isFilterPanelExpanded && filterChips.Count > 0)
-                {
-                    <button type="button" class="link-button" @onclick="ClearFilters">Clear Filters</button>
-                }
-                <button type="button" class="secondary-button" @onclick="ToggleFilters">
-                    @(isFilterPanelExpanded ? "Collapse" : "Show Filters")
-                </button>
-            </div>
-        </div>
 
-        @if (isFilterPanelExpanded)
-        {
-            <div class="filter-grid">
+            <div class="selection-toolbar">
                 <label class="form-control search-box">
                     <span class="control-label">Search</span>
                     <input type="search"
-                           placeholder="Search SOPs, folders, or analysis results..."
-                           value="@searchTerm"
-                           @oninput="HandleSearchInput"
-                           data-testid="bulk-search" />
+                           placeholder="Search SOPs, folders, or source files..."
+                           value="@sopSearchTerm"
+                           @oninput="HandleSopSearchInput" />
                 </label>
-
-                <label class="form-control">
-                    <span class="control-label">Analysis Type</span>
-                    <select value="@analysisTypeFilter" @onchange="HandleAnalysisTypeChange" data-testid="analysis-type-filter">
-                        <option value="">All analysis types</option>
-                        @foreach (var type in AnalysisTypes)
-                        {
-                            <option value="@type">@type</option>
-                        }
-                    </select>
-                </label>
-
-                <label class="form-control">
-                    <span class="control-label">Sort</span>
-                    <select value="@sortMode" @onchange="HandleSortChange" data-testid="bulk-sort">
-                        <option value="recent">Recent first</option>
-                        <option value="sop">SOP name</option>
-                        <option value="folder">Folder</option>
-                        <option value="analysis">Analysis type</option>
-                    </select>
-                </label>
-
-                <div class="form-control filter-actions">
-                    <span class="control-label">Actions</span>
-                    <div class="inline-actions">
-                        <button type="button" class="secondary-button" @onclick="RefreshAsync">Refresh</button>
-                        <button type="button" class="secondary-button" @onclick="ClearFilters">Clear Filters</button>
-                    </div>
+                <div class="inline-actions">
+                    <button type="button" class="secondary-button" @onclick="SelectVisibleSops">Select visible</button>
+                    <button type="button" class="secondary-button" @onclick="ClearSopSelection">Clear</button>
                 </div>
             </div>
 
-            <div class="folder-filter-panel" aria-label="Folders">
-                <div class="control-label">Folders</div>
-                <div class="folder-filter-list">
-                    @foreach (var folder in AllFolders)
-                    {
-                        <label class="folder-filter-option">
-                            <input type="checkbox"
-                                   checked="@selectedFilterFolderIds.Contains(folder.Id)"
-                                   @onchange="() => ToggleFolderFilter(folder.Id)" />
-                            <span>
-                                <strong>@folder.DisplayName</strong>
-                                @if (!string.IsNullOrWhiteSpace(folder.ParentDisplayName))
+            <div class="sop-selection-list">
+                @foreach (var folderGroup in GetFilteredSopGroups())
+                {
+                    var selectedInFolder = folderGroup.Sops.Count(sop => selectedSopIds.Contains(sop.Id));
+
+                    <section class="sop-folder-card">
+                        <div class="sop-folder-header">
+                            <div>
+                                <h3>@folderGroup.Folder.DisplayName</h3>
+                                @if (!string.IsNullOrWhiteSpace(folderGroup.Folder.ParentDisplayName))
                                 {
-                                    <small>@folder.ParentDisplayName</small>
+                                    <p>@folderGroup.Folder.ParentDisplayName</p>
                                 }
-                            </span>
-                            <em>@folder.SopCount SOPs - @folder.ResultCount analyses</em>
-                        </label>
-                    }
-                </div>
-            </div>
-        }
-        else if (filterChips.Count > 0)
-        {
-            <div class="filter-chip-row" aria-label="Active filters">
-                @foreach (var chip in filterChips)
-                {
-                    <span class="context-chip">@chip</span>
-                }
-            </div>
-        }
-    </section>
+                            </div>
+                            <span>@($"{selectedInFolder} of {folderGroup.Sops.Count} selected")</span>
+                        </div>
 
-    <section class="@($"selected-context-card {(isOverLimit ? "over-limit" : "")}")" aria-label="Selected Context" data-testid="selected-context-card">
-        <div class="bulk-card-title-row">
-            <div>
-                <h2>Selected Context</h2>
-                @if (selectedResults.Count == 0)
-                {
-                    <p>No analysis results selected yet</p>
-                }
-                else
-                {
-                    <p>@($"{selectedResults.Count} results selected - {FormatTokens(selectedTokens)} / {FormatTokens(ChatContextState.ContextLimitTokens)} context used")</p>
-                }
-            </div>
-            <div class="bulk-card-actions">
-                <button type="button" class="secondary-button" disabled="@(selectedResults.Count == 0)" @onclick="ClearSelection">Clear Selection</button>
-                <button type="button" class="secondary-button" disabled="@(selectedResults.Count == 0)" @onclick="ReviewSelected">Review Selected</button>
-                <button type="button"
-                        class="send-button"
-                        disabled="@(selectedResults.Count == 0 || isOverLimit)"
-                        @onclick="LoadContext"
-                        data-testid="load-chat-context">
-                    @(HasDirtyLoadedContext ? "Update Chat Context" : "Load into Chat Context")
-                </button>
-                @if (ChatContext.HasLoadedContext)
-                {
-                    <button type="button" class="secondary-button" @onclick="GoToChat" data-testid="go-to-chat">Go to Chat</button>
-                    <button type="button" class="secondary-button" @onclick="ClearLoadedContext">Clear Loaded Context</button>
-                }
-            </div>
-        </div>
-
-        <div class="context-meter" aria-label="Context usage">
-            <span style="@($"width: {FormatPercent(usagePercent)}%;")"></span>
-        </div>
-
-        @if (selectedResults.Count == 0)
-        {
-            <p class="muted-copy">Select one or more SOP analysis results below to load them into chat context.</p>
-        }
-        else
-        {
-            <div class="selected-chip-list" aria-label="Selected analysis results">
-                @foreach (var result in selectedResults)
-                {
-                    <span class="selected-chip">
-                        @result.SopTitle - @result.AnalysisType
-                        <button type="button" @onclick="() => RemoveSelected(result.Id)" aria-label="@($"Remove {result.SopTitle} {result.AnalysisType}")">x</button>
-                    </span>
-                }
-            </div>
-        }
-
-        @if (hiddenSelectedCount > 0)
-        {
-            <p class="inline-notice">@hiddenSelectedCount selected result@(hiddenSelectedCount == 1 ? " is" : "s are") hidden by the current filters.</p>
-        }
-
-        @if (isOverLimit)
-        {
-            <p class="inline-warning">Too much content selected. Remove one or more analysis results before loading them into chat context.</p>
-        }
-        else if (!string.IsNullOrWhiteSpace(selectionWarning))
-        {
-            <p class="inline-warning">@selectionWarning</p>
-        }
-
-        @if (ChatContext.HasLoadedContext && !HasDirtyLoadedContext)
-        {
-            <p class="inline-success">Context loaded. @ChatContext.LoadedItems.Count SOP analysis result@(ChatContext.LoadedItems.Count == 1 ? "" : "s") ready to use in chat.</p>
-        }
-        else if (HasDirtyLoadedContext)
-        {
-            <p class="inline-notice">Selection changed. Update chat context to use the latest selected results.</p>
-        }
-    </section>
-
-    <section class="bulk-workspace" aria-label="Bulk Analysis results and preview">
-        <section class="result-list-card" aria-label="SOP Analysis Results">
-            <div class="bulk-card-title-row">
-                <div>
-                    <h2>SOP Analysis Results</h2>
-                    <p>Folder - SOP - Analysis Result</p>
-                </div>
-                <span class="selected-count">@filteredGroups.Sum(folder => folder.Results.Count) visible</span>
-            </div>
-
-            @if (filteredGroups.Count == 0)
-            {
-                <div class="bulk-empty-state">
-                    <strong>No matching analysis results</strong>
-                    <span>Clear filters or search for a different SOP, folder, or analysis type.</span>
-                </div>
-            }
-            else
-            {
-                <div class="bulk-result-list">
-                    @foreach (var folderGroup in filteredGroups)
-                    {
-                        var folderResults = folderGroup.Results.ToArray();
-                        var folderState = GetSelectionState(folderResults.Select(result => result.Id));
-                        var folderWouldExceed = folderState != SelectionState.Checked && WouldGroupSelectionExceedLimit(folderResults);
-
-                        <section class="bulk-folder-group">
-                            <header class="bulk-group-header">
-                                <button type="button"
-                                        class="@GetTriStateClass(folderState)"
-                                        role="checkbox"
-                                        aria-checked="@GetAriaChecked(folderState)"
-                                        disabled="@folderWouldExceed"
-                                        @onclick="() => ToggleFolder(folderGroup)"
-                                        aria-label="@($"Select visible results in {folderGroup.Folder.DisplayName}")"></button>
-                                <div>
-                                    <h3>@folderGroup.Folder.DisplayName</h3>
-                                    <p>@($"{folderGroup.Sops.Count} SOPs - {folderResults.Length} analyses - {folderResults.Count(result => selectedResultIds.Contains(result.Id))} selected - {FormatTokens(folderResults.Sum(result => result.EstimatedTokens))} estimated tokens")</p>
-                                    @if (folderWouldExceed)
-                                    {
-                                        <span class="group-warning">Selecting this folder would exceed the context limit.</span>
-                                    }
-                                </div>
-                            </header>
-
-                            @foreach (var sopGroup in folderGroup.Sops)
+                        <div class="sop-option-list">
+                            @foreach (var sop in folderGroup.Sops)
                             {
-                                var sopResults = sopGroup.Results.ToArray();
-                                var sopState = GetSelectionState(sopResults.Select(result => result.Id));
-                                var sopWouldExceed = sopState != SelectionState.Checked && WouldGroupSelectionExceedLimit(sopResults);
-
-                                <section class="bulk-sop-group">
-                                    <header class="bulk-sop-header">
-                                        <button type="button"
-                                                class="@GetTriStateClass(sopState)"
-                                                role="checkbox"
-                                                aria-checked="@GetAriaChecked(sopState)"
-                                                disabled="@sopWouldExceed"
-                                                @onclick="() => ToggleSop(sopGroup)"
-                                                aria-label="@($"Select visible results for {sopGroup.Sop.Title}")"></button>
-                                        <div>
-                                            <h4>@sopGroup.Sop.Title</h4>
-                                            <p>@($"{sopGroup.Sop.OriginalFileName} - {sopResults.Length} analyses")</p>
-                                            @if (sopWouldExceed)
-                                            {
-                                                <span class="group-warning">Selecting this SOP would exceed the context limit.</span>
-                                            }
-                                        </div>
-                                    </header>
-
-                                    <div class="bulk-row-list">
-                                        @foreach (var result in sopResults)
-                                        {
-                                            <article class="@GetResultRowClass(result)" data-testid="@($"bulk-result-{result.Id}")">
-                                                <input type="checkbox"
-                                                       checked="@selectedResultIds.Contains(result.Id)"
-                                                       @onchange="() => ToggleResult(result.Id)"
-                                                       aria-label="@($"Select {result.SopTitle} {result.AnalysisType}")" />
-                                                <button type="button" class="bulk-row-title" @onclick="() => PreviewResult(result)">
-                                                    <strong>@result.AnalysisType</strong>
-                                                    <span>@result.GeneratedAt.ToString("MMM d, yyyy h:mm tt")</span>
-                                                </button>
-                                                <span class="row-token-pill">@FormatTokens(result.EstimatedTokens)</span>
-                                            </article>
-                                        }
-                                    </div>
-                                </section>
+                                <label class="@GetSopOptionClass(sop.Id)">
+                                    <input type="checkbox"
+                                           checked="@selectedSopIds.Contains(sop.Id)"
+                                           @onchange="() => ToggleSopSelection(sop.Id)" />
+                                    <span>
+                                        <strong>@sop.Title</strong>
+                                        <small>@sop.OriginalFileName - @($"{sop.Results.Count} available analysis result{(sop.Results.Count == 1 ? "" : "s")}")</small>
+                                    </span>
+                                </label>
                             }
-                        </section>
-                    }
+                        </div>
+                    </section>
+                }
+            </div>
+
+            @if (GetFilteredSopGroups().Count == 0)
+            {
+                <div class="workflow-empty-state">
+                    <strong>No matching SOPs</strong>
+                    <span>Clear the search or enter a different folder, file, or SOP name.</span>
                 </div>
             }
+
+            <footer class="workflow-footer">
+                <span>@($"{AllSops.Count} SOPs available")</span>
+                <button type="button" class="workflow-action-button primary" disabled="@(selectedSopIds.Count == 0)" @onclick="GoToAnalysisStep">
+                    Next
+                </button>
+            </footer>
         </section>
+    }
+    else if (workflowStep == WorkflowStep.SelectAnalysisTypes)
+    {
+        <section class="workflow-card" aria-labelledby="select-analysis-title">
+            <div class="workflow-card-header">
+                <div>
+                    <h2 id="select-analysis-title">Select bulk analysis types</h2>
+                    <p>Pick the generated result types you want to review across the selected SOPs.</p>
+                </div>
+                <span class="selected-count">@($"{selectedAnalysisTypeIds.Count} selected")</span>
+            </div>
 
-        <section class="preview-card" aria-label="Preview">
-            @if (previewResult is null)
+            <div class="selected-summary-strip">
+                @foreach (var sop in selectedSops.Take(4))
+                {
+                    <span class="context-chip">@sop.Sop.Title</span>
+                }
+                @if (selectedSops.Count > 4)
+                {
+                    <span class="context-chip muted">@($"+{selectedSops.Count - 4} more SOPs")</span>
+                }
+            </div>
+
+            <div class="analysis-type-grid">
+                @foreach (var analysisType in availableAnalysisTypes)
+                {
+                    var matchingCount = selectedSops.Sum(sop => sop.Sop.Results.Count(result => string.Equals(result.AnalysisType, analysisType, StringComparison.OrdinalIgnoreCase)));
+
+                    <label class="@GetAnalysisOptionClass(analysisType)">
+                        <input type="checkbox"
+                               checked="@selectedAnalysisTypeIds.Contains(analysisType)"
+                               @onchange="() => ToggleAnalysisType(analysisType)" />
+                        <span class="analysis-option-icon" aria-hidden="true">@GetAnalysisGlyph(analysisType)</span>
+                        <span>
+                            <strong>@analysisType</strong>
+                            <small>@GetAnalysisDescription(analysisType)</small>
+                            <em>@($"{matchingCount} matching result{(matchingCount == 1 ? "" : "s")}")</em>
+                        </span>
+                    </label>
+                }
+            </div>
+
+            @if (availableAnalysisTypes.Count == 0)
             {
-                <div class="bulk-empty-state preview-empty">
-                    <strong>Select an analysis result to preview its contents.</strong>
-                    <span>Choose Review Selected to step through your selected context.</span>
+                <div class="workflow-empty-state">
+                    <strong>No analysis types available</strong>
+                    <span>Go back and choose at least one SOP with generated analysis results.</span>
                 </div>
             }
-            else
-            {
-                <header class="preview-header">
-                    <div>
-                        <p class="page-kicker">Preview</p>
-                        <h2>@previewResult.SopTitle</h2>
-                        <p>@previewResult.FolderName - @previewResult.AnalysisType - @previewResult.GeneratedAt.ToString("MMM d, yyyy h:mm tt")</p>
-                    </div>
-                    <div class="preview-actions">
-                        @if (isReviewMode && selectedResults.Count > 0)
-                        {
-                            <span class="selected-count">Selected @(reviewIndex + 1) of @selectedResults.Count</span>
-                            <button type="button" class="icon-button bordered" disabled="@(reviewIndex == 0)" @onclick="PreviousSelected" aria-label="Previous selected result">&lt;</button>
-                            <button type="button" class="icon-button bordered" disabled="@(reviewIndex >= selectedResults.Count - 1)" @onclick="NextSelected" aria-label="Next selected result">&gt;</button>
-                        }
-                        <button type="button" class="secondary-button" @onclick="() => ToggleResult(previewResult.Id)">
-                            @(selectedResultIds.Contains(previewResult.Id) ? "Remove from Selected Context" : "Add to Selected Context")
-                        </button>
-                        <button type="button" class="secondary-button" @onclick="() => ShowInList(previewResult)">Show in List</button>
-                    </div>
-                </header>
 
-                <div class="preview-body">
-                    @if (!previewResult.IsPreviewAvailable)
+            <footer class="workflow-footer">
+                <button type="button" class="workflow-action-button secondary" @onclick="GoToSopStep">Back</button>
+                <button type="button" class="workflow-action-button primary" disabled="@(selectedAnalysisTypeIds.Count == 0)" @onclick="GoToResultsStep">
+                    Next
+                </button>
+            </footer>
+        </section>
+    }
+    else
+    {
+        <section class="workflow-card results-workflow-card" aria-labelledby="results-title">
+            <div class="workflow-card-header">
+                <div>
+                    <h2 id="results-title">Results</h2>
+                    <p>Move between SOPs and analysis types, then choose documents or results for assistant context.</p>
+                </div>
+                <div class="bulk-card-actions">
+                    <button type="button" class="secondary-button" @onclick="GoToAnalysisStep">Edit analysis types</button>
+                    <button type="button" class="secondary-button" @onclick="GoToSopStep">Edit SOPs</button>
+                </div>
+            </div>
+
+            <div class="result-navigation-panel">
+                <section aria-label="Selected SOPs">
+                    <div class="control-label">SOPs</div>
+                    <div class="result-tab-row">
+                        @foreach (var sop in selectedSops)
+                        {
+                            <button type="button"
+                                    class="@GetResultTabClass(string.Equals(activeSop?.Sop.Id, sop.Sop.Id, StringComparison.Ordinal))"
+                                    @onclick="() => SetActiveSop(sop.Sop.Id)">
+                                @sop.Sop.Title
+                            </button>
+                        }
+                    </div>
+                </section>
+
+                <section aria-label="Selected analysis types">
+                    <div class="control-label">Bulk analysis types</div>
+                    <div class="result-tab-row">
+                        @foreach (var analysisType in selectedAnalysisTypes)
+                        {
+                            <button type="button"
+                                    class="@GetResultTabClass(string.Equals(activeAnalysisType, analysisType, StringComparison.OrdinalIgnoreCase))"
+                                    @onclick="() => SetActiveAnalysisType(analysisType)">
+                                @analysisType
+                            </button>
+                        }
+                    </div>
+                </section>
+            </div>
+
+            <div class="results-grid">
+                <section class="result-preview-card" aria-label="Result preview">
+                    @if (activeSop is null || activeAnalysisType is null)
                     {
-                        <div class="bulk-empty-state preview-empty">
-                            <strong>This analysis result is not available for preview.</strong>
-                            <span>It can still be selected or removed from context.</span>
+                        <div class="workflow-empty-state preview-empty">
+                            <strong>Select SOPs and analysis types to review results.</strong>
+                            <span>Use the previous steps to build a results set.</span>
                         </div>
                     }
                     else
                     {
-                        <article class="markdown-preview">
-                            @RenderMarkdown(previewResult)
-                        </article>
+                        <header class="preview-header compact-preview-header">
+                            <div>
+                                <p class="page-kicker">Preview</p>
+                                <h2>@activeSop.Sop.Title</h2>
+                                <p>@activeSop.Folder.DisplayName - @activeAnalysisType</p>
+                            </div>
+                            <div class="preview-actions">
+                                <button type="button" class="icon-button bordered" @onclick="PreviousSop" aria-label="Previous SOP">&lt;</button>
+                                <button type="button" class="icon-button bordered" @onclick="NextSop" aria-label="Next SOP">&gt;</button>
+                                <button type="button" class="icon-button bordered" @onclick="PreviousAnalysisType" aria-label="Previous analysis type">&lt; Type</button>
+                                <button type="button" class="icon-button bordered" @onclick="NextAnalysisType" aria-label="Next analysis type">Type &gt;</button>
+                            </div>
+                        </header>
+
+                        <div class="preview-body">
+                            @if (activeResult is null)
+                            {
+                                <div class="workflow-empty-state preview-empty">
+                                    <strong>No @activeAnalysisType result for this SOP</strong>
+                                    <span>Use the analysis-type navigation to view another generated result.</span>
+                                </div>
+                            }
+                            else if (!activeResult.IsPreviewAvailable)
+                            {
+                                <div class="workflow-empty-state preview-empty">
+                                    <strong>This analysis result is not available for preview.</strong>
+                                    <span>It can still be selected for assistant context.</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <article class="markdown-preview">
+                                    @RenderMarkdown(activeResult)
+                                </article>
+                            }
+                        </div>
                     }
-                </div>
-            }
+                </section>
+
+                <aside class="@($"context-load-card {(isOverLimit ? "over-limit" : "")}")" aria-label="Load context">
+                    <div class="bulk-card-title-row">
+                        <div>
+                            <h2>Load context</h2>
+                            <p>@($"{selectedContextItems.Count} selected - {FormatTokens(selectedTokens)} / {FormatTokens(ChatContextState.ContextLimitTokens)}")</p>
+                        </div>
+                    </div>
+
+                    <div class="context-meter" aria-label="Context usage">
+                        <span style="@($"width: {FormatPercent(usagePercent)}%;")"></span>
+                    </div>
+
+                    @if (activeSop is not null)
+                    {
+                        var sourceDocumentId = GetSourceDocumentContextId(activeSop.Sop);
+
+                        <label class="@GetContextChoiceClass(sourceDocumentId)">
+                            <input type="checkbox"
+                                   checked="@selectedContextIds.Contains(sourceDocumentId)"
+                                   @onchange="() => ToggleSourceDocumentContext(activeSop.Folder, activeSop.Sop)" />
+                            <span>
+                                <strong>@activeSop.Sop.OriginalFileName</strong>
+                                <small>Source document - @activeSop.Sop.Title</small>
+                            </span>
+                        </label>
+                    }
+
+                    @if (activeResult is not null)
+                    {
+                        <label class="@GetContextChoiceClass(activeResult.Id)">
+                            <input type="checkbox"
+                                   checked="@selectedContextIds.Contains(activeResult.Id)"
+                                   @onchange="() => ToggleResultContext(activeResult)" />
+                            <span>
+                                <strong>@activeResult.AnalysisType</strong>
+                                <small>Generated result - @activeResult.GeneratedAt.ToString("MMM d, yyyy h:mm tt")</small>
+                            </span>
+                        </label>
+                    }
+
+                    @if (selectedContextItems.Count == 0)
+                    {
+                        <p class="muted-copy">Select a source document or generated result to continue.</p>
+                    }
+                    else
+                    {
+                        <div class="selected-chip-list selected-context-stack" aria-label="Selected context items">
+                            @foreach (var item in selectedContextItems)
+                            {
+                                <span class="selected-chip">
+                                    @item.DisplayName
+                                    <button type="button" @onclick="() => RemoveContextItem(item.Id)" aria-label="@($"Remove {item.DisplayName}")">x</button>
+                                </span>
+                            }
+                        </div>
+                    }
+
+                    @if (isOverLimit)
+                    {
+                        <p class="inline-warning">Too much content selected. Remove one or more items before loading context.</p>
+                    }
+                    else if (ChatContext.HasLoadedContext && !hasDirtyLoadedContext)
+                    {
+                        <p class="inline-success">This context is already loaded.</p>
+                    }
+                    else if (hasDirtyLoadedContext)
+                    {
+                        <p class="inline-notice">Selection changed. Load context again to update the assistant page.</p>
+                    }
+
+                    <div class="context-load-actions">
+                        <button type="button"
+                                class="workflow-action-button primary"
+                                disabled="@(selectedContextItems.Count == 0 || isOverLimit)"
+                                @onclick="LoadContext">
+                            Load selected context
+                        </button>
+                        @if (ChatContext.HasLoadedContext)
+                        {
+                            <button type="button" class="workflow-action-button secondary" @onclick="GoToAssistantContext">
+                                Go to context page
+                            </button>
+                        }
+                    </div>
+                </aside>
+            </div>
         </section>
-    </section>
+    }
 </section>
 
 @code {
@@ -356,461 +362,500 @@
         .Build();
 
     private IReadOnlyList<BulkAnalysisFolder> allFolders = [];
-    private readonly HashSet<string> selectedFilterFolderIds = new(StringComparer.Ordinal);
-    private readonly HashSet<string> selectedResultIds = new(StringComparer.Ordinal);
-    private string searchTerm = string.Empty;
-    private string analysisTypeFilter = string.Empty;
-    private string sortMode = "recent";
-    private string? focusedResultId;
-    private string? selectionWarning;
-    private bool isFilterPanelExpanded = true;
-    private bool isReviewMode;
-    private int reviewIndex;
+    private readonly HashSet<string> selectedSopIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> selectedAnalysisTypeIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> selectedContextIds = new(StringComparer.Ordinal);
+    private WorkflowStep workflowStep = WorkflowStep.SelectSops;
+    private string sopSearchTerm = string.Empty;
+    private string? activeSopId;
+    private string? activeAnalysisType;
 
     private IReadOnlyList<BulkAnalysisFolder> AllFolders => allFolders;
+
+    private IReadOnlyList<SopWithFolder> AllSops =>
+        allFolders.SelectMany(folder => folder.Sops.Select(sop => new SopWithFolder(folder, sop))).ToArray();
 
     private IReadOnlyList<BulkAnalysisResult> AllResults =>
         allFolders.SelectMany(folder => folder.Sops).SelectMany(sop => sop.Results).ToArray();
 
-    private IReadOnlyList<string> AnalysisTypes =>
-        AllResults.Select(result => result.AnalysisType)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(type => type, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-    private bool HasDirtyLoadedContext
-    {
-        get
+    private int CurrentStepNumber =>
+        workflowStep switch
         {
-            if (!ChatContext.HasLoadedContext)
-            {
-                return false;
-            }
+            WorkflowStep.SelectSops => 1,
+            WorkflowStep.SelectAnalysisTypes => 2,
+            _ => 3
+        };
 
-            var loadedIds = ChatContext.LoadedItems
-                .Select(item => item.ResultId)
-                .ToHashSet(StringComparer.Ordinal);
+    private string HeaderTitle =>
+        workflowStep switch
+        {
+            WorkflowStep.SelectSops => "Bulk Analysis",
+            WorkflowStep.SelectAnalysisTypes => "Choose analysis types",
+            _ => "Review results"
+        };
 
-            return !loadedIds.SetEquals(selectedResultIds);
-        }
-    }
+    private string HeaderDescription =>
+        workflowStep switch
+        {
+            WorkflowStep.SelectSops => "Select the SOPs you want to analyze before choosing the bulk review outputs.",
+            WorkflowStep.SelectAnalysisTypes => "Choose the analysis outputs to compare across the selected SOPs.",
+            _ => "Navigate between SOPs and analysis types, then load documents or results into assistant context."
+        };
 
     protected override async Task OnInitializedAsync()
     {
         ChatContext.Changed += HandleChatContextChanged;
         await RefreshAsync();
-
-        if (ChatContext.HasLoadedContext)
-        {
-            foreach (var item in ChatContext.LoadedItems)
-            {
-                selectedResultIds.Add(item.ResultId);
-            }
-        }
+        RestoreLoadedContextSelection();
+        EnsureActiveTargets();
     }
 
     private async Task RefreshAsync()
     {
         allFolders = await ResultProvider.GetFoldersAsync();
+    }
 
-        if (focusedResultId is not null && AllResults.All(result => result.Id != focusedResultId))
+    private void RestoreLoadedContextSelection()
+    {
+        if (!ChatContext.HasLoadedContext)
         {
-            focusedResultId = null;
+            return;
+        }
+
+        foreach (var item in ChatContext.LoadedItems)
+        {
+            selectedContextIds.Add(item.Id);
+
+            if (item.Kind == BulkAnalysisContextItemKind.SourceDocument)
+            {
+                var sourceSop = AllSops.FirstOrDefault(entry => string.Equals(GetSourceDocumentContextId(entry.Sop), item.Id, StringComparison.Ordinal));
+                if (sourceSop is not null)
+                {
+                    selectedSopIds.Add(sourceSop.Sop.Id);
+                }
+            }
+            else
+            {
+                var result = AllResults.FirstOrDefault(result => string.Equals(result.Id, item.Id, StringComparison.Ordinal));
+                if (result is not null)
+                {
+                    selectedSopIds.Add(result.SopId);
+                    selectedAnalysisTypeIds.Add(result.AnalysisType);
+                }
+            }
+        }
+
+        if (selectedSopIds.Count > 0 && selectedAnalysisTypeIds.Count > 0)
+        {
+            workflowStep = WorkflowStep.Results;
+        }
+        else if (selectedSopIds.Count > 0)
+        {
+            workflowStep = WorkflowStep.SelectAnalysisTypes;
         }
     }
 
-    private void ToggleFilters()
+    private IReadOnlyList<SopFolderGroup> GetFilteredSopGroups()
     {
-        isFilterPanelExpanded = !isFilterPanelExpanded;
-    }
-
-    private void HandleSearchInput(ChangeEventArgs args)
-    {
-        searchTerm = args.Value?.ToString() ?? string.Empty;
-    }
-
-    private void HandleAnalysisTypeChange(ChangeEventArgs args)
-    {
-        analysisTypeFilter = args.Value?.ToString() ?? string.Empty;
-    }
-
-    private void HandleSortChange(ChangeEventArgs args)
-    {
-        sortMode = args.Value?.ToString() ?? "recent";
-    }
-
-    private void ToggleFolderFilter(string folderId)
-    {
-        if (!selectedFilterFolderIds.Add(folderId))
-        {
-            selectedFilterFolderIds.Remove(folderId);
-        }
-    }
-
-    private void ClearFilters()
-    {
-        searchTerm = string.Empty;
-        analysisTypeFilter = string.Empty;
-        sortMode = "recent";
-        selectedFilterFolderIds.Clear();
-    }
-
-    private IReadOnlyList<DisplayFolder> GetFilteredGroups()
-    {
-        var folderGroups = new List<DisplayFolder>();
+        var groups = new List<SopFolderGroup>();
 
         foreach (var folder in AllFolders)
         {
-            if (selectedFilterFolderIds.Count > 0 && !selectedFilterFolderIds.Contains(folder.Id))
+            var sops = folder.Sops
+                .Where(sop => MatchesSopSearch(folder, sop))
+                .OrderBy(sop => sop.Title, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            if (sops.Length > 0)
             {
-                continue;
-            }
-
-            var sopGroups = new List<DisplaySop>();
-
-            foreach (var sop in SortSops(folder.Sops))
-            {
-                var results = SortResults(sop.Results)
-                    .Where(result => MatchesAnalysisType(result) && MatchesSearch(folder, sop, result))
-                    .ToArray();
-
-                if (results.Length > 0)
-                {
-                    sopGroups.Add(new DisplaySop(sop, results));
-                }
-            }
-
-            if (sopGroups.Count > 0)
-            {
-                folderGroups.Add(new DisplayFolder(folder, sopGroups));
+                groups.Add(new SopFolderGroup(folder, sops));
             }
         }
 
-        return sortMode switch
-        {
-            "folder" => folderGroups.OrderBy(group => group.Folder.DisplayName, StringComparer.OrdinalIgnoreCase).ToArray(),
-            "sop" => folderGroups.OrderBy(group => group.Sops.First().Sop.Title, StringComparer.OrdinalIgnoreCase).ToArray(),
-            "analysis" => folderGroups.OrderBy(group => group.Results.First().AnalysisType, StringComparer.OrdinalIgnoreCase).ToArray(),
-            _ => folderGroups.OrderByDescending(group => group.Results.Max(result => result.GeneratedAt)).ToArray()
-        };
+        return groups
+            .OrderBy(group => group.Folder.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
-    private IEnumerable<BulkAnalysisSop> SortSops(IEnumerable<BulkAnalysisSop> sops) =>
-        sortMode == "sop"
-            ? sops.OrderBy(sop => sop.Title, StringComparer.OrdinalIgnoreCase)
-            : sops;
-
-    private IEnumerable<BulkAnalysisResult> SortResults(IEnumerable<BulkAnalysisResult> results) =>
-        sortMode switch
-        {
-            "analysis" => results.OrderBy(result => result.AnalysisType, StringComparer.OrdinalIgnoreCase),
-            "sop" => results.OrderBy(result => result.SopTitle, StringComparer.OrdinalIgnoreCase),
-            _ => results.OrderByDescending(result => result.GeneratedAt)
-        };
-
-    private bool MatchesAnalysisType(BulkAnalysisResult result) =>
-        string.IsNullOrWhiteSpace(analysisTypeFilter) ||
-        string.Equals(result.AnalysisType, analysisTypeFilter, StringComparison.OrdinalIgnoreCase);
-
-    private bool MatchesSearch(BulkAnalysisFolder folder, BulkAnalysisSop sop, BulkAnalysisResult result)
+    private bool MatchesSopSearch(BulkAnalysisFolder folder, BulkAnalysisSop sop)
     {
-        if (string.IsNullOrWhiteSpace(searchTerm))
+        if (string.IsNullOrWhiteSpace(sopSearchTerm))
         {
             return true;
         }
 
-        return Contains(folder.DisplayName, searchTerm) ||
-            Contains(folder.ParentDisplayName, searchTerm) ||
-            Contains(sop.Title, searchTerm) ||
-            Contains(sop.OriginalFileName, searchTerm) ||
-            Contains(result.AnalysisType, searchTerm) ||
-            Contains(result.OriginalFileName, searchTerm);
+        return Contains(folder.DisplayName, sopSearchTerm) ||
+            Contains(folder.ParentDisplayName, sopSearchTerm) ||
+            Contains(sop.Title, sopSearchTerm) ||
+            Contains(sop.OriginalFileName, sopSearchTerm);
     }
 
     private static bool Contains(string? value, string search) =>
         !string.IsNullOrWhiteSpace(value) &&
         value.Contains(search, StringComparison.OrdinalIgnoreCase);
 
-    private IReadOnlyList<BulkAnalysisResult> GetSelectedResults() =>
-        AllResults
-            .Where(result => selectedResultIds.Contains(result.Id))
-            .OrderBy(result => result.FolderName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(result => result.SopTitle, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(result => result.AnalysisType, StringComparer.OrdinalIgnoreCase)
+    private void HandleSopSearchInput(ChangeEventArgs args)
+    {
+        sopSearchTerm = args.Value?.ToString() ?? string.Empty;
+    }
+
+    private void ToggleSopSelection(string sopId)
+    {
+        if (!selectedSopIds.Add(sopId))
+        {
+            selectedSopIds.Remove(sopId);
+            RemoveContextForSop(sopId);
+        }
+
+        PruneAnalysisTypeSelection();
+        EnsureActiveTargets();
+    }
+
+    private void SelectVisibleSops()
+    {
+        foreach (var sop in GetFilteredSopGroups().SelectMany(group => group.Sops))
+        {
+            selectedSopIds.Add(sop.Id);
+        }
+
+        PruneAnalysisTypeSelection();
+        EnsureActiveTargets();
+    }
+
+    private void ClearSopSelection()
+    {
+        selectedSopIds.Clear();
+        selectedAnalysisTypeIds.Clear();
+        selectedContextIds.Clear();
+        activeSopId = null;
+        activeAnalysisType = null;
+    }
+
+    private void ToggleAnalysisType(string analysisType)
+    {
+        if (!selectedAnalysisTypeIds.Add(analysisType))
+        {
+            selectedAnalysisTypeIds.Remove(analysisType);
+            RemoveContextForAnalysisType(analysisType);
+        }
+
+        EnsureActiveTargets();
+    }
+
+    private void GoToSopStep()
+    {
+        workflowStep = WorkflowStep.SelectSops;
+    }
+
+    private void GoToAnalysisStep()
+    {
+        if (selectedSopIds.Count == 0)
+        {
+            workflowStep = WorkflowStep.SelectSops;
+            return;
+        }
+
+        PruneAnalysisTypeSelection();
+        workflowStep = WorkflowStep.SelectAnalysisTypes;
+    }
+
+    private void GoToResultsStep()
+    {
+        if (selectedSopIds.Count == 0)
+        {
+            workflowStep = WorkflowStep.SelectSops;
+            return;
+        }
+
+        if (selectedAnalysisTypeIds.Count == 0)
+        {
+            workflowStep = WorkflowStep.SelectAnalysisTypes;
+            return;
+        }
+
+        EnsureActiveTargets();
+        workflowStep = WorkflowStep.Results;
+    }
+
+    private IReadOnlyList<SopWithFolder> GetSelectedSops() =>
+        AllSops
+            .Where(entry => selectedSopIds.Contains(entry.Sop.Id))
+            .OrderBy(entry => entry.Folder.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(entry => entry.Sop.Title, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-    private BulkAnalysisResult? GetPreviewResult()
-    {
-        var selectedResults = GetSelectedResults();
+    private IReadOnlyList<string> GetAvailableAnalysisTypes(IReadOnlyList<SopWithFolder> selectedSops) =>
+        selectedSops
+            .SelectMany(entry => entry.Sop.Results)
+            .Select(result => result.AnalysisType)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(type => type, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
-        if (isReviewMode && selectedResults.Count > 0)
+    private IReadOnlyList<string> GetSelectedAnalysisTypes(IReadOnlyList<string> availableAnalysisTypes) =>
+        availableAnalysisTypes
+            .Where(selectedAnalysisTypeIds.Contains)
+            .OrderBy(type => type, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    private SopWithFolder? GetActiveSop(IReadOnlyList<SopWithFolder> selectedSops) =>
+        selectedSops.FirstOrDefault(entry => string.Equals(entry.Sop.Id, activeSopId, StringComparison.Ordinal)) ??
+        selectedSops.FirstOrDefault();
+
+    private string? GetActiveAnalysisType(IReadOnlyList<string> selectedAnalysisTypes) =>
+        selectedAnalysisTypes.FirstOrDefault(type => string.Equals(type, activeAnalysisType, StringComparison.OrdinalIgnoreCase)) ??
+        selectedAnalysisTypes.FirstOrDefault();
+
+    private void SetActiveSop(string sopId)
+    {
+        activeSopId = sopId;
+    }
+
+    private void SetActiveAnalysisType(string analysisType)
+    {
+        activeAnalysisType = analysisType;
+    }
+
+    private void PreviousSop()
+    {
+        var selectedSops = GetSelectedSops();
+        if (selectedSops.Count == 0)
         {
-            reviewIndex = Math.Clamp(reviewIndex, 0, selectedResults.Count - 1);
-            focusedResultId = selectedResults[reviewIndex].Id;
-            return selectedResults[reviewIndex];
+            return;
         }
 
-        return focusedResultId is null
-            ? null
-            : AllResults.FirstOrDefault(result => result.Id == focusedResultId);
+        var currentIndex = Math.Max(0, selectedSops.ToList().FindIndex(entry => string.Equals(entry.Sop.Id, GetActiveSop(selectedSops)?.Sop.Id, StringComparison.Ordinal)));
+        var nextIndex = currentIndex == 0 ? selectedSops.Count - 1 : currentIndex - 1;
+        activeSopId = selectedSops[nextIndex].Sop.Id;
     }
 
-    private SelectionState GetSelectionState(IEnumerable<string> ids)
+    private void NextSop()
     {
-        var resultIds = ids.ToArray();
-
-        if (resultIds.Length == 0 || resultIds.All(id => !selectedResultIds.Contains(id)))
+        var selectedSops = GetSelectedSops();
+        if (selectedSops.Count == 0)
         {
-            return SelectionState.Unchecked;
+            return;
         }
 
-        return resultIds.All(selectedResultIds.Contains)
-            ? SelectionState.Checked
-            : SelectionState.Mixed;
+        var currentIndex = Math.Max(0, selectedSops.ToList().FindIndex(entry => string.Equals(entry.Sop.Id, GetActiveSop(selectedSops)?.Sop.Id, StringComparison.Ordinal)));
+        var nextIndex = currentIndex >= selectedSops.Count - 1 ? 0 : currentIndex + 1;
+        activeSopId = selectedSops[nextIndex].Sop.Id;
     }
 
-    private string GetTriStateClass(SelectionState state) =>
-        state switch
+    private void PreviousAnalysisType()
+    {
+        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(GetSelectedSops()));
+        if (selectedAnalysisTypes.Count == 0)
         {
-            SelectionState.Checked => "tri-checkbox checked",
-            SelectionState.Mixed => "tri-checkbox mixed",
-            _ => "tri-checkbox"
-        };
+            return;
+        }
 
-    private string GetAriaChecked(SelectionState state) =>
-        state switch
+        var current = GetActiveAnalysisType(selectedAnalysisTypes);
+        var currentIndex = Math.Max(0, selectedAnalysisTypes.ToList().FindIndex(type => string.Equals(type, current, StringComparison.OrdinalIgnoreCase)));
+        var nextIndex = currentIndex == 0 ? selectedAnalysisTypes.Count - 1 : currentIndex - 1;
+        activeAnalysisType = selectedAnalysisTypes[nextIndex];
+    }
+
+    private void NextAnalysisType()
+    {
+        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(GetSelectedSops()));
+        if (selectedAnalysisTypes.Count == 0)
         {
-            SelectionState.Checked => "true",
-            SelectionState.Mixed => "mixed",
-            _ => "false"
-        };
+            return;
+        }
 
-    private bool WouldGroupSelectionExceedLimit(IEnumerable<BulkAnalysisResult> results)
-    {
-        var selectedTokens = GetSelectedResults().Sum(result => result.EstimatedTokens);
-        var additionalTokens = results
-            .Where(result => !selectedResultIds.Contains(result.Id))
-            .Sum(result => result.EstimatedTokens);
-
-        return selectedTokens + additionalTokens > ChatContextState.ContextLimitTokens;
+        var current = GetActiveAnalysisType(selectedAnalysisTypes);
+        var currentIndex = Math.Max(0, selectedAnalysisTypes.ToList().FindIndex(type => string.Equals(type, current, StringComparison.OrdinalIgnoreCase)));
+        var nextIndex = currentIndex >= selectedAnalysisTypes.Count - 1 ? 0 : currentIndex + 1;
+        activeAnalysisType = selectedAnalysisTypes[nextIndex];
     }
 
-    private void ToggleFolder(DisplayFolder folder)
+    private void EnsureActiveTargets()
     {
-        ToggleResultGroup(folder.Results, "Selecting this folder would exceed the context limit. Narrow the filters or select fewer results.");
-    }
+        var selectedSops = GetSelectedSops();
+        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(selectedSops));
 
-    private void ToggleSop(DisplaySop sop)
-    {
-        ToggleResultGroup(sop.Results, "Selecting this SOP would exceed the context limit. Narrow the filters or select fewer results.");
-    }
-
-    private void ToggleResultGroup(IReadOnlyList<BulkAnalysisResult> results, string warning)
-    {
-        selectionWarning = null;
-        var state = GetSelectionState(results.Select(result => result.Id));
-
-        if (state == SelectionState.Checked)
+        if (selectedSops.All(entry => !string.Equals(entry.Sop.Id, activeSopId, StringComparison.Ordinal)))
         {
-            foreach (var result in results)
+            activeSopId = selectedSops.FirstOrDefault()?.Sop.Id;
+        }
+
+        if (selectedAnalysisTypes.All(type => !string.Equals(type, activeAnalysisType, StringComparison.OrdinalIgnoreCase)))
+        {
+            activeAnalysisType = selectedAnalysisTypes.FirstOrDefault();
+        }
+    }
+
+    private void PruneAnalysisTypeSelection()
+    {
+        var availableAnalysisTypes = GetAvailableAnalysisTypes(GetSelectedSops()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        selectedAnalysisTypeIds.RemoveWhere(type => !availableAnalysisTypes.Contains(type));
+        selectedContextIds.RemoveWhere(id => ShouldRemoveContextId(id, availableAnalysisTypes));
+    }
+
+    private bool ShouldRemoveContextId(string id, IReadOnlySet<string> availableAnalysisTypes)
+    {
+        if (id.StartsWith("doc:", StringComparison.Ordinal))
+        {
+            var sopId = id["doc:".Length..];
+            return !selectedSopIds.Contains(sopId);
+        }
+
+        var result = AllResults.FirstOrDefault(result => string.Equals(result.Id, id, StringComparison.Ordinal));
+        return result is null ||
+            !selectedSopIds.Contains(result.SopId) ||
+            !availableAnalysisTypes.Contains(result.AnalysisType);
+    }
+
+    private void RemoveContextForSop(string sopId)
+    {
+        selectedContextIds.Remove(GetSourceDocumentContextId(sopId));
+        selectedContextIds.RemoveWhere(id => AllResults.Any(result => string.Equals(result.Id, id, StringComparison.Ordinal) && string.Equals(result.SopId, sopId, StringComparison.Ordinal)));
+    }
+
+    private void RemoveContextForAnalysisType(string analysisType)
+    {
+        selectedContextIds.RemoveWhere(id => AllResults.Any(result => string.Equals(result.Id, id, StringComparison.Ordinal) && string.Equals(result.AnalysisType, analysisType, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private void ToggleSourceDocumentContext(BulkAnalysisFolder folder, BulkAnalysisSop sop)
+    {
+        ToggleContextItem(BulkAnalysisContextItem.FromSourceDocument(folder, sop).Id);
+    }
+
+    private void ToggleResultContext(BulkAnalysisResult result)
+    {
+        ToggleContextItem(result.Id);
+    }
+
+    private void ToggleContextItem(string id)
+    {
+        if (!selectedContextIds.Add(id))
+        {
+            selectedContextIds.Remove(id);
+        }
+    }
+
+    private void RemoveContextItem(string id)
+    {
+        selectedContextIds.Remove(id);
+    }
+
+    private IReadOnlyList<BulkAnalysisContextItem> GetSelectedContextItems()
+    {
+        var items = new List<BulkAnalysisContextItem>();
+
+        foreach (var entry in AllSops)
+        {
+            var sourceItem = BulkAnalysisContextItem.FromSourceDocument(entry.Folder, entry.Sop);
+            if (selectedContextIds.Contains(sourceItem.Id))
             {
-                selectedResultIds.Remove(result.Id);
+                items.Add(sourceItem);
             }
-
-            SyncReviewAfterSelectionChange();
-            return;
         }
 
-        if (WouldGroupSelectionExceedLimit(results))
-        {
-            selectionWarning = warning;
-            return;
-        }
+        items.AddRange(AllResults
+            .Where(result => selectedContextIds.Contains(result.Id))
+            .Select(BulkAnalysisContextItem.FromResult));
 
-        foreach (var result in results)
-        {
-            selectedResultIds.Add(result.Id);
-        }
-
-        SyncReviewAfterSelectionChange();
-    }
-
-    private void ToggleResult(string resultId)
-    {
-        selectionWarning = null;
-
-        if (!selectedResultIds.Add(resultId))
-        {
-            selectedResultIds.Remove(resultId);
-        }
-
-        if (focusedResultId is null)
-        {
-            focusedResultId = resultId;
-        }
-
-        SyncReviewAfterSelectionChange();
-    }
-
-    private void PreviewResult(BulkAnalysisResult result)
-    {
-        isReviewMode = false;
-        focusedResultId = result.Id;
-    }
-
-    private void ReviewSelected()
-    {
-        var selectedResults = GetSelectedResults();
-
-        if (selectedResults.Count == 0)
-        {
-            return;
-        }
-
-        isReviewMode = true;
-        reviewIndex = 0;
-        focusedResultId = selectedResults[0].Id;
-    }
-
-    private void PreviousSelected()
-    {
-        if (!isReviewMode || reviewIndex <= 0)
-        {
-            return;
-        }
-
-        reviewIndex--;
-        focusedResultId = GetSelectedResults()[reviewIndex].Id;
-    }
-
-    private void NextSelected()
-    {
-        var selectedResults = GetSelectedResults();
-
-        if (!isReviewMode || reviewIndex >= selectedResults.Count - 1)
-        {
-            return;
-        }
-
-        reviewIndex++;
-        focusedResultId = selectedResults[reviewIndex].Id;
-    }
-
-    private void RemoveSelected(string resultId)
-    {
-        selectedResultIds.Remove(resultId);
-        SyncReviewAfterSelectionChange();
-    }
-
-    private void ClearSelection()
-    {
-        selectedResultIds.Clear();
-        isReviewMode = false;
-        focusedResultId = null;
-        reviewIndex = 0;
-        selectionWarning = null;
+        return items
+            .OrderBy(item => item.FolderName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.SopTitle, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Kind)
+            .ThenBy(item => item.TypeLabel, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private void LoadContext()
     {
-        var selectedResults = GetSelectedResults();
+        var contextItems = GetSelectedContextItems();
 
-        if (selectedResults.Count == 0 ||
-            selectedResults.Sum(result => result.EstimatedTokens) > ChatContextState.ContextLimitTokens)
+        if (contextItems.Count == 0 ||
+            contextItems.Sum(item => item.EstimatedTokens) > ChatContextState.ContextLimitTokens)
         {
             return;
         }
 
-        ChatContext.Load(selectedResults);
-        selectionWarning = null;
+        ChatContext.Load(contextItems);
+        NavigationManager.NavigateTo("/assistant-context");
     }
 
-    private void GoToChat()
+    private void GoToAssistantContext()
     {
-        NavigationManager.NavigateTo("/");
+        NavigationManager.NavigateTo("/assistant-context");
     }
 
-    private void ClearLoadedContext()
+    private static string GetSourceDocumentContextId(BulkAnalysisSop sop) =>
+        GetSourceDocumentContextId(sop.Id);
+
+    private static string GetSourceDocumentContextId(string sopId) =>
+        $"doc:{sopId}";
+
+    private string GetSopOptionClass(string sopId) =>
+        selectedSopIds.Contains(sopId) ? "sop-option-row selected" : "sop-option-row";
+
+    private string GetAnalysisOptionClass(string analysisType) =>
+        selectedAnalysisTypeIds.Contains(analysisType) ? "analysis-type-option selected" : "analysis-type-option";
+
+    private string GetContextChoiceClass(string id) =>
+        selectedContextIds.Contains(id) ? "context-choice-row selected" : "context-choice-row";
+
+    private static string GetResultTabClass(bool isActive) =>
+        isActive ? "result-nav-tab active" : "result-nav-tab";
+
+    private static string GetAnalysisGlyph(string analysisType)
     {
-        ChatContext.Clear();
+        if (analysisType.Contains("Summary", StringComparison.OrdinalIgnoreCase))
+        {
+            return "S";
+        }
+
+        if (analysisType.Contains("Risk", StringComparison.OrdinalIgnoreCase))
+        {
+            return "R";
+        }
+
+        if (analysisType.Contains("Compliance", StringComparison.OrdinalIgnoreCase))
+        {
+            return "C";
+        }
+
+        if (analysisType.Contains("Gap", StringComparison.OrdinalIgnoreCase))
+        {
+            return "G";
+        }
+
+        return "A";
     }
 
-    private void ShowInList(BulkAnalysisResult result)
+    private static string GetAnalysisDescription(string analysisType)
     {
-        searchTerm = string.Empty;
-        analysisTypeFilter = string.Empty;
-        selectedFilterFolderIds.Clear();
-        selectedFilterFolderIds.Add(result.FolderId);
-        isFilterPanelExpanded = false;
-        focusedResultId = result.Id;
-        isReviewMode = false;
-    }
-
-    private void SyncReviewAfterSelectionChange()
-    {
-        var selectedResults = GetSelectedResults();
-
-        if (selectedResults.Count == 0)
+        if (analysisType.Contains("Summary", StringComparison.OrdinalIgnoreCase))
         {
-            isReviewMode = false;
-            reviewIndex = 0;
-            return;
+            return "Condensed operational readout for quick orientation.";
         }
 
-        if (isReviewMode)
+        if (analysisType.Contains("Risk", StringComparison.OrdinalIgnoreCase))
         {
-            reviewIndex = Math.Clamp(reviewIndex, 0, selectedResults.Count - 1);
-            focusedResultId = selectedResults[reviewIndex].Id;
-        }
-    }
-
-    private IReadOnlyList<string> GetActiveFilterChips()
-    {
-        var chips = new List<string>();
-
-        if (!string.IsNullOrWhiteSpace(searchTerm))
-        {
-            chips.Add($"Search: {searchTerm}");
+            return "Highlights controls, failure modes, and mitigation areas.";
         }
 
-        chips.AddRange(AllFolders
-            .Where(folder => selectedFilterFolderIds.Contains(folder.Id))
-            .Select(folder => folder.DisplayName));
-
-        if (!string.IsNullOrWhiteSpace(analysisTypeFilter))
+        if (analysisType.Contains("Compliance", StringComparison.OrdinalIgnoreCase))
         {
-            chips.Add(analysisTypeFilter);
+            return "Reviews evidence, timeliness, and regulatory alignment.";
         }
 
-        if (!string.Equals(sortMode, "recent", StringComparison.OrdinalIgnoreCase))
+        if (analysisType.Contains("Gap", StringComparison.OrdinalIgnoreCase))
         {
-            chips.Add(sortMode switch
-            {
-                "sop" => "SOP name",
-                "folder" => "Folder sort",
-                "analysis" => "Analysis type sort",
-                _ => sortMode
-            });
+            return "Identifies missing controls and process handoff gaps.";
         }
 
-        return chips;
-    }
-
-    private string GetResultRowClass(BulkAnalysisResult result)
-    {
-        var classes = new List<string> { "bulk-result-row" };
-
-        if (selectedResultIds.Contains(result.Id))
+        if (analysisType.Contains("Recommendation", StringComparison.OrdinalIgnoreCase))
         {
-            classes.Add("selected");
+            return "Prioritized changes for clearer SOP execution.";
         }
 
-        if (string.Equals(focusedResultId, result.Id, StringComparison.Ordinal))
-        {
-            classes.Add("focused");
-        }
-
-        return string.Join(' ', classes);
+        return "Generated bulk analysis output for selected SOPs.";
     }
 
     private MarkupString RenderMarkdown(BulkAnalysisResult result) =>
@@ -832,17 +877,14 @@
         ChatContext.Changed -= HandleChatContextChanged;
     }
 
-    private sealed record DisplayFolder(BulkAnalysisFolder Folder, IReadOnlyList<DisplaySop> Sops)
-    {
-        public IReadOnlyList<BulkAnalysisResult> Results => Sops.SelectMany(sop => sop.Results).ToArray();
-    }
+    private sealed record SopWithFolder(BulkAnalysisFolder Folder, BulkAnalysisSop Sop);
 
-    private sealed record DisplaySop(BulkAnalysisSop Sop, IReadOnlyList<BulkAnalysisResult> Results);
+    private sealed record SopFolderGroup(BulkAnalysisFolder Folder, IReadOnlyList<BulkAnalysisSop> Sops);
 
-    private enum SelectionState
+    private enum WorkflowStep
     {
-        Unchecked,
-        Mixed,
-        Checked
+        SelectSops,
+        SelectAnalysisTypes,
+        Results
     }
 }
