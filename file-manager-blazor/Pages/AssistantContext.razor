@@ -1,0 +1,151 @@
+@page "/assistant-context"
+@implements IDisposable
+@inject ChatContextState ChatContext
+@inject NavigationManager NavigationManager
+
+@{
+    var contextItems = ChatContext.LoadedItems;
+    var sourceDocuments = contextItems.Where(item => item.Kind == BulkAnalysisContextItemKind.SourceDocument).ToArray();
+    var analysisResults = contextItems.Where(item => item.Kind == BulkAnalysisContextItemKind.AnalysisResult).ToArray();
+    var usagePercent = Math.Min(100, ChatContext.LoadedTokenEstimate * 100.0 / ChatContextState.ContextLimitTokens);
+}
+
+<PageTitle>Assistant Context</PageTitle>
+
+<section class="assistant-context-page" aria-labelledby="assistant-context-title">
+    <header class="guided-workflow-header assistant-context-header">
+        <p class="page-kicker">Assistant context</p>
+        <h1 id="assistant-context-title">Ready to continue with selected context</h1>
+        <p>
+            Review the SOP documents and bulk analysis results that will be carried into the next assistant prompt.
+        </p>
+        <div class="workflow-divider" aria-hidden="true"></div>
+    </header>
+
+    <section class="assistant-context-shell">
+        @if (!ChatContext.HasLoadedContext)
+        {
+            <div class="workflow-empty-state">
+                <strong>No context loaded</strong>
+                <span>Select SOP documents or generated bulk analysis results before continuing.</span>
+                <button type="button" class="workflow-action-button primary" @onclick="BackToBulkAnalysis">
+                    Open Bulk Analysis
+                </button>
+            </div>
+        }
+        else
+        {
+            <section class="context-summary-card" aria-label="Loaded context summary">
+                <div class="bulk-card-title-row">
+                    <div>
+                        <h2>@($"{contextItems.Count} context item{(contextItems.Count == 1 ? "" : "s")} loaded")</h2>
+                        <p>@($"{sourceDocuments.Length} source document{(sourceDocuments.Length == 1 ? "" : "s")} and {analysisResults.Length} analysis result{(analysisResults.Length == 1 ? "" : "s")}")</p>
+                    </div>
+                    <div class="bulk-card-actions">
+                        <button type="button" class="secondary-button" @onclick="BackToBulkAnalysis">Back to results</button>
+                        <button type="button" class="secondary-button" @onclick="ClearContext">Clear context</button>
+                    </div>
+                </div>
+
+                <div class="context-meter" aria-label="Context usage">
+                    <span style="@($"width: {FormatPercent(usagePercent)}%;")"></span>
+                </div>
+                <p class="muted-copy">@($"{FormatTokens(ChatContext.LoadedTokenEstimate)} / {FormatTokens(ChatContextState.ContextLimitTokens)} estimated tokens")</p>
+            </section>
+
+            <section class="assistant-context-grid">
+                <article class="context-list-card" aria-labelledby="source-context-title">
+                    <h2 id="source-context-title">Source documents</h2>
+                    @if (sourceDocuments.Length == 0)
+                    {
+                        <p class="muted-copy">No source documents were loaded.</p>
+                    }
+                    else
+                    {
+                        <div class="context-item-list">
+                            @foreach (var item in sourceDocuments)
+                            {
+                                <div class="context-item-row">
+                                    <span class="context-kind-pill">@item.TypeLabel</span>
+                                    <strong>@item.DisplayName</strong>
+                                    <small>@item.FolderName - @item.SopTitle</small>
+                                </div>
+                            }
+                        </div>
+                    }
+                </article>
+
+                <article class="context-list-card" aria-labelledby="analysis-context-title">
+                    <h2 id="analysis-context-title">Analysis results</h2>
+                    @if (analysisResults.Length == 0)
+                    {
+                        <p class="muted-copy">No generated analysis results were loaded.</p>
+                    }
+                    else
+                    {
+                        <div class="context-item-list">
+                            @foreach (var item in analysisResults)
+                            {
+                                <div class="context-item-row">
+                                    <span class="context-kind-pill">@item.TypeLabel</span>
+                                    <strong>@item.SopTitle</strong>
+                                    <small>@item.FolderName - @item.OriginalFileName@FormatGeneratedAt(item)</small>
+                                </div>
+                            }
+                        </div>
+                    }
+                </article>
+            </section>
+
+            <section class="assistant-prompt-card" aria-label="Assistant prompt">
+                <div class="composer-shell-copy">
+                    <h2>Ask Strider with this context</h2>
+                    <p>The loaded SOP context is ready for the next prompt in this demo flow.</p>
+                </div>
+                <textarea placeholder="Ask Strider what to do with the selected SOP context..." rows="5" aria-label="Assistant prompt"></textarea>
+                <div class="composer-primary-actions">
+                    <button type="button" class="workflow-action-button primary">Send prompt</button>
+                    <button type="button" class="workflow-action-button secondary" @onclick="BackToBulkAnalysis">Refine context</button>
+                </div>
+            </section>
+        }
+    </section>
+</section>
+
+@code {
+    protected override void OnInitialized()
+    {
+        ChatContext.Changed += HandleChatContextChanged;
+    }
+
+    private void BackToBulkAnalysis()
+    {
+        NavigationManager.NavigateTo("/bulk-analysis");
+    }
+
+    private void ClearContext()
+    {
+        ChatContext.Clear();
+    }
+
+    private void HandleChatContextChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private static string FormatGeneratedAt(BulkAnalysisContextItem item) =>
+        item.GeneratedAt is null
+            ? string.Empty
+            : $" - {item.GeneratedAt.Value:MMM d, yyyy h:mm tt}";
+
+    private static string FormatTokens(int tokens) =>
+        tokens >= 1_000 ? $"{tokens / 1_000.0:0.#}k" : tokens.ToString("N0");
+
+    private static string FormatPercent(double value) =>
+        value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    public void Dispose()
+    {
+        ChatContext.Changed -= HandleChatContextChanged;
+    }
+}

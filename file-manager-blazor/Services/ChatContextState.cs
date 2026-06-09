@@ -18,11 +18,16 @@ public sealed class ChatContextState
 
     public void Load(IEnumerable<BulkAnalysisResult> results)
     {
-        LoadedItems = results
+        Load(results.Select(BulkAnalysisContextItem.FromResult));
+    }
+
+    public void Load(IEnumerable<BulkAnalysisContextItem> items)
+    {
+        LoadedItems = items
             .OrderBy(result => result.FolderName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(result => result.SopTitle, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(result => result.AnalysisType, StringComparer.OrdinalIgnoreCase)
-            .Select(BulkAnalysisContextItem.FromResult)
+            .ThenBy(result => result.Kind)
+            .ThenBy(result => result.TypeLabel, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         LoadedAt = DateTime.Now;
         NotifyChanged();
