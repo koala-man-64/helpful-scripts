@@ -2151,7 +2151,7 @@ svg {
 
 .document-folder-header {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto auto minmax(0, 1fr);
     align-items: center;
     margin-bottom: 0.85rem;
 }
@@ -2189,6 +2189,20 @@ svg {
 }
 
 .folder-collapse-button:focus-visible {
+    outline: 3px solid rgba(17, 127, 139, 0.22);
+    outline-offset: 2px;
+}
+
+.folder-select-button {
+    margin-top: 0;
+    cursor: pointer;
+}
+
+.folder-select-button:hover {
+    border-color: var(--shell-accent-strong);
+}
+
+.folder-select-button:focus-visible {
     outline: 3px solid rgba(17, 127, 139, 0.22);
     outline-offset: 2px;
 }
@@ -2711,7 +2725,7 @@ svg {
     }
 
     .document-folder-header {
-        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-columns: auto auto minmax(0, 1fr);
         align-items: center;
     }
 

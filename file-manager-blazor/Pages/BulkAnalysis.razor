@@ -72,9 +72,16 @@
                 {
                     var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
                     var selectedInFolder = folderPanel.VisibleDocuments.Count(document => selectedDocumentIds.Contains(document.Id));
+                    var folderSelectionState = GetFolderSelectionState(folderPanel);
 
                     <section class="@GetFolderPanelClass(folderPanel)" style="@($"--folder-depth: {folderPanel.Depth};")">
                         <div class="document-folder-header">
+                            <button type="button"
+                                    class="@GetFolderSelectClass(folderSelectionState)"
+                                    role="checkbox"
+                                    aria-checked="@GetAriaChecked(folderSelectionState)"
+                                    aria-label="@($"Select all documents under {folderPanel.Folder.DisplayName}")"
+                                    @onclick="() => ToggleFolderSelection(folderPanel)"></button>
                             <button type="button"
                                     class="folder-collapse-button"
                                     aria-expanded="@(!isCollapsed)"
@@ -595,6 +602,35 @@
         EnsureActiveTargets();
     }
 
+    private void ToggleFolderSelection(DocumentFolderPanel panel)
+    {
+        var documents = panel.VisibleDocuments;
+
+        if (documents.Count == 0)
+        {
+            return;
+        }
+
+        if (GetFolderSelectionState(panel) == SelectionState.Checked)
+        {
+            foreach (var document in documents)
+            {
+                selectedDocumentIds.Remove(document.Id);
+                RemoveContextForDocument(document.Id);
+            }
+        }
+        else
+        {
+            foreach (var document in documents)
+            {
+                selectedDocumentIds.Add(document.Id);
+            }
+        }
+
+        PruneAnalysisTypeSelection();
+        EnsureActiveTargets();
+    }
+
     private void SelectVisibleDocuments()
     {
         foreach (var document in GetVisibleDocumentPanels()
@@ -880,6 +916,36 @@
     private string GetDocumentOptionClass(string documentId) =>
         selectedDocumentIds.Contains(documentId) ? "document-option-row selected" : "document-option-row";
 
+    private SelectionState GetFolderSelectionState(DocumentFolderPanel panel)
+    {
+        var documents = panel.VisibleDocuments;
+
+        if (documents.Count == 0 || documents.All(document => !selectedDocumentIds.Contains(document.Id)))
+        {
+            return SelectionState.Unchecked;
+        }
+
+        return documents.All(document => selectedDocumentIds.Contains(document.Id))
+            ? SelectionState.Checked
+            : SelectionState.Mixed;
+    }
+
+    private static string GetFolderSelectClass(SelectionState state) =>
+        state switch
+        {
+            SelectionState.Checked => "tri-checkbox folder-select-button checked",
+            SelectionState.Mixed => "tri-checkbox folder-select-button mixed",
+            _ => "tri-checkbox folder-select-button"
+        };
+
+    private static string GetAriaChecked(SelectionState state) =>
+        state switch
+        {
+            SelectionState.Checked => "true",
+            SelectionState.Mixed => "mixed",
+            _ => "false"
+        };
+
     private bool IsFolderCollapsed(string folderId) =>
         collapsedFolderIds.Contains(folderId);
 
@@ -1010,5 +1076,12 @@
         SelectDocuments,
         SelectAnalysisTypes,
         Results
+    }
+
+    private enum SelectionState
+    {
+        Unchecked,
+        Mixed,
+        Checked
     }
 }
