@@ -28,40 +28,60 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                         "claims-ops",
                         "Claims Operations",
                         "Operations Library",
+                        [],
                         [
-                            CreateDocument(
-                                "claims-intake",
-                                "claims-ops",
-                                "Claims Intake Playbook",
-                                "claims-intake-playbook.pdf",
+                            CreateFolder(
+                                "claims-front-door",
+                                "Front Door Intake",
+                                "Claims Operations",
                                 [
-                                    Result("claims-intake-summary", "claims-ops", "claims-intake", "Claims Operations", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Executive Summary", BaseDate.AddHours(-2), ClaimsSummary()),
-                                    Result("claims-intake-risk", "claims-ops", "claims-intake", "Claims Operations", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Risk Analysis", BaseDate.AddHours(-3), ClaimsRisk()),
-                                    Result("claims-intake-gap", "claims-ops", "claims-intake", "Claims Operations", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Gap Analysis", BaseDate.AddDays(-1), ClaimsGap())
+                                    CreateDocument(
+                                        "claims-intake",
+                                        "claims-front-door",
+                                        "Claims Intake Playbook",
+                                        "claims-intake-playbook.pdf",
+                                        [
+                                            Result("claims-intake-summary", "claims-front-door", "claims-intake", "Front Door Intake", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Executive Summary", BaseDate.AddHours(-2), ClaimsSummary()),
+                                            Result("claims-intake-risk", "claims-front-door", "claims-intake", "Front Door Intake", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Risk Analysis", BaseDate.AddHours(-3), ClaimsRisk()),
+                                            Result("claims-intake-gap", "claims-front-door", "claims-intake", "Front Door Intake", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Gap Analysis", BaseDate.AddDays(-1), ClaimsGap())
+                                        ])
                                 ]),
-                            CreateDocument(
-                                "appeals-resolution",
-                                "claims-ops",
-                                "Appeals Resolution Guide",
-                                "appeals-resolution-guide.docx",
+                            CreateFolder(
+                                "claims-appeals",
+                                "Appeals and Disputes",
+                                "Claims Operations",
                                 [
-                                    Result("appeals-summary", "claims-ops", "appeals-resolution", "Claims Operations", "Appeals Resolution Guide", "appeals-resolution-guide.docx", "Executive Summary", BaseDate.AddDays(-2), AppealsSummary()),
-                                    Result("appeals-compliance", "claims-ops", "appeals-resolution", "Claims Operations", "Appeals Resolution Guide", "appeals-resolution-guide.docx", "Compliance Review", BaseDate.AddDays(-2).AddHours(-2), AppealsCompliance())
+                                    CreateDocument(
+                                        "appeals-resolution",
+                                        "claims-appeals",
+                                        "Appeals Resolution Guide",
+                                        "appeals-resolution-guide.docx",
+                                        [
+                                            Result("appeals-summary", "claims-appeals", "appeals-resolution", "Appeals and Disputes", "Appeals Resolution Guide", "appeals-resolution-guide.docx", "Executive Summary", BaseDate.AddDays(-2), AppealsSummary()),
+                                            Result("appeals-compliance", "claims-appeals", "appeals-resolution", "Appeals and Disputes", "Appeals Resolution Guide", "appeals-resolution-guide.docx", "Compliance Review", BaseDate.AddDays(-2).AddHours(-2), AppealsCompliance())
+                                        ])
                                 ])
                         ]),
                     CreateFolder(
                         "member-comms",
                         "Member Communications",
                         "Operations Library",
+                        [],
                         [
-                            CreateDocument(
-                                "notice-generation",
-                                "member-comms",
-                                "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully",
-                                "notice-generation-style-guide-long-title.docx",
+                            CreateFolder(
+                                "member-notices",
+                                "Notice Operations",
+                                "Member Communications",
                                 [
-                                    Result("notice-summary", "member-comms", "notice-generation", "Member Communications", "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully", "notice-generation-style-guide-long-title.docx", "Executive Summary", BaseDate.AddDays(-7), NoticeSummary()),
-                                    Result("notice-unavailable", "member-comms", "notice-generation", "Member Communications", "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully", "notice-generation-style-guide-long-title.docx", "Compliance Review", BaseDate.AddDays(-8), UnavailablePreviewContent(), IsPreviewAvailable: false)
+                                    CreateDocument(
+                                        "notice-generation",
+                                        "member-notices",
+                                        "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully",
+                                        "notice-generation-style-guide-long-title.docx",
+                                        [
+                                            Result("notice-summary", "member-notices", "notice-generation", "Notice Operations", "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully", "notice-generation-style-guide-long-title.docx", "Executive Summary", BaseDate.AddDays(-7), NoticeSummary()),
+                                            Result("notice-unavailable", "member-notices", "notice-generation", "Notice Operations", "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully", "notice-generation-style-guide-long-title.docx", "Compliance Review", BaseDate.AddDays(-8), UnavailablePreviewContent(), IsPreviewAvailable: false)
+                                        ])
                                 ])
                         ])
                 ]),
@@ -75,23 +95,36 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                         "prior-auth",
                         "Prior Authorization",
                         "Clinical Library",
+                        [],
                         [
-                            CreateDocument(
-                                "pa-clinical-review",
-                                "prior-auth",
-                                "Clinical Review Policy Brief",
-                                "clinical-review-policy.md",
+                            CreateFolder(
+                                "clinical-review",
+                                "Clinical Review",
+                                "Prior Authorization",
                                 [
-                                    Result("pa-review-impact", "prior-auth", "pa-clinical-review", "Prior Authorization", "Clinical Review Policy Brief", "clinical-review-policy.md", "Operational Impact", BaseDate.AddDays(-4), PriorAuthImpact()),
-                                    Result("pa-review-recommendations", "prior-auth", "pa-clinical-review", "Prior Authorization", "Clinical Review Policy Brief", "clinical-review-policy.md", "Recommendations", BaseDate.AddDays(-5), PriorAuthRecommendations())
+                                    CreateDocument(
+                                        "pa-clinical-review",
+                                        "clinical-review",
+                                        "Clinical Review Policy Brief",
+                                        "clinical-review-policy.md",
+                                        [
+                                            Result("pa-review-impact", "clinical-review", "pa-clinical-review", "Clinical Review", "Clinical Review Policy Brief", "clinical-review-policy.md", "Operational Impact", BaseDate.AddDays(-4), PriorAuthImpact()),
+                                            Result("pa-review-recommendations", "clinical-review", "pa-clinical-review", "Clinical Review", "Clinical Review Policy Brief", "clinical-review-policy.md", "Recommendations", BaseDate.AddDays(-5), PriorAuthRecommendations())
+                                        ])
                                 ]),
-                            CreateDocument(
-                                "pa-data-quality",
-                                "prior-auth",
-                                "Authorization Data Quality Checklist",
-                                "authorization-data-quality-checklist.pdf",
+                            CreateFolder(
+                                "authorization-data",
+                                "Authorization Data Controls",
+                                "Prior Authorization",
                                 [
-                                    Result("pa-data-quality", "prior-auth", "pa-data-quality", "Prior Authorization", "Authorization Data Quality Checklist", "authorization-data-quality-checklist.pdf", "Data Quality Review", BaseDate.AddDays(-6), DataQualityReview())
+                                    CreateDocument(
+                                        "pa-data-quality",
+                                        "authorization-data",
+                                        "Authorization Data Quality Checklist",
+                                        "authorization-data-quality-checklist.pdf",
+                                        [
+                                            Result("pa-data-quality", "authorization-data", "pa-data-quality", "Authorization Data Controls", "Authorization Data Quality Checklist", "authorization-data-quality-checklist.pdf", "Data Quality Review", BaseDate.AddDays(-6), DataQualityReview())
+                                        ])
                                 ])
                         ])
                 ]),
@@ -105,14 +138,21 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                         "enterprise-corpus",
                         "Enterprise Document Corpus",
                         "Archive",
+                        [],
                         [
-                            CreateDocument(
-                                "claims-corpus",
-                                "enterprise-corpus",
-                                "Complete Claims Document Corpus",
-                                "complete-claims-corpus.zip",
+                            CreateFolder(
+                                "claims-corpus-archive",
+                                "Claims Corpus Archive",
+                                "Enterprise Document Corpus",
                                 [
-                                    Result("enterprise-corpus-crosswalk", "enterprise-corpus", "claims-corpus", "Enterprise Document Corpus", "Complete Claims Document Corpus", "complete-claims-corpus.zip", "Full Corpus Crosswalk", BaseDate.AddDays(-10), LargeCorpusMarkdown(), IsPreviewAvailable: false)
+                                    CreateDocument(
+                                        "claims-corpus",
+                                        "claims-corpus-archive",
+                                        "Complete Claims Document Corpus",
+                                        "complete-claims-corpus.zip",
+                                        [
+                                            Result("enterprise-corpus-crosswalk", "claims-corpus-archive", "claims-corpus", "Claims Corpus Archive", "Complete Claims Document Corpus", "complete-claims-corpus.zip", "Full Corpus Crosswalk", BaseDate.AddDays(-10), LargeCorpusMarkdown(), IsPreviewAvailable: false)
+                                        ])
                                 ])
                         ])
                 ])
