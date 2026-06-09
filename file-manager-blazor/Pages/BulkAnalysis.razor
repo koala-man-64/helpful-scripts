@@ -438,6 +438,30 @@
     private async Task RefreshAsync()
     {
         allFolders = await ResultProvider.GetFoldersAsync();
+        CollapseAllFolders();
+    }
+
+    private void CollapseAllFolders()
+    {
+        collapsedFolderIds.Clear();
+
+        foreach (var folder in EnumerateFolders(AllFolders))
+        {
+            collapsedFolderIds.Add(folder.Id);
+        }
+    }
+
+    private static IEnumerable<BulkAnalysisFolder> EnumerateFolders(IEnumerable<BulkAnalysisFolder> folders)
+    {
+        foreach (var folder in folders)
+        {
+            yield return folder;
+
+            foreach (var childFolder in EnumerateFolders(folder.ChildFolders))
+            {
+                yield return childFolder;
+            }
+        }
     }
 
     private void RestoreLoadedContextSelection()
