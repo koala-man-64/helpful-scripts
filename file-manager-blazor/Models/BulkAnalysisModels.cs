@@ -4,14 +4,14 @@ public sealed record BulkAnalysisFolder(
     string Id,
     string DisplayName,
     string? ParentDisplayName,
-    IReadOnlyList<BulkAnalysisSop> Sops)
+    IReadOnlyList<BulkAnalysisDocument> Documents)
 {
-    public int SopCount => Sops.Count;
+    public int DocumentCount => Documents.Count;
 
-    public int ResultCount => Sops.Sum(sop => sop.Results.Count);
+    public int ResultCount => Documents.Sum(document => document.Results.Count);
 }
 
-public sealed record BulkAnalysisSop(
+public sealed record BulkAnalysisDocument(
     string Id,
     string FolderId,
     string Title,
@@ -21,9 +21,9 @@ public sealed record BulkAnalysisSop(
 public sealed record BulkAnalysisResult(
     string Id,
     string FolderId,
-    string SopId,
+    string DocumentId,
     string FolderName,
-    string SopTitle,
+    string DocumentTitle,
     string OriginalFileName,
     string AnalysisType,
     DateTime GeneratedAt,
@@ -43,7 +43,7 @@ public sealed record BulkAnalysisContextItem(
     string Id,
     BulkAnalysisContextItemKind Kind,
     string FolderName,
-    string SopTitle,
+    string DocumentTitle,
     string OriginalFileName,
     string? AnalysisType,
     DateTime? GeneratedAt,
@@ -54,7 +54,7 @@ public sealed record BulkAnalysisContextItem(
     public string DisplayName =>
         Kind == BulkAnalysisContextItemKind.SourceDocument
             ? OriginalFileName
-            : $"{SopTitle} - {AnalysisType}";
+            : $"{DocumentTitle} - {AnalysisType}";
 
     public string TypeLabel =>
         Kind == BulkAnalysisContextItemKind.SourceDocument
@@ -66,28 +66,28 @@ public sealed record BulkAnalysisContextItem(
             result.Id,
             BulkAnalysisContextItemKind.AnalysisResult,
             result.FolderName,
-            result.SopTitle,
+            result.DocumentTitle,
             result.OriginalFileName,
             result.AnalysisType,
             result.GeneratedAt,
             result.EstimatedTokens);
 
-    public static BulkAnalysisContextItem FromSourceDocument(BulkAnalysisFolder folder, BulkAnalysisSop sop) =>
+    public static BulkAnalysisContextItem FromSourceDocument(BulkAnalysisFolder folder, BulkAnalysisDocument document) =>
         new(
-            $"doc:{sop.Id}",
+            $"doc:{document.Id}",
             BulkAnalysisContextItemKind.SourceDocument,
             folder.DisplayName,
-            sop.Title,
-            sop.OriginalFileName,
+            document.Title,
+            document.OriginalFileName,
             null,
             null,
-            EstimateSourceDocumentTokens(sop));
+            EstimateSourceDocumentTokens(document));
 
-    private static int EstimateSourceDocumentTokens(BulkAnalysisSop sop)
+    private static int EstimateSourceDocumentTokens(BulkAnalysisDocument document)
     {
-        var resultAverage = sop.Results.Count == 0
+        var resultAverage = document.Results.Count == 0
             ? 1_200
-            : sop.Results.Sum(result => result.EstimatedTokens) / sop.Results.Count;
+            : document.Results.Sum(result => result.EstimatedTokens) / document.Results.Count;
 
         return Math.Clamp(resultAverage * 2, 1_200, 8_000);
     }

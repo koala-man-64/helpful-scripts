@@ -6,14 +6,14 @@
 @inject NavigationManager NavigationManager
 
 @{
-    var selectedSops = GetSelectedSops();
-    var availableAnalysisTypes = GetAvailableAnalysisTypes(selectedSops);
+    var selectedDocuments = GetSelectedDocuments();
+    var availableAnalysisTypes = GetAvailableAnalysisTypes(selectedDocuments);
     var selectedAnalysisTypes = GetSelectedAnalysisTypes(availableAnalysisTypes);
-    var activeSop = GetActiveSop(selectedSops);
+    var activeDocument = GetActiveDocument(selectedDocuments);
     var activeAnalysisType = GetActiveAnalysisType(selectedAnalysisTypes);
-    var activeResult = activeSop is null || activeAnalysisType is null
+    var activeResult = activeDocument is null || activeAnalysisType is null
         ? null
-        : activeSop.Sop.Results.FirstOrDefault(result => string.Equals(result.AnalysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase));
+        : activeDocument.Document.Results.FirstOrDefault(result => string.Equals(result.AnalysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase));
     var selectedContextItems = GetSelectedContextItems();
     var selectedTokens = selectedContextItems.Sum(item => item.EstimatedTokens);
     var isOverLimit = selectedTokens > ChatContextState.ContextLimitTokens;
@@ -25,7 +25,7 @@
 <PageTitle>Bulk Analysis</PageTitle>
 
 <header class="guided-workflow-header">
-    <p class="page-kicker">Bulk SOP analysis</p>
+    <p class="page-kicker">Bulk document analysis</p>
     <h1>@HeaderTitle</h1>
     <p>@HeaderDescription</p>
     <div class="workflow-progress" aria-label="Workflow progress">
@@ -38,38 +38,38 @@
 </header>
 
 <section class="guided-analysis-page" aria-label="Bulk Analysis workflow">
-    @if (workflowStep == WorkflowStep.SelectSops)
+    @if (workflowStep == WorkflowStep.SelectDocuments)
     {
-        <section class="workflow-card" aria-labelledby="select-sops-title">
+        <section class="workflow-card" aria-labelledby="select-documents-title">
             <div class="workflow-card-header">
                 <div>
-                    <h2 id="select-sops-title">Select SOPs</h2>
-                    <p>Choose the procedures you want included in the bulk analysis review.</p>
+                    <h2 id="select-documents-title">Select documents</h2>
+                    <p>Choose the documents you want included in the bulk analysis review.</p>
                 </div>
-                <span class="selected-count">@($"{selectedSopIds.Count} selected")</span>
+                <span class="selected-count">@($"{selectedDocumentIds.Count} selected")</span>
             </div>
 
             <div class="selection-toolbar">
                 <label class="form-control search-box">
                     <span class="control-label">Search</span>
                     <input type="search"
-                           placeholder="Search SOPs, folders, or source files..."
-                           value="@sopSearchTerm"
-                           @oninput="HandleSopSearchInput" />
+                           placeholder="Search documents, folders, or source files..."
+                           value="@documentSearchTerm"
+                           @oninput="HandleDocumentSearchInput" />
                 </label>
                 <div class="inline-actions">
-                    <button type="button" class="secondary-button" @onclick="SelectVisibleSops">Select visible</button>
-                    <button type="button" class="secondary-button" @onclick="ClearSopSelection">Clear</button>
+                    <button type="button" class="secondary-button" @onclick="SelectVisibleDocuments">Select visible</button>
+                    <button type="button" class="secondary-button" @onclick="ClearDocumentSelection">Clear</button>
                 </div>
             </div>
 
-            <div class="sop-selection-list">
-                @foreach (var folderGroup in GetFilteredSopGroups())
+            <div class="document-selection-list">
+                @foreach (var folderGroup in GetFilteredDocumentGroups())
                 {
-                    var selectedInFolder = folderGroup.Sops.Count(sop => selectedSopIds.Contains(sop.Id));
+                    var selectedInFolder = folderGroup.Documents.Count(document => selectedDocumentIds.Contains(document.Id));
 
-                    <section class="sop-folder-card">
-                        <div class="sop-folder-header">
+                    <section class="document-folder-card">
+                        <div class="document-folder-header">
                             <div>
                                 <h3>@folderGroup.Folder.DisplayName</h3>
                                 @if (!string.IsNullOrWhiteSpace(folderGroup.Folder.ParentDisplayName))
@@ -77,19 +77,19 @@
                                     <p>@folderGroup.Folder.ParentDisplayName</p>
                                 }
                             </div>
-                            <span>@($"{selectedInFolder} of {folderGroup.Sops.Count} selected")</span>
+                            <span>@($"{selectedInFolder} of {folderGroup.Documents.Count} selected")</span>
                         </div>
 
-                        <div class="sop-option-list">
-                            @foreach (var sop in folderGroup.Sops)
+                        <div class="document-option-list">
+                            @foreach (var document in folderGroup.Documents)
                             {
-                                <label class="@GetSopOptionClass(sop.Id)">
+                                <label class="@GetDocumentOptionClass(document.Id)">
                                     <input type="checkbox"
-                                           checked="@selectedSopIds.Contains(sop.Id)"
-                                           @onchange="() => ToggleSopSelection(sop.Id)" />
+                                           checked="@selectedDocumentIds.Contains(document.Id)"
+                                           @onchange="() => ToggleDocumentSelection(document.Id)" />
                                     <span>
-                                        <strong>@sop.Title</strong>
-                                        <small>@sop.OriginalFileName - @($"{sop.Results.Count} available analysis result{(sop.Results.Count == 1 ? "" : "s")}")</small>
+                                        <strong>@document.Title</strong>
+                                        <small>@document.OriginalFileName - @($"{document.Results.Count} available analysis result{(document.Results.Count == 1 ? "" : "s")}")</small>
                                     </span>
                                 </label>
                             }
@@ -98,17 +98,17 @@
                 }
             </div>
 
-            @if (GetFilteredSopGroups().Count == 0)
+            @if (GetFilteredDocumentGroups().Count == 0)
             {
                 <div class="workflow-empty-state">
-                    <strong>No matching SOPs</strong>
-                    <span>Clear the search or enter a different folder, file, or SOP name.</span>
+                    <strong>No matching documents</strong>
+                    <span>Clear the search or enter a different folder, file, or document name.</span>
                 </div>
             }
 
             <footer class="workflow-footer">
-                <span>@($"{AllSops.Count} SOPs available")</span>
-                <button type="button" class="workflow-action-button primary" disabled="@(selectedSopIds.Count == 0)" @onclick="GoToAnalysisStep">
+                <span>@($"{AllDocuments.Count} documents available")</span>
+                <button type="button" class="workflow-action-button primary" disabled="@(selectedDocumentIds.Count == 0)" @onclick="GoToAnalysisStep">
                     Next
                 </button>
             </footer>
@@ -120,26 +120,26 @@
             <div class="workflow-card-header">
                 <div>
                     <h2 id="select-analysis-title">Select bulk analysis types</h2>
-                    <p>Pick the generated result types you want to review across the selected SOPs.</p>
+                    <p>Pick the generated result types you want to review across the selected documents.</p>
                 </div>
                 <span class="selected-count">@($"{selectedAnalysisTypeIds.Count} selected")</span>
             </div>
 
             <div class="selected-summary-strip">
-                @foreach (var sop in selectedSops.Take(4))
+                @foreach (var document in selectedDocuments.Take(4))
                 {
-                    <span class="context-chip">@sop.Sop.Title</span>
+                    <span class="context-chip">@document.Document.Title</span>
                 }
-                @if (selectedSops.Count > 4)
+                @if (selectedDocuments.Count > 4)
                 {
-                    <span class="context-chip muted">@($"+{selectedSops.Count - 4} more SOPs")</span>
+                    <span class="context-chip muted">@($"+{selectedDocuments.Count - 4} more documents")</span>
                 }
             </div>
 
             <div class="analysis-type-grid">
                 @foreach (var analysisType in availableAnalysisTypes)
                 {
-                    var matchingCount = selectedSops.Sum(sop => sop.Sop.Results.Count(result => string.Equals(result.AnalysisType, analysisType, StringComparison.OrdinalIgnoreCase)));
+                    var matchingCount = selectedDocuments.Sum(document => document.Document.Results.Count(result => string.Equals(result.AnalysisType, analysisType, StringComparison.OrdinalIgnoreCase)));
 
                     <label class="@GetAnalysisOptionClass(analysisType)">
                         <input type="checkbox"
@@ -159,12 +159,12 @@
             {
                 <div class="workflow-empty-state">
                     <strong>No analysis types available</strong>
-                    <span>Go back and choose at least one SOP with generated analysis results.</span>
+                    <span>Go back and choose at least one document with generated analysis results.</span>
                 </div>
             }
 
             <footer class="workflow-footer">
-                <button type="button" class="workflow-action-button secondary" @onclick="GoToSopStep">Back</button>
+                <button type="button" class="workflow-action-button secondary" @onclick="GoToDocumentStep">Back</button>
                 <button type="button" class="workflow-action-button primary" disabled="@(selectedAnalysisTypeIds.Count == 0)" @onclick="GoToResultsStep">
                     Next
                 </button>
@@ -177,24 +177,24 @@
             <div class="workflow-card-header">
                 <div>
                     <h2 id="results-title">Results</h2>
-                    <p>Move between SOPs and analysis types, then choose documents or results for assistant context.</p>
+                    <p>Move between documents and analysis types, then choose documents or results for assistant context.</p>
                 </div>
                 <div class="bulk-card-actions">
                     <button type="button" class="secondary-button" @onclick="GoToAnalysisStep">Edit analysis types</button>
-                    <button type="button" class="secondary-button" @onclick="GoToSopStep">Edit SOPs</button>
+                    <button type="button" class="secondary-button" @onclick="GoToDocumentStep">Edit documents</button>
                 </div>
             </div>
 
             <div class="result-navigation-panel">
-                <section aria-label="Selected SOPs">
-                    <div class="control-label">SOPs</div>
+                <section aria-label="Selected documents">
+                    <div class="control-label">Documents</div>
                     <div class="result-tab-row">
-                        @foreach (var sop in selectedSops)
+                        @foreach (var document in selectedDocuments)
                         {
                             <button type="button"
-                                    class="@GetResultTabClass(string.Equals(activeSop?.Sop.Id, sop.Sop.Id, StringComparison.Ordinal))"
-                                    @onclick="() => SetActiveSop(sop.Sop.Id)">
-                                @sop.Sop.Title
+                                    class="@GetResultTabClass(string.Equals(activeDocument?.Document.Id, document.Document.Id, StringComparison.Ordinal))"
+                                    @onclick="() => SetActiveDocument(document.Document.Id)">
+                                @document.Document.Title
                             </button>
                         }
                     </div>
@@ -217,10 +217,10 @@
 
             <div class="results-grid">
                 <section class="result-preview-card" aria-label="Result preview">
-                    @if (activeSop is null || activeAnalysisType is null)
+                    @if (activeDocument is null || activeAnalysisType is null)
                     {
                         <div class="workflow-empty-state preview-empty">
-                            <strong>Select SOPs and analysis types to review results.</strong>
+                            <strong>Select documents and analysis types to review results.</strong>
                             <span>Use the previous steps to build a results set.</span>
                         </div>
                     }
@@ -229,12 +229,12 @@
                         <header class="preview-header compact-preview-header">
                             <div>
                                 <p class="page-kicker">Preview</p>
-                                <h2>@activeSop.Sop.Title</h2>
-                                <p>@activeSop.Folder.DisplayName - @activeAnalysisType</p>
+                                <h2>@activeDocument.Document.Title</h2>
+                                <p>@activeDocument.Folder.DisplayName - @activeAnalysisType</p>
                             </div>
                             <div class="preview-actions">
-                                <button type="button" class="icon-button bordered" @onclick="PreviousSop" aria-label="Previous SOP">&lt;</button>
-                                <button type="button" class="icon-button bordered" @onclick="NextSop" aria-label="Next SOP">&gt;</button>
+                                <button type="button" class="icon-button bordered" @onclick="PreviousDocument" aria-label="Previous document">&lt;</button>
+                                <button type="button" class="icon-button bordered" @onclick="NextDocument" aria-label="Next document">&gt;</button>
                                 <button type="button" class="icon-button bordered" @onclick="PreviousAnalysisType" aria-label="Previous analysis type">&lt; Type</button>
                                 <button type="button" class="icon-button bordered" @onclick="NextAnalysisType" aria-label="Next analysis type">Type &gt;</button>
                             </div>
@@ -244,7 +244,7 @@
                             @if (activeResult is null)
                             {
                                 <div class="workflow-empty-state preview-empty">
-                                    <strong>No @activeAnalysisType result for this SOP</strong>
+                                    <strong>No @activeAnalysisType result for this document</strong>
                                     <span>Use the analysis-type navigation to view another generated result.</span>
                                 </div>
                             }
@@ -277,17 +277,17 @@
                         <span style="@($"width: {FormatPercent(usagePercent)}%;")"></span>
                     </div>
 
-                    @if (activeSop is not null)
+                    @if (activeDocument is not null)
                     {
-                        var sourceDocumentId = GetSourceDocumentContextId(activeSop.Sop);
+                        var sourceDocumentId = GetSourceDocumentContextId(activeDocument.Document);
 
                         <label class="@GetContextChoiceClass(sourceDocumentId)">
                             <input type="checkbox"
                                    checked="@selectedContextIds.Contains(sourceDocumentId)"
-                                   @onchange="() => ToggleSourceDocumentContext(activeSop.Folder, activeSop.Sop)" />
+                                   @onchange="() => ToggleSourceDocumentContext(activeDocument.Folder, activeDocument.Document)" />
                             <span>
-                                <strong>@activeSop.Sop.OriginalFileName</strong>
-                                <small>Source document - @activeSop.Sop.Title</small>
+                                <strong>@activeDocument.Document.OriginalFileName</strong>
+                                <small>Source document - @activeDocument.Document.Title</small>
                             </span>
                         </label>
                     }
@@ -362,26 +362,26 @@
         .Build();
 
     private IReadOnlyList<BulkAnalysisFolder> allFolders = [];
-    private readonly HashSet<string> selectedSopIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> selectedDocumentIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> selectedAnalysisTypeIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> selectedContextIds = new(StringComparer.Ordinal);
-    private WorkflowStep workflowStep = WorkflowStep.SelectSops;
-    private string sopSearchTerm = string.Empty;
-    private string? activeSopId;
+    private WorkflowStep workflowStep = WorkflowStep.SelectDocuments;
+    private string documentSearchTerm = string.Empty;
+    private string? activeDocumentId;
     private string? activeAnalysisType;
 
     private IReadOnlyList<BulkAnalysisFolder> AllFolders => allFolders;
 
-    private IReadOnlyList<SopWithFolder> AllSops =>
-        allFolders.SelectMany(folder => folder.Sops.Select(sop => new SopWithFolder(folder, sop))).ToArray();
+    private IReadOnlyList<DocumentWithFolder> AllDocuments =>
+        allFolders.SelectMany(folder => folder.Documents.Select(document => new DocumentWithFolder(folder, document))).ToArray();
 
     private IReadOnlyList<BulkAnalysisResult> AllResults =>
-        allFolders.SelectMany(folder => folder.Sops).SelectMany(sop => sop.Results).ToArray();
+        allFolders.SelectMany(folder => folder.Documents).SelectMany(document => document.Results).ToArray();
 
     private int CurrentStepNumber =>
         workflowStep switch
         {
-            WorkflowStep.SelectSops => 1,
+            WorkflowStep.SelectDocuments => 1,
             WorkflowStep.SelectAnalysisTypes => 2,
             _ => 3
         };
@@ -389,7 +389,7 @@
     private string HeaderTitle =>
         workflowStep switch
         {
-            WorkflowStep.SelectSops => "Bulk Analysis",
+            WorkflowStep.SelectDocuments => "Bulk Analysis",
             WorkflowStep.SelectAnalysisTypes => "Choose analysis types",
             _ => "Review results"
         };
@@ -397,9 +397,9 @@
     private string HeaderDescription =>
         workflowStep switch
         {
-            WorkflowStep.SelectSops => "Select the SOPs you want to analyze before choosing the bulk review outputs.",
-            WorkflowStep.SelectAnalysisTypes => "Choose the analysis outputs to compare across the selected SOPs.",
-            _ => "Navigate between SOPs and analysis types, then load documents or results into assistant context."
+            WorkflowStep.SelectDocuments => "Select the documents you want to analyze before choosing the bulk review outputs.",
+            WorkflowStep.SelectAnalysisTypes => "Choose the analysis outputs to compare across the selected documents.",
+            _ => "Navigate between documents and analysis types, then load documents or results into assistant context."
         };
 
     protected override async Task OnInitializedAsync()
@@ -428,10 +428,10 @@
 
             if (item.Kind == BulkAnalysisContextItemKind.SourceDocument)
             {
-                var sourceSop = AllSops.FirstOrDefault(entry => string.Equals(GetSourceDocumentContextId(entry.Sop), item.Id, StringComparison.Ordinal));
-                if (sourceSop is not null)
+                var sourceDocument = AllDocuments.FirstOrDefault(entry => string.Equals(GetSourceDocumentContextId(entry.Document), item.Id, StringComparison.Ordinal));
+                if (sourceDocument is not null)
                 {
-                    selectedSopIds.Add(sourceSop.Sop.Id);
+                    selectedDocumentIds.Add(sourceDocument.Document.Id);
                 }
             }
             else
@@ -439,36 +439,36 @@
                 var result = AllResults.FirstOrDefault(result => string.Equals(result.Id, item.Id, StringComparison.Ordinal));
                 if (result is not null)
                 {
-                    selectedSopIds.Add(result.SopId);
+                    selectedDocumentIds.Add(result.DocumentId);
                     selectedAnalysisTypeIds.Add(result.AnalysisType);
                 }
             }
         }
 
-        if (selectedSopIds.Count > 0 && selectedAnalysisTypeIds.Count > 0)
+        if (selectedDocumentIds.Count > 0 && selectedAnalysisTypeIds.Count > 0)
         {
             workflowStep = WorkflowStep.Results;
         }
-        else if (selectedSopIds.Count > 0)
+        else if (selectedDocumentIds.Count > 0)
         {
             workflowStep = WorkflowStep.SelectAnalysisTypes;
         }
     }
 
-    private IReadOnlyList<SopFolderGroup> GetFilteredSopGroups()
+    private IReadOnlyList<DocumentFolderGroup> GetFilteredDocumentGroups()
     {
-        var groups = new List<SopFolderGroup>();
+        var groups = new List<DocumentFolderGroup>();
 
         foreach (var folder in AllFolders)
         {
-            var sops = folder.Sops
-                .Where(sop => MatchesSopSearch(folder, sop))
-                .OrderBy(sop => sop.Title, StringComparer.OrdinalIgnoreCase)
+            var documents = folder.Documents
+                .Where(document => MatchesDocumentSearch(folder, document))
+                .OrderBy(document => document.Title, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            if (sops.Length > 0)
+            if (documents.Length > 0)
             {
-                groups.Add(new SopFolderGroup(folder, sops));
+                groups.Add(new DocumentFolderGroup(folder, documents));
             }
         }
 
@@ -477,57 +477,57 @@
             .ToArray();
     }
 
-    private bool MatchesSopSearch(BulkAnalysisFolder folder, BulkAnalysisSop sop)
+    private bool MatchesDocumentSearch(BulkAnalysisFolder folder, BulkAnalysisDocument document)
     {
-        if (string.IsNullOrWhiteSpace(sopSearchTerm))
+        if (string.IsNullOrWhiteSpace(documentSearchTerm))
         {
             return true;
         }
 
-        return Contains(folder.DisplayName, sopSearchTerm) ||
-            Contains(folder.ParentDisplayName, sopSearchTerm) ||
-            Contains(sop.Title, sopSearchTerm) ||
-            Contains(sop.OriginalFileName, sopSearchTerm);
+        return Contains(folder.DisplayName, documentSearchTerm) ||
+            Contains(folder.ParentDisplayName, documentSearchTerm) ||
+            Contains(document.Title, documentSearchTerm) ||
+            Contains(document.OriginalFileName, documentSearchTerm);
     }
 
     private static bool Contains(string? value, string search) =>
         !string.IsNullOrWhiteSpace(value) &&
         value.Contains(search, StringComparison.OrdinalIgnoreCase);
 
-    private void HandleSopSearchInput(ChangeEventArgs args)
+    private void HandleDocumentSearchInput(ChangeEventArgs args)
     {
-        sopSearchTerm = args.Value?.ToString() ?? string.Empty;
+        documentSearchTerm = args.Value?.ToString() ?? string.Empty;
     }
 
-    private void ToggleSopSelection(string sopId)
+    private void ToggleDocumentSelection(string documentId)
     {
-        if (!selectedSopIds.Add(sopId))
+        if (!selectedDocumentIds.Add(documentId))
         {
-            selectedSopIds.Remove(sopId);
-            RemoveContextForSop(sopId);
+            selectedDocumentIds.Remove(documentId);
+            RemoveContextForDocument(documentId);
         }
 
         PruneAnalysisTypeSelection();
         EnsureActiveTargets();
     }
 
-    private void SelectVisibleSops()
+    private void SelectVisibleDocuments()
     {
-        foreach (var sop in GetFilteredSopGroups().SelectMany(group => group.Sops))
+        foreach (var document in GetFilteredDocumentGroups().SelectMany(group => group.Documents))
         {
-            selectedSopIds.Add(sop.Id);
+            selectedDocumentIds.Add(document.Id);
         }
 
         PruneAnalysisTypeSelection();
         EnsureActiveTargets();
     }
 
-    private void ClearSopSelection()
+    private void ClearDocumentSelection()
     {
-        selectedSopIds.Clear();
+        selectedDocumentIds.Clear();
         selectedAnalysisTypeIds.Clear();
         selectedContextIds.Clear();
-        activeSopId = null;
+        activeDocumentId = null;
         activeAnalysisType = null;
     }
 
@@ -542,16 +542,16 @@
         EnsureActiveTargets();
     }
 
-    private void GoToSopStep()
+    private void GoToDocumentStep()
     {
-        workflowStep = WorkflowStep.SelectSops;
+        workflowStep = WorkflowStep.SelectDocuments;
     }
 
     private void GoToAnalysisStep()
     {
-        if (selectedSopIds.Count == 0)
+        if (selectedDocumentIds.Count == 0)
         {
-            workflowStep = WorkflowStep.SelectSops;
+            workflowStep = WorkflowStep.SelectDocuments;
             return;
         }
 
@@ -561,9 +561,9 @@
 
     private void GoToResultsStep()
     {
-        if (selectedSopIds.Count == 0)
+        if (selectedDocumentIds.Count == 0)
         {
-            workflowStep = WorkflowStep.SelectSops;
+            workflowStep = WorkflowStep.SelectDocuments;
             return;
         }
 
@@ -577,16 +577,16 @@
         workflowStep = WorkflowStep.Results;
     }
 
-    private IReadOnlyList<SopWithFolder> GetSelectedSops() =>
-        AllSops
-            .Where(entry => selectedSopIds.Contains(entry.Sop.Id))
+    private IReadOnlyList<DocumentWithFolder> GetSelectedDocuments() =>
+        AllDocuments
+            .Where(entry => selectedDocumentIds.Contains(entry.Document.Id))
             .OrderBy(entry => entry.Folder.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(entry => entry.Sop.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(entry => entry.Document.Title, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-    private IReadOnlyList<string> GetAvailableAnalysisTypes(IReadOnlyList<SopWithFolder> selectedSops) =>
-        selectedSops
-            .SelectMany(entry => entry.Sop.Results)
+    private IReadOnlyList<string> GetAvailableAnalysisTypes(IReadOnlyList<DocumentWithFolder> selectedDocuments) =>
+        selectedDocuments
+            .SelectMany(entry => entry.Document.Results)
             .Select(result => result.AnalysisType)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(type => type, StringComparer.OrdinalIgnoreCase)
@@ -598,17 +598,17 @@
             .OrderBy(type => type, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-    private SopWithFolder? GetActiveSop(IReadOnlyList<SopWithFolder> selectedSops) =>
-        selectedSops.FirstOrDefault(entry => string.Equals(entry.Sop.Id, activeSopId, StringComparison.Ordinal)) ??
-        selectedSops.FirstOrDefault();
+    private DocumentWithFolder? GetActiveDocument(IReadOnlyList<DocumentWithFolder> selectedDocuments) =>
+        selectedDocuments.FirstOrDefault(entry => string.Equals(entry.Document.Id, activeDocumentId, StringComparison.Ordinal)) ??
+        selectedDocuments.FirstOrDefault();
 
     private string? GetActiveAnalysisType(IReadOnlyList<string> selectedAnalysisTypes) =>
         selectedAnalysisTypes.FirstOrDefault(type => string.Equals(type, activeAnalysisType, StringComparison.OrdinalIgnoreCase)) ??
         selectedAnalysisTypes.FirstOrDefault();
 
-    private void SetActiveSop(string sopId)
+    private void SetActiveDocument(string documentId)
     {
-        activeSopId = sopId;
+        activeDocumentId = documentId;
     }
 
     private void SetActiveAnalysisType(string analysisType)
@@ -616,35 +616,35 @@
         activeAnalysisType = analysisType;
     }
 
-    private void PreviousSop()
+    private void PreviousDocument()
     {
-        var selectedSops = GetSelectedSops();
-        if (selectedSops.Count == 0)
+        var selectedDocuments = GetSelectedDocuments();
+        if (selectedDocuments.Count == 0)
         {
             return;
         }
 
-        var currentIndex = Math.Max(0, selectedSops.ToList().FindIndex(entry => string.Equals(entry.Sop.Id, GetActiveSop(selectedSops)?.Sop.Id, StringComparison.Ordinal)));
-        var nextIndex = currentIndex == 0 ? selectedSops.Count - 1 : currentIndex - 1;
-        activeSopId = selectedSops[nextIndex].Sop.Id;
+        var currentIndex = Math.Max(0, selectedDocuments.ToList().FindIndex(entry => string.Equals(entry.Document.Id, GetActiveDocument(selectedDocuments)?.Document.Id, StringComparison.Ordinal)));
+        var nextIndex = currentIndex == 0 ? selectedDocuments.Count - 1 : currentIndex - 1;
+        activeDocumentId = selectedDocuments[nextIndex].Document.Id;
     }
 
-    private void NextSop()
+    private void NextDocument()
     {
-        var selectedSops = GetSelectedSops();
-        if (selectedSops.Count == 0)
+        var selectedDocuments = GetSelectedDocuments();
+        if (selectedDocuments.Count == 0)
         {
             return;
         }
 
-        var currentIndex = Math.Max(0, selectedSops.ToList().FindIndex(entry => string.Equals(entry.Sop.Id, GetActiveSop(selectedSops)?.Sop.Id, StringComparison.Ordinal)));
-        var nextIndex = currentIndex >= selectedSops.Count - 1 ? 0 : currentIndex + 1;
-        activeSopId = selectedSops[nextIndex].Sop.Id;
+        var currentIndex = Math.Max(0, selectedDocuments.ToList().FindIndex(entry => string.Equals(entry.Document.Id, GetActiveDocument(selectedDocuments)?.Document.Id, StringComparison.Ordinal)));
+        var nextIndex = currentIndex >= selectedDocuments.Count - 1 ? 0 : currentIndex + 1;
+        activeDocumentId = selectedDocuments[nextIndex].Document.Id;
     }
 
     private void PreviousAnalysisType()
     {
-        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(GetSelectedSops()));
+        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(GetSelectedDocuments()));
         if (selectedAnalysisTypes.Count == 0)
         {
             return;
@@ -658,7 +658,7 @@
 
     private void NextAnalysisType()
     {
-        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(GetSelectedSops()));
+        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(GetSelectedDocuments()));
         if (selectedAnalysisTypes.Count == 0)
         {
             return;
@@ -672,12 +672,12 @@
 
     private void EnsureActiveTargets()
     {
-        var selectedSops = GetSelectedSops();
-        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(selectedSops));
+        var selectedDocuments = GetSelectedDocuments();
+        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(selectedDocuments));
 
-        if (selectedSops.All(entry => !string.Equals(entry.Sop.Id, activeSopId, StringComparison.Ordinal)))
+        if (selectedDocuments.All(entry => !string.Equals(entry.Document.Id, activeDocumentId, StringComparison.Ordinal)))
         {
-            activeSopId = selectedSops.FirstOrDefault()?.Sop.Id;
+            activeDocumentId = selectedDocuments.FirstOrDefault()?.Document.Id;
         }
 
         if (selectedAnalysisTypes.All(type => !string.Equals(type, activeAnalysisType, StringComparison.OrdinalIgnoreCase)))
@@ -688,7 +688,7 @@
 
     private void PruneAnalysisTypeSelection()
     {
-        var availableAnalysisTypes = GetAvailableAnalysisTypes(GetSelectedSops()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var availableAnalysisTypes = GetAvailableAnalysisTypes(GetSelectedDocuments()).ToHashSet(StringComparer.OrdinalIgnoreCase);
         selectedAnalysisTypeIds.RemoveWhere(type => !availableAnalysisTypes.Contains(type));
         selectedContextIds.RemoveWhere(id => ShouldRemoveContextId(id, availableAnalysisTypes));
     }
@@ -697,20 +697,20 @@
     {
         if (id.StartsWith("doc:", StringComparison.Ordinal))
         {
-            var sopId = id["doc:".Length..];
-            return !selectedSopIds.Contains(sopId);
+            var documentId = id["doc:".Length..];
+            return !selectedDocumentIds.Contains(documentId);
         }
 
         var result = AllResults.FirstOrDefault(result => string.Equals(result.Id, id, StringComparison.Ordinal));
         return result is null ||
-            !selectedSopIds.Contains(result.SopId) ||
+            !selectedDocumentIds.Contains(result.DocumentId) ||
             !availableAnalysisTypes.Contains(result.AnalysisType);
     }
 
-    private void RemoveContextForSop(string sopId)
+    private void RemoveContextForDocument(string documentId)
     {
-        selectedContextIds.Remove(GetSourceDocumentContextId(sopId));
-        selectedContextIds.RemoveWhere(id => AllResults.Any(result => string.Equals(result.Id, id, StringComparison.Ordinal) && string.Equals(result.SopId, sopId, StringComparison.Ordinal)));
+        selectedContextIds.Remove(GetSourceDocumentContextId(documentId));
+        selectedContextIds.RemoveWhere(id => AllResults.Any(result => string.Equals(result.Id, id, StringComparison.Ordinal) && string.Equals(result.DocumentId, documentId, StringComparison.Ordinal)));
     }
 
     private void RemoveContextForAnalysisType(string analysisType)
@@ -718,9 +718,9 @@
         selectedContextIds.RemoveWhere(id => AllResults.Any(result => string.Equals(result.Id, id, StringComparison.Ordinal) && string.Equals(result.AnalysisType, analysisType, StringComparison.OrdinalIgnoreCase)));
     }
 
-    private void ToggleSourceDocumentContext(BulkAnalysisFolder folder, BulkAnalysisSop sop)
+    private void ToggleSourceDocumentContext(BulkAnalysisFolder folder, BulkAnalysisDocument document)
     {
-        ToggleContextItem(BulkAnalysisContextItem.FromSourceDocument(folder, sop).Id);
+        ToggleContextItem(BulkAnalysisContextItem.FromSourceDocument(folder, document).Id);
     }
 
     private void ToggleResultContext(BulkAnalysisResult result)
@@ -745,9 +745,9 @@
     {
         var items = new List<BulkAnalysisContextItem>();
 
-        foreach (var entry in AllSops)
+        foreach (var entry in AllDocuments)
         {
-            var sourceItem = BulkAnalysisContextItem.FromSourceDocument(entry.Folder, entry.Sop);
+            var sourceItem = BulkAnalysisContextItem.FromSourceDocument(entry.Folder, entry.Document);
             if (selectedContextIds.Contains(sourceItem.Id))
             {
                 items.Add(sourceItem);
@@ -760,7 +760,7 @@
 
         return items
             .OrderBy(item => item.FolderName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.SopTitle, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.DocumentTitle, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.Kind)
             .ThenBy(item => item.TypeLabel, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -785,14 +785,14 @@
         NavigationManager.NavigateTo("/assistant-context");
     }
 
-    private static string GetSourceDocumentContextId(BulkAnalysisSop sop) =>
-        GetSourceDocumentContextId(sop.Id);
+    private static string GetSourceDocumentContextId(BulkAnalysisDocument document) =>
+        GetSourceDocumentContextId(document.Id);
 
-    private static string GetSourceDocumentContextId(string sopId) =>
-        $"doc:{sopId}";
+    private static string GetSourceDocumentContextId(string documentId) =>
+        $"doc:{documentId}";
 
-    private string GetSopOptionClass(string sopId) =>
-        selectedSopIds.Contains(sopId) ? "sop-option-row selected" : "sop-option-row";
+    private string GetDocumentOptionClass(string documentId) =>
+        selectedDocumentIds.Contains(documentId) ? "document-option-row selected" : "document-option-row";
 
     private string GetAnalysisOptionClass(string analysisType) =>
         selectedAnalysisTypeIds.Contains(analysisType) ? "analysis-type-option selected" : "analysis-type-option";
@@ -852,10 +852,10 @@
 
         if (analysisType.Contains("Recommendation", StringComparison.OrdinalIgnoreCase))
         {
-            return "Prioritized changes for clearer SOP execution.";
+            return "Prioritized changes for clearer document execution.";
         }
 
-        return "Generated bulk analysis output for selected SOPs.";
+        return "Generated bulk analysis output for selected documents.";
     }
 
     private MarkupString RenderMarkdown(BulkAnalysisResult result) =>
@@ -877,13 +877,13 @@
         ChatContext.Changed -= HandleChatContextChanged;
     }
 
-    private sealed record SopWithFolder(BulkAnalysisFolder Folder, BulkAnalysisSop Sop);
+    private sealed record DocumentWithFolder(BulkAnalysisFolder Folder, BulkAnalysisDocument Document);
 
-    private sealed record SopFolderGroup(BulkAnalysisFolder Folder, IReadOnlyList<BulkAnalysisSop> Sops);
+    private sealed record DocumentFolderGroup(BulkAnalysisFolder Folder, IReadOnlyList<BulkAnalysisDocument> Documents);
 
     private enum WorkflowStep
     {
-        SelectSops,
+        SelectDocuments,
         SelectAnalysisTypes,
         Results
     }
