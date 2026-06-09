@@ -17,7 +17,7 @@
         <p class="page-kicker">Assistant context</p>
         <h1 id="assistant-context-title">Ready to continue with selected context</h1>
         <p>
-            Review the SOP documents and bulk analysis results that will be carried into the next assistant prompt.
+            Review the document documents and bulk analysis results that will be carried into the next assistant prompt.
         </p>
         <div class="workflow-divider" aria-hidden="true"></div>
     </header>
@@ -27,7 +27,7 @@
         {
             <div class="workflow-empty-state">
                 <strong>No context loaded</strong>
-                <span>Select SOP documents or generated bulk analysis results before continuing.</span>
+                <span>Select document documents or generated bulk analysis results before continuing.</span>
                 <button type="button" class="workflow-action-button primary" @onclick="BackToBulkAnalysis">
                     Open Bulk Analysis
                 </button>
@@ -68,7 +68,7 @@
                                 <div class="context-item-row">
                                     <span class="context-kind-pill">@item.TypeLabel</span>
                                     <strong>@item.DisplayName</strong>
-                                    <small>@item.FolderName - @item.SopTitle</small>
+                                    <small>@item.FolderName - @item.DocumentTitle</small>
                                 </div>
                             }
                         </div>
@@ -88,7 +88,7 @@
                             {
                                 <div class="context-item-row">
                                     <span class="context-kind-pill">@item.TypeLabel</span>
-                                    <strong>@item.SopTitle</strong>
+                                    <strong>@item.DocumentTitle</strong>
                                     <small>@item.FolderName - @item.OriginalFileName@FormatGeneratedAt(item)</small>
                                 </div>
                             }
@@ -100,9 +100,9 @@
             <section class="assistant-prompt-card" aria-label="Assistant prompt">
                 <div class="composer-shell-copy">
                     <h2>Ask Strider with this context</h2>
-                    <p>The loaded SOP context is ready for the next prompt in this demo flow.</p>
+                    <p>The loaded document context is ready for the next prompt in this demo flow.</p>
                 </div>
-                <textarea placeholder="Ask Strider what to do with the selected SOP context..." rows="5" aria-label="Assistant prompt"></textarea>
+                <textarea placeholder="Ask Strider what to do with the selected document context..." rows="5" aria-label="Assistant prompt"></textarea>
                 <div class="composer-primary-actions">
                     <button type="button" class="workflow-action-button primary">Send prompt</button>
                     <button type="button" class="workflow-action-button secondary" @onclick="BackToBulkAnalysis">Refine context</button>

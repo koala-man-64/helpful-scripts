@@ -23,24 +23,24 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                 "Claims Operations",
                 null,
                 [
-                    CreateSop(
+                    CreateDocument(
                         "claims-intake",
                         "claims-ops",
-                        "Claims Intake SOP",
-                        "claims-intake-sop.pdf",
+                        "Claims Intake Playbook",
+                        "claims-intake-playbook.pdf",
                         [
-                            Result("claims-intake-summary", "claims-ops", "claims-intake", "Claims Operations", "Claims Intake SOP", "claims-intake-sop.pdf", "Executive Summary", BaseDate.AddHours(-2), ClaimsSummary()),
-                            Result("claims-intake-risk", "claims-ops", "claims-intake", "Claims Operations", "Claims Intake SOP", "claims-intake-sop.pdf", "Risk Analysis", BaseDate.AddHours(-3), ClaimsRisk()),
-                            Result("claims-intake-gap", "claims-ops", "claims-intake", "Claims Operations", "Claims Intake SOP", "claims-intake-sop.pdf", "Gap Analysis", BaseDate.AddDays(-1), ClaimsGap())
+                            Result("claims-intake-summary", "claims-ops", "claims-intake", "Claims Operations", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Executive Summary", BaseDate.AddHours(-2), ClaimsSummary()),
+                            Result("claims-intake-risk", "claims-ops", "claims-intake", "Claims Operations", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Risk Analysis", BaseDate.AddHours(-3), ClaimsRisk()),
+                            Result("claims-intake-gap", "claims-ops", "claims-intake", "Claims Operations", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Gap Analysis", BaseDate.AddDays(-1), ClaimsGap())
                         ]),
-                    CreateSop(
+                    CreateDocument(
                         "appeals-resolution",
                         "claims-ops",
-                        "Appeals Resolution SOP",
-                        "appeals-resolution.docx",
+                        "Appeals Resolution Guide",
+                        "appeals-resolution-guide.docx",
                         [
-                            Result("appeals-summary", "claims-ops", "appeals-resolution", "Claims Operations", "Appeals Resolution SOP", "appeals-resolution.docx", "Executive Summary", BaseDate.AddDays(-2), AppealsSummary()),
-                            Result("appeals-compliance", "claims-ops", "appeals-resolution", "Claims Operations", "Appeals Resolution SOP", "appeals-resolution.docx", "Compliance Review", BaseDate.AddDays(-2).AddHours(-2), AppealsCompliance())
+                            Result("appeals-summary", "claims-ops", "appeals-resolution", "Claims Operations", "Appeals Resolution Guide", "appeals-resolution-guide.docx", "Executive Summary", BaseDate.AddDays(-2), AppealsSummary()),
+                            Result("appeals-compliance", "claims-ops", "appeals-resolution", "Claims Operations", "Appeals Resolution Guide", "appeals-resolution-guide.docx", "Compliance Review", BaseDate.AddDays(-2).AddHours(-2), AppealsCompliance())
                         ])
                 ]),
             CreateFolder(
@@ -48,22 +48,22 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                 "Prior Authorization",
                 null,
                 [
-                    CreateSop(
+                    CreateDocument(
                         "pa-clinical-review",
                         "prior-auth",
-                        "Clinical Review SOP",
-                        "clinical-review.md",
+                        "Clinical Review Policy Brief",
+                        "clinical-review-policy.md",
                         [
-                            Result("pa-review-impact", "prior-auth", "pa-clinical-review", "Prior Authorization", "Clinical Review SOP", "clinical-review.md", "Operational Impact", BaseDate.AddDays(-4), PriorAuthImpact()),
-                            Result("pa-review-recommendations", "prior-auth", "pa-clinical-review", "Prior Authorization", "Clinical Review SOP", "clinical-review.md", "Recommendations", BaseDate.AddDays(-5), PriorAuthRecommendations())
+                            Result("pa-review-impact", "prior-auth", "pa-clinical-review", "Prior Authorization", "Clinical Review Policy Brief", "clinical-review-policy.md", "Operational Impact", BaseDate.AddDays(-4), PriorAuthImpact()),
+                            Result("pa-review-recommendations", "prior-auth", "pa-clinical-review", "Prior Authorization", "Clinical Review Policy Brief", "clinical-review-policy.md", "Recommendations", BaseDate.AddDays(-5), PriorAuthRecommendations())
                         ]),
-                    CreateSop(
+                    CreateDocument(
                         "pa-data-quality",
                         "prior-auth",
-                        "Authorization Data Quality SOP",
-                        "authorization-data-quality.pdf",
+                        "Authorization Data Quality Checklist",
+                        "authorization-data-quality-checklist.pdf",
                         [
-                            Result("pa-data-quality", "prior-auth", "pa-data-quality", "Prior Authorization", "Authorization Data Quality SOP", "authorization-data-quality.pdf", "Data Quality Review", BaseDate.AddDays(-6), DataQualityReview())
+                            Result("pa-data-quality", "prior-auth", "pa-data-quality", "Prior Authorization", "Authorization Data Quality Checklist", "authorization-data-quality-checklist.pdf", "Data Quality Review", BaseDate.AddDays(-6), DataQualityReview())
                         ])
                 ]),
             CreateFolder(
@@ -71,28 +71,28 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                 "Member Communications",
                 "Operations Library",
                 [
-                    CreateSop(
+                    CreateDocument(
                         "notice-generation",
                         "member-comms",
-                        "Notice Generation SOP With A Very Long Title That Must Truncate Gracefully",
-                        "notice-generation-long-title.docx",
+                        "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully",
+                        "notice-generation-style-guide-long-title.docx",
                         [
-                            Result("notice-summary", "member-comms", "notice-generation", "Member Communications", "Notice Generation SOP With A Very Long Title That Must Truncate Gracefully", "notice-generation-long-title.docx", "Executive Summary", BaseDate.AddDays(-7), NoticeSummary()),
-                            Result("notice-unavailable", "member-comms", "notice-generation", "Member Communications", "Notice Generation SOP With A Very Long Title That Must Truncate Gracefully", "notice-generation-long-title.docx", "Compliance Review", BaseDate.AddDays(-8), UnavailablePreviewContent(), IsPreviewAvailable: false)
+                            Result("notice-summary", "member-comms", "notice-generation", "Member Communications", "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully", "notice-generation-style-guide-long-title.docx", "Executive Summary", BaseDate.AddDays(-7), NoticeSummary()),
+                            Result("notice-unavailable", "member-comms", "notice-generation", "Member Communications", "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully", "notice-generation-style-guide-long-title.docx", "Compliance Review", BaseDate.AddDays(-8), UnavailablePreviewContent(), IsPreviewAvailable: false)
                         ])
                 ]),
             CreateFolder(
                 "enterprise-corpus",
-                "Enterprise SOP Corpus",
+                "Enterprise Document Corpus",
                 "Archive",
                 [
-                    CreateSop(
+                    CreateDocument(
                         "claims-corpus",
                         "enterprise-corpus",
-                        "Complete Claims SOP Corpus",
+                        "Complete Claims Document Corpus",
                         "complete-claims-corpus.zip",
                         [
-                            Result("enterprise-corpus-crosswalk", "enterprise-corpus", "claims-corpus", "Enterprise SOP Corpus", "Complete Claims SOP Corpus", "complete-claims-corpus.zip", "Full Corpus Crosswalk", BaseDate.AddDays(-10), LargeCorpusMarkdown(), IsPreviewAvailable: false)
+                            Result("enterprise-corpus-crosswalk", "enterprise-corpus", "claims-corpus", "Enterprise Document Corpus", "Complete Claims Document Corpus", "complete-claims-corpus.zip", "Full Corpus Crosswalk", BaseDate.AddDays(-10), LargeCorpusMarkdown(), IsPreviewAvailable: false)
                         ])
                 ])
         ];
@@ -102,10 +102,10 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         string id,
         string displayName,
         string? parentDisplayName,
-        IReadOnlyList<BulkAnalysisSop> sops) =>
-        new(id, displayName, parentDisplayName, sops);
+        IReadOnlyList<BulkAnalysisDocument> documents) =>
+        new(id, displayName, parentDisplayName, documents);
 
-    private static BulkAnalysisSop CreateSop(
+    private static BulkAnalysisDocument CreateDocument(
         string id,
         string folderId,
         string title,
@@ -116,21 +116,21 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
     private static BulkAnalysisResult Result(
         string id,
         string folderId,
-        string sopId,
+        string documentId,
         string folderName,
-        string sopTitle,
+        string documentTitle,
         string originalFileName,
         string analysisType,
         DateTime generatedAt,
         string markdown,
         bool IsPreviewAvailable = true) =>
-        new(id, folderId, sopId, folderName, sopTitle, originalFileName, analysisType, generatedAt, markdown.Trim(), IsPreviewAvailable);
+        new(id, folderId, documentId, folderName, documentTitle, originalFileName, analysisType, generatedAt, markdown.Trim(), IsPreviewAvailable);
 
     private static string ClaimsSummary() =>
         """
-        # Claims Intake SOP - Executive Summary
+        # Claims Intake Playbook - Executive Summary
 
-        The claims intake workflow is stable and well documented. The SOP gives intake staff a clear path for validating member identity, capturing claim metadata, and routing urgent cases.
+        The claims intake workflow is stable and well documented. The source document gives intake staff a clear path for validating member identity, capturing claim metadata, and routing urgent cases.
 
         ## Strengths
 
@@ -145,7 +145,7 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
 
     private static string ClaimsRisk() =>
         """
-        # Claims Intake SOP - Risk Analysis
+        # Claims Intake Playbook - Risk Analysis
 
         | Risk | Impact | Mitigation |
         | --- | --- | --- |
@@ -155,14 +155,14 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
 
         ## Watch Items
 
-        - The SOP does not define a hard SLA for incomplete submissions.
+        - The document does not define a hard SLA for incomplete submissions.
         - Manual corrections are allowed without a second-review checkpoint.
-        - Training references are split across two different procedure pages.
+        - Training references are split across two different documentation pages.
         """;
 
     private static string ClaimsGap() =>
         """
-        # Claims Intake SOP - Gap Analysis
+        # Claims Intake Playbook - Gap Analysis
 
         ## Missing Controls
 
@@ -182,7 +182,7 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
 
     private static string AppealsSummary() =>
         """
-        # Appeals Resolution SOP - Executive Summary
+        # Appeals Resolution Guide - Executive Summary
 
         The appeals process has clear case milestones and strong documentation discipline. The biggest workflow benefit is the explicit separation between evidence collection and determination drafting.
 
@@ -196,11 +196,11 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
 
     private static string AppealsCompliance() =>
         """
-        # Appeals Resolution SOP - Compliance Review
+        # Appeals Resolution Guide - Compliance Review
 
         ## Findings
 
-        The procedure aligns with standard timeliness expectations, but it relies on manual date tracking in two steps.
+        The guide aligns with standard timeliness expectations, but it relies on manual date tracking in two steps.
 
         ## Required Evidence
 
@@ -217,7 +217,7 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
 
     private static string PriorAuthImpact() =>
         """
-        # Clinical Review SOP - Operational Impact
+        # Clinical Review Policy Brief - Operational Impact
 
         The clinical review workflow is moderately complex and depends on complete evidence packets. The highest operational load appears around missing clinical documentation and peer-review escalation.
 
@@ -231,7 +231,7 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
 
     private static string PriorAuthRecommendations() =>
         """
-        # Clinical Review SOP - Recommendations
+        # Clinical Review Policy Brief - Recommendations
 
         ## Recommended Changes
 
@@ -247,7 +247,7 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
 
     private static string DataQualityReview() =>
         """
-        # Authorization Data Quality SOP - Data Quality Review
+        # Authorization Data Quality Checklist - Data Quality Review
 
         | Field | Quality Concern | Control |
         | --- | --- | --- |
@@ -257,14 +257,14 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
 
         ## Summary
 
-        The SOP has useful validation guidance but should centralize the authoritative source for each required field.
+        The checklist has useful validation guidance but should centralize the authoritative source for each required field.
         """;
 
     private static string NoticeSummary() =>
         """
-        # Notice Generation SOP - Executive Summary
+        # Notice Generation Style Guide - Executive Summary
 
-        The notice generation workflow emphasizes plain-language consistency and a controlled review path. The SOP is useful context for questions about member-facing communication risk.
+        The notice generation workflow emphasizes plain-language consistency and a controlled review path. The style guide is useful context for questions about member-facing communication risk.
 
         ## Key Points
 
@@ -275,7 +275,7 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
 
     private static string UnavailablePreviewContent() =>
         """
-        # Notice Generation SOP - Compliance Review
+        # Notice Generation Style Guide - Compliance Review
 
         This mock result is intentionally marked unavailable for preview so the UI can show the unavailable state while preserving selection and context-size behavior.
         """;
@@ -285,11 +285,11 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         var repeatedSection = """
             ## Corpus Crosswalk Segment
 
-            This segment summarizes intake, adjudication, appeals, member notice, and authorization controls across the enterprise SOP library. It is intentionally large so the context meter can demonstrate over-limit handling without a backend token service.
+            This segment summarizes intake, adjudication, appeals, member notice, and authorization controls across the enterprise document library. It is intentionally large so the context meter can demonstrate over-limit handling without a backend token service.
 
             """;
 
-        return "# Complete Claims SOP Corpus - Full Corpus Crosswalk\n\n" +
+        return "# Complete Claims Document Corpus - Full Corpus Crosswalk\n\n" +
             string.Concat(Enumerable.Repeat(repeatedSection, 1_900));
     }
 }

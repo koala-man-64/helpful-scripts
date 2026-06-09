@@ -25,7 +25,7 @@ public sealed class ChatContextState
     {
         LoadedItems = items
             .OrderBy(result => result.FolderName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(result => result.SopTitle, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(result => result.DocumentTitle, StringComparer.OrdinalIgnoreCase)
             .ThenBy(result => result.Kind)
             .ThenBy(result => result.TypeLabel, StringComparer.OrdinalIgnoreCase)
             .ToArray();

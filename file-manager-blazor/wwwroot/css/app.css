@@ -901,7 +901,7 @@ svg {
 }
 
 .bulk-group-header,
-.bulk-sop-header {
+.bulk-document-header {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     align-items: start;
@@ -913,7 +913,7 @@ svg {
 }
 
 .bulk-group-header h3,
-.bulk-sop-header h4 {
+.bulk-document-header h4 {
     overflow: hidden;
     color: var(--shell-heading);
     text-overflow: ellipsis;
@@ -924,19 +924,19 @@ svg {
     font-size: 1rem;
 }
 
-.bulk-sop-header h4 {
+.bulk-document-header h4 {
     font-size: 0.96rem;
 }
 
 .bulk-group-header p,
-.bulk-sop-header p,
+.bulk-document-header p,
 .group-warning {
     margin-top: 0.2rem;
     font-size: 0.82rem;
 }
 
 .bulk-group-header p,
-.bulk-sop-header p {
+.bulk-document-header p {
     color: var(--shell-muted);
 }
 
@@ -979,7 +979,7 @@ svg {
     background: #ffffff;
 }
 
-.bulk-sop-group {
+.bulk-document-group {
     margin: 0 0.75rem 0.75rem;
     padding: 0.8rem;
     border-radius: 1rem;
@@ -2070,7 +2070,7 @@ svg {
 }
 
 .workflow-card-header,
-.sop-folder-header,
+.document-folder-header,
 .workflow-footer,
 .selection-toolbar,
 .result-navigation-panel,
@@ -2112,44 +2112,44 @@ svg {
     flex: 1 1 22rem;
 }
 
-.sop-selection-list,
-.sop-option-list,
+.document-selection-list,
+.document-option-list,
 .context-item-list {
     display: flex;
     flex-direction: column;
     gap: 0.7rem;
 }
 
-.sop-selection-list {
+.document-selection-list {
     margin-top: 1.25rem;
 }
 
-.sop-folder-card {
+.document-folder-card {
     border: 1px solid rgba(35, 55, 89, 0.1);
     border-radius: 1rem;
     background: rgba(246, 248, 252, 0.58);
     padding: 1rem;
 }
 
-.sop-folder-header {
+.document-folder-header {
     align-items: center;
     margin-bottom: 0.85rem;
 }
 
-.sop-folder-header h3 {
+.document-folder-header h3 {
     color: var(--shell-heading);
     font-size: 1rem;
     font-weight: 700;
 }
 
-.sop-folder-header p,
-.sop-folder-header span {
+.document-folder-header p,
+.document-folder-header span {
     margin-top: 0.15rem;
     color: var(--shell-muted);
     font-size: 0.84rem;
 }
 
-.sop-option-row,
+.document-option-row,
 .analysis-type-option,
 .context-choice-row {
     display: grid;
@@ -2168,13 +2168,13 @@ svg {
         transform 120ms ease;
 }
 
-.sop-option-row {
+.document-option-row {
     min-height: 4.25rem;
     padding: 0.8rem 0.9rem;
     border-radius: 0.95rem;
 }
 
-.sop-option-row:hover,
+.document-option-row:hover,
 .analysis-type-option:hover,
 .context-choice-row:hover {
     transform: translateY(-1px);
@@ -2183,14 +2183,14 @@ svg {
     box-shadow: 0 14px 28px rgba(27, 48, 78, 0.06);
 }
 
-.sop-option-row.selected,
+.document-option-row.selected,
 .analysis-type-option.selected,
 .context-choice-row.selected {
     border-color: rgba(17, 127, 139, 0.38);
     background: rgba(236, 248, 246, 0.8);
 }
 
-.sop-option-row input,
+.document-option-row input,
 .analysis-type-option input,
 .context-choice-row input {
     width: 1rem;
@@ -2199,8 +2199,8 @@ svg {
     accent-color: var(--shell-accent-strong);
 }
 
-.sop-option-row strong,
-.sop-option-row small,
+.document-option-row strong,
+.document-option-row small,
 .analysis-type-option strong,
 .analysis-type-option small,
 .analysis-type-option em,
@@ -2215,7 +2215,7 @@ svg {
     white-space: nowrap;
 }
 
-.sop-option-row strong,
+.document-option-row strong,
 .analysis-type-option strong,
 .context-choice-row strong,
 .context-item-row strong {
@@ -2223,7 +2223,7 @@ svg {
     font-size: 0.96rem;
 }
 
-.sop-option-row small,
+.document-option-row small,
 .analysis-type-option small,
 .analysis-type-option em,
 .context-choice-row small,
@@ -2633,7 +2633,7 @@ svg {
     .workflow-card-header,
     .selection-toolbar,
     .workflow-footer,
-    .sop-folder-header {
+    .document-folder-header {
         flex-direction: column;
         align-items: stretch;
     }
@@ -2729,7 +2729,7 @@ svg {
     }
 
     .bulk-group-header,
-    .bulk-sop-header {
+    .bulk-document-header {
         grid-template-columns: auto minmax(0, 1fr);
     }
 
@@ -2738,13 +2738,13 @@ svg {
         justify-content: space-between;
     }
 
-    .sop-option-row,
+    .document-option-row,
     .analysis-type-option,
     .context-choice-row {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .sop-option-row input,
+    .document-option-row input,
     .analysis-type-option input,
     .context-choice-row input {
         grid-row: auto;
