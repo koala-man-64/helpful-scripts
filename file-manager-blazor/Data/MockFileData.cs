@@ -454,6 +454,99 @@ public static class MockFileData
             Timeline: 6 weeks total
             Team: 4 developers
             Budget: $50,000
+            """,
+        ["claims-intake-playbook.pdf"] = """
+            Claims Intake Playbook
+
+            Purpose
+            This playbook defines how front-door claims staff capture, validate, and route new claim submissions.
+
+            Intake Requirements
+            - Confirm member identity before opening a case.
+            - Record claim type, date of service, provider identifier, and urgency indicator.
+            - Attach supporting documents before routing the claim downstream.
+
+            Escalation Rules
+            Urgent clinical, payment, or member harm concerns require same-day supervisor review. Duplicate or incomplete submissions must be flagged before case creation.
+
+            Handoff Notes
+            Intake owns first-contact quality. Adjudication owns benefit interpretation after the intake record is complete.
+            """,
+        ["appeals-resolution-guide.docx"] = """
+            Appeals Resolution Guide
+
+            Overview
+            This guide describes the standard appeals path from member dispute intake through final determination.
+
+            Required Evidence
+            - Original denial reason
+            - Member appeal statement
+            - Applicable plan language
+            - Clinical or payment records used in review
+
+            Review Sequence
+            Appeals coordinators validate timeliness, assign the case to the correct reviewer, and document every outbound member notice.
+
+            Closure Criteria
+            A case may close only after determination language, evidence references, and notification dates are complete.
+            """,
+        ["notice-generation-style-guide-long-title.docx"] = """
+            Notice Generation Style Guide
+
+            Purpose
+            Member notices must be clear, consistent, timely, and traceable to the source decision.
+
+            Writing Standards
+            - Use direct member-facing language.
+            - Include the decision, reason, effective date, and next action.
+            - Avoid unsupported abbreviations.
+            - Reference appeal rights when required.
+
+            Quality Review
+            A second reviewer checks regulatory timing, template selection, and source-record alignment before release.
+            """,
+        ["clinical-review-policy.md"] = """
+            # Clinical Review Policy Brief
+
+            ## Scope
+            This brief covers prior authorization clinical review for services that require medical necessity assessment.
+
+            ## Review Criteria
+            Clinical reviewers compare the request, diagnosis, treatment history, and supporting notes against active policy criteria.
+
+            ## Decision Documentation
+            Each decision must identify the criterion used, the evidence reviewed, and the rationale for approval, denial, or escalation.
+
+            ## Operational Note
+            Ambiguous requests should be routed for peer review rather than denied for incomplete evidence without outreach.
+            """,
+        ["authorization-data-quality-checklist.pdf"] = """
+            Authorization Data Quality Checklist
+
+            Objective
+            Ensure prior authorization records are complete enough for downstream review, reporting, and audit.
+
+            Checklist
+            - Member and provider identifiers are present.
+            - Service codes match the requested treatment.
+            - Request date and receipt channel are recorded.
+            - Required clinical attachments are linked.
+            - Decision reason codes align with reviewer notes.
+
+            Exception Handling
+            Records that fail validation remain in pending status until corrected or explicitly waived by an authorized lead.
+            """,
+        ["complete-claims-corpus.zip"] = """
+            Complete Claims Document Corpus
+
+            Archive Manifest
+            This source package contains claims intake procedures, appeals guidance, notice templates, data quality checklists, and historical control notes.
+
+            Review Guidance
+            Treat the archive as a corpus-level input. Verify included folder names, document categories, and date coverage before running cross-document analysis.
+
+            Known Limits
+            The archive preview lists package contents only. Individual files should be opened separately for document-level analysis.
             """
     };
 
