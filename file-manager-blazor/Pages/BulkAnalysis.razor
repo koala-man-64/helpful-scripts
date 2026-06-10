@@ -1,4 +1,6 @@
 @page "/bulk-analysis"
+@using System.IO.Compression
+@using System.Text
 @using Markdig
 @implements IDisposable
 @inject IBulkAnalysisResultProvider ResultProvider
@@ -233,8 +235,8 @@
     }
     else
     {
-        <div class="document-step-layout results-step-layout">
-            <section class="workflow-card document-selection-card result-selection-card" aria-labelledby="results-title">
+        <div class="@($"document-step-layout results-step-layout {(isResultsPanelCollapsed ? "results-panel-collapsed" : "")}")">
+            <section class="@($"workflow-card document-selection-card result-selection-card {(isResultsPanelCollapsed ? "collapsed" : "")}")" aria-labelledby="results-title">
                 <div class="workflow-card-header">
                     <div>
                         <h2 id="results-title">
@@ -248,91 +250,104 @@
                         </h2>
                         <span id="results-tooltip" class="sr-only">Review generated bulk analysis results for selected SOPs.</span>
                     </div>
-                    <div class="@($"result-load-summary {(isOverLimit ? "over-limit" : "")}")" aria-label="Load context summary">
-                        <span>Load context</span>
-                        <strong>@($"{selectedContextItems.Count} selected")</strong>
-                        <small>@($"{FormatTokens(selectedTokens)} / {FormatTokens(ChatContextState.ContextLimitTokens)}")</small>
-                        <div class="context-meter" aria-label="Context usage">
-                            <span style="@($"width: {FormatPercent(usagePercent)}%;")"></span>
+                    <div class="result-panel-header-actions">
+                        <div class="@($"result-load-summary {(isOverLimit ? "over-limit" : "")}")" aria-label="Load context summary">
+                            <span>Load context</span>
+                            <strong>@($"{selectedContextItems.Count} selected")</strong>
+                            <small>@($"{FormatTokens(selectedTokens)} / {FormatTokens(ChatContextState.ContextLimitTokens)}")</small>
+                            <div class="context-meter" aria-label="Context usage">
+                                <span style="@($"width: {FormatPercent(usagePercent)}%;")"></span>
+                            </div>
                         </div>
+                        <button type="button"
+                                class="icon-button bordered result-panel-toggle"
+                                aria-controls="results-panel-content"
+                                aria-expanded="@(!isResultsPanelCollapsed)"
+                                aria-label="@(isResultsPanelCollapsed ? "Expand results panel" : "Collapse results panel")"
+                                title="@(isResultsPanelCollapsed ? "Expand results panel" : "Collapse results panel")"
+                                @onclick="ToggleResultsPanel">
+                            <span aria-hidden="true">@(isResultsPanelCollapsed ? ">" : "<")</span>
+                        </button>
                     </div>
                 </div>
 
-                @if (selectedDocuments.Count == 0 || selectedAnalysisTypes.Count == 0)
-                {
-                    <div class="workflow-empty-state">
-                        <strong>Select documents and analysis types to review results.</strong>
-                        <span>Use the previous steps to build a results set.</span>
-                    </div>
-                }
-                else
-                {
-                    var visibleResultPanels = GetVisibleResultDocumentPanels(selectedDocuments);
-
-                    <div class="document-selection-list result-document-list">
-                        @foreach (var folderPanel in visibleResultPanels)
+                <div id="results-panel-content" class="result-panel-content" hidden="@isResultsPanelCollapsed">
+                        @if (selectedDocuments.Count == 0 || selectedAnalysisTypes.Count == 0)
                         {
-                            var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
-                            var folderSelectionState = GetResultSelectionState(folderPanel.VisibleDocuments, selectedAnalysisTypes);
-                            var selectedResultsInFolder = CountSelectedResults(folderPanel.VisibleDocuments, selectedAnalysisTypes);
-                            var availableResultsInFolder = CountAvailableResults(folderPanel.VisibleDocuments, selectedAnalysisTypes);
+                            <div class="workflow-empty-state">
+                                <strong>Select documents and analysis types to review results.</strong>
+                                <span>Use the previous steps to build a results set.</span>
+                            </div>
+                        }
+                        else
+                        {
+                            var visibleResultPanels = GetVisibleResultDocumentPanels(selectedDocuments);
 
-                            <section class="@GetResultFolderPanelClass(folderPanel)" style="@($"--folder-depth: {folderPanel.Depth};")">
-                                <div class="document-folder-header">
-                                    <button type="button"
-                                            class="@GetFolderSelectClass(folderSelectionState)"
-                                            role="checkbox"
-                                            aria-checked="@GetAriaChecked(folderSelectionState)"
-                                            aria-label="@($"Select generated results under {folderPanel.Folder.DisplayName}")"
-                                            disabled="@(availableResultsInFolder == 0)"
-                                            @onclick="() => ToggleFolderResultContext(folderPanel, selectedAnalysisTypes)"></button>
-                                    <button type="button"
-                                            class="folder-collapse-button"
-                                            aria-expanded="@(!isCollapsed)"
-                                            aria-label="@($"Toggle {folderPanel.Folder.DisplayName}")"
-                                            @onclick="() => ToggleFolderPanel(folderPanel.Folder.Id)">
-                                        <span aria-hidden="true">@(isCollapsed ? ">" : "v")</span>
-                                    </button>
-                                    <div class="document-folder-heading">
-                                        <div>
-                                            <h3>@folderPanel.Folder.DisplayName</h3>
-                                            @if (!string.IsNullOrWhiteSpace(folderPanel.Folder.ParentDisplayName))
-                                            {
-                                                <p>@folderPanel.Folder.ParentDisplayName</p>
-                                            }
-                                        </div>
-                                        <span>@($"{selectedResultsInFolder} of {availableResultsInFolder} selected")</span>
-                                    </div>
-                                </div>
-
-                                @if (!isCollapsed && folderPanel.Documents.Count > 0)
+                            <div class="document-selection-list result-document-list">
+                                @foreach (var folderPanel in visibleResultPanels)
                                 {
-                                    <div class="document-option-list result-sop-list">
-                                        @foreach (var document in folderPanel.Documents)
-                                        {
-                                            var documentSelectionState = GetResultSelectionState(document, selectedAnalysisTypes);
-                                            var availableResultsForDocument = CountAvailableResults(document, selectedAnalysisTypes);
+                                    var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
+                                    var folderSelectionState = GetResultSelectionState(folderPanel.VisibleDocuments, selectedAnalysisTypes);
+                                    var selectedResultsInFolder = CountSelectedResults(folderPanel.VisibleDocuments, selectedAnalysisTypes);
+                                    var availableResultsInFolder = CountAvailableResults(folderPanel.VisibleDocuments, selectedAnalysisTypes);
 
-                                            <div class="@GetResultDocumentOptionClass(document.Id, documentSelectionState)">
-                                                <input type="checkbox"
-                                                       checked="@(documentSelectionState == SelectionState.Checked)"
-                                                       disabled="@(availableResultsForDocument == 0)"
-                                                       aria-label="@($"Select generated results for {document.Title}")"
-                                                       @onchange="() => ToggleDocumentResultContext(document, selectedAnalysisTypes)" />
-                                                <button type="button"
-                                                        class="result-document-preview-button"
-                                                        @onclick="() => SetActiveDocument(document.Id)">
-                                                    <strong>@document.Title</strong>
-                                                    <small>@document.OriginalFileName - @GetResultAvailabilitySummary(document, selectedAnalysisTypes)</small>
-                                                </button>
+                                    <section class="@GetResultFolderPanelClass(folderPanel)" style="@($"--folder-depth: {folderPanel.Depth};")">
+                                        <div class="document-folder-header">
+                                            <button type="button"
+                                                    class="@GetFolderSelectClass(folderSelectionState)"
+                                                    role="checkbox"
+                                                    aria-checked="@GetAriaChecked(folderSelectionState)"
+                                                    aria-label="@($"Select generated results under {folderPanel.Folder.DisplayName}")"
+                                                    disabled="@(availableResultsInFolder == 0)"
+                                                    @onclick="() => ToggleFolderResultContext(folderPanel, selectedAnalysisTypes)"></button>
+                                            <button type="button"
+                                                    class="folder-collapse-button"
+                                                    aria-expanded="@(!isCollapsed)"
+                                                    aria-label="@($"Toggle {folderPanel.Folder.DisplayName}")"
+                                                    @onclick="() => ToggleFolderPanel(folderPanel.Folder.Id)">
+                                                <span aria-hidden="true">@(isCollapsed ? ">" : "v")</span>
+                                            </button>
+                                            <div class="document-folder-heading">
+                                                <div>
+                                                    <h3>@folderPanel.Folder.DisplayName</h3>
+                                                    @if (!string.IsNullOrWhiteSpace(folderPanel.Folder.ParentDisplayName))
+                                                    {
+                                                        <p>@folderPanel.Folder.ParentDisplayName</p>
+                                                    }
+                                                </div>
+                                                <span>@($"{selectedResultsInFolder} of {availableResultsInFolder} selected")</span>
+                                            </div>
+                                        </div>
+
+                                        @if (!isCollapsed && folderPanel.Documents.Count > 0)
+                                        {
+                                            <div class="document-option-list result-sop-list">
+                                                @foreach (var document in folderPanel.Documents)
+                                                {
+                                                    var documentSelectionState = GetResultSelectionState(document, selectedAnalysisTypes);
+                                                    var availableResultsForDocument = CountAvailableResults(document, selectedAnalysisTypes);
+
+                                                    <div class="@GetResultDocumentOptionClass(document.Id, documentSelectionState)">
+                                                        <input type="checkbox"
+                                                               checked="@(documentSelectionState == SelectionState.Checked)"
+                                                               disabled="@(availableResultsForDocument == 0)"
+                                                               aria-label="@($"Select generated results for {document.Title}")"
+                                                               @onchange="() => ToggleDocumentResultContext(document, selectedAnalysisTypes)" />
+                                                        <button type="button"
+                                                                class="result-document-preview-button"
+                                                                @onclick="() => SetActiveDocument(document.Id)">
+                                                            <strong>@document.Title</strong>
+                                                            <small>@document.OriginalFileName - @GetResultAvailabilitySummary(document, selectedAnalysisTypes)</small>
+                                                        </button>
+                                                    </div>
+                                                }
                                             </div>
                                         }
-                                    </div>
+                                    </section>
                                 }
-                            </section>
+                            </div>
                         }
-                    </div>
-                }
+                </div>
             </section>
 
             <aside class="workflow-card step-one-preview-card result-preview-panel" aria-label="Review generated result">
@@ -448,6 +463,7 @@
     private readonly HashSet<string> selectedContextIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> collapsedFolderIds = new(StringComparer.Ordinal);
     private WorkflowStep workflowStep = WorkflowStep.SelectDocuments;
+    private bool isResultsPanelCollapsed;
     private string? activeDocumentId;
     private string? activeAnalysisType;
     private string? selectionPreviewDocumentId;
@@ -1068,46 +1084,77 @@
         }
 
         await JSRuntime.InvokeVoidAsync(
-            "bulkAnalysisDownloads.downloadTextFile",
-            GetResultsDownloadFileName(results),
-            BuildResultsDownloadMarkdown(results),
-            "text/markdown;charset=utf-8");
+            "bulkAnalysisDownloads.downloadBinaryFile",
+            GetResultsZipFileName(results),
+            BuildResultsZipArchive(results),
+            "application/zip");
     }
 
-    private static string BuildResultsDownloadMarkdown(IReadOnlyList<BulkAnalysisResult> results)
+    private static byte[] BuildResultsZipArchive(IReadOnlyList<BulkAnalysisResult> results)
     {
-        var builder = new System.Text.StringBuilder();
+        var downloadedAt = DateTime.Now;
+        using var stream = new MemoryStream();
+
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            var usedEntryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var result in results)
+            {
+                var entry = archive.CreateEntry(GetResultZipEntryName(result, usedEntryNames), CompressionLevel.Optimal);
+
+                using var entryStream = entry.Open();
+                using var writer = new StreamWriter(entryStream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                writer.Write(BuildResultDownloadMarkdown(result, downloadedAt));
+            }
+        }
+
+        return stream.ToArray();
+    }
+
+    private static string BuildResultDownloadMarkdown(BulkAnalysisResult result, DateTime downloadedAt)
+    {
+        var builder = new StringBuilder();
 
         builder
-            .AppendLine("# Bulk Analysis Results")
+            .AppendLine($"# {result.DocumentTitle} - {result.AnalysisType}")
             .AppendLine()
-            .AppendLine($"Downloaded: {DateTime.Now:MMM d, yyyy h:mm tt}")
-            .AppendLine();
-
-        foreach (var result in results)
-        {
-            builder
-                .AppendLine($"## {result.DocumentTitle} - {result.AnalysisType}")
-                .AppendLine()
-                .AppendLine($"- Folder: {result.FolderName}")
-                .AppendLine($"- Source file: {result.OriginalFileName}")
-                .AppendLine($"- Generated: {result.GeneratedAt:MMM d, yyyy h:mm tt}")
-                .AppendLine($"- Estimated tokens: {FormatTokens(result.EstimatedTokens)}")
-                .AppendLine()
-                .AppendLine(result.Markdown.Trim())
-                .AppendLine();
-        }
+            .AppendLine($"- Folder: {result.FolderName}")
+            .AppendLine($"- Source file: {result.OriginalFileName}")
+            .AppendLine($"- Generated: {result.GeneratedAt:MMM d, yyyy h:mm tt}")
+            .AppendLine($"- Downloaded: {downloadedAt:MMM d, yyyy h:mm tt}")
+            .AppendLine($"- Estimated tokens: {FormatTokens(result.EstimatedTokens)}")
+            .AppendLine()
+            .AppendLine(result.Markdown.Trim());
 
         return builder.ToString().TrimEnd() + Environment.NewLine;
     }
 
-    private static string GetResultsDownloadFileName(IReadOnlyList<BulkAnalysisResult> results)
+    private static string GetResultsZipFileName(IReadOnlyList<BulkAnalysisResult> results)
     {
         var name = results.Count == 1
             ? $"{results[0].DocumentTitle}-{results[0].AnalysisType}"
             : $"bulk-analysis-results-{DateTime.Now:yyyyMMdd-HHmmss}";
 
-        return $"{SlugifyFileName(name)}.md";
+        return $"{SlugifyFileName(name)}.zip";
+    }
+
+    private static string GetResultZipEntryName(BulkAnalysisResult result, ISet<string> usedEntryNames)
+    {
+        var folderName = SlugifyFileName(result.FolderName);
+        var documentName = SlugifyFileName(result.DocumentTitle);
+        var fileName = SlugifyFileName($"{result.OriginalFileName}-{result.AnalysisType}");
+        var directoryName = $"{folderName}/{documentName}";
+        var entryName = $"{directoryName}/{fileName}.md";
+        var suffix = 2;
+
+        while (!usedEntryNames.Add(entryName))
+        {
+            entryName = $"{directoryName}/{fileName}-{suffix}.md";
+            suffix++;
+        }
+
+        return entryName;
     }
 
     private static string SlugifyFileName(string value)
@@ -1200,6 +1247,11 @@
         {
             collapsedFolderIds.Remove(folderId);
         }
+    }
+
+    private void ToggleResultsPanel()
+    {
+        isResultsPanelCollapsed = !isResultsPanelCollapsed;
     }
 
     private string GetFolderPanelClass(DocumentFolderPanel panel)
