@@ -180,6 +180,9 @@
         </div>
 
         <footer class="workflow-footer document-step-actions">
+            <button type="button" class="workflow-action-button secondary" @onclick="GoToHomePage">
+                Back
+            </button>
             <button type="button" class="workflow-action-button primary" disabled="@(selectedDocumentIds.Count == 0)" @onclick="GoToAnalysisStep">
                 Next
             </button>
@@ -685,6 +688,11 @@
     private void GoToDocumentStep()
     {
         workflowStep = WorkflowStep.SelectDocuments;
+    }
+
+    private void GoToHomePage()
+    {
+        NavigationManager.NavigateTo("/");
     }
 
     private void GoToAnalysisStep()
