@@ -1428,6 +1428,15 @@ svg {
     display: flex;
 }
 
+.viewer-stack {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
 .file-tree-card,
 .viewer-card {
     width: 100%;
@@ -1740,6 +1749,8 @@ svg {
 }
 
 .viewer-card {
+    flex: 1 1 auto;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -1814,12 +1825,55 @@ svg {
     overflow-wrap: anywhere;
 }
 
-.viewer-nav {
+.viewer-navigation-panel {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 0.55rem;
+    padding: 0 0.15rem;
     color: var(--shell-muted);
     font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.viewer-navigation-button {
+    min-height: 2.8rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    border-radius: var(--shell-radius-control);
+    padding: 0 1rem;
+    border: 1px solid var(--shell-line-strong);
+    background: rgba(255, 255, 255, 0.96);
+    color: var(--shell-heading);
+    font-weight: 650;
+    transition:
+        transform 120ms ease,
+        background 120ms ease,
+        border-color 120ms ease,
+        color 120ms ease,
+        box-shadow 120ms ease;
+}
+
+.viewer-navigation-button.primary {
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--shell-accent-mid) 0%, var(--shell-accent-strong) 100%);
+    color: #ffffff;
+    box-shadow: 0 14px 24px rgba(17, 127, 139, 0.18);
+}
+
+.viewer-navigation-button:hover,
+.viewer-navigation-button:focus-visible {
+    transform: translateY(-1px);
+    border-color: rgba(17, 127, 139, 0.28);
+    color: var(--shell-accent-strong);
+}
+
+.viewer-navigation-button.primary:hover,
+.viewer-navigation-button.primary:focus-visible {
+    color: #ffffff;
+    background: linear-gradient(135deg, var(--shell-accent) 0%, var(--shell-accent-strong) 100%);
 }
 
 .analysis-selector {
@@ -2464,6 +2518,14 @@ svg {
     border-bottom: 1px solid var(--shell-line);
 }
 
+.document-selection-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.55rem;
+}
+
 .workflow-card-header h2,
 .context-summary-card h2,
 .context-list-card h2,
@@ -2500,6 +2562,12 @@ svg {
 
 .document-selection-list {
     margin-top: 1.25rem;
+}
+
+.document-step-actions {
+    margin-top: 1rem;
+    padding-right: 0.25rem;
+    padding-left: 0.25rem;
 }
 
 .document-folder-card {
@@ -3190,7 +3258,7 @@ svg {
     }
 
     .panel-title-actions,
-    .viewer-nav {
+    .viewer-navigation-panel {
         justify-content: space-between;
     }
 

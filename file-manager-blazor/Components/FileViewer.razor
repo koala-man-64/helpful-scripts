@@ -15,64 +15,72 @@ else
     var content = MockFileData.GetContent(currentFile.Name, analysisType);
     var fileType = GetFileType(currentFile.Name);
 
-    <div class="viewer-card">
-        <header class="viewer-header">
-            <div class="viewer-file-title">
-                <h2>@currentFile.Name</h2>
-                <p>@currentFile.Path</p>
-            </div>
-
-            @if (SelectedFiles.Count > 1)
-            {
-                <div class="viewer-nav">
-                    <span>@(currentIndex + 1) of @SelectedFiles.Count</span>
-                    <button type="button" class="icon-button bordered" @onclick="ShowPreviousAsync" aria-label="Previous file">&lt;</button>
-                    <button type="button" class="icon-button bordered" @onclick="ShowNextAsync" aria-label="Next file">&gt;</button>
+    <div class="viewer-stack">
+        <div class="viewer-card">
+            <header class="viewer-header">
+                <div class="viewer-file-title">
+                    <h2>@currentFile.Name</h2>
+                    <p>@currentFile.Path</p>
                 </div>
-            }
 
-            <div class="analysis-selector" role="group" aria-label="Analysis mode">
-                @foreach (var option in AnalysisTypes)
+                <div class="analysis-selector" role="group" aria-label="Analysis mode">
+                    @foreach (var option in AnalysisTypes)
+                    {
+                        <button type="button"
+                                class="@GetAnalysisButtonClass(option)"
+                                @onclick="() => analysisType = option">
+                            @option.Label()
+                        </button>
+                    }
+                </div>
+            </header>
+
+            <div class="viewer-content">
+                @if (analysisType == AnalysisType.Original && fileType == "pdf")
                 {
-                    <button type="button"
-                            class="@GetAnalysisButtonClass(option)"
-                            @onclick="() => analysisType = option">
-                        @option.Label()
-                    </button>
+                    <div class="document-preview dashed-preview">
+                        <div class="preview-icon" aria-hidden="true"></div>
+                        <strong>@currentFile.Name</strong>
+                        <span>PDF Document Preview</span>
+                        <pre>@content</pre>
+                    </div>
+                }
+                else if (analysisType == AnalysisType.Original && fileType == "docx")
+                {
+                    <div class="document-preview dashed-preview word-preview">
+                        <div class="preview-icon word" aria-hidden="true"></div>
+                        <strong>@currentFile.Name</strong>
+                        <span>Word Document Preview</span>
+                        <pre>@content</pre>
+                    </div>
+                }
+                else if (analysisType == AnalysisType.Original && (fileType == "txt" || fileType == "md"))
+                {
+                    <pre class="plain-document">@content</pre>
+                }
+                else
+                {
+                    <div class="analysis-content">
+                        @FormatAsHtml(content)
+                    </div>
                 }
             </div>
-        </header>
-
-        <div class="viewer-content">
-            @if (analysisType == AnalysisType.Original && fileType == "pdf")
-            {
-                <div class="document-preview dashed-preview">
-                    <div class="preview-icon" aria-hidden="true"></div>
-                    <strong>@currentFile.Name</strong>
-                    <span>PDF Document Preview</span>
-                    <pre>@content</pre>
-                </div>
-            }
-            else if (analysisType == AnalysisType.Original && fileType == "docx")
-            {
-                <div class="document-preview dashed-preview word-preview">
-                    <div class="preview-icon word" aria-hidden="true"></div>
-                    <strong>@currentFile.Name</strong>
-                    <span>Word Document Preview</span>
-                    <pre>@content</pre>
-                </div>
-            }
-            else if (analysisType == AnalysisType.Original && (fileType == "txt" || fileType == "md"))
-            {
-                <pre class="plain-document">@content</pre>
-            }
-            else
-            {
-                <div class="analysis-content">
-                    @FormatAsHtml(content)
-                </div>
-            }
         </div>
+
+        @if (SelectedFiles.Count > 1)
+        {
+            <nav class="viewer-navigation-panel" aria-label="File navigation">
+                <button type="button" class="viewer-navigation-button secondary" @onclick="ShowPreviousAsync" aria-label="Previous file">
+                    <span aria-hidden="true">&lt;</span>
+                    Previous
+                </button>
+                <span>@(currentIndex + 1) of @SelectedFiles.Count</span>
+                <button type="button" class="viewer-navigation-button primary" @onclick="ShowNextAsync" aria-label="Next file">
+                    Next
+                    <span aria-hidden="true">&gt;</span>
+                </button>
+            </nav>
+        }
     </div>
 }
 
