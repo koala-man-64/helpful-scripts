@@ -247,7 +247,7 @@
             <section class="@($"workflow-card document-selection-card result-selection-card {(isResultsPanelCollapsed ? "collapsed" : "")}")" aria-labelledby="results-title">
                 <div class="workflow-card-header">
                     <div>
-                        <h2 id="results-title">
+                        <h2 id="results-title" class="results-title-inline">
                             <span class="title-tooltip-trigger"
                                   tabindex="0"
                                   title="Review generated bulk analysis results for selected SOPs."
@@ -255,14 +255,12 @@
                                   aria-describedby="results-tooltip">
                                 Select Results
                             </span>
+                            <span class="results-title-separator" aria-hidden="true"></span>
+                            <span class="results-title-count">@($"{selectedDownloadResults.Count} selected")</span>
                         </h2>
                         <span id="results-tooltip" class="sr-only">Review generated bulk analysis results for selected SOPs.</span>
                     </div>
                     <div class="result-panel-header-actions">
-                        <div class="result-selection-summary" aria-label="Selected results summary">
-                            <span>Selected results</span>
-                            <strong>@($"{selectedDownloadResults.Count} selected")</strong>
-                        </div>
                         <button type="button"
                                 class="icon-button bordered result-panel-toggle"
                                 aria-controls="results-panel-content"
