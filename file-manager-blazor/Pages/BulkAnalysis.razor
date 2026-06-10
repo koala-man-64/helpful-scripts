@@ -39,7 +39,7 @@
     <div class="workflow-divider" aria-hidden="true"></div>
 </header>
 
-<section class="@($"guided-analysis-page {(workflowStep == WorkflowStep.SelectDocuments ? "document-step-page" : "")}")" aria-label="Bulk Analysis workflow">
+<section class="@($"guided-analysis-page {(workflowStep is WorkflowStep.SelectDocuments or WorkflowStep.Results ? "document-step-page" : "")}")" aria-label="Bulk Analysis workflow">
     @if (workflowStep == WorkflowStep.SelectDocuments)
     {
         <div class="document-step-layout">
@@ -231,44 +231,135 @@
     }
     else
     {
-        <section class="workflow-card results-workflow-card" aria-labelledby="results-title">
-            <div class="workflow-card-header">
-                <div>
-                    <h2 id="results-title">Results</h2>
-                    <p>Move between documents and analysis types, then choose documents or results for assistant context.</p>
+        <div class="document-step-layout results-step-layout">
+            <section class="workflow-card document-selection-card result-selection-card" aria-labelledby="results-title">
+                <div class="workflow-card-header">
+                    <div>
+                        <h2 id="results-title">Results</h2>
+                        <p>Review each selected SOP and its generated bulk analysis outputs.</p>
+                    </div>
+                    <span class="selected-count">@($"{selectedDocuments.Count} SOP{(selectedDocuments.Count == 1 ? "" : "s")}")</span>
                 </div>
-            </div>
 
-            <div class="results-grid">
-                <section class="result-preview-card" aria-label="Result preview">
-                    @if (activeDocument is null || activeAnalysisType is null)
-                    {
-                        <div class="workflow-empty-state preview-empty">
-                            <strong>Select documents and analysis types to review results.</strong>
-                            <span>Use the previous steps to build a results set.</span>
+                @if (selectedDocuments.Count == 0 || selectedAnalysisTypes.Count == 0)
+                {
+                    <div class="workflow-empty-state">
+                        <strong>Select documents and analysis types to review results.</strong>
+                        <span>Use the previous steps to build a results set.</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="document-selection-list result-document-list">
+                        @foreach (var folderGroup in selectedDocuments
+                            .GroupBy(entry => entry.Folder.Id)
+                            .OrderBy(group => group.First().Folder.DisplayName, StringComparer.OrdinalIgnoreCase))
+                        {
+                            var folder = folderGroup.First().Folder;
+                            var documentsInFolder = folderGroup
+                                .OrderBy(entry => entry.Document.Title, StringComparer.OrdinalIgnoreCase)
+                                .ToArray();
+
+                            <section class="document-folder-card root-folder-card result-folder-card">
+                                <div class="document-folder-header result-folder-header">
+                                    <div class="document-folder-heading">
+                                        <div>
+                                            <h3>@folder.DisplayName</h3>
+                                            @if (!string.IsNullOrWhiteSpace(folder.ParentDisplayName))
+                                            {
+                                                <p>@folder.ParentDisplayName</p>
+                                            }
+                                        </div>
+                                        <span>@($"{documentsInFolder.Length} SOP{(documentsInFolder.Length == 1 ? "" : "s")}")</span>
+                                    </div>
+                                </div>
+
+                                <div class="document-option-list result-sop-list">
+                                    @foreach (var documentEntry in documentsInFolder)
+                                    {
+                                        <article class="@GetResultDocumentOptionClass(documentEntry.Document.Id)">
+                                            <button type="button"
+                                                    class="result-document-button"
+                                                    @onclick="() => SetActiveDocument(documentEntry.Document.Id)">
+                                                <strong>@documentEntry.Document.Title</strong>
+                                                <small>@documentEntry.Document.OriginalFileName - @GetResultAvailabilitySummary(documentEntry.Document, selectedAnalysisTypes)</small>
+                                            </button>
+                                            <div class="result-analysis-tabs" role="group" aria-label="@($"Analysis results for {documentEntry.Document.Title}")">
+                                                @foreach (var analysisType in selectedAnalysisTypes)
+                                                {
+                                                    var result = GetResult(documentEntry.Document, analysisType);
+
+                                                    <button type="button"
+                                                            class="@GetResultAnalysisButtonClass(documentEntry.Document.Id, analysisType, result is not null)"
+                                                            disabled="@(result is null)"
+                                                            @onclick="() => SetActiveResult(documentEntry.Document.Id, analysisType)">
+                                                        @analysisType
+                                                    </button>
+                                                }
+                                            </div>
+                                        </article>
+                                    }
+                                </div>
+                            </section>
+                        }
+                    </div>
+                }
+            </section>
+
+            <aside class="workflow-card step-one-preview-card result-preview-panel" aria-label="Review generated result">
+                @if (activeDocument is null || activeAnalysisType is null)
+                {
+                    <div class="workflow-empty-state step-preview-empty">
+                        <strong>No result selected</strong>
+                        <span>Select an SOP from the left panel to preview generated analysis.</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="source-preview-summary result-preview-summary">
+                        <div class="source-preview-summary-copy">
+                            <strong class="source-preview-title">@activeDocument.Document.Title</strong>
+                            <span class="source-preview-file-name">@activeDocument.Document.OriginalFileName</span>
+                            <div class="source-preview-summary-meta" aria-label="Result details">
+                                <span class="source-preview-summary-meta-item">
+                                    <span class="source-preview-summary-meta-label">Folder</span>
+                                    <span class="source-preview-summary-meta-value">@GetFolderPath(activeDocument.Folder)</span>
+                                </span>
+                                <span class="source-preview-summary-meta-item">
+                                    <span class="source-preview-summary-meta-label">Type</span>
+                                    <span class="source-preview-summary-meta-value">@activeAnalysisType</span>
+                                </span>
+                                @if (activeResult is not null)
+                                {
+                                    <span class="source-preview-summary-meta-item">
+                                        <span class="source-preview-summary-meta-label">Tokens</span>
+                                        <span class="source-preview-summary-meta-value">@FormatTokens(activeResult.EstimatedTokens)</span>
+                                    </span>
+                                    <span class="source-preview-summary-meta-item">
+                                        <span class="source-preview-summary-meta-label">Generated</span>
+                                        <span class="source-preview-summary-meta-value">@activeResult.GeneratedAt.ToString("MMM d, yyyy h:mm tt")</span>
+                                    </span>
+                                }
+                            </div>
                         </div>
-                    }
-                    else
-                    {
-                        <header class="preview-header compact-preview-header">
-                            <div>
-                                <p class="page-kicker">Preview</p>
-                                <h2>@activeDocument.Document.Title</h2>
-                                <p>@activeDocument.Folder.DisplayName - @activeAnalysisType</p>
+                        <div class="source-preview-summary-controls">
+                            <span class="selected-count">@($"{GetSelectionPreviewOrdinal(selectedDocuments, activeDocument)} of {selectedDocuments.Count}")</span>
+                            <div class="preview-cycle-actions result-cycle-actions" aria-label="Cycle selected results">
+                                <button type="button" class="icon-button bordered" @onclick="PreviousDocument" aria-label="Previous SOP">&lt;</button>
+                                <button type="button" class="icon-button bordered" @onclick="NextDocument" aria-label="Next SOP">&gt;</button>
+                                <button type="button" class="icon-button bordered text-button" @onclick="PreviousAnalysisType" aria-label="Previous analysis type">&lt; Type</button>
+                                <button type="button" class="icon-button bordered text-button" @onclick="NextAnalysisType" aria-label="Next analysis type">Type &gt;</button>
                             </div>
-                            <div class="preview-actions">
-                                <button type="button" class="icon-button bordered" @onclick="PreviousDocument" aria-label="Previous document">&lt;</button>
-                                <button type="button" class="icon-button bordered" @onclick="NextDocument" aria-label="Next document">&gt;</button>
-                                <button type="button" class="icon-button bordered" @onclick="PreviousAnalysisType" aria-label="Previous analysis type">&lt; Type</button>
-                                <button type="button" class="icon-button bordered" @onclick="NextAnalysisType" aria-label="Next analysis type">Type &gt;</button>
-                            </div>
-                        </header>
+                        </div>
+                    </div>
 
-                        <div class="preview-body">
+                    <div class="source-preview-body result-preview-body">
+                        <div class="source-preview-original result-preview-output">
+                            <p class="control-label">@activeAnalysisType</p>
                             @if (activeResult is null)
                             {
                                 <div class="workflow-empty-state preview-empty">
-                                    <strong>No @activeAnalysisType result for this document</strong>
+                                    <strong>No @activeAnalysisType result for this SOP</strong>
                                     <span>Use the analysis-type navigation to view another generated result.</span>
                                 </div>
                             }
@@ -286,96 +377,101 @@
                                 </article>
                             }
                         </div>
-                    }
-                </section>
+                    </div>
 
-                <aside class="@($"context-load-card {(isOverLimit ? "over-limit" : "")}")" aria-label="Load context">
-                    <div class="bulk-card-title-row">
-                        <div>
-                            <h2>Load context</h2>
-                            <p>@($"{selectedContextItems.Count} selected - {FormatTokens(selectedTokens)} / {FormatTokens(ChatContextState.ContextLimitTokens)}")</p>
+                    <section class="@($"result-context-panel {(isOverLimit ? "over-limit" : "")}")" aria-label="Load context">
+                        <div class="bulk-card-title-row result-context-title">
+                            <div>
+                                <h2>Load context</h2>
+                                <p>@($"{selectedContextItems.Count} selected - {FormatTokens(selectedTokens)} / {FormatTokens(ChatContextState.ContextLimitTokens)}")</p>
+                            </div>
                         </div>
-                    </div>
 
-                    <div class="context-meter" aria-label="Context usage">
-                        <span style="@($"width: {FormatPercent(usagePercent)}%;")"></span>
-                    </div>
+                        <div class="context-meter" aria-label="Context usage">
+                            <span style="@($"width: {FormatPercent(usagePercent)}%;")"></span>
+                        </div>
 
-                    @if (activeDocument is not null)
-                    {
-                        var sourceDocumentId = GetSourceDocumentContextId(activeDocument.Document);
+                        @{
+                            var sourceDocumentId = GetSourceDocumentContextId(activeDocument.Document);
+                        }
 
-                        <label class="@GetContextChoiceClass(sourceDocumentId)">
-                            <input type="checkbox"
-                                   checked="@selectedContextIds.Contains(sourceDocumentId)"
-                                   @onchange="() => ToggleSourceDocumentContext(activeDocument.Folder, activeDocument.Document)" />
-                            <span>
-                                <strong>@activeDocument.Document.OriginalFileName</strong>
-                                <small>Source document - @activeDocument.Document.Title</small>
-                            </span>
-                        </label>
-                    }
-
-                    @if (activeResult is not null)
-                    {
-                        <label class="@GetContextChoiceClass(activeResult.Id)">
-                            <input type="checkbox"
-                                   checked="@selectedContextIds.Contains(activeResult.Id)"
-                                   @onchange="() => ToggleResultContext(activeResult)" />
-                            <span>
-                                <strong>@activeResult.AnalysisType</strong>
-                                <small>Generated result - @activeResult.GeneratedAt.ToString("MMM d, yyyy h:mm tt")</small>
-                            </span>
-                        </label>
-                    }
-
-                    @if (selectedContextItems.Count == 0)
-                    {
-                        <p class="muted-copy">Select a source document or generated result to continue.</p>
-                    }
-                    else
-                    {
-                        <div class="selected-chip-list selected-context-stack" aria-label="Selected context items">
-                            @foreach (var item in selectedContextItems)
-                            {
-                                <span class="selected-chip">
-                                    @item.DisplayName
-                                    <button type="button" @onclick="() => RemoveContextItem(item.Id)" aria-label="@($"Remove {item.DisplayName}")">x</button>
+                        <div class="result-context-choice-grid">
+                            <label class="@GetContextChoiceClass(sourceDocumentId)">
+                                <input type="checkbox"
+                                       checked="@selectedContextIds.Contains(sourceDocumentId)"
+                                       @onchange="() => ToggleSourceDocumentContext(activeDocument.Folder, activeDocument.Document)" />
+                                <span>
+                                    <strong>@activeDocument.Document.OriginalFileName</strong>
+                                    <small>Source document - @activeDocument.Document.Title</small>
                                 </span>
+                            </label>
+
+                            @if (activeResult is not null)
+                            {
+                                <label class="@GetContextChoiceClass(activeResult.Id)">
+                                    <input type="checkbox"
+                                           checked="@selectedContextIds.Contains(activeResult.Id)"
+                                           @onchange="() => ToggleResultContext(activeResult)" />
+                                    <span>
+                                        <strong>@activeResult.AnalysisType</strong>
+                                        <small>Generated result - @activeResult.GeneratedAt.ToString("MMM d, yyyy h:mm tt")</small>
+                                    </span>
+                                </label>
                             }
                         </div>
-                    }
 
-                    @if (isOverLimit)
-                    {
-                        <p class="inline-warning">Too much content selected. Remove one or more items before loading context.</p>
-                    }
-                    else if (ChatContext.HasLoadedContext && !hasDirtyLoadedContext)
-                    {
-                        <p class="inline-success">This context is already loaded.</p>
-                    }
-                    else if (hasDirtyLoadedContext)
-                    {
-                        <p class="inline-notice">Selection changed. Load context again to update the assistant page.</p>
-                    }
-
-                    <div class="context-load-actions">
-                        <button type="button"
-                                class="workflow-action-button primary"
-                                disabled="@(selectedContextItems.Count == 0 || isOverLimit)"
-                                @onclick="LoadContext">
-                            Load selected context
-                        </button>
-                        @if (ChatContext.HasLoadedContext)
+                        @if (selectedContextItems.Count == 0)
                         {
-                            <button type="button" class="workflow-action-button secondary" @onclick="GoToAssistantContext">
-                                Go to context page
-                            </button>
+                            <p class="muted-copy">Select a source document or generated result to continue.</p>
                         }
-                    </div>
-                </aside>
-            </div>
-        </section>
+                        else
+                        {
+                            <div class="selected-chip-list selected-context-stack" aria-label="Selected context items">
+                                @foreach (var item in selectedContextItems)
+                                {
+                                    <span class="selected-chip">
+                                        @item.DisplayName
+                                        <button type="button" @onclick="() => RemoveContextItem(item.Id)" aria-label="@($"Remove {item.DisplayName}")">x</button>
+                                    </span>
+                                }
+                            </div>
+                        }
+
+                        @if (isOverLimit)
+                        {
+                            <p class="inline-warning">Too much content selected. Remove one or more items before loading context.</p>
+                        }
+                        else if (ChatContext.HasLoadedContext && !hasDirtyLoadedContext)
+                        {
+                            <p class="inline-success">This context is already loaded.</p>
+                        }
+                        else if (hasDirtyLoadedContext)
+                        {
+                            <p class="inline-notice">Selection changed. Load context again to update the assistant page.</p>
+                        }
+
+                        <div class="context-load-actions result-context-actions">
+                            <button type="button"
+                                    class="workflow-action-button primary"
+                                    disabled="@(selectedContextItems.Count == 0 || isOverLimit)"
+                                    @onclick="LoadContext">
+                                Load selected context
+                            </button>
+                            @if (ChatContext.HasLoadedContext)
+                            {
+                                <button type="button" class="workflow-action-button secondary" @onclick="GoToAssistantContext">
+                                    Go to context page
+                                </button>
+                            }
+                        </div>
+                    </section>
+                }
+            </aside>
+        </div>
+
+        <footer class="workflow-footer document-step-actions">
+            <button type="button" class="workflow-action-button secondary" @onclick="GoToAnalysisStep">Back</button>
+        </footer>
     }
 </section>
 
@@ -424,7 +520,7 @@
         {
             WorkflowStep.SelectDocuments => "Select the documents you want to analyze before choosing the bulk review outputs.",
             WorkflowStep.SelectAnalysisTypes => "Choose the analysis outputs to compare across the selected documents.",
-            _ => "Navigate between documents and analysis types, then load documents or results into assistant context."
+            _ => "Navigate between selected SOPs and analysis types, then load documents or results into assistant context."
         };
 
     protected override async Task OnInitializedAsync()
@@ -703,6 +799,29 @@
     private string? GetActiveAnalysisType(IReadOnlyList<string> selectedAnalysisTypes) =>
         selectedAnalysisTypes.FirstOrDefault(type => string.Equals(type, activeAnalysisType, StringComparison.OrdinalIgnoreCase)) ??
         selectedAnalysisTypes.FirstOrDefault();
+
+    private static BulkAnalysisResult? GetResult(BulkAnalysisDocument document, string analysisType) =>
+        document.Results.FirstOrDefault(result => string.Equals(result.AnalysisType, analysisType, StringComparison.OrdinalIgnoreCase));
+
+    private static string GetResultAvailabilitySummary(BulkAnalysisDocument document, IReadOnlyList<string> selectedAnalysisTypes)
+    {
+        var availableCount = selectedAnalysisTypes.Count(type => GetResult(document, type) is not null);
+
+        return availableCount == 0
+            ? "No selected result types available"
+            : $"{availableCount} of {selectedAnalysisTypes.Count} selected result type{(selectedAnalysisTypes.Count == 1 ? "" : "s")} available";
+    }
+
+    private void SetActiveDocument(string documentId)
+    {
+        activeDocumentId = documentId;
+    }
+
+    private void SetActiveResult(string documentId, string analysisType)
+    {
+        activeDocumentId = documentId;
+        activeAnalysisType = analysisType;
+    }
 
     private void PreviousDocument()
     {
@@ -996,6 +1115,29 @@
 
     private string GetContextChoiceClass(string id) =>
         selectedContextIds.Contains(id) ? "context-choice-row selected" : "context-choice-row";
+
+    private string GetResultDocumentOptionClass(string documentId) =>
+        string.Equals(documentId, activeDocumentId, StringComparison.Ordinal)
+            ? "result-document-option active"
+            : "result-document-option";
+
+    private string GetResultAnalysisButtonClass(string documentId, string analysisType, bool hasResult)
+    {
+        var classes = new List<string> { "result-analysis-button" };
+
+        if (string.Equals(documentId, activeDocumentId, StringComparison.Ordinal) &&
+            string.Equals(analysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase))
+        {
+            classes.Add("active");
+        }
+
+        if (!hasResult)
+        {
+            classes.Add("missing");
+        }
+
+        return string.Join(' ', classes);
+    }
 
     private static string GetAnalysisGlyph(string analysisType)
     {
