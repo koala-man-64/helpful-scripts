@@ -2541,6 +2541,14 @@ svg {
     line-height: 1.55;
 }
 
+.document-selection-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--shell-muted);
+    white-space: nowrap;
+}
+
 .selection-toolbar {
     align-items: end;
     margin-top: 1.25rem;
