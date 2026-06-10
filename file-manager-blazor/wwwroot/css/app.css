@@ -2408,23 +2408,58 @@ svg {
     flex: 1 1 auto;
 }
 
-.source-preview-summary-copy strong,
-.source-preview-summary-copy span {
+.source-preview-title,
+.source-preview-file-name {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.source-preview-summary-copy strong {
+.source-preview-title {
     color: var(--shell-heading);
     font-size: 0.98rem;
 }
 
-.source-preview-summary-copy span {
+.source-preview-file-name {
     margin-top: 0.25rem;
     color: var(--shell-muted);
     font-size: 0.84rem;
+}
+
+.source-preview-summary-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.85rem;
+    margin-top: 0.45rem;
+    min-width: 0;
+}
+
+.source-preview-summary-meta-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    min-width: 0;
+    max-width: 100%;
+    color: var(--shell-heading);
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
+.source-preview-summary-meta-label {
+    flex: 0 0 auto;
+    color: var(--shell-muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.source-preview-summary-meta-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .source-preview-summary-controls {
@@ -2447,34 +2482,6 @@ svg {
     flex: 1 1 auto;
     overflow: auto;
     padding-right: 0.2rem;
-}
-
-.source-preview-details {
-    display: grid;
-    gap: 0.65rem;
-    margin: 0 0 1rem;
-}
-
-.source-preview-details div {
-    padding: 0.75rem;
-    border: 1px solid var(--shell-line);
-    border-radius: 0.9rem;
-    background: rgba(255, 255, 255, 0.8);
-}
-
-.source-preview-details dt {
-    color: var(--shell-muted);
-    font-size: 0.73rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
-.source-preview-details dd {
-    margin: 0.25rem 0 0;
-    color: var(--shell-heading);
-    font-size: 0.9rem;
-    line-height: 1.45;
 }
 
 .source-preview-original {
