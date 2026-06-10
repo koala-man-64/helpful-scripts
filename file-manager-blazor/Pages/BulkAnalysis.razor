@@ -368,8 +368,6 @@
                             <div class="preview-cycle-actions result-cycle-actions" aria-label="Cycle selected results">
                                 <button type="button" class="icon-button bordered" @onclick="PreviousDocument" aria-label="Previous SOP">&lt;</button>
                                 <button type="button" class="icon-button bordered" @onclick="NextDocument" aria-label="Next SOP">&gt;</button>
-                                <button type="button" class="icon-button bordered text-button" @onclick="PreviousAnalysisType" aria-label="Previous analysis type">&lt; Type</button>
-                                <button type="button" class="icon-button bordered text-button" @onclick="NextAnalysisType" aria-label="Next analysis type">Type &gt;</button>
                             </div>
                         </div>
                     </div>
@@ -885,12 +883,6 @@
         }
     }
 
-    private void SetActiveResult(string documentId, string analysisType)
-    {
-        activeDocumentId = documentId;
-        activeAnalysisType = analysisType;
-    }
-
     private SelectionState GetResultSelectionState(
         IEnumerable<BulkAnalysisDocument> documents,
         IReadOnlyList<string> selectedAnalysisTypes)
@@ -1011,34 +1003,6 @@
         var currentIndex = Math.Max(0, selectedDocuments.ToList().FindIndex(entry => string.Equals(entry.Document.Id, GetActiveDocument(selectedDocuments)?.Document.Id, StringComparison.Ordinal)));
         var nextIndex = currentIndex >= selectedDocuments.Count - 1 ? 0 : currentIndex + 1;
         activeDocumentId = selectedDocuments[nextIndex].Document.Id;
-    }
-
-    private void PreviousAnalysisType()
-    {
-        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(GetSelectedDocuments()));
-        if (selectedAnalysisTypes.Count == 0)
-        {
-            return;
-        }
-
-        var current = GetActiveAnalysisType(selectedAnalysisTypes);
-        var currentIndex = Math.Max(0, selectedAnalysisTypes.ToList().FindIndex(type => string.Equals(type, current, StringComparison.OrdinalIgnoreCase)));
-        var nextIndex = currentIndex == 0 ? selectedAnalysisTypes.Count - 1 : currentIndex - 1;
-        activeAnalysisType = selectedAnalysisTypes[nextIndex];
-    }
-
-    private void NextAnalysisType()
-    {
-        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(GetSelectedDocuments()));
-        if (selectedAnalysisTypes.Count == 0)
-        {
-            return;
-        }
-
-        var current = GetActiveAnalysisType(selectedAnalysisTypes);
-        var currentIndex = Math.Max(0, selectedAnalysisTypes.ToList().FindIndex(type => string.Equals(type, current, StringComparison.OrdinalIgnoreCase)));
-        var nextIndex = currentIndex >= selectedAnalysisTypes.Count - 1 ? 0 : currentIndex + 1;
-        activeAnalysisType = selectedAnalysisTypes[nextIndex];
     }
 
     private DocumentWithFolder? GetSelectionPreviewDocument(IReadOnlyList<DocumentWithFolder> selectedDocuments) =>
