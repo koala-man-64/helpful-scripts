@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight, ChevronDown, Folder, File, Search, PanelLeftClose } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, File, PanelLeftClose } from 'lucide-react';
 
 interface TreeNode {
   id: string;
@@ -19,8 +19,6 @@ interface TreeItemProps {
   level: number;
   selectedIds: Set<string>;
   onToggle: (id: string, isFolder: boolean, children?: TreeNode[]) => void;
-  searchTerm: string;
-  expandedBySearch: boolean;
 }
 
 const ALLOWED_EXTENSIONS = ['.md', '.txt', '.docx', '.pdf'];
@@ -39,7 +37,7 @@ const hasAllowedFiles = (node: TreeNode): boolean => {
   return false;
 };
 
-function TreeItem({ node, level, selectedIds, onToggle, searchTerm, expandedBySearch }: TreeItemProps) {
+function TreeItem({ node, level, selectedIds, onToggle }: TreeItemProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const isFolder = node.type === 'folder';
   const isSelected = selectedIds.has(node.id);
@@ -54,21 +52,6 @@ function TreeItem({ node, level, selectedIds, onToggle, searchTerm, expandedBySe
     return null;
   }
 
-  const matchesSearch = searchTerm === '' || node.name.toLowerCase().includes(searchTerm.toLowerCase());
-
-  const hasMatchingChild = (n: TreeNode): boolean => {
-    if (n.name.toLowerCase().includes(searchTerm.toLowerCase())) {
-      return true;
-    }
-    if (n.children) {
-      return n.children.some(hasMatchingChild);
-    }
-    return false;
-  };
-
-  const shouldShow = searchTerm === '' || matchesSearch || (isFolder && node.children && node.children.some(hasMatchingChild));
-  const shouldExpand = expandedBySearch || isExpanded;
-
   const handleCheckboxChange = () => {
     onToggle(node.id, isFolder, node.children);
   };
@@ -78,10 +61,6 @@ function TreeItem({ node, level, selectedIds, onToggle, searchTerm, expandedBySe
       setIsExpanded(!isExpanded);
     }
   };
-
-  if (!shouldShow) {
-    return null;
-  }
 
   return (
     <div>
@@ -94,7 +73,7 @@ function TreeItem({ node, level, selectedIds, onToggle, searchTerm, expandedBySe
             onClick={handleExpandToggle}
             className="p-0.5 hover:bg-gray-200 rounded"
           >
-            {shouldExpand ? (
+            {isExpanded ? (
               <ChevronDown size={16} className="text-gray-600" />
             ) : (
               <ChevronRight size={16} className="text-gray-600" />
@@ -116,12 +95,12 @@ function TreeItem({ node, level, selectedIds, onToggle, searchTerm, expandedBySe
           <File size={16} className="text-gray-500" />
         )}
 
-        <span className={`text-sm select-none ${matchesSearch && searchTerm !== '' ? 'bg-yellow-200' : ''}`}>
+        <span className="text-sm select-none">
           {node.name}
         </span>
       </div>
 
-      {isFolder && shouldExpand && node.children && (
+      {isFolder && isExpanded && node.children && (
         <div>
           {node.children.map((child) => (
             <TreeItem
@@ -130,8 +109,6 @@ function TreeItem({ node, level, selectedIds, onToggle, searchTerm, expandedBySe
               level={level + 1}
               selectedIds={selectedIds}
               onToggle={onToggle}
-              searchTerm={searchTerm}
-              expandedBySearch={expandedBySearch}
             />
           ))}
         </div>
@@ -142,7 +119,6 @@ function TreeItem({ node, level, selectedIds, onToggle, searchTerm, expandedBySe
 
 export default function FileTree({ data, onSelectionChange, onCollapse }: FileTreeProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [searchTerm, setSearchTerm] = useState('');
 
   const getAllChildIds = (node: TreeNode): string[] => {
     const ids = [node.id];
@@ -151,14 +127,6 @@ export default function FileTree({ data, onSelectionChange, onCollapse }: FileTr
         ids.push(...getAllChildIds(child));
       });
     }
-    return ids;
-  };
-
-  const getAllIds = (nodes: TreeNode[]): string[] => {
-    const ids: string[] = [];
-    nodes.forEach((node) => {
-      ids.push(...getAllChildIds(node));
-    });
     return ids;
   };
 
@@ -216,15 +184,6 @@ export default function FileTree({ data, onSelectionChange, onCollapse }: FileTr
     updateSelection(newSelected);
   };
 
-  const handleSelectAll = () => {
-    const allIds = getAllIds(data);
-    updateSelection(new Set(allIds));
-  };
-
-  const handleSelectNone = () => {
-    updateSelection(new Set());
-  };
-
   return (
     <div className="flex h-full min-h-0 flex-col rounded-lg border border-gray-200 bg-white p-4">
       <div className="mb-4 flex items-center justify-between">
@@ -245,31 +204,6 @@ export default function FileTree({ data, onSelectionChange, onCollapse }: FileTr
         </div>
       </div>
 
-      <div className="mb-4 flex gap-2">
-        <div className="flex-1 relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search files and folders..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-        <button
-          onClick={handleSelectAll}
-          className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
-        >
-          Select All
-        </button>
-        <button
-          onClick={handleSelectNone}
-          className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
-        >
-          Select None
-        </button>
-      </div>
-
       <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto">
         {data.map((node) => (
           <TreeItem
@@ -278,8 +212,6 @@ export default function FileTree({ data, onSelectionChange, onCollapse }: FileTr
             level={0}
             selectedIds={selectedIds}
             onToggle={handleToggle}
-            searchTerm={searchTerm}
-            expandedBySearch={searchTerm !== ''}
           />
         ))}
       </div>
