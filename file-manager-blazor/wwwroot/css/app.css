@@ -2455,6 +2455,28 @@ svg {
     line-height: 1.25;
 }
 
+.results-title-inline {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.65rem;
+}
+
+.results-title-separator {
+    width: 1px;
+    height: 1.1em;
+    flex: 0 0 auto;
+    background: var(--shell-line-strong);
+}
+
+.results-title-count {
+    color: var(--shell-muted);
+    font-size: 0.98rem;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
 .workflow-card-header p {
     max-width: 38rem;
     margin-top: 0.35rem;
@@ -2773,30 +2795,6 @@ svg {
 
 .result-panel-content {
     min-width: 0;
-}
-
-.result-selection-summary {
-    min-width: min(12rem, 100%);
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 0.22rem;
-    color: var(--shell-muted);
-    font-size: 0.84rem;
-    line-height: 1.2;
-    text-align: right;
-}
-
-.result-selection-summary span {
-    color: var(--shell-heading);
-    font-size: 0.9rem;
-    font-weight: 750;
-}
-
-.result-selection-summary strong {
-    color: var(--shell-heading);
-    font-size: 0.92rem;
-    font-weight: 700;
 }
 
 .result-sop-list {
@@ -3151,12 +3149,6 @@ svg {
     .source-preview-summary-controls {
         width: 100%;
         justify-content: space-between;
-    }
-
-    .result-selection-summary {
-        align-items: flex-start;
-        width: 100%;
-        text-align: left;
     }
 
     .document-folder-card {
