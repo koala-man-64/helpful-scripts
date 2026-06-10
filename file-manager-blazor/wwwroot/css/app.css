@@ -2095,23 +2095,6 @@ svg {
     overflow: hidden;
 }
 
-.step-one-preview-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--shell-line);
-}
-
-.step-one-preview-header h2 {
-    margin-top: 0.25rem;
-    color: var(--shell-heading);
-    font-size: 1.15rem;
-    font-weight: 650;
-    letter-spacing: -0.03em;
-}
-
 .title-tooltip-trigger {
     position: relative;
     display: inline-flex;
@@ -2173,14 +2156,11 @@ svg {
     text-decoration-color: var(--shell-accent-strong);
 }
 
-.step-one-preview-header p:not(.page-kicker) {
-    margin-top: 0.3rem;
-    color: var(--shell-muted);
-    font-size: 0.88rem;
-    line-height: 1.5;
-}
-
 .source-preview-summary {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
     min-width: 0;
     padding: 0.85rem;
     border: 1px solid var(--shell-line);
@@ -2188,23 +2168,37 @@ svg {
     background: rgba(246, 248, 252, 0.78);
 }
 
-.source-preview-summary strong,
-.source-preview-summary span {
+.source-preview-summary-copy {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.source-preview-summary-copy strong,
+.source-preview-summary-copy span {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.source-preview-summary strong {
+.source-preview-summary-copy strong {
     color: var(--shell-heading);
     font-size: 0.98rem;
 }
 
-.source-preview-summary span {
+.source-preview-summary-copy span {
     margin-top: 0.25rem;
     color: var(--shell-muted);
     font-size: 0.84rem;
+}
+
+.source-preview-summary-controls {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    min-height: 2.5rem;
 }
 
 .preview-cycle-actions {
@@ -2893,7 +2887,6 @@ svg {
 
     .chat-context-strip,
     .bulk-card-title-row,
-    .step-one-preview-header,
     .preview-header {
         align-items: stretch;
         flex-direction: column;
@@ -2926,12 +2919,20 @@ svg {
     }
 
     .workflow-card-header,
-    .step-one-preview-header,
     .selection-toolbar,
     .workflow-footer,
     .document-folder-header {
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .source-preview-summary {
+        flex-direction: column;
+    }
+
+    .source-preview-summary-controls {
+        width: 100%;
+        justify-content: space-between;
     }
 
     .document-folder-card {
