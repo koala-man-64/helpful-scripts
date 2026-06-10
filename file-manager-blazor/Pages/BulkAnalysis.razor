@@ -248,6 +248,14 @@
                         </h2>
                         <span id="results-tooltip" class="sr-only">Review generated bulk analysis results for selected SOPs.</span>
                     </div>
+                    <div class="@($"result-load-summary {(isOverLimit ? "over-limit" : "")}")" aria-label="Load context summary">
+                        <span>Load context</span>
+                        <strong>@($"{selectedContextItems.Count} selected")</strong>
+                        <small>@($"{FormatTokens(selectedTokens)} / {FormatTokens(ChatContextState.ContextLimitTokens)}")</small>
+                        <div class="context-meter" aria-label="Context usage">
+                            <span style="@($"width: {FormatPercent(usagePercent)}%;")"></span>
+                        </div>
+                    </div>
                 </div>
 
                 @if (selectedDocuments.Count == 0 || selectedAnalysisTypes.Count == 0)
@@ -379,7 +387,7 @@
                             {
                                 <div class="workflow-empty-state preview-empty">
                                     <strong>No @activeAnalysisType result for this SOP</strong>
-                                    <span>Use the analysis-type navigation to view another generated result.</span>
+                                    <span>Choose another SOP or go back to update selected analysis types.</span>
                                 </div>
                             }
                             else if (!activeResult.IsPreviewAvailable)
@@ -398,78 +406,6 @@
                         </div>
                     </div>
 
-                    <section class="@($"result-context-panel {(isOverLimit ? "over-limit" : "")}")" aria-label="Load context">
-                        <div class="bulk-card-title-row result-context-title">
-                            <div>
-                                <h2>Load context</h2>
-                                <p>@($"{selectedContextItems.Count} selected - {FormatTokens(selectedTokens)} / {FormatTokens(ChatContextState.ContextLimitTokens)}")</p>
-                            </div>
-                        </div>
-
-                        <div class="context-meter" aria-label="Context usage">
-                            <span style="@($"width: {FormatPercent(usagePercent)}%;")"></span>
-                        </div>
-
-                        @{
-                            var sourceDocumentId = GetSourceDocumentContextId(activeDocument.Document);
-                        }
-
-                        <div class="result-context-choice-grid">
-                            <label class="@GetContextChoiceClass(sourceDocumentId)">
-                                <input type="checkbox"
-                                       checked="@selectedContextIds.Contains(sourceDocumentId)"
-                                       @onchange="() => ToggleSourceDocumentContext(activeDocument.Folder, activeDocument.Document)" />
-                                <span>
-                                    <strong>@activeDocument.Document.OriginalFileName</strong>
-                                    <small>Source document - @activeDocument.Document.Title</small>
-                                </span>
-                            </label>
-
-                            @if (activeResult is not null)
-                            {
-                                <label class="@GetContextChoiceClass(activeResult.Id)">
-                                    <input type="checkbox"
-                                           checked="@selectedContextIds.Contains(activeResult.Id)"
-                                           @onchange="() => ToggleResultContext(activeResult)" />
-                                    <span>
-                                        <strong>@activeResult.AnalysisType</strong>
-                                        <small>Generated result - @activeResult.GeneratedAt.ToString("MMM d, yyyy h:mm tt")</small>
-                                    </span>
-                                </label>
-                            }
-                        </div>
-
-                        @if (selectedContextItems.Count == 0)
-                        {
-                            <p class="muted-copy">Select a source document or generated result to continue.</p>
-                        }
-                        else
-                        {
-                            <div class="selected-chip-list selected-context-stack" aria-label="Selected context items">
-                                @foreach (var item in selectedContextItems)
-                                {
-                                    <span class="selected-chip">
-                                        @item.DisplayName
-                                        <button type="button" @onclick="() => RemoveContextItem(item.Id)" aria-label="@($"Remove {item.DisplayName}")">x</button>
-                                    </span>
-                                }
-                            </div>
-                        }
-
-                        @if (isOverLimit)
-                        {
-                            <p class="inline-warning">Too much content selected. Remove one or more items before loading context.</p>
-                        }
-                        else if (ChatContext.HasLoadedContext && !hasDirtyLoadedContext)
-                        {
-                            <p class="inline-success">This context is already loaded.</p>
-                        }
-                        else if (hasDirtyLoadedContext)
-                        {
-                            <p class="inline-notice">Selection changed. Load context again to update the assistant page.</p>
-                        }
-
-                    </section>
                 }
             </aside>
         </div>
@@ -594,8 +530,6 @@
 
         foreach (var item in ChatContext.LoadedItems)
         {
-            selectedContextIds.Add(item.Id);
-
             if (item.Kind == BulkAnalysisContextItemKind.SourceDocument)
             {
                 var sourceDocument = AllDocuments.FirstOrDefault(entry => string.Equals(GetSourceDocumentContextId(entry.Document), item.Id, StringComparison.Ordinal));
@@ -609,6 +543,7 @@
                 var result = AllResults.FirstOrDefault(result => string.Equals(result.Id, item.Id, StringComparison.Ordinal));
                 if (result is not null)
                 {
+                    selectedContextIds.Add(item.Id);
                     selectedDocumentIds.Add(result.DocumentId);
                     selectedAnalysisTypeIds.Add(result.AnalysisType);
                 }
@@ -1104,47 +1039,11 @@
         selectedContextIds.RemoveWhere(id => AllResults.Any(result => string.Equals(result.Id, id, StringComparison.Ordinal) && string.Equals(result.AnalysisType, analysisType, StringComparison.OrdinalIgnoreCase)));
     }
 
-    private void ToggleSourceDocumentContext(BulkAnalysisFolder folder, BulkAnalysisDocument document)
-    {
-        ToggleContextItem(BulkAnalysisContextItem.FromSourceDocument(folder, document).Id);
-    }
-
-    private void ToggleResultContext(BulkAnalysisResult result)
-    {
-        ToggleContextItem(result.Id);
-    }
-
-    private void ToggleContextItem(string id)
-    {
-        if (!selectedContextIds.Add(id))
-        {
-            selectedContextIds.Remove(id);
-        }
-    }
-
-    private void RemoveContextItem(string id)
-    {
-        selectedContextIds.Remove(id);
-    }
-
     private IReadOnlyList<BulkAnalysisContextItem> GetSelectedContextItems()
     {
-        var items = new List<BulkAnalysisContextItem>();
-
-        foreach (var entry in AllDocuments)
-        {
-            var sourceItem = BulkAnalysisContextItem.FromSourceDocument(entry.Folder, entry.Document);
-            if (selectedContextIds.Contains(sourceItem.Id))
-            {
-                items.Add(sourceItem);
-            }
-        }
-
-        items.AddRange(AllResults
+        return AllResults
             .Where(result => selectedContextIds.Contains(result.Id))
-            .Select(BulkAnalysisContextItem.FromResult));
-
-        return items
+            .Select(BulkAnalysisContextItem.FromResult)
             .OrderBy(item => item.FolderName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.DocumentTitle, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.Kind)
@@ -1322,9 +1221,6 @@
 
     private string GetAnalysisOptionClass(string analysisType) =>
         selectedAnalysisTypeIds.Contains(analysisType) ? "analysis-type-option selected" : "analysis-type-option";
-
-    private string GetContextChoiceClass(string id) =>
-        selectedContextIds.Contains(id) ? "context-choice-row selected" : "context-choice-row";
 
     private string GetResultFolderPanelClass(DocumentFolderPanel panel) =>
         $"{GetFolderPanelClass(panel)} result-folder-card";
