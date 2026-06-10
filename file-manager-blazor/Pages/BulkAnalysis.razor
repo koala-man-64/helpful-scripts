@@ -139,8 +139,18 @@
                 {
                     <div class="source-preview-summary">
                         <div class="source-preview-summary-copy">
-                            <strong>@selectedPreviewDocument.Document.Title</strong>
-                            <span>@selectedPreviewDocument.Document.OriginalFileName</span>
+                            <strong class="source-preview-title">@selectedPreviewDocument.Document.Title</strong>
+                            <span class="source-preview-file-name">@selectedPreviewDocument.Document.OriginalFileName</span>
+                            <div class="source-preview-summary-meta" aria-label="Source details">
+                                <span class="source-preview-summary-meta-item">
+                                    <span class="source-preview-summary-meta-label">Folder</span>
+                                    <span class="source-preview-summary-meta-value">@GetFolderPath(selectedPreviewDocument.Folder)</span>
+                                </span>
+                                <span class="source-preview-summary-meta-item">
+                                    <span class="source-preview-summary-meta-label">Token count</span>
+                                    <span class="source-preview-summary-meta-value">@FormatTokens(BulkAnalysisContextItem.FromSourceDocument(selectedPreviewDocument.Folder, selectedPreviewDocument.Document).EstimatedTokens)</span>
+                                </span>
+                            </div>
                         </div>
                         <div class="source-preview-summary-controls">
                             <span class="selected-count">@($"{selectedPreviewOrdinal} of {selectedDocuments.Count}")</span>
@@ -155,17 +165,6 @@
                     </div>
 
                     <div class="source-preview-body">
-                        <dl class="source-preview-details">
-                            <div>
-                                <dt>Folder</dt>
-                                <dd>@selectedPreviewDocument.Folder.DisplayName</dd>
-                            </div>
-                            <div>
-                                <dt>Token count</dt>
-                                <dd>@FormatTokens(BulkAnalysisContextItem.FromSourceDocument(selectedPreviewDocument.Folder, selectedPreviewDocument.Document).EstimatedTokens)</dd>
-                            </div>
-                        </dl>
-
                         <div class="source-preview-original">
                             <p class="control-label">Original content</p>
                             <pre>@GetOriginalDocumentContent(selectedPreviewDocument.Document)</pre>
@@ -1110,6 +1109,11 @@
 
     private MarkupString RenderMarkdown(BulkAnalysisResult result) =>
         new(Markdown.ToHtml(result.Markdown, MarkdownPipeline));
+
+    private static string GetFolderPath(BulkAnalysisFolder folder) =>
+        string.IsNullOrWhiteSpace(folder.ParentDisplayName)
+            ? folder.DisplayName
+            : $"{folder.ParentDisplayName} / {folder.DisplayName}";
 
     private static string FormatTokens(int tokens) =>
         tokens >= 1_000 ? $"{tokens / 1_000.0:0.#}k" : tokens.ToString("N0");
