@@ -57,11 +57,6 @@
                         </h2>
                         <span id="select-documents-tooltip" class="sr-only">Choose the documents you want included in the bulk analysis review.</span>
                     </div>
-                    <div class="document-selection-header-actions">
-                        <span class="selected-count">@($"{selectedDocumentIds.Count} selected")</span>
-                        <button type="button" class="secondary-button" @onclick="SelectVisibleDocuments">Select visible</button>
-                        <button type="button" class="secondary-button" @onclick="ClearDocumentSelection">Clear</button>
-                    </div>
                 </div>
 
                 @{
@@ -185,7 +180,6 @@
         </div>
 
         <footer class="workflow-footer document-step-actions">
-            <span>@($"{AllDocuments.Count} documents available")</span>
             <button type="button" class="workflow-action-button primary" disabled="@(selectedDocumentIds.Count == 0)" @onclick="GoToAnalysisStep">
                 Next
             </button>
@@ -675,30 +669,6 @@
         PruneAnalysisTypeSelection();
         EnsureSelectionPreviewTarget();
         EnsureActiveTargets();
-    }
-
-    private void SelectVisibleDocuments()
-    {
-        foreach (var document in GetVisibleDocumentPanels()
-            .Where(panel => !IsFolderCollapsed(panel.Folder.Id))
-            .SelectMany(panel => panel.Documents))
-        {
-            selectedDocumentIds.Add(document.Id);
-        }
-
-        PruneAnalysisTypeSelection();
-        EnsureSelectionPreviewTarget();
-        EnsureActiveTargets();
-    }
-
-    private void ClearDocumentSelection()
-    {
-        selectedDocumentIds.Clear();
-        selectedAnalysisTypeIds.Clear();
-        selectedContextIds.Clear();
-        activeDocumentId = null;
-        activeAnalysisType = null;
-        selectionPreviewDocumentId = null;
     }
 
     private void ToggleAnalysisType(string analysisType)
