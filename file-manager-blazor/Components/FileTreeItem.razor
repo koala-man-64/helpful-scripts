@@ -22,7 +22,7 @@
                    aria-label="@($"Select {Node.Name}")" />
 
             <span class="node-icon @(IsFolder ? "folder-icon" : "file-icon")" aria-hidden="true"></span>
-            <span class="node-name @(MatchesSearch && !string.IsNullOrWhiteSpace(SearchTerm) ? "search-match" : "")">@Node.Name</span>
+            <span class="node-name">@Node.Name</span>
         </div>
 
         @if (IsFolder && ShouldExpand && Node.Children is { Count: > 0 } children)
@@ -34,8 +34,6 @@
                                   Level="@(Level + 1)"
                                   SelectedIds="SelectedIds"
                                   ExpandedIds="ExpandedIds"
-                                  SearchTerm="@SearchTerm"
-                                  ExpandedBySearch="ExpandedBySearch"
                                   OnToggle="OnToggle"
                                   OnExpandToggle="OnExpandToggle" />
                 }
@@ -58,12 +56,6 @@
     public IReadOnlySet<string> ExpandedIds { get; set; } = new HashSet<string>();
 
     [Parameter]
-    public string SearchTerm { get; set; } = string.Empty;
-
-    [Parameter]
-    public bool ExpandedBySearch { get; set; }
-
-    [Parameter]
     public EventCallback<FileNode> OnToggle { get; set; }
 
     [Parameter]
@@ -73,15 +65,10 @@
 
     private bool IsSelected => SelectedIds.Contains(Node.Id);
 
-    private bool MatchesSearch =>
-        string.IsNullOrWhiteSpace(SearchTerm) ||
-        Node.Name.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase);
-
     private bool ShouldShow =>
-        IsAllowedByType &&
-        (string.IsNullOrWhiteSpace(SearchTerm) || MatchesSearch || (IsFolder && Node.Children?.Any(HasMatchingChild) == true));
+        IsAllowedByType;
 
-    private bool ShouldExpand => ExpandedBySearch || ExpandedIds.Contains(Node.Id);
+    private bool ShouldExpand => ExpandedIds.Contains(Node.Id);
 
     private bool IsAllowedByType =>
         Node.Type == FileNodeType.File
@@ -89,14 +76,4 @@
             : MockFileData.HasAllowedFiles(Node);
 
     private string IndentStyle => $"padding-left: {Level * 20 + 8}px";
-
-    private bool HasMatchingChild(FileNode node)
-    {
-        if (node.Name.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return node.Children?.Any(HasMatchingChild) == true;
-    }
 }

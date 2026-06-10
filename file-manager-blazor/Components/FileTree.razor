@@ -9,18 +9,6 @@
         </div>
     </div>
 
-    <div class="tree-toolbar">
-        <label class="search-box">
-            <span class="search-mark" aria-hidden="true"></span>
-            <input type="search"
-                   placeholder="Search files and folders..."
-                   value="@searchTerm"
-                   @oninput="HandleSearchInput" />
-        </label>
-        <button type="button" class="secondary-button" @onclick="SelectAllAsync">Select All</button>
-        <button type="button" class="secondary-button" @onclick="SelectNoneAsync">Select None</button>
-    </div>
-
     <div class="tree-list" role="tree">
         @foreach (var node in Data)
         {
@@ -28,8 +16,6 @@
                           Level="0"
                           SelectedIds="selectedIds"
                           ExpandedIds="expandedIds"
-                          SearchTerm="@searchTerm"
-                          ExpandedBySearch="@(!string.IsNullOrWhiteSpace(searchTerm))"
                           OnToggle="ToggleNodeAsync"
                           OnExpandToggle="ToggleExpansion" />
         }
@@ -39,7 +25,6 @@
 @code {
     private readonly HashSet<string> selectedIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> expandedIds = new(StringComparer.Ordinal);
-    private string searchTerm = string.Empty;
     private bool initialStateApplied;
 
     [Parameter]
@@ -50,9 +35,6 @@
 
     [Parameter]
     public IReadOnlyList<string> InitialExpandedIds { get; set; } = [];
-
-    [Parameter]
-    public string InitialSearchTerm { get; set; } = string.Empty;
 
     [Parameter]
     public EventCallback<IReadOnlyList<SelectedFile>> OnSelectionChange { get; set; }
@@ -68,7 +50,6 @@
         }
 
         initialStateApplied = true;
-        searchTerm = InitialSearchTerm;
 
         foreach (var id in InitialSelectedIds)
         {
@@ -84,11 +65,6 @@
         {
             await NotifySelectionChangedAsync();
         }
-    }
-
-    private void HandleSearchInput(ChangeEventArgs args)
-    {
-        searchTerm = args.Value?.ToString() ?? string.Empty;
     }
 
     private async Task ToggleNodeAsync(FileNode node)
@@ -127,24 +103,6 @@
         {
             expandedIds.Remove(node.Id);
         }
-    }
-
-    private async Task SelectAllAsync()
-    {
-        selectedIds.Clear();
-
-        foreach (var id in Data.SelectMany(GetAllChildIds))
-        {
-            selectedIds.Add(id);
-        }
-
-        await NotifySelectionChangedAsync();
-    }
-
-    private async Task SelectNoneAsync()
-    {
-        selectedIds.Clear();
-        await NotifySelectionChangedAsync();
     }
 
     private async Task NotifySelectionChangedAsync()
