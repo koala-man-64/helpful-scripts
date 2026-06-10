@@ -149,27 +149,7 @@
                 </footer>
             </section>
 
-            <aside class="workflow-card step-one-preview-card" aria-labelledby="step-one-preview-title">
-                <div class="step-one-preview-header">
-                    <div>
-                        <p class="page-kicker">Step 1</p>
-                        <h2 id="step-one-preview-title">
-                            <span class="title-tooltip-trigger"
-                                  tabindex="0"
-                                  title="Cycle through selected source documents before choosing bulk analysis outputs."
-                                  data-tooltip="Cycle through selected source documents before choosing bulk analysis outputs."
-                                  aria-describedby="step-one-preview-tooltip">
-                                Review inputs
-                            </span>
-                        </h2>
-                        <span id="step-one-preview-tooltip" class="sr-only">Cycle through selected source documents before choosing bulk analysis outputs.</span>
-                    </div>
-                    @if (selectedPreviewDocument is not null)
-                    {
-                        <span class="selected-count">@($"{selectedPreviewOrdinal} of {selectedDocuments.Count}")</span>
-                    }
-                </div>
-
+            <aside class="workflow-card step-one-preview-card" aria-label="Review inputs">
                 @if (selectedPreviewDocument is null)
                 {
                     <div class="workflow-empty-state step-preview-empty">
@@ -180,19 +160,21 @@
                 else
                 {
                     <div class="source-preview-summary">
-                        <div>
+                        <div class="source-preview-summary-copy">
                             <strong>@selectedPreviewDocument.Document.Title</strong>
                             <span>@selectedPreviewDocument.Document.OriginalFileName</span>
                         </div>
-                    </div>
-
-                    @if (selectedDocuments.Count > 1)
-                    {
-                        <div class="preview-cycle-actions" aria-label="Cycle selected source documents">
-                            <button type="button" class="icon-button bordered" @onclick="() => PreviousSelectionPreviewDocument(selectedDocuments)" aria-label="Previous selected source document">&lt;</button>
-                            <button type="button" class="icon-button bordered" @onclick="() => NextSelectionPreviewDocument(selectedDocuments)" aria-label="Next selected source document">&gt;</button>
+                        <div class="source-preview-summary-controls">
+                            <span class="selected-count">@($"{selectedPreviewOrdinal} of {selectedDocuments.Count}")</span>
+                            @if (selectedDocuments.Count > 1)
+                            {
+                                <div class="preview-cycle-actions" aria-label="Cycle selected source documents">
+                                    <button type="button" class="icon-button bordered" @onclick="() => PreviousSelectionPreviewDocument(selectedDocuments)" aria-label="Previous selected source document">&lt;</button>
+                                    <button type="button" class="icon-button bordered" @onclick="() => NextSelectionPreviewDocument(selectedDocuments)" aria-label="Next selected source document">&gt;</button>
+                                </div>
+                            }
                         </div>
-                    }
+                    </div>
 
                     <div class="source-preview-body">
                         <dl class="source-preview-details">
