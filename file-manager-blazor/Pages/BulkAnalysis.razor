@@ -161,11 +161,7 @@
                                 <dd>@selectedPreviewDocument.Folder.DisplayName</dd>
                             </div>
                             <div>
-                                <dt>Available outputs</dt>
-                                <dd>@GetAnalysisTypeSummary(selectedPreviewDocument.Document)</dd>
-                            </div>
-                            <div>
-                                <dt>Context estimate</dt>
+                                <dt>Token count</dt>
                                 <dd>@FormatTokens(BulkAnalysisContextItem.FromSourceDocument(selectedPreviewDocument.Folder, selectedPreviewDocument.Document).EstimatedTokens)</dd>
                             </div>
                         </dl>
@@ -197,17 +193,6 @@
                     <p>Pick the generated result types you want to review across the selected documents.</p>
                 </div>
                 <span class="selected-count">@($"{selectedAnalysisTypeIds.Count} selected")</span>
-            </div>
-
-            <div class="selected-summary-strip">
-                @foreach (var document in selectedDocuments.Take(4))
-                {
-                    <span class="context-chip">@document.Document.Title</span>
-                }
-                @if (selectedDocuments.Count > 4)
-                {
-                    <span class="context-chip muted">@($"+{selectedDocuments.Count - 4} more documents")</span>
-                }
             </div>
 
             <div class="analysis-type-grid">
