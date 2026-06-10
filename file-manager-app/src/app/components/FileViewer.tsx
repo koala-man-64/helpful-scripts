@@ -542,101 +542,103 @@ export default function FileViewer({ selectedFiles, onFileIndexChange }: FileVie
   };
 
   return (
-    <div className="border border-gray-200 rounded-lg bg-white flex flex-col h-full">
-      <div className="border-b border-gray-200 p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex-1">
-            <h3 className="font-semibold">{currentFile.name}</h3>
-            <p className="text-xs text-gray-500 mt-1">{currentFile.path}</p>
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-gray-200 bg-white">
+        <div className="border-b border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex-1">
+              <h3 className="font-semibold">{currentFile.name}</h3>
+              <p className="text-xs text-gray-500 mt-1">{currentFile.path}</p>
+            </div>
           </div>
 
-          {selectedFiles.length > 1 && (
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-600">
-                {currentIndex + 1} of {selectedFiles.length}
-              </span>
-              <div className="flex gap-1">
+          {/* Analysis Type Selector */}
+          <div className="flex gap-2">
+            {analysisOptions.map((option) => {
+              return (
                 <button
-                  onClick={handlePrevious}
-                  className="p-2 hover:bg-gray-100 rounded border border-gray-300"
-                  aria-label="Previous file"
+                  key={option.value}
+                  onClick={() => setAnalysisType(option.value)}
+                  className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                    analysisType === option.value
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
                 >
-                  <ChevronLeft size={16} />
+                  {option.label}
                 </button>
-                <button
-                  onClick={handleNext}
-                  className="p-2 hover:bg-gray-100 rounded border border-gray-300"
-                  aria-label="Next file"
-                >
-                  <ChevronRight size={16} />
-                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex-1 p-6 overflow-auto">
+          {isOriginalView && fileType === 'pdf' ? (
+            <div className="h-full flex flex-col items-center justify-center bg-gray-100 rounded-lg border-2 border-dashed border-gray-300">
+              <div className="text-center p-8">
+                <FileText size={64} className="text-gray-400 mb-4 mx-auto" />
+                <p className="text-gray-600 font-semibold mb-2">{currentFile.name}</p>
+                <p className="text-sm text-gray-500">PDF Document Preview</p>
+                <div className="mt-4 p-4 bg-white rounded border border-gray-200 max-w-2xl">
+                  <div className="text-left text-sm text-gray-700">
+                    {mockFileContent[currentFile.name]?.original || simpleContent[currentFile.name] || 'PDF content would be displayed here'}
+                  </div>
+                </div>
               </div>
             </div>
+          ) : isOriginalView && fileType === 'docx' ? (
+            <div className="h-full flex flex-col items-center justify-center bg-gray-100 rounded-lg border-2 border-dashed border-gray-300">
+              <div className="text-center p-8">
+                <FileText size={64} className="text-blue-500 mb-4 mx-auto" />
+                <p className="text-gray-600 font-semibold mb-2">{currentFile.name}</p>
+                <p className="text-sm text-gray-500">Word Document Preview</p>
+                <div className="mt-4 p-6 bg-white rounded border border-gray-200 max-w-2xl shadow-sm">
+                  <div className="text-left text-sm text-gray-700 whitespace-pre-wrap">
+                    {mockFileContent[currentFile.name]?.original || simpleContent[currentFile.name] || 'Word document content would be displayed here'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : isOriginalView && (fileType === 'txt' || fileType === 'md') ? (
+            <pre className="whitespace-pre-wrap font-mono text-sm text-gray-800 bg-white p-4 rounded border border-gray-200">
+              {content}
+            </pre>
+          ) : isHtmlContent ? (
+            <div
+              className="prose prose-sm max-w-none"
+              dangerouslySetInnerHTML={{ __html: formatAsHtml(content) }}
+            />
+          ) : (
+            <pre className="whitespace-pre-wrap font-mono text-sm text-gray-800">
+              {content}
+            </pre>
           )}
         </div>
-
-        {/* Analysis Type Selector */}
-        <div className="flex gap-2">
-          {analysisOptions.map((option) => {
-            return (
-              <button
-                key={option.value}
-                onClick={() => setAnalysisType(option.value)}
-                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  analysisType === option.value
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
-      <div className="flex-1 p-6 overflow-auto">
-        {isOriginalView && fileType === 'pdf' ? (
-          <div className="h-full flex flex-col items-center justify-center bg-gray-100 rounded-lg border-2 border-dashed border-gray-300">
-            <div className="text-center p-8">
-              <FileText size={64} className="text-gray-400 mb-4 mx-auto" />
-              <p className="text-gray-600 font-semibold mb-2">{currentFile.name}</p>
-              <p className="text-sm text-gray-500">PDF Document Preview</p>
-              <div className="mt-4 p-4 bg-white rounded border border-gray-200 max-w-2xl">
-                <div className="text-left text-sm text-gray-700">
-                  {mockFileContent[currentFile.name]?.original || simpleContent[currentFile.name] || 'PDF content would be displayed here'}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : isOriginalView && fileType === 'docx' ? (
-          <div className="h-full flex flex-col items-center justify-center bg-gray-100 rounded-lg border-2 border-dashed border-gray-300">
-            <div className="text-center p-8">
-              <FileText size={64} className="text-blue-500 mb-4 mx-auto" />
-              <p className="text-gray-600 font-semibold mb-2">{currentFile.name}</p>
-              <p className="text-sm text-gray-500">Word Document Preview</p>
-              <div className="mt-4 p-6 bg-white rounded border border-gray-200 max-w-2xl shadow-sm">
-                <div className="text-left text-sm text-gray-700 whitespace-pre-wrap">
-                  {mockFileContent[currentFile.name]?.original || simpleContent[currentFile.name] || 'Word document content would be displayed here'}
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : isOriginalView && (fileType === 'txt' || fileType === 'md') ? (
-          <pre className="whitespace-pre-wrap font-mono text-sm text-gray-800 bg-white p-4 rounded border border-gray-200">
-            {content}
-          </pre>
-        ) : isHtmlContent ? (
-          <div
-            className="prose prose-sm max-w-none"
-            dangerouslySetInnerHTML={{ __html: formatAsHtml(content) }}
-          />
-        ) : (
-          <pre className="whitespace-pre-wrap font-mono text-sm text-gray-800">
-            {content}
-          </pre>
-        )}
-      </div>
+      {selectedFiles.length > 1 && (
+        <nav className="flex shrink-0 items-center justify-between gap-4 px-1" aria-label="File navigation">
+          <button
+            onClick={handlePrevious}
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-sm transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--shell-accent-strong)]"
+            aria-label="Previous file"
+          >
+            <ChevronLeft size={16} />
+            Previous
+          </button>
+          <span className="text-sm font-medium text-gray-600">
+            {currentIndex + 1} of {selectedFiles.length}
+          </span>
+          <button
+            onClick={handleNext}
+            className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[var(--shell-accent-strong)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[var(--shell-accent-mid)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--shell-accent-strong)] focus-visible:ring-offset-2"
+            aria-label="Next file"
+          >
+            Next
+            <ChevronRight size={16} />
+          </button>
+        </nav>
+      )}
     </div>
   );
 }
