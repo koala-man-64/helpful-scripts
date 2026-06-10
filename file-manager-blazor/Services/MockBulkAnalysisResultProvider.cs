@@ -326,7 +326,7 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         """
         # Notice Generation Style Guide - Executive Summary
 
-        The notice generation workflow emphasizes plain-language consistency and a controlled review path. The style guide is useful context for questions about member-facing communication risk.
+        The notice generation workflow emphasizes plain-language consistency and a controlled review path. The style guide is useful background for questions about member-facing communication risk.
 
         ## Key Points
 
@@ -339,7 +339,7 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         """
         # Notice Generation Style Guide - Compliance Review
 
-        This mock result is intentionally marked unavailable for preview so the UI can show the unavailable state while preserving selection and context-size behavior.
+        This mock result is intentionally marked unavailable for preview so the UI can show the unavailable state while preserving result selection behavior.
         """;
 
     private static string LargeCorpusMarkdown()
@@ -347,7 +347,7 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         var repeatedSection = """
             ## Corpus Crosswalk Segment
 
-            This segment summarizes intake, adjudication, appeals, member notice, and authorization controls across the enterprise document library. It is intentionally large so the context meter can demonstrate over-limit handling without a backend token service.
+            This segment summarizes intake, adjudication, appeals, member notice, and authorization controls across the enterprise document library. It is intentionally large so the preview and download flows can handle long generated results.
 
             """;
 

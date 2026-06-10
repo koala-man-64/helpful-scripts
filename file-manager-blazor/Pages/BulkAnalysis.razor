@@ -2,9 +2,7 @@
 @using System.IO.Compression
 @using System.Text
 @using Markdig
-@implements IDisposable
 @inject IBulkAnalysisResultProvider ResultProvider
-@inject ChatContextState ChatContext
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
 
@@ -17,14 +15,9 @@
     var activeResult = activeDocument is null || activeAnalysisType is null
         ? null
         : activeDocument.Document.Results.FirstOrDefault(result => string.Equals(result.AnalysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase));
-    var selectedContextItems = GetSelectedContextItems();
     var selectedDownloadResults = GetSelectedDownloadResults();
     var selectedPreviewDocument = GetSelectionPreviewDocument(selectedDocuments);
     var selectedPreviewOrdinal = GetSelectionPreviewOrdinal(selectedDocuments, selectedPreviewDocument);
-    var selectedTokens = selectedContextItems.Sum(item => item.EstimatedTokens);
-    var isOverLimit = selectedTokens > ChatContextState.ContextLimitTokens;
-    var loadedIds = ChatContext.LoadedItems.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
-    var hasDirtyLoadedContext = ChatContext.HasLoadedContext && !loadedIds.SetEquals(selectedContextIds);
 }
 
 <PageTitle>Bulk Analysis</PageTitle>
@@ -158,10 +151,6 @@
                                     <span class="source-preview-summary-meta-label">Folder</span>
                                     <span class="source-preview-summary-meta-value">@GetFolderPath(selectedPreviewDocument.Folder)</span>
                                 </span>
-                                <span class="source-preview-summary-meta-item">
-                                    <span class="source-preview-summary-meta-label">Token count</span>
-                                    <span class="source-preview-summary-meta-value">@FormatTokens(BulkAnalysisContextItem.FromSourceDocument(selectedPreviewDocument.Folder, selectedPreviewDocument.Document).EstimatedTokens)</span>
-                                </span>
                             </div>
                         </div>
                         <div class="source-preview-summary-controls">
@@ -270,14 +259,9 @@
                         <span id="results-tooltip" class="sr-only">Review generated bulk analysis results for selected SOPs.</span>
                     </div>
                     <div class="result-panel-header-actions">
-                        <div class="@($"result-load-summary {(isOverLimit ? "over-limit" : "")}")" aria-label="Load context summary">
-                            <span>Load context</span>
-                            <strong>@($"{selectedContextItems.Count} selected")</strong>
-                            <small class="context-token-label">
-                                @(isOverLimit
-                                    ? $"Over limit: {FormatTokens(selectedTokens)} / {FormatTokens(ChatContextState.ContextLimitTokens)}"
-                                    : $"{FormatTokens(selectedTokens)} / {FormatTokens(ChatContextState.ContextLimitTokens)}")
-                            </small>
+                        <div class="result-selection-summary" aria-label="Selected results summary">
+                            <span>Selected results</span>
+                            <strong>@($"{selectedDownloadResults.Count} selected")</strong>
                         </div>
                         <button type="button"
                                 class="icon-button bordered result-panel-toggle"
@@ -319,7 +303,7 @@
                                                     aria-checked="@GetAriaChecked(folderSelectionState)"
                                                     aria-label="@($"Select generated results under {folderPanel.Folder.DisplayName}")"
                                                     disabled="@(availableResultsInFolder == 0)"
-                                                    @onclick="() => ToggleFolderResultContext(folderPanel, selectedAnalysisTypes)"></button>
+                                                    @onclick="() => ToggleFolderResultSelection(folderPanel, selectedAnalysisTypes)"></button>
                                             <button type="button"
                                                     class="folder-collapse-button"
                                                     aria-expanded="@(!isCollapsed)"
@@ -352,7 +336,7 @@
                                                                checked="@(documentSelectionState == SelectionState.Checked)"
                                                                disabled="@(availableResultsForDocument == 0)"
                                                                aria-label="@($"Select generated results for {document.Title}")"
-                                                               @onchange="() => ToggleDocumentResultContext(document, selectedAnalysisTypes)" />
+                                                               @onchange="() => ToggleDocumentResultSelection(document, selectedAnalysisTypes)" />
                                                         <button type="button"
                                                                 class="result-document-preview-button"
                                                                 @onclick="() => SetActiveDocument(document.Id)">
@@ -429,7 +413,7 @@
                             {
                                 <div class="workflow-empty-state preview-empty">
                                     <strong>This analysis result is not available for preview.</strong>
-                                    <span>It can still be selected for assistant context.</span>
+                                    <span>It can still be included in a download.</span>
                                 </div>
                             }
                             else
@@ -448,23 +432,11 @@
         <footer class="workflow-footer document-step-actions result-step-actions">
             <button type="button" class="workflow-action-button secondary" @onclick="GoToAnalysisStep">Back</button>
             <div class="result-step-primary-actions">
-                @if (ChatContext.HasLoadedContext)
-                {
-                    <button type="button" class="workflow-action-button secondary" @onclick="GoToAssistantContext">
-                        Go to context page
-                    </button>
-                }
                 <button type="button"
                         class="workflow-action-button primary"
                         disabled="@(selectedDownloadResults.Count == 0)"
                         @onclick="DownloadSelectedResults">
                     Download results
-                </button>
-                <button type="button"
-                        class="workflow-action-button primary"
-                        disabled="@(selectedContextItems.Count == 0 || isOverLimit)"
-                        @onclick="LoadContext">
-                    Load selected context
                 </button>
             </div>
         </footer>
@@ -480,7 +452,7 @@
     private IReadOnlyList<BulkAnalysisFolder> allFolders = [];
     private readonly HashSet<string> selectedDocumentIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> selectedAnalysisTypeIds = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> selectedContextIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> selectedResultIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> collapsedFolderIds = new(StringComparer.Ordinal);
     private WorkflowStep workflowStep = WorkflowStep.SelectDocuments;
     private bool isResultsPanelCollapsed;
@@ -517,14 +489,12 @@
         {
             WorkflowStep.SelectDocuments => "Select the documents you want to analyze before choosing the bulk review outputs.",
             WorkflowStep.SelectAnalysisTypes => "Choose the analysis outputs to compare across the selected documents.",
-            _ => "Navigate between selected SOPs and analysis types, then load documents or results into assistant context."
+            _ => "Navigate between selected SOPs and analysis types, then download the generated results you need."
         };
 
     protected override async Task OnInitializedAsync()
     {
-        ChatContext.Changed += HandleChatContextChanged;
         await RefreshAsync();
-        RestoreLoadedContextSelection();
         EnsureActiveTargets();
     }
 
@@ -554,45 +524,6 @@
             {
                 yield return childFolder;
             }
-        }
-    }
-
-    private void RestoreLoadedContextSelection()
-    {
-        if (!ChatContext.HasLoadedContext)
-        {
-            return;
-        }
-
-        foreach (var item in ChatContext.LoadedItems)
-        {
-            if (item.Kind == BulkAnalysisContextItemKind.SourceDocument)
-            {
-                var sourceDocument = AllDocuments.FirstOrDefault(entry => string.Equals(GetSourceDocumentContextId(entry.Document), item.Id, StringComparison.Ordinal));
-                if (sourceDocument is not null)
-                {
-                    selectedDocumentIds.Add(sourceDocument.Document.Id);
-                }
-            }
-            else
-            {
-                var result = AllResults.FirstOrDefault(result => string.Equals(result.Id, item.Id, StringComparison.Ordinal));
-                if (result is not null)
-                {
-                    selectedContextIds.Add(item.Id);
-                    selectedDocumentIds.Add(result.DocumentId);
-                    selectedAnalysisTypeIds.Add(result.AnalysisType);
-                }
-            }
-        }
-
-        if (selectedDocumentIds.Count > 0 && selectedAnalysisTypeIds.Count > 0)
-        {
-            workflowStep = WorkflowStep.Results;
-        }
-        else if (selectedDocumentIds.Count > 0)
-        {
-            workflowStep = WorkflowStep.SelectAnalysisTypes;
         }
     }
 
@@ -699,7 +630,7 @@
         if (!selectedDocumentIds.Add(documentId))
         {
             selectedDocumentIds.Remove(documentId);
-            RemoveContextForDocument(documentId);
+            RemoveResultsForDocument(documentId);
         }
 
         PruneAnalysisTypeSelection();
@@ -721,7 +652,7 @@
             foreach (var document in documents)
             {
                 selectedDocumentIds.Remove(document.Id);
-                RemoveContextForDocument(document.Id);
+                RemoveResultsForDocument(document.Id);
             }
         }
         else
@@ -752,6 +683,7 @@
     private void ClearDocumentSelection()
     {
         selectedDocumentIds.Clear();
+        selectedResultIds.Clear();
         PruneAnalysisTypeSelection();
         EnsureSelectionPreviewTarget();
         EnsureActiveTargets();
@@ -762,7 +694,7 @@
         if (!selectedAnalysisTypeIds.Add(analysisType))
         {
             selectedAnalysisTypeIds.Remove(analysisType);
-            RemoveContextForAnalysisType(analysisType);
+            RemoveResultsForAnalysisType(analysisType);
         }
 
         EnsureActiveTargets();
@@ -783,7 +715,7 @@
     private void ClearAnalysisTypeSelection()
     {
         selectedAnalysisTypeIds.Clear();
-        selectedContextIds.RemoveWhere(id => AllResults.Any(result => string.Equals(result.Id, id, StringComparison.Ordinal)));
+        selectedResultIds.Clear();
         EnsureActiveTargets();
     }
 
@@ -901,12 +833,12 @@
             .SelectMany(document => GetAvailableResults(document, selectedAnalysisTypes))
             .ToArray();
 
-        if (results.Length == 0 || results.All(result => !selectedContextIds.Contains(result.Id)))
+        if (results.Length == 0 || results.All(result => !selectedResultIds.Contains(result.Id)))
         {
             return SelectionState.Unchecked;
         }
 
-        return results.All(result => selectedContextIds.Contains(result.Id))
+        return results.All(result => selectedResultIds.Contains(result.Id))
             ? SelectionState.Checked
             : SelectionState.Mixed;
     }
@@ -931,9 +863,9 @@
         IReadOnlyList<string> selectedAnalysisTypes) =>
         documents
             .SelectMany(document => GetAvailableResults(document, selectedAnalysisTypes))
-            .Count(result => selectedContextIds.Contains(result.Id));
+            .Count(result => selectedResultIds.Contains(result.Id));
 
-    private void ToggleFolderResultContext(DocumentFolderPanel panel, IReadOnlyList<string> selectedAnalysisTypes)
+    private void ToggleFolderResultSelection(DocumentFolderPanel panel, IReadOnlyList<string> selectedAnalysisTypes)
     {
         var results = panel.VisibleDocuments
             .SelectMany(document => GetAvailableResults(document, selectedAnalysisTypes))
@@ -944,25 +876,25 @@
             return;
         }
 
-        if (results.All(result => selectedContextIds.Contains(result.Id)))
+        if (results.All(result => selectedResultIds.Contains(result.Id)))
         {
             foreach (var result in results)
             {
-                selectedContextIds.Remove(result.Id);
+                selectedResultIds.Remove(result.Id);
             }
         }
         else
         {
             foreach (var result in results)
             {
-                selectedContextIds.Add(result.Id);
+                selectedResultIds.Add(result.Id);
             }
         }
 
         SetActiveDocument(panel.VisibleDocuments.First().Id);
     }
 
-    private void ToggleDocumentResultContext(BulkAnalysisDocument document, IReadOnlyList<string> selectedAnalysisTypes)
+    private void ToggleDocumentResultSelection(BulkAnalysisDocument document, IReadOnlyList<string> selectedAnalysisTypes)
     {
         var results = GetAvailableResults(document, selectedAnalysisTypes);
 
@@ -971,18 +903,18 @@
             return;
         }
 
-        if (results.All(result => selectedContextIds.Contains(result.Id)))
+        if (results.All(result => selectedResultIds.Contains(result.Id)))
         {
             foreach (var result in results)
             {
-                selectedContextIds.Remove(result.Id);
+                selectedResultIds.Remove(result.Id);
             }
         }
         else
         {
             foreach (var result in results)
             {
-                selectedContextIds.Add(result.Id);
+                selectedResultIds.Add(result.Id);
             }
         }
 
@@ -1086,49 +1018,30 @@
     {
         var availableAnalysisTypes = GetAvailableAnalysisTypes(GetSelectedDocuments()).ToHashSet(StringComparer.OrdinalIgnoreCase);
         selectedAnalysisTypeIds.RemoveWhere(type => !availableAnalysisTypes.Contains(type));
-        selectedContextIds.RemoveWhere(id => ShouldRemoveContextId(id, availableAnalysisTypes));
+        selectedResultIds.RemoveWhere(id => ShouldRemoveResultId(id, availableAnalysisTypes));
     }
 
-    private bool ShouldRemoveContextId(string id, IReadOnlySet<string> availableAnalysisTypes)
+    private bool ShouldRemoveResultId(string id, IReadOnlySet<string> availableAnalysisTypes)
     {
-        if (id.StartsWith("doc:", StringComparison.Ordinal))
-        {
-            var documentId = id["doc:".Length..];
-            return !selectedDocumentIds.Contains(documentId);
-        }
-
         var result = AllResults.FirstOrDefault(result => string.Equals(result.Id, id, StringComparison.Ordinal));
         return result is null ||
             !selectedDocumentIds.Contains(result.DocumentId) ||
             !availableAnalysisTypes.Contains(result.AnalysisType);
     }
 
-    private void RemoveContextForDocument(string documentId)
+    private void RemoveResultsForDocument(string documentId)
     {
-        selectedContextIds.Remove(GetSourceDocumentContextId(documentId));
-        selectedContextIds.RemoveWhere(id => AllResults.Any(result => string.Equals(result.Id, id, StringComparison.Ordinal) && string.Equals(result.DocumentId, documentId, StringComparison.Ordinal)));
+        selectedResultIds.RemoveWhere(id => AllResults.Any(result => string.Equals(result.Id, id, StringComparison.Ordinal) && string.Equals(result.DocumentId, documentId, StringComparison.Ordinal)));
     }
 
-    private void RemoveContextForAnalysisType(string analysisType)
+    private void RemoveResultsForAnalysisType(string analysisType)
     {
-        selectedContextIds.RemoveWhere(id => AllResults.Any(result => string.Equals(result.Id, id, StringComparison.Ordinal) && string.Equals(result.AnalysisType, analysisType, StringComparison.OrdinalIgnoreCase)));
-    }
-
-    private IReadOnlyList<BulkAnalysisContextItem> GetSelectedContextItems()
-    {
-        return AllResults
-            .Where(result => selectedContextIds.Contains(result.Id))
-            .Select(BulkAnalysisContextItem.FromResult)
-            .OrderBy(item => item.FolderName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.DocumentTitle, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.Kind)
-            .ThenBy(item => item.TypeLabel, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        selectedResultIds.RemoveWhere(id => AllResults.Any(result => string.Equals(result.Id, id, StringComparison.Ordinal) && string.Equals(result.AnalysisType, analysisType, StringComparison.OrdinalIgnoreCase)));
     }
 
     private IReadOnlyList<BulkAnalysisResult> GetSelectedDownloadResults() =>
         AllResults
-            .Where(result => selectedContextIds.Contains(result.Id))
+            .Where(result => selectedResultIds.Contains(result.Id))
             .OrderBy(result => result.FolderName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(result => result.DocumentTitle, StringComparer.OrdinalIgnoreCase)
             .ThenBy(result => result.AnalysisType, StringComparer.OrdinalIgnoreCase)
@@ -1238,31 +1151,6 @@
         var slug = builder.ToString().Trim('-');
         return string.IsNullOrWhiteSpace(slug) ? "bulk-analysis-results" : slug;
     }
-
-    private void LoadContext()
-    {
-        var contextItems = GetSelectedContextItems();
-
-        if (contextItems.Count == 0 ||
-            contextItems.Sum(item => item.EstimatedTokens) > ChatContextState.ContextLimitTokens)
-        {
-            return;
-        }
-
-        ChatContext.Load(contextItems);
-        NavigationManager.NavigateTo("/assistant-context");
-    }
-
-    private void GoToAssistantContext()
-    {
-        NavigationManager.NavigateTo("/assistant-context");
-    }
-
-    private static string GetSourceDocumentContextId(BulkAnalysisDocument document) =>
-        GetSourceDocumentContextId(document.Id);
-
-    private static string GetSourceDocumentContextId(string documentId) =>
-        $"doc:{documentId}";
 
     private string GetDocumentOptionClass(string documentId) =>
         selectedDocumentIds.Contains(documentId) ? "document-option-row selected" : "document-option-row";
@@ -1430,16 +1318,6 @@
 
     private static string FormatTokens(int tokens) =>
         tokens >= 1_000 ? $"{tokens / 1_000.0:0.#}k" : tokens.ToString("N0");
-
-    private void HandleChatContextChanged()
-    {
-        _ = InvokeAsync(StateHasChanged);
-    }
-
-    public void Dispose()
-    {
-        ChatContext.Changed -= HandleChatContextChanged;
-    }
 
     private sealed record DocumentWithFolder(BulkAnalysisFolder Folder, BulkAnalysisDocument Document);
 

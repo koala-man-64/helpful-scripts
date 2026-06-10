@@ -1,6 +1,4 @@
 @page "/"
-@implements IDisposable
-@inject ChatContextState ChatContext
 
 <PageTitle>Strider Assistant</PageTitle>
 
@@ -14,27 +12,6 @@
     </header>
 
     <section class="composer-card strider-composer" aria-label="Chat composer">
-        @if (ChatContext.HasLoadedContext)
-        {
-            <div class="chat-context-strip" data-testid="chat-context-strip">
-                <div>
-                    <strong>@($"Using {ChatContext.LoadedItems.Count} context item{(ChatContext.LoadedItems.Count == 1 ? "" : "s")}")</strong>
-                    <span>@($"{FormatTokens(ChatContext.LoadedTokenEstimate)} / {FormatTokens(ChatContextState.ContextLimitTokens)} context used")</span>
-                </div>
-                <div class="strip-chip-row">
-                    @foreach (var item in ChatContext.LoadedItems.Take(2))
-                    {
-                        <span class="context-chip">@item.DisplayName</span>
-                    }
-                    @if (ChatContext.LoadedItems.Count > 2)
-                    {
-                        <span class="context-chip muted">@($"+{ChatContext.LoadedItems.Count - 2} more")</span>
-                    }
-                    <button type="button" class="link-button" @onclick="ClearLoadedContext">Clear</button>
-                </div>
-            </div>
-        }
-
         <textarea placeholder="Ask Strider, use @@ to select an agent" rows="3" aria-label="Message composer"></textarea>
         <div class="composer-actions">
             <a class="composer-icon-button" href="file-manager" aria-label="Attach files">
@@ -130,29 +107,9 @@
                 </span>
                 <span>
                     <strong>Bulk Analysis</strong>
-                    <small>Review mocked bulk document outputs and load selections into context.</small>
+                    <small>Review mocked bulk document outputs and download selected results.</small>
                 </span>
             </a>
         </div>
     </section>
 </section>
-
-@code {
-    protected override void OnInitialized()
-    {
-        ChatContext.Changed += StateHasChanged;
-    }
-
-    private void ClearLoadedContext()
-    {
-        ChatContext.Clear();
-    }
-
-    private static string FormatTokens(int tokens) =>
-        tokens >= 1_000 ? $"{tokens / 1_000.0:0.#}k" : tokens.ToString("N0");
-
-    public void Dispose()
-    {
-        ChatContext.Changed -= StateHasChanged;
-    }
-}

@@ -1,6 +1,4 @@
 @inherits LayoutComponentBase
-@implements IDisposable
-@inject ChatContextState ChatContext
 
 <div class="app-shell">
     <nav class="side-nav" aria-label="Primary navigation">
@@ -52,13 +50,6 @@
         </div>
 
         <div class="rail-bottom">
-            @if (ChatContext.HasLoadedContext)
-            {
-                <NavLink class="rail-context-dot" href="assistant-context" aria-label="@($"Using {ChatContext.LoadedItems.Count} context items")">
-                    @ChatContext.LoadedItems.Count
-                </NavLink>
-            }
-
             <button type="button" class="rail-icon-button" aria-label="Settings">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M12 8.5A3.5 3.5 0 1 0 12 15.5A3.5 3.5 0 1 0 12 8.5Z" />
@@ -74,20 +65,3 @@
         @Body
     </main>
 </div>
-
-@code {
-    protected override void OnInitialized()
-    {
-        ChatContext.Changed += HandleChatContextChanged;
-    }
-
-    private void HandleChatContextChanged()
-    {
-        _ = InvokeAsync(StateHasChanged);
-    }
-
-    public void Dispose()
-    {
-        ChatContext.Changed -= HandleChatContextChanged;
-    }
-}
