@@ -1,0 +1,4 @@
+interface:
+  display_name: "Azure DevOps CI/CD Expert"
+  short_description: "Design and debug Azure DevOps CI/CD"
+  default_prompt: "Use $azure-devops-cicd-expert to design, debug, or harden an Azure DevOps CI/CD workflow."
