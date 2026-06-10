@@ -61,6 +61,15 @@
                         </h2>
                         <span id="select-documents-tooltip" class="sr-only">Choose the documents you want included in the bulk analysis review.</span>
                     </div>
+                    <div class="document-selection-actions" aria-label="Document selection shortcuts">
+                        <button type="button" class="link-button" @onclick="SelectAllDocuments">
+                            Select all
+                        </button>
+                        <span aria-hidden="true">/</span>
+                        <button type="button" class="link-button" @onclick="ClearDocumentSelection">
+                            None
+                        </button>
+                    </div>
                 </div>
 
                 @{
@@ -245,7 +254,7 @@
                                   title="Review generated bulk analysis results for selected SOPs."
                                   data-tooltip="Review generated bulk analysis results for selected SOPs."
                                   aria-describedby="results-tooltip">
-                                Results
+                                Select Results
                             </span>
                         </h2>
                         <span id="results-tooltip" class="sr-only">Review generated bulk analysis results for selected SOPs.</span>
@@ -712,6 +721,26 @@
             }
         }
 
+        PruneAnalysisTypeSelection();
+        EnsureSelectionPreviewTarget();
+        EnsureActiveTargets();
+    }
+
+    private void SelectAllDocuments()
+    {
+        foreach (var entry in AllDocuments)
+        {
+            selectedDocumentIds.Add(entry.Document.Id);
+        }
+
+        PruneAnalysisTypeSelection();
+        EnsureSelectionPreviewTarget();
+        EnsureActiveTargets();
+    }
+
+    private void ClearDocumentSelection()
+    {
+        selectedDocumentIds.Clear();
         PruneAnalysisTypeSelection();
         EnsureSelectionPreviewTarget();
         EnsureActiveTargets();
