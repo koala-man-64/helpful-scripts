@@ -450,27 +450,27 @@
                             <p class="inline-notice">Selection changed. Load context again to update the assistant page.</p>
                         }
 
-                        <div class="context-load-actions result-context-actions">
-                            <button type="button"
-                                    class="workflow-action-button primary"
-                                    disabled="@(selectedContextItems.Count == 0 || isOverLimit)"
-                                    @onclick="LoadContext">
-                                Load selected context
-                            </button>
-                            @if (ChatContext.HasLoadedContext)
-                            {
-                                <button type="button" class="workflow-action-button secondary" @onclick="GoToAssistantContext">
-                                    Go to context page
-                                </button>
-                            }
-                        </div>
                     </section>
                 }
             </aside>
         </div>
 
-        <footer class="workflow-footer document-step-actions">
+        <footer class="workflow-footer document-step-actions result-step-actions">
             <button type="button" class="workflow-action-button secondary" @onclick="GoToAnalysisStep">Back</button>
+            <div class="result-step-primary-actions">
+                @if (ChatContext.HasLoadedContext)
+                {
+                    <button type="button" class="workflow-action-button secondary" @onclick="GoToAssistantContext">
+                        Go to context page
+                    </button>
+                }
+                <button type="button"
+                        class="workflow-action-button primary"
+                        disabled="@(selectedContextItems.Count == 0 || isOverLimit)"
+                        @onclick="LoadContext">
+                    Load selected context
+                </button>
+            </div>
         </footer>
     }
 </section>

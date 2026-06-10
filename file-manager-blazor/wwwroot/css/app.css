@@ -3018,6 +3018,21 @@ svg {
     max-height: 7.5rem;
 }
 
+.result-step-actions {
+    align-items: center;
+}
+
+.result-step-primary-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.65rem;
+}
+
+.result-step-primary-actions .workflow-action-button.primary {
+    min-width: min(24rem, 100%);
+}
+
 .result-context-actions {
     flex-direction: row;
     align-items: center;
@@ -3398,6 +3413,18 @@ svg {
 
     .result-context-actions .workflow-action-button {
         width: 100%;
+    }
+
+    .result-step-primary-actions {
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .result-step-primary-actions .workflow-action-button,
+    .result-step-primary-actions .workflow-action-button.primary {
+        width: 100%;
+        min-width: 0;
     }
 
     .preview-actions {
