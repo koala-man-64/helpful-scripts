@@ -2518,14 +2518,6 @@ svg {
     border-bottom: 1px solid var(--shell-line);
 }
 
-.document-selection-header-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.55rem;
-}
-
 .workflow-card-header h2,
 .context-summary-card h2,
 .context-list-card h2,
