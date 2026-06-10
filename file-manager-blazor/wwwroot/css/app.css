@@ -2892,10 +2892,15 @@ svg {
     font-weight: 700;
 }
 
-.result-load-summary .context-meter {
-    width: 100%;
-    min-width: 9.5rem;
-    margin-top: 0.25rem;
+.result-load-summary .context-token-label {
+    color: var(--shell-muted);
+    font-size: 0.84rem;
+    font-weight: 550;
+}
+
+.result-load-summary.over-limit .context-token-label {
+    color: #b45309;
+    font-weight: 800;
 }
 
 .result-sop-list {
