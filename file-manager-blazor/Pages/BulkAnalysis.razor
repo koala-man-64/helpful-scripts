@@ -204,7 +204,18 @@
                     <h2 id="select-analysis-title">Select bulk analysis types</h2>
                     <p>Pick the generated result types you want to review across the selected documents.</p>
                 </div>
-                <span class="selected-count">@($"{selectedAnalysisTypeIds.Count} selected")</span>
+                <div class="analysis-type-selection-actions">
+                    <span class="selected-count">@($"{selectedAnalysisTypeIds.Count} selected")</span>
+                    <div class="selection-shortcut-actions" aria-label="Analysis type selection shortcuts">
+                        <button type="button" class="link-button" @onclick="SelectAllAnalysisTypes">
+                            Select all
+                        </button>
+                        <span aria-hidden="true">/</span>
+                        <button type="button" class="link-button" @onclick="ClearAnalysisTypeSelection">
+                            None
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div class="analysis-type-grid">
@@ -754,6 +765,25 @@
             RemoveContextForAnalysisType(analysisType);
         }
 
+        EnsureActiveTargets();
+    }
+
+    private void SelectAllAnalysisTypes()
+    {
+        PruneAnalysisTypeSelection();
+
+        foreach (var analysisType in GetAvailableAnalysisTypes(GetSelectedDocuments()))
+        {
+            selectedAnalysisTypeIds.Add(analysisType);
+        }
+
+        EnsureActiveTargets();
+    }
+
+    private void ClearAnalysisTypeSelection()
+    {
+        selectedAnalysisTypeIds.Clear();
+        selectedContextIds.RemoveWhere(id => AllResults.Any(result => string.Equals(result.Id, id, StringComparison.Ordinal)));
         EnsureActiveTargets();
     }
 

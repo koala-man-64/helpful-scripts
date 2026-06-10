@@ -2541,12 +2541,21 @@ svg {
     line-height: 1.55;
 }
 
-.document-selection-actions {
+.document-selection-actions,
+.selection-shortcut-actions {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
     color: var(--shell-muted);
     white-space: nowrap;
+}
+
+.analysis-type-selection-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
 }
 
 .selection-toolbar {
