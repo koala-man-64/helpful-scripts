@@ -2815,58 +2815,64 @@ svg {
     min-width: 0;
 }
 
-.result-folder-card .document-folder-header {
-    grid-template-columns: minmax(0, 1fr);
-    margin-bottom: 0.85rem;
-}
-
-.result-folder-header .document-folder-heading {
-    width: 100%;
-}
-
 .result-sop-list {
     gap: 0.75rem;
 }
 
-.result-document-option {
-    min-width: 0;
-    padding: 0.8rem;
-    border: 1px solid var(--shell-line);
-    border-radius: 0.95rem;
-    background: rgba(255, 255, 255, 0.82);
-    transition:
-        border-color 120ms ease,
-        background 120ms ease,
-        box-shadow 120ms ease,
-        transform 120ms ease;
+.result-folder-card .document-folder-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.result-document-option:hover,
-.result-document-option.active {
+.result-folder-card .document-folder-heading > span {
+    max-width: 5.6rem;
+    text-align: right;
+    line-height: 1.35;
+    white-space: normal;
+}
+
+.result-folder-card .document-folder-header h3,
+.result-folder-card .document-folder-header p {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+}
+
+.result-document-row {
+    grid-template-columns: auto minmax(0, 1fr);
+}
+
+.result-document-row.active {
     border-color: rgba(17, 127, 139, 0.32);
-    background: rgba(236, 248, 246, 0.82);
-}
-
-.result-document-option.active {
     box-shadow: inset 3px 0 0 var(--shell-accent-strong);
 }
 
-.result-document-button {
+.result-document-row.mixed {
+    border-color: rgba(17, 127, 139, 0.28);
+    background: rgba(236, 248, 246, 0.52);
+}
+
+.result-document-row input:disabled {
+    cursor: not-allowed;
+}
+
+.result-document-preview-button {
     width: 100%;
     min-width: 0;
     padding: 0;
+    border: 0;
     background: transparent;
     color: var(--shell-heading);
     text-align: left;
 }
 
-.result-document-button:focus-visible {
+.result-document-preview-button:focus-visible {
     outline: 3px solid rgba(17, 127, 139, 0.18);
-    outline-offset: 0.25rem;
+    outline-offset: 0.2rem;
 }
 
-.result-document-button strong,
-.result-document-button small {
+.result-document-preview-button strong,
+.result-document-preview-button small {
     display: block;
     min-width: 0;
     overflow: visible;
@@ -2875,70 +2881,11 @@ svg {
     white-space: normal;
 }
 
-.result-document-button strong {
-    font-size: 0.96rem;
-}
-
-.result-document-button small {
-    margin-top: 0.22rem;
+.result-document-preview-button small {
+    margin-top: 0.2rem;
     color: var(--shell-muted);
     font-size: 0.84rem;
     line-height: 1.45;
-}
-
-.result-analysis-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.45rem;
-    margin-top: 0.75rem;
-}
-
-.result-analysis-button {
-    min-width: 0;
-    min-height: 2.1rem;
-    flex: 1 1 8rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.4rem 0.65rem;
-    border: 1px solid rgba(35, 55, 89, 0.14);
-    border-radius: 999px;
-    background: #ffffff;
-    color: var(--shell-heading);
-    font-size: 0.78rem;
-    font-weight: 700;
-    line-height: 1.2;
-    text-align: center;
-    overflow-wrap: anywhere;
-    transition:
-        border-color 120ms ease,
-        background 120ms ease,
-        color 120ms ease,
-        transform 120ms ease;
-}
-
-.result-analysis-button:hover,
-.result-analysis-button:focus-visible {
-    transform: translateY(-1px);
-    border-color: rgba(17, 127, 139, 0.3);
-    color: var(--shell-accent-strong);
-    outline: none;
-}
-
-.result-analysis-button.active {
-    border-color: rgba(17, 127, 139, 0.38);
-    background: var(--shell-accent-strong);
-    color: #ffffff;
-}
-
-.result-analysis-button.missing,
-.result-analysis-button:disabled {
-    border-style: dashed;
-    background: rgba(246, 248, 252, 0.78);
-    color: var(--shell-placeholder);
-    cursor: not-allowed;
-    opacity: 1;
-    transform: none;
 }
 
 .result-preview-summary {
@@ -3024,13 +2971,16 @@ svg {
 
 .result-step-primary-actions {
     display: flex;
+    flex: 1 1 auto;
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 0.65rem;
+    min-width: 0;
 }
 
 .result-step-primary-actions .workflow-action-button.primary {
-    min-width: min(24rem, 100%);
+    min-width: min(15rem, 100%);
+    justify-content: center;
 }
 
 .result-context-actions {
@@ -3413,6 +3363,16 @@ svg {
 
     .result-context-actions .workflow-action-button {
         width: 100%;
+    }
+
+    .result-folder-card .document-folder-heading {
+        grid-template-columns: 1fr;
+        gap: 0.2rem;
+    }
+
+    .result-folder-card .document-folder-heading > span {
+        max-width: none;
+        text-align: left;
     }
 
     .result-step-primary-actions {
