@@ -23,7 +23,6 @@
     var selectedPreviewOrdinal = GetSelectionPreviewOrdinal(selectedDocuments, selectedPreviewDocument);
     var selectedTokens = selectedContextItems.Sum(item => item.EstimatedTokens);
     var isOverLimit = selectedTokens > ChatContextState.ContextLimitTokens;
-    var usagePercent = Math.Min(100, selectedTokens * 100.0 / ChatContextState.ContextLimitTokens);
     var loadedIds = ChatContext.LoadedItems.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
     var hasDirtyLoadedContext = ChatContext.HasLoadedContext && !loadedIds.SetEquals(selectedContextIds);
 }
@@ -274,10 +273,11 @@
                         <div class="@($"result-load-summary {(isOverLimit ? "over-limit" : "")}")" aria-label="Load context summary">
                             <span>Load context</span>
                             <strong>@($"{selectedContextItems.Count} selected")</strong>
-                            <small>@($"{FormatTokens(selectedTokens)} / {FormatTokens(ChatContextState.ContextLimitTokens)}")</small>
-                            <div class="context-meter" aria-label="Context usage">
-                                <span style="@($"width: {FormatPercent(usagePercent)}%;")"></span>
-                            </div>
+                            <small class="context-token-label">
+                                @(isOverLimit
+                                    ? $"Over limit: {FormatTokens(selectedTokens)} / {FormatTokens(ChatContextState.ContextLimitTokens)}"
+                                    : $"{FormatTokens(selectedTokens)} / {FormatTokens(ChatContextState.ContextLimitTokens)}")
+                            </small>
                         </div>
                         <button type="button"
                                 class="icon-button bordered result-panel-toggle"
@@ -1430,9 +1430,6 @@
 
     private static string FormatTokens(int tokens) =>
         tokens >= 1_000 ? $"{tokens / 1_000.0:0.#}k" : tokens.ToString("N0");
-
-    private static string FormatPercent(double value) =>
-        value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 
     private void HandleChatContextChanged()
     {
