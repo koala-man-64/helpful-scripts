@@ -1,17 +1,29 @@
 window.bulkAnalysisDownloads = {
     downloadTextFile(fileName, content, mimeType) {
-        const blob = new Blob([content], { type: mimeType || "text/plain;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
+        downloadBlob(fileName, [content], mimeType || "text/plain;charset=utf-8");
+    },
 
-        anchor.href = url;
-        anchor.download = fileName;
-        anchor.style.display = "none";
+    downloadBinaryFile(fileName, content, mimeType) {
+        const bytes = content instanceof Uint8Array
+            ? content
+            : new Uint8Array(content);
 
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-
-        window.setTimeout(() => URL.revokeObjectURL(url), 0);
+        downloadBlob(fileName, [bytes], mimeType || "application/octet-stream");
     }
 };
+
+function downloadBlob(fileName, parts, mimeType) {
+    const blob = new Blob(parts, { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.style.display = "none";
+
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}

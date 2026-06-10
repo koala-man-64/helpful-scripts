@@ -2810,8 +2810,44 @@ svg {
     align-items: start;
 }
 
+.results-step-layout.results-panel-collapsed {
+    grid-template-columns: minmax(18rem, 0.32fr) minmax(0, 1fr);
+}
+
 .result-selection-card,
 .result-preview-panel {
+    min-width: 0;
+}
+
+.result-selection-card.collapsed {
+    align-self: start;
+}
+
+.result-selection-card.collapsed .workflow-card-header {
+    align-items: center;
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+.result-panel-header-actions {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 0.65rem;
+    min-width: 0;
+}
+
+.result-panel-toggle {
+    flex: 0 0 auto;
+    padding: 0;
+}
+
+.result-panel-toggle span {
+    font-weight: 800;
+    line-height: 1;
+}
+
+.result-panel-content {
     min-width: 0;
 }
 
@@ -3147,6 +3183,10 @@ svg {
     }
 
     .document-step-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .results-step-layout.results-panel-collapsed {
         grid-template-columns: 1fr;
     }
 
