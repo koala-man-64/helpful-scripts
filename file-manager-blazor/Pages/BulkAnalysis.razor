@@ -237,40 +237,6 @@
                     <h2 id="results-title">Results</h2>
                     <p>Move between documents and analysis types, then choose documents or results for assistant context.</p>
                 </div>
-                <div class="bulk-card-actions">
-                    <button type="button" class="secondary-button" @onclick="GoToAnalysisStep">Edit analysis types</button>
-                    <button type="button" class="secondary-button" @onclick="GoToDocumentStep">Edit documents</button>
-                </div>
-            </div>
-
-            <div class="result-navigation-panel">
-                <section aria-label="Selected documents">
-                    <div class="control-label">Documents</div>
-                    <div class="result-tab-row">
-                        @foreach (var document in selectedDocuments)
-                        {
-                            <button type="button"
-                                    class="@GetResultTabClass(string.Equals(activeDocument?.Document.Id, document.Document.Id, StringComparison.Ordinal))"
-                                    @onclick="() => SetActiveDocument(document.Document.Id)">
-                                @document.Document.Title
-                            </button>
-                        }
-                    </div>
-                </section>
-
-                <section aria-label="Selected analysis types">
-                    <div class="control-label">Bulk analysis types</div>
-                    <div class="result-tab-row">
-                        @foreach (var analysisType in selectedAnalysisTypes)
-                        {
-                            <button type="button"
-                                    class="@GetResultTabClass(string.Equals(activeAnalysisType, analysisType, StringComparison.OrdinalIgnoreCase))"
-                                    @onclick="() => SetActiveAnalysisType(analysisType)">
-                                @analysisType
-                            </button>
-                        }
-                    </div>
-                </section>
             </div>
 
             <div class="results-grid">
@@ -738,16 +704,6 @@
         selectedAnalysisTypes.FirstOrDefault(type => string.Equals(type, activeAnalysisType, StringComparison.OrdinalIgnoreCase)) ??
         selectedAnalysisTypes.FirstOrDefault();
 
-    private void SetActiveDocument(string documentId)
-    {
-        activeDocumentId = documentId;
-    }
-
-    private void SetActiveAnalysisType(string analysisType)
-    {
-        activeAnalysisType = analysisType;
-    }
-
     private void PreviousDocument()
     {
         var selectedDocuments = GetSelectedDocuments();
@@ -1040,9 +996,6 @@
 
     private string GetContextChoiceClass(string id) =>
         selectedContextIds.Contains(id) ? "context-choice-row selected" : "context-choice-row";
-
-    private static string GetResultTabClass(bool isActive) =>
-        isActive ? "result-nav-tab active" : "result-nav-tab";
 
     private static string GetAnalysisGlyph(string analysisType)
     {

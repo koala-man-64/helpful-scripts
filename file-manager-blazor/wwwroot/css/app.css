@@ -2512,7 +2512,6 @@ svg {
 .document-folder-header,
 .workflow-footer,
 .selection-toolbar,
-.result-navigation-panel,
 .context-load-actions {
     display: flex;
     align-items: flex-start;
@@ -2805,47 +2804,6 @@ svg {
 .analysis-type-option input {
     grid-row: span 2;
     margin-top: 0.2rem;
-}
-
-.result-navigation-panel {
-    flex-direction: column;
-    margin-top: 1.25rem;
-    padding: 1rem;
-    border: 1px solid var(--shell-line);
-    border-radius: 1rem;
-    background: rgba(246, 248, 252, 0.66);
-}
-
-.result-navigation-panel section {
-    width: 100%;
-}
-
-.result-tab-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.45rem;
-    margin-top: 0.5rem;
-}
-
-.result-nav-tab {
-    min-height: 2.35rem;
-    max-width: 100%;
-    padding: 0.45rem 0.75rem;
-    border: 1px solid var(--shell-line);
-    border-radius: 999px;
-    background: #ffffff;
-    color: var(--shell-heading);
-    font-size: 0.84rem;
-    font-weight: 650;
-}
-
-.result-nav-tab:hover,
-.result-nav-tab:focus-visible,
-.result-nav-tab.active {
-    border-color: rgba(17, 127, 139, 0.34);
-    background: rgba(236, 248, 246, 0.9);
-    color: var(--shell-accent-strong);
-    outline: none;
 }
 
 .results-grid {
@@ -3193,15 +3151,6 @@ svg {
 
     .analysis-type-grid {
         grid-template-columns: 1fr;
-    }
-
-    .result-tab-row {
-        flex-direction: column;
-    }
-
-    .result-nav-tab {
-        width: 100%;
-        text-align: left;
     }
 
     .preview-actions {
