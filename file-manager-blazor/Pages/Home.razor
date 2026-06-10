@@ -4,102 +4,123 @@
 
 <PageTitle>Strider Assistant</PageTitle>
 
-<section class="assistant-landing" aria-labelledby="landing-title">
-    <header class="workflow-header">
-        <div class="workflow-copy">
-            <h1 id="landing-title">Document Review</h1>
-            <p class="workflow-description">
-                Review files, keep your working context together, and ask Strider follow-up questions without leaving the flow.
-            </p>
-        </div>
-        <div class="workflow-progress" aria-label="Workflow progress">
-            <div class="workflow-progress-track">
-                <span class="workflow-progress-fill"></span>
-            </div>
-            <p class="workflow-step">Step 1 of 3</p>
-        </div>
-        <div class="workflow-divider" aria-hidden="true"></div>
+<section class="assistant-landing strider-home" aria-labelledby="landing-title">
+    <header class="strider-hero">
+        <h1 id="landing-title">Hello, Rudy</h1>
+        <p class="strider-hero-question">How can I assist you?</p>
+        <p class="strider-hero-copy">
+            I can help you with documentation guidance with internal processes, support inquiries, and more.
+        </p>
     </header>
 
-    <section class="composer-shell" aria-labelledby="composer-title">
-        <div class="composer-shell-copy">
-            <h2 id="composer-title">Ask Strider</h2>
-            <p>
-                Open the document workspace to select files, then describe the summary, comparison, or draft you need.
-            </p>
-        </div>
-
-        <section class="composer-card" aria-label="Chat composer">
-            @if (ChatContext.HasLoadedContext)
-            {
-                <div class="chat-context-strip" data-testid="chat-context-strip">
-                    <div>
-                        <strong>@($"Using {ChatContext.LoadedItems.Count} context item{(ChatContext.LoadedItems.Count == 1 ? "" : "s")}")</strong>
-                        <span>@($"{FormatTokens(ChatContext.LoadedTokenEstimate)} / {FormatTokens(ChatContextState.ContextLimitTokens)} context used")</span>
-                    </div>
-                    <div class="strip-chip-row">
-                        @foreach (var item in ChatContext.LoadedItems.Take(2))
-                        {
-                            <span class="context-chip">@item.DisplayName</span>
-                        }
-                        @if (ChatContext.LoadedItems.Count > 2)
-                        {
-                            <span class="context-chip muted">@($"+{ChatContext.LoadedItems.Count - 2} more")</span>
-                        }
-                        <button type="button" class="link-button" @onclick="ClearLoadedContext">Clear</button>
-                    </div>
+    <section class="composer-card strider-composer" aria-label="Chat composer">
+        @if (ChatContext.HasLoadedContext)
+        {
+            <div class="chat-context-strip" data-testid="chat-context-strip">
+                <div>
+                    <strong>@($"Using {ChatContext.LoadedItems.Count} context item{(ChatContext.LoadedItems.Count == 1 ? "" : "s")}")</strong>
+                    <span>@($"{FormatTokens(ChatContext.LoadedTokenEstimate)} / {FormatTokens(ChatContextState.ContextLimitTokens)} context used")</span>
                 </div>
-            }
-
-            <textarea placeholder="Ask Strider, use @@ to select an agent" rows="3" aria-label="Message composer"></textarea>
-            <div class="composer-actions">
-                <a class="composer-icon-button" href="file-manager" aria-label="Attach files">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M21 12.5 12.2 21a6 6 0 0 1-8.4-8.6l9.3-9a4 4 0 0 1 5.7 5.6l-8.9 8.6a2 2 0 0 1-2.8-2.8l8.2-8" />
-                    </svg>
-                </a>
-                <button type="button" class="composer-icon-button" aria-label="Send prompt">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="m5 12 14-7-5 14-3-6-6-1Z" />
-                    </svg>
-                </button>
+                <div class="strip-chip-row">
+                    @foreach (var item in ChatContext.LoadedItems.Take(2))
+                    {
+                        <span class="context-chip">@item.DisplayName</span>
+                    }
+                    @if (ChatContext.LoadedItems.Count > 2)
+                    {
+                        <span class="context-chip muted">@($"+{ChatContext.LoadedItems.Count - 2} more")</span>
+                    }
+                    <button type="button" class="link-button" @onclick="ClearLoadedContext">Clear</button>
+                </div>
             </div>
-        </section>
+        }
 
-        <div class="composer-primary-actions">
-            <a class="workflow-action-button primary" href="file-manager">
+        <textarea placeholder="Ask Strider, use @@ to select an agent" rows="3" aria-label="Message composer"></textarea>
+        <div class="composer-actions">
+            <a class="composer-icon-button" href="file-manager" aria-label="Attach files">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M4 8h16" />
-                    <path d="M6 4h12l1 4H5l1-4Z" />
-                    <path d="M7 8v8a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V8" />
+                    <path d="M21 12.5 12.2 21a6 6 0 0 1-8.4-8.6l9.3-9a4 4 0 0 1 5.7 5.6l-8.9 8.6a2 2 0 0 1-2.8-2.8l8.2-8" />
                 </svg>
-                Open document workspace
             </a>
-            <a class="workflow-action-button secondary" href="bulk-analysis">
+            <button type="button" class="composer-icon-button" aria-label="Start voice input">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M8 4h9a2 2 0 0 1 2 2v12" />
-                    <path d="M5 7h9a2 2 0 0 1 2 2v11H7a2 2 0 0 1-2-2Z" />
-                    <path d="M8.5 12h4" />
-                    <path d="M8.5 15h5.5" />
+                    <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
+                    <path d="M19 11a7 7 0 0 1-14 0" />
+                    <path d="M12 18v3" />
+                    <path d="M8 21h8" />
                 </svg>
-                Open bulk analysis
-            </a>
+            </button>
         </div>
-
-        <p class="composer-disclaimer">AI can make mistakes. Please verify critical information.</p>
     </section>
 
-    <section class="shortcut-section" aria-labelledby="shortcut-title">
+    <p class="composer-disclaimer strider-disclaimer">
+        AI can make mistakes. Please verify critical information. <strong>Auto Agent</strong>
+    </p>
+
+    <section class="shortcut-section strider-actions" aria-labelledby="shortcut-title">
         <div class="section-title-row compact">
-            <div>
-                <h2 id="shortcut-title">Recommended actions</h2>
-                <p>Select a focused workspace to prepare context or review files.</p>
-            </div>
+            <h2 id="shortcut-title">Recommended Actions for you</h2>
         </div>
 
-        <div class="shortcut-grid">
-            <a class="shortcut-card featured" href="bulk-analysis" data-testid="bulk-analysis-shortcut">
-                <span class="shortcut-icon" aria-hidden="true">
+        <div class="shortcut-grid strider-action-grid">
+            <button type="button" class="shortcut-card strider-action-card">
+                <span class="shortcut-icon icon-powerpoint" aria-hidden="true">P</span>
+                <span>
+                    <strong>PowerPoint</strong>
+                    <small>I can help with creating a PowerPoint presentation from source notes.</small>
+                </span>
+            </button>
+
+            <button type="button" class="shortcut-card strider-action-card">
+                <span class="shortcut-icon icon-goals" aria-hidden="true">G</span>
+                <span>
+                    <strong>Goal Setting</strong>
+                    <small>I can help create your 3-5 "What" goals using a structure.</small>
+                </span>
+            </button>
+
+            <button type="button" class="shortcut-card strider-action-card">
+                <span class="shortcut-icon icon-memo" aria-hidden="true">W</span>
+                <span>
+                    <strong>TLT Memo</strong>
+                    <small>I can help with creating a TLT memo, outlining key points.</small>
+                </span>
+            </button>
+
+            <button type="button" class="shortcut-card strider-action-card">
+                <span class="shortcut-icon icon-health" aria-hidden="true">H</span>
+                <span>
+                    <strong>Health Literacy Review</strong>
+                    <small>I can review a member document and help improve clarity.</small>
+                </span>
+            </button>
+
+            <button type="button" class="shortcut-card strider-action-card">
+                <span class="shortcut-icon icon-excel" aria-hidden="true">X</span>
+                <span>
+                    <strong>Excel/CSV Report</strong>
+                    <small>I can help with creating an Excel or CSV report from data.</small>
+                </span>
+            </button>
+
+            <button type="button" class="shortcut-card strider-action-card">
+                <span class="shortcut-icon icon-epic" aria-hidden="true">E</span>
+                <span>
+                    <strong>EPIC Creation</strong>
+                    <small>I can assist with analyzing business needs and drafting epics.</small>
+                </span>
+            </button>
+
+            <button type="button" class="shortcut-card strider-action-card">
+                <span class="shortcut-icon icon-voice" aria-hidden="true">V</span>
+                <span>
+                    <strong>Turn Your Words into Voice</strong>
+                    <small>Convert your text or documents to audio.</small>
+                </span>
+            </button>
+
+            <a class="shortcut-card strider-action-card featured" href="bulk-analysis" data-testid="bulk-analysis-shortcut">
+                <span class="shortcut-icon icon-bulk" aria-hidden="true">
                     <svg viewBox="0 0 24 24">
                         <path d="M8 4h9a2 2 0 0 1 2 2v12" />
                         <path d="M5 7h9a2 2 0 0 1 2 2v11H7a2 2 0 0 1-2-2Z" />
@@ -109,55 +130,9 @@
                 </span>
                 <span>
                     <strong>Bulk Analysis</strong>
-                    <small>Select document analysis results to use as chat context.</small>
+                    <small>Review mocked bulk document outputs and load selections into context.</small>
                 </span>
             </a>
-
-            <a class="shortcut-card" href="file-manager">
-                <span class="shortcut-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M4 8h16" />
-                        <path d="M6 4h12l1 4H5l1-4Z" />
-                        <path d="M7 8v8a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V8" />
-                    </svg>
-                </span>
-                <span>
-                    <strong>Document Workspace</strong>
-                    <small>Browse mock files and compare analysis outputs.</small>
-                </span>
-            </a>
-
-            <button type="button" class="shortcut-card">
-                <span class="shortcut-icon" aria-hidden="true">P</span>
-                <span>
-                    <strong>PowerPoint</strong>
-                    <small>Create presentation-ready structure from source material.</small>
-                </span>
-            </button>
-
-            <button type="button" class="shortcut-card">
-                <span class="shortcut-icon" aria-hidden="true">H</span>
-                <span>
-                    <strong>Health Literacy Review</strong>
-                    <small>Review content for clarity and patient comprehension.</small>
-                </span>
-            </button>
-
-            <button type="button" class="shortcut-card">
-                <span class="shortcut-icon" aria-hidden="true">X</span>
-                <span>
-                    <strong>Excel/CSV Report</strong>
-                    <small>Summarize structured files into a concise report.</small>
-                </span>
-            </button>
-
-            <button type="button" class="shortcut-card">
-                <span class="shortcut-icon" aria-hidden="true">E</span>
-                <span>
-                    <strong>EPIC Creation</strong>
-                    <small>Draft an implementation epic from requirements.</small>
-                </span>
-            </button>
         </div>
     </section>
 </section>
