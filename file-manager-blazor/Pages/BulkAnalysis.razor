@@ -15,6 +15,7 @@
     var activeResult = activeDocument is null || activeAnalysisType is null
         ? null
         : activeDocument.Document.Results.FirstOrDefault(result => string.Equals(result.AnalysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase));
+    var availableDownloadResultCount = CountAvailableResults(selectedDocuments.Select(entry => entry.Document), selectedAnalysisTypes);
     var selectedDownloadResults = GetSelectedDownloadResults();
     var selectedPreviewDocument = GetSelectionPreviewDocument(selectedDocuments);
     var selectedPreviewOrdinal = GetSelectionPreviewOrdinal(selectedDocuments, selectedPreviewDocument);
@@ -261,6 +262,21 @@
                         <span id="results-tooltip" class="sr-only">Review generated bulk analysis results for selected SOPs.</span>
                     </div>
                     <div class="result-panel-header-actions">
+                        <div class="selection-shortcut-actions" aria-label="Result selection shortcuts">
+                            <button type="button"
+                                    class="link-button"
+                                    disabled="@(availableDownloadResultCount == 0)"
+                                    @onclick="() => SelectAllResults(selectedDocuments, selectedAnalysisTypes)">
+                                Select all
+                            </button>
+                            <span aria-hidden="true">/</span>
+                            <button type="button"
+                                    class="link-button"
+                                    disabled="@(selectedDownloadResults.Count == 0)"
+                                    @onclick="ClearResultSelection">
+                                None
+                            </button>
+                        </div>
                         <button type="button"
                                 class="icon-button bordered result-panel-toggle"
                                 aria-controls="results-panel-content"
@@ -862,6 +878,21 @@
         documents
             .SelectMany(document => GetAvailableResults(document, selectedAnalysisTypes))
             .Count(result => selectedResultIds.Contains(result.Id));
+
+    private void SelectAllResults(
+        IReadOnlyList<DocumentWithFolder> selectedDocuments,
+        IReadOnlyList<string> selectedAnalysisTypes)
+    {
+        foreach (var result in selectedDocuments.SelectMany(entry => GetAvailableResults(entry.Document, selectedAnalysisTypes)))
+        {
+            selectedResultIds.Add(result.Id);
+        }
+    }
+
+    private void ClearResultSelection()
+    {
+        selectedResultIds.Clear();
+    }
 
     private void ToggleFolderResultSelection(DocumentFolderPanel panel, IReadOnlyList<string> selectedAnalysisTypes)
     {

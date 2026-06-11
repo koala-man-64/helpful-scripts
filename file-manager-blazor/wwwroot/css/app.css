@@ -2777,10 +2777,15 @@ svg {
 
 .result-panel-header-actions {
     display: flex;
-    align-items: flex-start;
+    flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-end;
-    gap: 0.65rem;
+    gap: 0.65rem 0.85rem;
     min-width: 0;
+}
+
+.result-panel-header-actions .selection-shortcut-actions {
+    justify-content: flex-end;
 }
 
 .result-panel-toggle {
