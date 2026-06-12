@@ -494,13 +494,7 @@
             _ => 3
         };
 
-    private string HeaderTitle =>
-        workflowStep switch
-        {
-            WorkflowStep.SelectDocuments => "Bulk Analysis",
-            WorkflowStep.SelectAnalysisTypes => "Choose analysis types",
-            _ => "Review results"
-        };
+    private string HeaderTitle => "Bulk Analysis";
 
     private string HeaderDescription =>
         workflowStep switch
