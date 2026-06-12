@@ -2247,9 +2247,27 @@ svg {
     align-items: stretch;
 }
 
+.document-step-layout.document-selection-collapsed {
+    grid-template-columns: minmax(15rem, 0.26fr) minmax(0, 1fr);
+}
+
 .document-selection-card,
 .step-one-preview-card {
     min-width: 0;
+}
+
+.document-selection-card.collapsed {
+    align-self: start;
+}
+
+.document-selection-card.collapsed .workflow-card-header {
+    align-items: center;
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+.document-selection-card.collapsed .document-selection-actions {
+    display: none;
 }
 
 .step-one-preview-card {
@@ -2462,6 +2480,7 @@ svg {
     line-height: 1.25;
 }
 
+.panel-title-inline,
 .results-title-inline {
     display: flex;
     flex-wrap: wrap;
@@ -2469,6 +2488,7 @@ svg {
     gap: 0.45rem;
 }
 
+.panel-title-separator,
 .results-title-separator {
     width: 1px;
     height: 1.1em;
@@ -2476,6 +2496,7 @@ svg {
     background: var(--shell-line-strong);
 }
 
+.panel-title-count,
 .results-title-count {
     color: var(--shell-muted);
     font-size: 0.78rem;
@@ -2492,6 +2513,7 @@ svg {
     line-height: 1.42;
 }
 
+.document-panel-header-actions,
 .document-selection-actions,
 .selection-shortcut-actions {
     display: inline-flex;
@@ -2499,6 +2521,13 @@ svg {
     gap: 0.45rem;
     color: var(--shell-muted);
     white-space: nowrap;
+}
+
+.document-panel-header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.45rem 0.55rem;
+    min-width: 0;
 }
 
 .analysis-type-selection-actions {
@@ -2870,6 +2899,7 @@ svg {
     border-bottom: 0;
 }
 
+.document-panel-header-actions,
 .result-panel-header-actions {
     display: flex;
     flex-wrap: wrap;
@@ -2883,16 +2913,19 @@ svg {
     justify-content: flex-end;
 }
 
+.document-selection-panel-toggle,
 .result-panel-toggle {
     flex: 0 0 auto;
     padding: 0;
 }
 
+.document-selection-panel-toggle span,
 .result-panel-toggle span {
     font-weight: 800;
     line-height: 1;
 }
 
+.document-selection-panel-content,
 .result-panel-content {
     min-width: 0;
 }
@@ -3109,6 +3142,7 @@ svg {
         grid-template-columns: 1fr;
     }
 
+    .document-step-layout.document-selection-collapsed,
     .results-step-layout.results-panel-collapsed {
         grid-template-columns: 1fr;
     }

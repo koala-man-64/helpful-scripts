@@ -39,11 +39,11 @@
 <section class="@($"guided-analysis-page {(workflowStep is WorkflowStep.SelectDocuments or WorkflowStep.Results ? "document-step-page" : "")}")" aria-label="Bulk Analysis workflow">
     @if (workflowStep == WorkflowStep.SelectDocuments)
     {
-        <div class="document-step-layout">
-            <section class="workflow-card document-selection-card" aria-labelledby="select-documents-title">
+        <div class="@($"document-step-layout {(isDocumentSelectionPanelCollapsed ? "document-selection-collapsed" : "")}")">
+            <section class="@($"workflow-card document-selection-card {(isDocumentSelectionPanelCollapsed ? "collapsed" : "")}")" aria-labelledby="select-documents-title">
                 <div class="workflow-card-header">
                     <div>
-                        <h2 id="select-documents-title">
+                        <h2 id="select-documents-title" class="panel-title-inline">
                             <span class="title-tooltip-trigger"
                                   tabindex="0"
                                   title="Choose the documents you want included in the bulk analysis review."
@@ -51,86 +51,101 @@
                                   aria-describedby="select-documents-tooltip">
                                 Select documents
                             </span>
+                            <span class="panel-title-separator" aria-hidden="true"></span>
+                            <span class="panel-title-count">@($"{selectedDocumentIds.Count} selected")</span>
                         </h2>
                         <span id="select-documents-tooltip" class="sr-only">Choose the documents you want included in the bulk analysis review.</span>
                     </div>
-                    <div class="document-selection-actions" aria-label="Document selection shortcuts">
-                        <button type="button" class="link-button" @onclick="SelectAllDocuments">
-                            Select all
-                        </button>
-                        <span aria-hidden="true">/</span>
-                        <button type="button" class="link-button" @onclick="ClearDocumentSelection">
-                            None
+                    <div class="document-panel-header-actions">
+                        <div class="document-selection-actions" aria-label="Document selection shortcuts">
+                            <button type="button" class="link-button" @onclick="SelectAllDocuments">
+                                Select all
+                            </button>
+                            <span aria-hidden="true">/</span>
+                            <button type="button" class="link-button" @onclick="ClearDocumentSelection">
+                                None
+                            </button>
+                        </div>
+                        <button type="button"
+                                class="icon-button bordered document-selection-panel-toggle"
+                                aria-controls="document-selection-panel-content"
+                                aria-expanded="@(isDocumentSelectionPanelCollapsed ? "false" : "true")"
+                                aria-label="@(isDocumentSelectionPanelCollapsed ? "Expand document selection panel" : "Collapse document selection panel")"
+                                title="@(isDocumentSelectionPanelCollapsed ? "Expand document selection panel" : "Collapse document selection panel")"
+                                @onclick="ToggleDocumentSelectionPanel">
+                            <span aria-hidden="true">@(isDocumentSelectionPanelCollapsed ? ">" : "<")</span>
                         </button>
                     </div>
                 </div>
 
-                @{
-                    var visibleDocumentPanels = GetVisibleDocumentPanels();
-                }
+                <div id="document-selection-panel-content" class="document-selection-panel-content" hidden="@isDocumentSelectionPanelCollapsed">
+                    @{
+                        var visibleDocumentPanels = GetVisibleDocumentPanels();
+                    }
 
-                <div class="document-selection-list">
-                    @foreach (var folderPanel in visibleDocumentPanels)
-                    {
-                        var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
-                        var selectedInFolder = folderPanel.VisibleDocuments.Count(document => selectedDocumentIds.Contains(document.Id));
-                        var folderSelectionState = GetFolderSelectionState(folderPanel);
+                    <div class="document-selection-list">
+                        @foreach (var folderPanel in visibleDocumentPanels)
+                        {
+                            var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
+                            var selectedInFolder = folderPanel.VisibleDocuments.Count(document => selectedDocumentIds.Contains(document.Id));
+                            var folderSelectionState = GetFolderSelectionState(folderPanel);
 
-                        <section class="@GetFolderPanelClass(folderPanel)" style="@($"--folder-depth: {folderPanel.Depth};")">
-                            <div class="document-folder-header">
-                                <button type="button"
-                                        class="@GetFolderSelectClass(folderSelectionState)"
-                                        role="checkbox"
-                                        aria-checked="@GetAriaChecked(folderSelectionState)"
-                                        aria-label="@($"Select all documents under {folderPanel.Folder.DisplayName}")"
-                                        @onclick="() => ToggleFolderSelection(folderPanel)"></button>
-                                <button type="button"
-                                        class="folder-collapse-button"
-                                        aria-expanded="@(!isCollapsed)"
-                                        aria-label="@($"Toggle {folderPanel.Folder.DisplayName}")"
-                                        @onclick="() => ToggleFolderPanel(folderPanel.Folder.Id)">
-                                    <span aria-hidden="true">@(isCollapsed ? ">" : "v")</span>
-                                </button>
-                                <div class="document-folder-heading">
-                                    <div>
-                                        <h3>@folderPanel.Folder.DisplayName</h3>
-                                        @if (!string.IsNullOrWhiteSpace(folderPanel.Folder.ParentDisplayName))
+                            <section class="@GetFolderPanelClass(folderPanel)" style="@($"--folder-depth: {folderPanel.Depth};")">
+                                <div class="document-folder-header">
+                                    <button type="button"
+                                            class="@GetFolderSelectClass(folderSelectionState)"
+                                            role="checkbox"
+                                            aria-checked="@GetAriaChecked(folderSelectionState)"
+                                            aria-label="@($"Select all documents under {folderPanel.Folder.DisplayName}")"
+                                            @onclick="() => ToggleFolderSelection(folderPanel)"></button>
+                                    <button type="button"
+                                            class="folder-collapse-button"
+                                            aria-expanded="@(!isCollapsed)"
+                                            aria-label="@($"Toggle {folderPanel.Folder.DisplayName}")"
+                                            @onclick="() => ToggleFolderPanel(folderPanel.Folder.Id)">
+                                        <span aria-hidden="true">@(isCollapsed ? ">" : "v")</span>
+                                    </button>
+                                    <div class="document-folder-heading">
+                                        <div>
+                                            <h3>@folderPanel.Folder.DisplayName</h3>
+                                            @if (!string.IsNullOrWhiteSpace(folderPanel.Folder.ParentDisplayName))
+                                            {
+                                                <p>@folderPanel.Folder.ParentDisplayName</p>
+                                            }
+                                        </div>
+                                        <span>@($"{selectedInFolder} of {folderPanel.VisibleDocumentCount} selected")</span>
+                                    </div>
+                                </div>
+
+                                @if (!isCollapsed && folderPanel.Documents.Count > 0)
+                                {
+                                    <div class="document-option-list">
+                                        @foreach (var document in folderPanel.Documents)
                                         {
-                                            <p>@folderPanel.Folder.ParentDisplayName</p>
+                                            <label class="@GetDocumentOptionClass(document.Id)">
+                                                <input type="checkbox"
+                                                       checked="@selectedDocumentIds.Contains(document.Id)"
+                                                       @onchange="() => ToggleDocumentSelection(document.Id)" />
+                                                <span>
+                                                    <strong>@document.Title</strong>
+                                                    <small>@document.OriginalFileName - @($"{document.Results.Count} available analysis result{(document.Results.Count == 1 ? "" : "s")}")</small>
+                                                </span>
+                                            </label>
                                         }
                                     </div>
-                                    <span>@($"{selectedInFolder} of {folderPanel.VisibleDocumentCount} selected")</span>
-                                </div>
-                            </div>
+                                }
+                            </section>
+                        }
+                    </div>
 
-                            @if (!isCollapsed && folderPanel.Documents.Count > 0)
-                            {
-                                <div class="document-option-list">
-                                    @foreach (var document in folderPanel.Documents)
-                                    {
-                                        <label class="@GetDocumentOptionClass(document.Id)">
-                                            <input type="checkbox"
-                                                   checked="@selectedDocumentIds.Contains(document.Id)"
-                                                   @onchange="() => ToggleDocumentSelection(document.Id)" />
-                                            <span>
-                                                <strong>@document.Title</strong>
-                                                <small>@document.OriginalFileName - @($"{document.Results.Count} available analysis result{(document.Results.Count == 1 ? "" : "s")}")</small>
-                                            </span>
-                                        </label>
-                                    }
-                                </div>
-                            }
-                        </section>
+                    @if (visibleDocumentPanels.Count == 0)
+                    {
+                        <div class="workflow-empty-state">
+                            <strong>No documents available</strong>
+                            <span>Add documents to the provider before starting a bulk analysis.</span>
+                        </div>
                     }
                 </div>
-
-                @if (visibleDocumentPanels.Count == 0)
-                {
-                    <div class="workflow-empty-state">
-                        <strong>No documents available</strong>
-                        <span>Add documents to the provider before starting a bulk analysis.</span>
-                    </div>
-                }
             </section>
 
             <aside class="workflow-card step-one-preview-card" aria-label="Review inputs">
@@ -474,6 +489,7 @@
     private readonly HashSet<string> collapsedFolderIds = new(StringComparer.Ordinal);
     private WorkflowStep workflowStep = WorkflowStep.SelectDocuments;
     private bool isResultsPanelCollapsed;
+    private bool isDocumentSelectionPanelCollapsed;
     private string? activeDocumentId;
     private string? activeAnalysisType;
     private string? selectionPreviewDocumentId;
@@ -1226,6 +1242,11 @@
     private void ToggleResultsPanel()
     {
         isResultsPanelCollapsed = !isResultsPanelCollapsed;
+    }
+
+    private void ToggleDocumentSelectionPanel()
+    {
+        isDocumentSelectionPanelCollapsed = !isDocumentSelectionPanelCollapsed;
     }
 
     private string GetFolderPanelClass(DocumentFolderPanel panel)
