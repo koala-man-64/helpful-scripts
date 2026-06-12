@@ -2727,16 +2727,19 @@ svg {
 .analysis-type-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.55rem;
-    margin-top: 0.8rem;
+    gap: 0.42rem;
+    margin-top: 0.65rem;
 }
 
 .analysis-type-option {
-    min-height: 5.8rem;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: start;
-    padding: 0.65rem;
+    min-height: 2.9rem;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.42rem 0.55rem;
     border-radius: var(--shell-radius-control);
+    border-color: rgba(35, 55, 89, 0.1);
+    background: rgba(255, 255, 255, 0.78);
 }
 
 .analysis-option-icon {
@@ -2750,15 +2753,35 @@ svg {
 }
 
 .analysis-option-icon {
-    width: 1.8rem;
-    height: 1.8rem;
-    margin-top: 0.8rem;
-    font-size: 0.78rem;
+    width: 1.45rem;
+    height: 1.45rem;
+    margin-top: 0;
+    font-size: 0.68rem;
 }
 
 .analysis-type-option input {
-    grid-row: span 2;
-    margin-top: 0.2rem;
+    grid-row: auto;
+    margin-top: 0;
+}
+
+.analysis-type-option > span:last-child {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: minmax(9.5rem, 0.72fr) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.12rem 0.55rem;
+}
+
+.analysis-type-option small,
+.analysis-type-option em {
+    margin-top: 0;
+    font-size: 0.72rem;
+}
+
+.analysis-type-option em {
+    justify-self: end;
+    color: #5c6b82;
+    font-weight: 600;
 }
 
 .results-step-layout {
@@ -3309,14 +3332,26 @@ svg {
         justify-content: space-between;
     }
 
-    .document-option-row,
-    .analysis-type-option {
+    .document-option-row {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .analysis-type-option {
+        grid-template-columns: auto auto minmax(0, 1fr);
     }
 
     .document-option-row input,
     .analysis-type-option input {
         grid-row: auto;
+    }
+
+    .analysis-type-option > span:last-child {
+        grid-template-columns: 1fr;
+        gap: 0.08rem;
+    }
+
+    .analysis-type-option em {
+        justify-self: start;
     }
 
     .analysis-option-icon {
