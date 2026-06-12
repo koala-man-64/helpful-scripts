@@ -2732,6 +2732,7 @@ svg {
 }
 
 .analysis-type-option {
+    position: relative;
     min-height: 2.9rem;
     grid-template-columns: auto auto minmax(0, 1fr);
     align-items: center;
@@ -2740,6 +2741,56 @@ svg {
     border-radius: var(--shell-radius-control);
     border-color: rgba(35, 55, 89, 0.1);
     background: rgba(255, 255, 255, 0.78);
+}
+
+.analysis-type-option::before,
+.analysis-type-option::after {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(0.25rem);
+    transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.analysis-type-option::before {
+    top: calc(100% + 0.24rem);
+    left: 2.5rem;
+    z-index: 12;
+    border-right: 0.4rem solid transparent;
+    border-bottom: 0.4rem solid rgba(34, 50, 74, 0.96);
+    border-left: 0.4rem solid transparent;
+    content: "";
+}
+
+.analysis-type-option::after {
+    top: calc(100% + 0.58rem);
+    right: 0.55rem;
+    left: 0.55rem;
+    z-index: 11;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid rgba(17, 127, 139, 0.24);
+    border-radius: var(--shell-radius-control);
+    background: rgba(34, 50, 74, 0.96);
+    box-shadow: 0 14px 32px rgba(23, 47, 80, 0.18);
+    color: #f7fbff;
+    font-size: 0.76rem;
+    font-weight: 500;
+    line-height: 1.45;
+    white-space: normal;
+    content: attr(data-tooltip);
+}
+
+.analysis-type-option:hover,
+.analysis-type-option:focus-within {
+    z-index: 10;
+}
+
+.analysis-type-option:hover::before,
+.analysis-type-option:hover::after,
+.analysis-type-option:focus-within::before,
+.analysis-type-option:focus-within::after {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 .analysis-option-icon {
@@ -2764,15 +2815,14 @@ svg {
     margin-top: 0;
 }
 
-.analysis-type-option > span:last-child {
+.analysis-type-copy {
     display: grid;
     min-width: 0;
-    grid-template-columns: minmax(9.5rem, 0.72fr) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(9.5rem, 1fr) auto;
     align-items: center;
     gap: 0.12rem 0.55rem;
 }
 
-.analysis-type-option small,
 .analysis-type-option em {
     margin-top: 0;
     font-size: 0.72rem;
@@ -3345,7 +3395,7 @@ svg {
         grid-row: auto;
     }
 
-    .analysis-type-option > span:last-child {
+    .analysis-type-copy {
         grid-template-columns: 1fr;
         gap: 0.08rem;
     }

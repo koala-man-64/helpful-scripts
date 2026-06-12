@@ -211,15 +211,20 @@
                 @foreach (var analysisType in availableAnalysisTypes)
                 {
                     var matchingCount = selectedDocuments.Sum(document => document.Document.Results.Count(result => string.Equals(result.AnalysisType, analysisType, StringComparison.OrdinalIgnoreCase)));
+                    var analysisDescription = GetAnalysisDescription(analysisType);
+                    var analysisDescriptionId = GetAnalysisDescriptionId(analysisType);
 
-                    <label class="@GetAnalysisOptionClass(analysisType)">
+                    <label class="@GetAnalysisOptionClass(analysisType)"
+                           title="@analysisDescription"
+                           data-tooltip="@analysisDescription">
                         <input type="checkbox"
                                checked="@selectedAnalysisTypeIds.Contains(analysisType)"
-                               @onchange="() => ToggleAnalysisType(analysisType)" />
+                               @onchange="() => ToggleAnalysisType(analysisType)"
+                               aria-describedby="@analysisDescriptionId" />
                         <span class="analysis-option-icon" aria-hidden="true">@GetAnalysisGlyph(analysisType)</span>
-                        <span>
+                        <span class="analysis-type-copy">
                             <strong>@analysisType</strong>
-                            <small>@GetAnalysisDescription(analysisType)</small>
+                            <span id="@analysisDescriptionId" class="sr-only">@analysisDescription</span>
                             <em>@($"{matchingCount} matching result{(matchingCount == 1 ? "" : "s")}")</em>
                         </span>
                     </label>
@@ -1249,6 +1254,15 @@
 
     private string GetAnalysisOptionClass(string analysisType) =>
         selectedAnalysisTypeIds.Contains(analysisType) ? "analysis-type-option selected" : "analysis-type-option";
+
+    private static string GetAnalysisDescriptionId(string analysisType)
+    {
+        var normalized = new string(analysisType
+            .Select(character => char.IsLetterOrDigit(character) ? char.ToLowerInvariant(character) : '-')
+            .ToArray()).Trim('-');
+
+        return $"analysis-description-{(string.IsNullOrWhiteSpace(normalized) ? "type" : normalized)}";
+    }
 
     private string GetResultFolderPanelClass(DocumentFolderPanel panel) =>
         $"{GetFolderPanelClass(panel)} result-folder-card";
