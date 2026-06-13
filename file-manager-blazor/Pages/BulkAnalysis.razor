@@ -428,7 +428,7 @@
                 {
                     <div class="source-preview-summary result-preview-summary">
                         <div class="source-preview-summary-copy">
-                            <strong class="source-preview-title">@activeDocument.Document.Title</strong>
+                            <strong class="source-preview-title">@($"{activeAnalysisType} analysis results for {activeDocument.Document.Title}")</strong>
                             <span class="source-preview-file-name">@activeDocument.Document.OriginalFileName</span>
                             <div class="source-preview-summary-meta" aria-label="Result details">
                                 <span class="source-preview-summary-meta-item">
@@ -463,7 +463,6 @@
 
                     <div class="source-preview-body result-preview-body">
                         <div class="source-preview-original result-preview-output">
-                            <p class="control-label">@activeAnalysisType</p>
                             @if (activeResult is null)
                             {
                                 <div class="workflow-empty-state preview-empty">
