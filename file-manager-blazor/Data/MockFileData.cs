@@ -505,6 +505,20 @@ public static class MockFileData
             Quality Review
             A second reviewer checks regulatory timing, template selection, and source-record alignment before release.
             """,
+        ["member-notice-typography-regression-source-file-with-extra-long-name-for-preview-wrapping.txt"] = """
+            Member Notice Typography Regression Source
+
+            Purpose
+            This mock source file intentionally contains long labels, dense metadata, and plain text rows so the Bulk Analysis source preview can exercise typography wrapping and readable metadata sizing.
+
+            Source Metadata
+            - Folder path: Member Communications / Typography Regression Evidence With Long Folder Names
+            - Source file: member-notice-typography-regression-source-file-with-extra-long-name-for-preview-wrapping.txt
+            - Review type: Typography Regression Review
+
+            Plain Text Preview
+            Metadata labels should remain readable, body copy should keep enough line-height for scanning, and code or raw text previews should be the only places where a monospace family appears.
+            """,
         ["clinical-review-policy.md"] = """
             # Clinical Review Policy Brief
 
