@@ -259,7 +259,7 @@
                     <label class="@GetAnalysisOptionClass(analysisType)"
                            data-tooltip="@analysisDescription"
                            @onpointerdown="() => DismissAnalysisTooltip(analysisType)"
-                           @onpointerenter="() => ClearDismissedAnalysisTooltip(analysisType)"
+                           @onpointerleave="() => ClearDismissedAnalysisTooltip(analysisType)"
                            @onfocusout="() => ClearDismissedAnalysisTooltip(analysisType)">
                         <input type="checkbox"
                                checked="@selectedAnalysisTypeIds.Contains(analysisType)"

@@ -2867,7 +2867,7 @@ svg {
 }
 
 .analysis-type-option:hover,
-.analysis-type-option:focus-within {
+.analysis-type-option:has(input:focus-visible) {
     z-index: 10;
     transform: none;
     border-bottom-color: rgba(17, 127, 139, 0.18);
@@ -2877,8 +2877,8 @@ svg {
 
 .analysis-type-option:hover::before,
 .analysis-type-option:hover::after,
-.analysis-type-option:focus-within::before,
-.analysis-type-option:focus-within::after {
+.analysis-type-option:has(input:focus-visible)::before,
+.analysis-type-option:has(input:focus-visible)::after {
     opacity: 1;
     transform: translateY(0);
 }
