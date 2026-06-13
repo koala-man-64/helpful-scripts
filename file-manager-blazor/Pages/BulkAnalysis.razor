@@ -15,6 +15,8 @@
     var activeResult = activeDocument is null || activeAnalysisType is null
         ? null
         : activeDocument.Document.Results.FirstOrDefault(result => string.Equals(result.AnalysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase));
+    var activeResultMarkdown = activeResult is null ? null : GetResultMarkdown(activeResult);
+    var activeResultMarkdownError = activeResult is null ? null : GetResultMarkdownError(activeResult);
     var availableDownloadResultCount = CountAvailableResults(selectedDocuments.Select(entry => entry.Document), selectedAnalysisTypes);
     var selectedDownloadResults = GetSelectedDownloadResults();
     var selectedPreviewDocument = GetSelectionPreviewDocument(selectedDocuments);
@@ -83,67 +85,85 @@
                         var visibleDocumentPanels = GetVisibleDocumentPanels();
                     }
 
-                    <div class="document-selection-list">
-                        @foreach (var folderPanel in visibleDocumentPanels)
-                        {
-                            var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
-                            var selectedInFolder = folderPanel.VisibleDocuments.Count(document => selectedDocumentIds.Contains(document.Id));
-                            var folderSelectionState = GetFolderSelectionState(folderPanel);
-
-                            <section class="@GetFolderPanelClass(folderPanel)" style="@($"--folder-depth: {folderPanel.Depth};")">
-                                <div class="document-folder-header">
-                                    <button type="button"
-                                            class="@GetFolderSelectClass(folderSelectionState)"
-                                            role="checkbox"
-                                            aria-checked="@GetAriaChecked(folderSelectionState)"
-                                            aria-label="@($"Select all documents under {folderPanel.Folder.DisplayName}")"
-                                            @onclick="() => ToggleFolderSelection(folderPanel)"></button>
-                                    <button type="button"
-                                            class="folder-collapse-button"
-                                            aria-expanded="@(!isCollapsed)"
-                                            aria-label="@($"Toggle {folderPanel.Folder.DisplayName}")"
-                                            @onclick="() => ToggleFolderPanel(folderPanel.Folder.Id)">
-                                        <span aria-hidden="true">@(isCollapsed ? ">" : "v")</span>
-                                    </button>
-                                    <div class="document-folder-heading">
-                                        <div>
-                                            <h3>@folderPanel.Folder.DisplayName</h3>
-                                            @if (!string.IsNullOrWhiteSpace(folderPanel.Folder.ParentDisplayName))
-                                            {
-                                                <p>@folderPanel.Folder.ParentDisplayName</p>
-                                            }
-                                        </div>
-                                        <span>@($"{selectedInFolder} of {folderPanel.VisibleDocumentCount} selected")</span>
-                                    </div>
-                                </div>
-
-                                @if (!isCollapsed && folderPanel.Documents.Count > 0)
-                                {
-                                    <div class="document-option-list">
-                                        @foreach (var document in folderPanel.Documents)
-                                        {
-                                            <label class="@GetDocumentOptionClass(document.Id)">
-                                                <input type="checkbox"
-                                                       checked="@selectedDocumentIds.Contains(document.Id)"
-                                                       @onchange="() => ToggleDocumentSelection(document.Id)" />
-                                                <span>
-                                                    <strong>@document.Title</strong>
-                                                    <small>@document.OriginalFileName - @($"{document.Results.Count} available analysis result{(document.Results.Count == 1 ? "" : "s")}")</small>
-                                                </span>
-                                            </label>
-                                        }
-                                    </div>
-                                }
-                            </section>
-                        }
-                    </div>
-
-                    @if (visibleDocumentPanels.Count == 0)
+                    @if (!string.IsNullOrWhiteSpace(loadErrorMessage))
                     {
                         <div class="workflow-empty-state">
-                            <strong>No documents available</strong>
-                            <span>Add documents to the provider before starting a bulk analysis.</span>
+                            <strong>Unable to load ADLS documents</strong>
+                            <span>@loadErrorMessage</span>
                         </div>
+                    }
+
+                    @if (isLoadingDocuments)
+                    {
+                        <div class="workflow-empty-state">
+                            <strong>Loading ADLS documents</strong>
+                            <span>Retrieving raw SOP files and available analysis results.</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="document-selection-list">
+                            @foreach (var folderPanel in visibleDocumentPanels)
+                            {
+                                var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
+                                var selectedInFolder = folderPanel.VisibleDocuments.Count(document => selectedDocumentIds.Contains(document.Id));
+                                var folderSelectionState = GetFolderSelectionState(folderPanel);
+
+                                <section class="@GetFolderPanelClass(folderPanel)" style="@($"--folder-depth: {folderPanel.Depth};")">
+                                    <div class="document-folder-header">
+                                        <button type="button"
+                                                class="@GetFolderSelectClass(folderSelectionState)"
+                                                role="checkbox"
+                                                aria-checked="@GetAriaChecked(folderSelectionState)"
+                                                aria-label="@($"Select all documents under {folderPanel.Folder.DisplayName}")"
+                                                @onclick="() => ToggleFolderSelection(folderPanel)"></button>
+                                        <button type="button"
+                                                class="folder-collapse-button"
+                                                aria-expanded="@(!isCollapsed)"
+                                                aria-label="@($"Toggle {folderPanel.Folder.DisplayName}")"
+                                                @onclick="() => ToggleFolderPanel(folderPanel.Folder.Id)">
+                                            <span aria-hidden="true">@(isCollapsed ? ">" : "v")</span>
+                                        </button>
+                                        <div class="document-folder-heading">
+                                            <div>
+                                                <h3>@folderPanel.Folder.DisplayName</h3>
+                                                @if (!string.IsNullOrWhiteSpace(folderPanel.Folder.ParentDisplayName))
+                                                {
+                                                    <p>@folderPanel.Folder.ParentDisplayName</p>
+                                                }
+                                            </div>
+                                            <span>@($"{selectedInFolder} of {folderPanel.VisibleDocumentCount} selected")</span>
+                                        </div>
+                                    </div>
+
+                                    @if (!isCollapsed && folderPanel.Documents.Count > 0)
+                                    {
+                                        <div class="document-option-list">
+                                            @foreach (var document in folderPanel.Documents)
+                                            {
+                                                <label class="@GetDocumentOptionClass(document.Id)">
+                                                    <input type="checkbox"
+                                                           checked="@selectedDocumentIds.Contains(document.Id)"
+                                                           @onchange="() => ToggleDocumentSelection(document.Id)" />
+                                                    <span>
+                                                        <strong>@document.Title</strong>
+                                                        <small>@document.OriginalFileName - @($"{document.Results.Count} available analysis result{(document.Results.Count == 1 ? "" : "s")}")</small>
+                                                    </span>
+                                                </label>
+                                            }
+                                        </div>
+                                    }
+                                </section>
+                            }
+                        </div>
+
+                        @if (visibleDocumentPanels.Count == 0 && string.IsNullOrWhiteSpace(loadErrorMessage))
+                        {
+                            <div class="workflow-empty-state">
+                                <strong>No documents available</strong>
+                                <span>Add documents to the provider before starting a bulk analysis.</span>
+                            </div>
+                        }
                     }
                 </div>
             </section>
@@ -183,8 +203,15 @@
 
                     <div class="source-preview-body">
                         <div class="source-preview-original">
-                            <p class="control-label">Original content</p>
-                            <pre>@GetOriginalDocumentContent(selectedPreviewDocument.Document)</pre>
+                            <p class="control-label">Original file preview</p>
+                            @if (!string.IsNullOrWhiteSpace(rawPreviewError))
+                            {
+                                <div class="workflow-empty-state preview-empty">
+                                    <strong>Preview unavailable</strong>
+                                    <span>@rawPreviewError</span>
+                                </div>
+                            }
+                            <div class="source-preview-native" @ref="sourcePreviewHost" aria-live="polite"></div>
                         </div>
                     </div>
                 }
@@ -414,7 +441,7 @@
                                 {
                                     <span class="source-preview-summary-meta-item">
                                         <span class="source-preview-summary-meta-label">Tokens</span>
-                                        <span class="source-preview-summary-meta-value">@FormatTokens(activeResult.EstimatedTokens)</span>
+                                        <span class="source-preview-summary-meta-value">@(activeResultMarkdown is null ? "-" : FormatTokens(EstimateTokens(activeResultMarkdown)))</span>
                                     </span>
                                     <span class="source-preview-summary-meta-item">
                                         <span class="source-preview-summary-meta-label">Generated</span>
@@ -449,10 +476,24 @@
                                     <span>It can still be included in a download.</span>
                                 </div>
                             }
+                            else if (!string.IsNullOrWhiteSpace(activeResultMarkdownError))
+                            {
+                                <div class="workflow-empty-state preview-empty">
+                                    <strong>Unable to load @activeAnalysisType result</strong>
+                                    <span>@activeResultMarkdownError</span>
+                                </div>
+                            }
+                            else if (activeResultMarkdown is null)
+                            {
+                                <div class="workflow-empty-state preview-empty">
+                                    <strong>Loading generated result</strong>
+                                    <span>Retrieving Markdown from ADLS.</span>
+                                </div>
+                            }
                             else
                             {
                                 <article class="markdown-preview">
-                                    @RenderMarkdown(activeResult)
+                                    @RenderMarkdown(activeResultMarkdown)
                                 </article>
                             }
                         </div>
@@ -467,12 +508,20 @@
             <div class="result-step-primary-actions">
                 <button type="button"
                         class="workflow-action-button primary"
-                        disabled="@(selectedDownloadResults.Count == 0)"
+                        disabled="@(selectedDownloadResults.Count == 0 || isDownloadingResults)"
                         @onclick="DownloadSelectedResults">
-                    Download results
+                    @(isDownloadingResults ? "Preparing download" : "Download results")
                 </button>
             </div>
         </footer>
+
+        @if (!string.IsNullOrWhiteSpace(downloadErrorMessage))
+        {
+            <div class="workflow-empty-state preview-empty">
+                <strong>Unable to prepare download</strong>
+                <span>@downloadErrorMessage</span>
+            </div>
+        }
     }
 </section>
 
@@ -487,12 +536,22 @@
     private readonly HashSet<string> selectedAnalysisTypeIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> selectedResultIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> collapsedFolderIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> resultMarkdownById = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> resultMarkdownErrorsById = new(StringComparer.Ordinal);
     private WorkflowStep workflowStep = WorkflowStep.SelectDocuments;
     private bool isResultsPanelCollapsed;
     private bool isDocumentSelectionPanelCollapsed;
+    private bool isLoadingDocuments;
+    private bool isDownloadingResults;
     private string? activeDocumentId;
     private string? activeAnalysisType;
     private string? selectionPreviewDocumentId;
+    private ElementReference sourcePreviewHost;
+    private string? renderedSourcePreviewDocumentId;
+    private string? loadingResultId;
+    private string? rawPreviewError;
+    private string? loadErrorMessage;
+    private string? downloadErrorMessage;
 
     private IReadOnlyList<BulkAnalysisFolder> AllFolders => allFolders;
 
@@ -526,9 +585,35 @@
         EnsureActiveTargets();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await RenderSelectedSourcePreviewAsync();
+        await LoadActiveResultMarkdownAsync();
+    }
+
     private async Task RefreshAsync()
     {
-        allFolders = await ResultProvider.GetFoldersAsync();
+        isLoadingDocuments = true;
+        loadErrorMessage = null;
+        downloadErrorMessage = null;
+        resultMarkdownById.Clear();
+        resultMarkdownErrorsById.Clear();
+
+        try
+        {
+            allFolders = await ResultProvider.GetFoldersAsync();
+        }
+        catch (Exception ex)
+        {
+            allFolders = [];
+            loadErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoadingDocuments = false;
+        }
+
+        renderedSourcePreviewDocumentId = null;
         CollapseAllFolders();
     }
 
@@ -749,6 +834,7 @@
 
     private void GoToDocumentStep()
     {
+        renderedSourcePreviewDocumentId = null;
         workflowStep = WorkflowStep.SelectDocuments;
     }
 
@@ -1093,19 +1179,41 @@
     private async Task DownloadSelectedResults()
     {
         var results = GetSelectedDownloadResults();
-        if (results.Count == 0)
+        if (results.Count == 0 || isDownloadingResults)
         {
             return;
         }
 
-        await JSRuntime.InvokeVoidAsync(
-            "bulkAnalysisDownloads.downloadBinaryFile",
-            GetResultsZipFileName(results),
-            BuildResultsZipArchive(results),
-            "application/zip");
+        isDownloadingResults = true;
+        downloadErrorMessage = null;
+
+        try
+        {
+            var markdownByResultId = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var result in results)
+            {
+                markdownByResultId[result.Id] = await GetOrLoadResultMarkdownAsync(result);
+            }
+
+            await JSRuntime.InvokeVoidAsync(
+                "bulkAnalysisDownloads.downloadBinaryFile",
+                GetResultsZipFileName(results),
+                BuildResultsZipArchive(results, markdownByResultId),
+                "application/zip");
+        }
+        catch (Exception ex)
+        {
+            downloadErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isDownloadingResults = false;
+        }
     }
 
-    private static byte[] BuildResultsZipArchive(IReadOnlyList<BulkAnalysisResult> results)
+    private static byte[] BuildResultsZipArchive(
+        IReadOnlyList<BulkAnalysisResult> results,
+        IReadOnlyDictionary<string, string> markdownByResultId)
     {
         var downloadedAt = DateTime.Now;
         using var stream = new MemoryStream();
@@ -1120,14 +1228,14 @@
 
                 using var entryStream = entry.Open();
                 using var writer = new StreamWriter(entryStream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-                writer.Write(BuildResultDownloadMarkdown(result, downloadedAt));
+                writer.Write(BuildResultDownloadMarkdown(result, markdownByResultId[result.Id], downloadedAt));
             }
         }
 
         return stream.ToArray();
     }
 
-    private static string BuildResultDownloadMarkdown(BulkAnalysisResult result, DateTime downloadedAt)
+    private static string BuildResultDownloadMarkdown(BulkAnalysisResult result, string markdown, DateTime downloadedAt)
     {
         var builder = new StringBuilder();
 
@@ -1138,9 +1246,9 @@
             .AppendLine($"- Source file: {result.OriginalFileName}")
             .AppendLine($"- Generated: {result.GeneratedAt:MMM d, yyyy h:mm tt}")
             .AppendLine($"- Downloaded: {downloadedAt:MMM d, yyyy h:mm tt}")
-            .AppendLine($"- Estimated tokens: {FormatTokens(result.EstimatedTokens)}")
+            .AppendLine($"- Estimated tokens: {FormatTokens(EstimateTokens(markdown))}")
             .AppendLine()
-            .AppendLine(result.Markdown.Trim());
+            .AppendLine(markdown.Trim());
 
         return builder.ToString().TrimEnd() + Environment.NewLine;
     }
@@ -1319,6 +1427,16 @@
             return "C";
         }
 
+        if (analysisType.Contains("Control", StringComparison.OrdinalIgnoreCase))
+        {
+            return "C";
+        }
+
+        if (analysisType.Contains("Exception", StringComparison.OrdinalIgnoreCase))
+        {
+            return "E";
+        }
+
         if (analysisType.Contains("Gap", StringComparison.OrdinalIgnoreCase))
         {
             return "G";
@@ -1339,6 +1457,11 @@
             return "Highlights controls, failure modes, and mitigation areas.";
         }
 
+        if (analysisType.Contains("Control", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Reviews preventive and detective controls, approvals, and evidence retention.";
+        }
+
         if (analysisType.Contains("Compliance", StringComparison.OrdinalIgnoreCase))
         {
             return "Reviews evidence, timeliness, and regulatory alignment.";
@@ -1354,6 +1477,11 @@
             return "Prioritized changes for clearer document execution.";
         }
 
+        if (analysisType.Contains("Exception", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Summarizes exception triggers, escalation paths, and resolution evidence.";
+        }
+
         return "Generated bulk analysis output for selected documents.";
     }
 
@@ -1362,16 +1490,137 @@
             ? "No generated outputs available"
             : string.Join(", ", document.Results.Select(result => result.AnalysisType).Distinct(StringComparer.OrdinalIgnoreCase));
 
-    private static string GetOriginalDocumentContent(BulkAnalysisDocument document) =>
-        MockFileData.GetContent(document.OriginalFileName, AnalysisType.Original);
+    private async Task RenderSelectedSourcePreviewAsync()
+    {
+        var previewDocument = workflowStep == WorkflowStep.SelectDocuments
+            ? GetSelectionPreviewDocument(GetSelectedDocuments())
+            : null;
+        var previewDocumentId = previewDocument?.Document.Id;
 
-    private MarkupString RenderMarkdown(BulkAnalysisResult result) =>
-        new(Markdown.ToHtml(result.Markdown, MarkdownPipeline));
+        if (string.Equals(previewDocumentId, renderedSourcePreviewDocumentId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        renderedSourcePreviewDocumentId = previewDocumentId;
+        rawPreviewError = null;
+
+        if (previewDocumentId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var rawFile = await ResultProvider.GetRawFileAsync(previewDocumentId);
+            if (rawFile is null)
+            {
+                rawPreviewError = "The selected raw file could not be found in the provider catalog.";
+                await JSRuntime.InvokeVoidAsync("bulkAnalysisPreview.clear", sourcePreviewHost);
+                StateHasChanged();
+                return;
+            }
+
+            await JSRuntime.InvokeVoidAsync(
+                "bulkAnalysisPreview.render",
+                sourcePreviewHost,
+                rawFile.FileName,
+                rawFile.ContentType,
+                rawFile.Content);
+        }
+        catch (Exception ex)
+        {
+            rawPreviewError = ex.Message;
+            await JSRuntime.InvokeVoidAsync("bulkAnalysisPreview.clear", sourcePreviewHost);
+            StateHasChanged();
+        }
+    }
+
+    private string? GetResultMarkdown(BulkAnalysisResult result)
+    {
+        if (resultMarkdownById.TryGetValue(result.Id, out var markdown))
+        {
+            return markdown;
+        }
+
+        return string.IsNullOrWhiteSpace(result.Markdown) ? null : result.Markdown;
+    }
+
+    private string? GetResultMarkdownError(BulkAnalysisResult result) =>
+        resultMarkdownErrorsById.GetValueOrDefault(result.Id);
+
+    private async Task<string> GetOrLoadResultMarkdownAsync(BulkAnalysisResult result)
+    {
+        var existingMarkdown = GetResultMarkdown(result);
+        if (existingMarkdown is not null)
+        {
+            return existingMarkdown;
+        }
+
+        var markdown = await ResultProvider.GetResultMarkdownAsync(result.Id)
+            ?? throw new InvalidOperationException($"The selected {result.AnalysisType} result could not be found in ADLS.");
+
+        resultMarkdownById[result.Id] = markdown;
+        resultMarkdownErrorsById.Remove(result.Id);
+        return markdown;
+    }
+
+    private async Task LoadActiveResultMarkdownAsync()
+    {
+        if (workflowStep != WorkflowStep.Results)
+        {
+            return;
+        }
+
+        var selectedDocuments = GetSelectedDocuments();
+        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(selectedDocuments));
+        var activeDocument = GetActiveDocument(selectedDocuments);
+        var activeAnalysisType = GetActiveAnalysisType(selectedAnalysisTypes);
+        var activeResult = activeDocument is null || activeAnalysisType is null
+            ? null
+            : activeDocument.Document.Results.FirstOrDefault(result => string.Equals(result.AnalysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase));
+
+        if (activeResult is null ||
+            !activeResult.IsPreviewAvailable ||
+            GetResultMarkdown(activeResult) is not null ||
+            resultMarkdownErrorsById.ContainsKey(activeResult.Id) ||
+            string.Equals(loadingResultId, activeResult.Id, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        loadingResultId = activeResult.Id;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await GetOrLoadResultMarkdownAsync(activeResult);
+        }
+        catch (Exception ex)
+        {
+            resultMarkdownErrorsById[activeResult.Id] = ex.Message;
+        }
+        finally
+        {
+            if (string.Equals(loadingResultId, activeResult.Id, StringComparison.Ordinal))
+            {
+                loadingResultId = null;
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static MarkupString RenderMarkdown(string markdown) =>
+        new(Markdown.ToHtml(markdown, MarkdownPipeline));
 
     private static string GetFolderPath(BulkAnalysisFolder folder) =>
         string.IsNullOrWhiteSpace(folder.ParentDisplayName)
             ? folder.DisplayName
             : $"{folder.ParentDisplayName} / {folder.DisplayName}";
+
+    private static int EstimateTokens(string markdown) =>
+        (int)Math.Ceiling(markdown.Length / 4.0);
 
     private static string FormatTokens(int tokens) =>
         tokens >= 1_000 ? $"{tokens / 1_000.0:0.#}k" : tokens.ToString("N0");
