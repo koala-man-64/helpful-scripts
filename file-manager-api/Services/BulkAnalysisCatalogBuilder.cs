@@ -111,7 +111,8 @@ public static class BulkAnalysisCatalogBuilder
                 rawReferences[documentId] = new RawFileReference(rawPath, originalFileName, contentType);
             }
 
-            folders.Add(new BulkAnalysisFolder(category, GetDisplayName(category), null, documents, []));
+            var displayName = GetDisplayName(category);
+            folders.Add(new BulkAnalysisFolder(category, displayName, GetDescription(displayName), null, documents, []));
         }
 
         return new BulkAnalysisCatalog(folders, rawReferences, resultReferences);
@@ -185,6 +186,9 @@ public static class BulkAnalysisCatalogBuilder
 
     private static string GetDisplayName(string slug) =>
         CultureInfo.CurrentCulture.TextInfo.ToTitleCase(slug.Replace('-', ' ').Replace('_', ' '));
+
+    private static string GetDescription(string displayName) =>
+        $"Documents and generated analysis results for {displayName}.";
 
     private static string GetContentType(string fileName) =>
         Path.GetExtension(fileName).ToLowerInvariant() switch

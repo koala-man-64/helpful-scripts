@@ -226,7 +226,10 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         string? parentDisplayName,
         IReadOnlyList<BulkAnalysisDocument> documents,
         IReadOnlyList<BulkAnalysisFolder>? childFolders = null) =>
-        new(id, displayName, parentDisplayName, documents, childFolders ?? []);
+        new(id, displayName, GetFolderDescription(displayName), parentDisplayName, documents, childFolders ?? []);
+
+    private static string GetFolderDescription(string displayName) =>
+        $"Documents and generated analysis results for {displayName}.";
 
     private static IEnumerable<BulkAnalysisDocument> EnumerateDocuments(BulkAnalysisFolder folder)
     {
