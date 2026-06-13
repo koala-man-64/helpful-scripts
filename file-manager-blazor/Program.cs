@@ -14,7 +14,16 @@ builder.Services.AddScoped(sp => new HttpClient
 {
     BaseAddress = ResolveApiBaseAddress(builder.HostEnvironment.BaseAddress, bulkAnalysisApiOptions.BaseUrl)
 });
-builder.Services.AddScoped<IBulkAnalysisResultProvider, ApiBulkAnalysisResultProvider>();
+builder.Services.AddScoped<IBulkAnalysisResultProvider>(sp =>
+{
+    var apiProvider = new ApiBulkAnalysisResultProvider(sp.GetRequiredService<HttpClient>());
+    if (!string.Equals(builder.HostEnvironment.Environment, "Development", StringComparison.OrdinalIgnoreCase))
+    {
+        return apiProvider;
+    }
+
+    return new FallbackBulkAnalysisResultProvider(apiProvider, new MockBulkAnalysisResultProvider());
+});
 
 await builder.Build().RunAsync();
 

@@ -30,6 +30,11 @@ window.bulkAnalysisPreview = (() => {
             return;
         }
 
+        if (isPlainTextPreview(contentType, normalizedName)) {
+            renderPlainText(container, bytes);
+            return;
+        }
+
         renderFallback(container, url, fileName, "Preview is not available for this file type.");
     }
 
@@ -64,6 +69,22 @@ window.bulkAnalysisPreview = (() => {
             clear(container);
             renderFallback(container, url, fileName, "Word preview could not render this document.");
         }
+    }
+
+    function isPlainTextPreview(contentType, normalizedName) {
+        const normalizedType = (contentType || "").toLowerCase();
+        return normalizedType.startsWith("text/")
+            || normalizedType.includes("json")
+            || normalizedName.endsWith(".txt")
+            || normalizedName.endsWith(".md")
+            || normalizedName.endsWith(".csv")
+            || normalizedName.endsWith(".json");
+    }
+
+    function renderPlainText(container, bytes) {
+        const pre = document.createElement("pre");
+        pre.textContent = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+        container.appendChild(pre);
     }
 
     function renderFallback(container, url, fileName, message) {

@@ -120,6 +120,29 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                                             Result("notice-summary", "member-notices", "notice-generation", "Notice Operations", "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully", "notice-generation-style-guide-long-title.docx", "Executive Summary", BaseDate.AddDays(-7), NoticeSummary()),
                                             Result("notice-unavailable", "member-notices", "notice-generation", "Notice Operations", "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully", "notice-generation-style-guide-long-title.docx", "Compliance Review", BaseDate.AddDays(-8), UnavailablePreviewContent(), IsPreviewAvailable: false)
                                         ])
+                                ]),
+                            CreateFolder(
+                                "member-typography-regression",
+                                "Typography Regression Evidence With Long Folder Names",
+                                "Member Communications",
+                                [
+                                    CreateDocument(
+                                        "member-notice-typography-regression",
+                                        "member-typography-regression",
+                                        "Member Notice Typography Regression Review With Long Labels And Dense Metadata",
+                                        "member-notice-typography-regression-source-file-with-extra-long-name-for-preview-wrapping.txt",
+                                        [
+                                            Result(
+                                                "member-notice-typography-regression-report",
+                                                "member-typography-regression",
+                                                "member-notice-typography-regression",
+                                                "Typography Regression Evidence With Long Folder Names",
+                                                "Member Notice Typography Regression Review With Long Labels And Dense Metadata",
+                                                "member-notice-typography-regression-source-file-with-extra-long-name-for-preview-wrapping.txt",
+                                                "Typography Regression Review",
+                                                BaseDate.AddDays(-9).AddHours(-3),
+                                                TypographyRegressionReview())
+                                        ])
                                 ])
                         ])
                 ]),
@@ -404,6 +427,33 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         # Notice Generation Style Guide - Compliance Review
 
         This mock result is intentionally marked unavailable for preview so the UI can show the unavailable state while preserving result selection behavior.
+        """;
+
+    private static string TypographyRegressionReview() =>
+        """
+        # Member Notice Typography Regression Review With Long Labels And Dense Metadata
+
+        ## Findings
+
+        This result is intentionally shaped to exercise long generated headings, dense metadata, tables, and code-style content in the Bulk Analysis preview.
+
+        | Text Role | Regression Input | Expected Behavior |
+        | --- | --- | --- |
+        | Folder path | Member Communications / Typography Regression Evidence With Long Folder Names | Wrap or truncate without overlapping controls |
+        | Source file | member-notice-typography-regression-source-file-with-extra-long-name-for-preview-wrapping.txt | Preserve readable metadata sizing |
+        | Analysis type | Typography Regression Review | Keep action and selection rows aligned |
+
+        ## Code Sample
+
+        ```text
+        WHEN preview_text_role == "metadata"
+        THEN enforce_minimum_readable_size = true
+        AND preserve_monospace_only_for_code = true
+        ```
+
+        ## Recommendation
+
+        Keep generated report copy at the Markdown body scale and reserve smaller type for labels, counts, and secondary metadata only.
         """;
 
     private static string LargeCorpusMarkdown()
