@@ -24,14 +24,14 @@
       "group": "build"
     },
     {
-      "label": "free port 5167 for file-manager-blazor",
+      "label": "stop existing file-manager-blazor instances",
       "type": "shell",
       "command": "powershell",
       "args": [
         "-NoLogo",
         "-NoProfile",
         "-Command",
-        "$connection = Get-NetTCPConnection -LocalPort 5167 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if ($connection) { $process = Get-CimInstance Win32_Process -Filter \"ProcessId = $($connection.OwningProcess)\"; if ($process.CommandLine -match 'FileManagerBlazor|blazor-devserver') { Stop-Process -Id $connection.OwningProcess -Force } }"
+        "$ports = @(5167, 7016); $processIds = @(); foreach ($port in $ports) { $processIds += Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess }; $processIds += Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'dotnet.exe' -and $_.CommandLine -match 'FileManagerBlazor|file-manager-blazor|blazor-devserver' } | Select-Object -ExpandProperty ProcessId; $processIds | Where-Object { $_ -and $_ -ne $PID } | Sort-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"
       ],
       "problemMatcher": []
     },
@@ -47,7 +47,7 @@
         "http"
       ],
       "dependsOn": [
-        "free port 5167 for file-manager-blazor"
+        "stop existing file-manager-blazor instances"
       ],
       "dependsOrder": "sequence",
       "isBackground": true,
