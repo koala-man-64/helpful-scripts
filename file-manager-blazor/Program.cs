@@ -17,7 +17,7 @@ builder.Services.AddScoped(sp => new HttpClient
 builder.Services.AddScoped<IBulkAnalysisResultProvider>(sp =>
 {
     var apiProvider = new ApiBulkAnalysisResultProvider(sp.GetRequiredService<HttpClient>());
-    if (!string.Equals(builder.HostEnvironment.Environment, "Development", StringComparison.OrdinalIgnoreCase))
+    if (!bulkAnalysisApiOptions.UseMockFallback)
     {
         return apiProvider;
     }
@@ -33,7 +33,8 @@ static BulkAnalysisApiOptions ReadBulkAnalysisApiOptions(IConfiguration configur
 
     return new BulkAnalysisApiOptions
     {
-        BaseUrl = section["BaseUrl"] ?? string.Empty
+        BaseUrl = section["BaseUrl"] ?? string.Empty,
+        UseMockFallback = bool.TryParse(section["UseMockFallback"], out var useMockFallback) && useMockFallback
     };
 }
 

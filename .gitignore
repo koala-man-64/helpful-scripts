@@ -7,3 +7,4 @@
 **/bin/
 **/obj/
 launch.json
+file-manager-blazor/wwwroot/appsettings.json

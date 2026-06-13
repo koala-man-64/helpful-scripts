@@ -7,10 +7,7 @@
       "launchBrowser": false,
       "applicationUrl": "http://localhost:5268",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development",
-        "BulkAnalysisAdls__ConnectionString": "DefaultEndpointsProtocol=https;AccountName=your_account;AccountKey=your_key;EndpointSuffix=core.windows.net",
-        "BulkAnalysisAdls__FileSystemName": "bulk-analysis",
-        "BulkAnalysisAdls__CatalogCacheMinutes": "5"
+        "ASPNETCORE_ENVIRONMENT": "Development"
       }
     }
   }

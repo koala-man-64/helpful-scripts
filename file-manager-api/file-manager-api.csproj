@@ -14,4 +14,8 @@
     <ProjectReference Include="..\file-manager-shared\FileManager.Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

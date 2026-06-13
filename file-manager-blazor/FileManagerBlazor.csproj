@@ -17,4 +17,13 @@
     <ProjectReference Include="..\file-manager-shared\FileManager.Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Remove="wwwroot\appsettings.json" />
+    <Content Include="wwwroot\appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="CopySharedAppSettings" BeforeTargets="ResolveProjectStaticWebAssets">
+    <Copy SourceFiles="..\appsettings.json" DestinationFiles="wwwroot\appsettings.json" SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>
