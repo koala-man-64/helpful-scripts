@@ -374,13 +374,7 @@
                                                 <span aria-hidden="true">@(isCollapsed ? ">" : "v")</span>
                                             </button>
                                             <div class="document-folder-heading">
-                                                <div>
-                                                    <h3>@folderPanel.Folder.DisplayName</h3>
-                                                    @if (!string.IsNullOrWhiteSpace(folderPanel.Folder.ParentDisplayName))
-                                                    {
-                                                        <p>@folderPanel.Folder.ParentDisplayName</p>
-                                                    }
-                                                </div>
+                                                <h3>@folderPanel.Folder.DisplayName</h3>
                                                 <span>@($"{selectedResultsInFolder} of {availableResultsInFolder} selected")</span>
                                             </div>
                                         </div>
