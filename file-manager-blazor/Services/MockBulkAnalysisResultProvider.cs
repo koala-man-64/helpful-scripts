@@ -1,3 +1,5 @@
+using System.Text;
+using FileManagerBlazor.Data;
 using FileManagerBlazor.Models;
 
 namespace FileManagerBlazor.Services;
@@ -12,6 +14,42 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(Folders.Value);
+    }
+
+    public Task<BulkAnalysisRawFile?> GetRawFileAsync(string documentId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var document = Folders.Value
+            .SelectMany(EnumerateDocuments)
+            .FirstOrDefault(document => string.Equals(document.Id, documentId, StringComparison.Ordinal));
+
+        if (document is null)
+        {
+            return Task.FromResult<BulkAnalysisRawFile?>(null);
+        }
+
+        var content = MockFileData.GetContent(document.OriginalFileName, AnalysisType.Original);
+        var bytes = Encoding.UTF8.GetBytes(content);
+
+        return Task.FromResult<BulkAnalysisRawFile?>(new(
+            document.Id,
+            document.OriginalFileName,
+            GetContentType(document.OriginalFileName),
+            document.SourcePath ?? document.OriginalFileName,
+            bytes));
+    }
+
+    public Task<string?> GetResultMarkdownAsync(string resultId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var result = Folders.Value
+            .SelectMany(EnumerateDocuments)
+            .SelectMany(document => document.Results)
+            .FirstOrDefault(result => string.Equals(result.Id, resultId, StringComparison.Ordinal));
+
+        return Task.FromResult(result?.Markdown);
     }
 
     private static IReadOnlyList<BulkAnalysisFolder> CreateFolders()
@@ -167,6 +205,22 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         IReadOnlyList<BulkAnalysisFolder>? childFolders = null) =>
         new(id, displayName, parentDisplayName, documents, childFolders ?? []);
 
+    private static IEnumerable<BulkAnalysisDocument> EnumerateDocuments(BulkAnalysisFolder folder)
+    {
+        foreach (var document in folder.Documents)
+        {
+            yield return document;
+        }
+
+        foreach (var childFolder in folder.ChildFolders)
+        {
+            foreach (var document in EnumerateDocuments(childFolder))
+            {
+                yield return document;
+            }
+        }
+    }
+
     private static BulkAnalysisDocument CreateDocument(
         string id,
         string folderId,
@@ -187,6 +241,16 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         string markdown,
         bool IsPreviewAvailable = true) =>
         new(id, folderId, documentId, folderName, documentTitle, originalFileName, analysisType, generatedAt, markdown.Trim(), IsPreviewAvailable);
+
+    private static string GetContentType(string fileName) =>
+        Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".pdf" => "application/pdf",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".md" => "text/markdown;charset=utf-8",
+            ".txt" => "text/plain;charset=utf-8",
+            _ => "application/octet-stream"
+        };
 
     private static string ClaimsSummary() =>
         """

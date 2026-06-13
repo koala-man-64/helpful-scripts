@@ -2454,6 +2454,58 @@ svg {
     white-space: pre-wrap;
 }
 
+.source-preview-native {
+    min-height: 26rem;
+    border: 1px solid var(--shell-line);
+    border-radius: var(--shell-radius-control);
+    background: #ffffff;
+    overflow: auto;
+}
+
+.raw-pdf-preview {
+    width: 100%;
+    min-height: 30rem;
+    border: 0;
+    display: block;
+}
+
+.raw-docx-preview {
+    min-height: 30rem;
+    padding: 0.8rem;
+    background: rgba(246, 248, 252, 0.72);
+}
+
+.raw-docx-preview .docx-wrapper {
+    background: transparent;
+    padding: 0;
+}
+
+.raw-docx-preview .docx {
+    margin: 0 auto 0.75rem;
+    box-shadow: 0 10px 28px rgba(35, 55, 89, 0.12);
+}
+
+.raw-preview-fallback {
+    min-height: 14rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    padding: 1rem;
+    color: var(--shell-muted);
+    text-align: center;
+}
+
+.raw-preview-fallback strong {
+    color: var(--shell-heading);
+}
+
+.raw-preview-fallback a {
+    color: var(--shell-accent-strong);
+    font-weight: 700;
+}
+
 .step-preview-empty {
     min-height: 14rem;
 }

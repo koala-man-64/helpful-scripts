@@ -19,7 +19,11 @@ public sealed record BulkAnalysisDocument(
     string FolderId,
     string Title,
     string OriginalFileName,
-    IReadOnlyList<BulkAnalysisResult> Results);
+    IReadOnlyList<BulkAnalysisResult> Results,
+    string? SourcePath = null,
+    string? ContentType = null,
+    string? SourceExtension = null,
+    string? TransformedPath = null);
 
 public sealed record BulkAnalysisResult(
     string Id,
@@ -31,7 +35,16 @@ public sealed record BulkAnalysisResult(
     string AnalysisType,
     DateTime GeneratedAt,
     string Markdown,
-    bool IsPreviewAvailable = true)
+    bool IsPreviewAvailable = true,
+    string? AnalysisSlug = null,
+    string? ResultPath = null)
 {
     public int EstimatedTokens => (int)Math.Ceiling(Markdown.Length / 4.0);
 }
+
+public sealed record BulkAnalysisRawFile(
+    string DocumentId,
+    string FileName,
+    string ContentType,
+    string SourcePath,
+    byte[] Content);
