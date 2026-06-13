@@ -1,0 +1,41 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch FileManagerApi",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "prepare launch file-manager-api",
+      "program": "${workspaceFolder}\\file-manager-api\\bin\\Debug\\net10.0\\file-manager-api.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}\\file-manager-api",
+      "stopAtEntry": false,
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5268",
+        "BulkAnalysisAdls__ConnectionString": "DefaultEndpointsProtocol=https;AccountName=your_account;AccountKey=your_key;EndpointSuffix=core.windows.net",
+        "BulkAnalysisAdls__FileSystemName": "bulk-analysis",
+        "BulkAnalysisAdls__CatalogCacheMinutes": "5"
+      }
+    },
+    {
+      "name": "Launch FileManagerBlazor",
+      "type": "blazorwasm",
+      "request": "launch",
+      "cwd": "${workspaceFolder}\\file-manager-blazor",
+      "url": "http://localhost:5167",
+      "webRoot": "${workspaceFolder}\\file-manager-blazor\\wwwroot",
+      "preLaunchTask": "run file-manager-blazor"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Launch FileManager Stack",
+      "configurations": [
+        "Launch FileManagerApi",
+        "Launch FileManagerBlazor"
+      ],
+      "stopAll": true
+    }
+  ]
+}

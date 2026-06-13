@@ -30,9 +30,46 @@
       "args": [
         "-NoLogo",
         "-NoProfile",
-        "-Command",
-        "$ports = @(5167, 7016); $processIds = @(); foreach ($port in $ports) { $processIds += Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess }; $processIds += Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'dotnet.exe' -and $_.CommandLine -match 'FileManagerBlazor|file-manager-blazor|blazor-devserver' } | Select-Object -ExpandProperty ProcessId; $processIds | Where-Object { $_ -and $_ -ne $PID } | Sort-Object -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\Stop-FileManagerDevProcesses.ps1",
+        "-Ports",
+        "5167",
+        "7016",
+        "-CommandLinePatterns",
+        "FileManagerBlazor",
+        "file-manager-blazor",
+        "blazor-devserver"
       ],
+      "problemMatcher": []
+    },
+    {
+      "label": "stop existing file-manager-api instances",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\Stop-FileManagerDevProcesses.ps1",
+        "-Ports",
+        "5268",
+        "-CommandLinePatterns",
+        "file-manager-api",
+        "file-manager-api\\.dll"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "prepare launch file-manager-api",
+      "dependsOn": [
+        "stop existing file-manager-api instances",
+        "build file-manager-api"
+      ],
+      "dependsOrder": "sequence",
       "problemMatcher": []
     },
     {
