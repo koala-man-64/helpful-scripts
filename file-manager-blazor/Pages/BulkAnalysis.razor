@@ -257,7 +257,10 @@
                     var analysisDescriptionId = GetAnalysisDescriptionId(analysisType);
 
                     <label class="@GetAnalysisOptionClass(analysisType)"
-                           data-tooltip="@analysisDescription">
+                           data-tooltip="@analysisDescription"
+                           @onpointerdown="() => DismissAnalysisTooltip(analysisType)"
+                           @onpointerenter="() => ClearDismissedAnalysisTooltip(analysisType)"
+                           @onfocusout="() => ClearDismissedAnalysisTooltip(analysisType)">
                         <input type="checkbox"
                                checked="@selectedAnalysisTypeIds.Contains(analysisType)"
                                @onchange="() => ToggleAnalysisType(analysisType)"
@@ -547,6 +550,7 @@
     private string? activeDocumentId;
     private string? activeAnalysisType;
     private string? selectionPreviewDocumentId;
+    private string? dismissedAnalysisTooltipType;
     private ElementReference sourcePreviewHost;
     private string? renderedSourcePreviewDocumentId;
     private string? loadingResultId;
@@ -812,6 +816,19 @@
         }
 
         EnsureActiveTargets();
+    }
+
+    private void DismissAnalysisTooltip(string analysisType)
+    {
+        dismissedAnalysisTooltipType = analysisType;
+    }
+
+    private void ClearDismissedAnalysisTooltip(string analysisType)
+    {
+        if (string.Equals(dismissedAnalysisTooltipType, analysisType, StringComparison.OrdinalIgnoreCase))
+        {
+            dismissedAnalysisTooltipType = null;
+        }
     }
 
     private void SelectAllAnalysisTypes()
@@ -1375,8 +1392,22 @@
         return string.Join(' ', classes);
     }
 
-    private string GetAnalysisOptionClass(string analysisType) =>
-        selectedAnalysisTypeIds.Contains(analysisType) ? "analysis-type-option selected" : "analysis-type-option";
+    private string GetAnalysisOptionClass(string analysisType)
+    {
+        var classes = new List<string> { "analysis-type-option" };
+
+        if (selectedAnalysisTypeIds.Contains(analysisType))
+        {
+            classes.Add("selected");
+        }
+
+        if (string.Equals(dismissedAnalysisTooltipType, analysisType, StringComparison.OrdinalIgnoreCase))
+        {
+            classes.Add("tooltip-dismissed");
+        }
+
+        return string.Join(' ', classes);
+    }
 
     private static string GetAnalysisDescriptionId(string analysisType)
     {

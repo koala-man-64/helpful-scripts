@@ -2883,6 +2883,12 @@ svg {
     transform: translateY(0);
 }
 
+.analysis-type-option.tooltip-dismissed::before,
+.analysis-type-option.tooltip-dismissed::after {
+    opacity: 0;
+    transform: translateY(0.25rem);
+}
+
 .analysis-type-option.selected {
     border-bottom-color: rgba(35, 55, 89, 0.08);
     background: transparent;
