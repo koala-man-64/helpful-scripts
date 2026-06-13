@@ -203,7 +203,7 @@
                             <strong class="source-preview-file-name">@selectedPreviewDocument.Document.OriginalFileName</strong>
                             <div class="source-preview-summary-meta" aria-label="Source details">
                                 <span class="source-preview-summary-meta-item">
-                                    <span class="source-preview-summary-meta-label">Folder</span>
+                                    <span class="source-preview-summary-meta-label">Category</span>
                                     <span class="source-preview-summary-meta-value">@GetFolderPath(selectedPreviewDocument.Folder)</span>
                                 </span>
                             </div>
@@ -444,7 +444,7 @@
                             <span class="source-preview-file-name">@activeDocument.Document.OriginalFileName</span>
                             <div class="source-preview-summary-meta" aria-label="Result details">
                                 <span class="source-preview-summary-meta-item">
-                                    <span class="source-preview-summary-meta-label">Folder</span>
+                                    <span class="source-preview-summary-meta-label">Category</span>
                                     <span class="source-preview-summary-meta-value">@GetFolderPath(activeDocument.Folder)</span>
                                 </span>
                                 <span class="source-preview-summary-meta-item">
@@ -1269,7 +1269,7 @@
         builder
             .AppendLine($"# {result.DocumentTitle} - {result.AnalysisType}")
             .AppendLine()
-            .AppendLine($"- Folder: {result.FolderName}")
+            .AppendLine($"- Category: {result.FolderName}")
             .AppendLine($"- Source file: {result.OriginalFileName}")
             .AppendLine($"- Generated: {result.GeneratedAt:MMM d, yyyy h:mm tt}")
             .AppendLine($"- Downloaded: {downloadedAt:MMM d, yyyy h:mm tt}")
