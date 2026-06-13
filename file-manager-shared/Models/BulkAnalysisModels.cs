@@ -3,6 +3,7 @@ namespace FileManagerBlazor.Models;
 public sealed record BulkAnalysisFolder(
     string Id,
     string DisplayName,
+    string Description,
     string? ParentDisplayName,
     IReadOnlyList<BulkAnalysisDocument> Documents,
     IReadOnlyList<BulkAnalysisFolder> ChildFolders)

@@ -33,6 +33,9 @@ public sealed class BulkAnalysisCatalogBuilderTests
         Assert.Equal(["Appeals", "Claims"], catalog.Folders.Select(folder => folder.DisplayName).ToArray());
 
         var claimsFolder = catalog.Folders.Single(folder => folder.Id == "claims");
+        Assert.Equal("Documents and generated analysis results for Claims.", claimsFolder.Description);
+        Assert.All(catalog.Folders, folder => Assert.False(string.IsNullOrWhiteSpace(folder.Description)));
+
         var claimsDocument = Assert.Single(claimsFolder.Documents);
         Assert.Equal("claims/2024_01_claims-handbook", claimsDocument.Id);
         Assert.Equal("Claims Handbook", claimsDocument.Title);
