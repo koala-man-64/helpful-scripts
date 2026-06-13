@@ -36,6 +36,14 @@
         "Launch FileManagerBlazor"
       ],
       "stopAll": true
+    },
+    {
+      "name": "API + Blazor",
+      "configurations": [
+        "Launch FileManagerApi",
+        "Launch FileManagerBlazor"
+      ],
+      "stopAll": true
     }
   ]
 }
