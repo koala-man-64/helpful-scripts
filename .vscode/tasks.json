@@ -2,6 +2,17 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "build file-manager-api",
+      "type": "shell",
+      "command": "${env:USERPROFILE}\\.dotnet\\dotnet.exe",
+      "args": [
+        "build",
+        "${workspaceFolder}\\file-manager-api\\file-manager-api.csproj"
+      ],
+      "problemMatcher": "$msCompile",
+      "group": "build"
+    },
+    {
       "label": "build file-manager-blazor",
       "type": "shell",
       "command": "${env:USERPROFILE}\\.dotnet\\dotnet.exe",
