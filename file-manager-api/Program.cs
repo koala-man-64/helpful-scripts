@@ -1,6 +1,8 @@
+using Azure;
 using FileManagerApi.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+AddSharedAppSettings(builder.Configuration, builder.Environment, args);
 
 var adlsOptions = ReadBulkAnalysisAdlsOptions(builder.Configuration);
 builder.Services.AddSingleton(adlsOptions);
@@ -31,6 +33,23 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next(context);
+    }
+    catch (Exception ex) when (IsBulkAnalysisRoute(context) && IsBulkAnalysisServiceException(ex))
+    {
+        app.Logger.LogWarning(ex, "Bulk Analysis catalog is unavailable.");
+        await Results.Problem(
+            title: "Bulk Analysis catalog unavailable",
+            detail: GetBulkAnalysisErrorDetail(ex),
+            statusCode: StatusCodes.Status503ServiceUnavailable)
+            .ExecuteAsync(context);
+    }
+});
 
 app.UseCors();
 
@@ -74,12 +93,44 @@ static BulkAnalysisAdlsOptions ReadBulkAnalysisAdlsOptions(IConfiguration config
 
     return new BulkAnalysisAdlsOptions
     {
-        ConnectionString = section["ConnectionString"] ?? string.Empty,
-        FileSystemName = section["FileSystemName"] ?? string.Empty,
-        CatalogCacheMinutes = int.TryParse(section["CatalogCacheMinutes"], out var cacheMinutes)
+        ConnectionString = FirstConfiguredValue(section["ConnectionString"], configuration["ADLS_CONNECTION_STRING"]),
+        FileSystemName = FirstConfiguredValue(section["FileSystemName"], configuration["ADLS_FILE_SYSTEM"]),
+        CatalogCacheMinutes = int.TryParse(
+            FirstConfiguredValue(section["CatalogCacheMinutes"], configuration["ADLS_CATALOG_CACHE_MINUTES"]),
+            out var cacheMinutes)
             ? cacheMinutes
             : 5
     };
+}
+
+static bool IsBulkAnalysisRoute(HttpContext context) =>
+    context.Request.Path.StartsWithSegments("/api/bulk-analysis", StringComparison.OrdinalIgnoreCase);
+
+static bool IsBulkAnalysisServiceException(Exception ex) =>
+    ex is InvalidOperationException or FormatException or RequestFailedException;
+
+static string GetBulkAnalysisErrorDetail(Exception ex) =>
+    ex is InvalidOperationException
+        ? "Configure BulkAnalysisAdls__ConnectionString and BulkAnalysisAdls__FileSystemName, or ADLS_CONNECTION_STRING and ADLS_FILE_SYSTEM, before starting the API."
+        : "The API could not read the configured ADLS catalog. Check the storage connection string, file system name, and account permissions.";
+
+static string FirstConfiguredValue(params string?[] values) =>
+    values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+
+static void AddSharedAppSettings(
+    ConfigurationManager configuration,
+    IWebHostEnvironment environment,
+    string[] args)
+{
+    var sharedSettingsPath = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "..", "appsettings.json"));
+    configuration
+        .AddJsonFile(sharedSettingsPath, optional: true, reloadOnChange: true)
+        .AddEnvironmentVariables();
+
+    if (args.Length > 0)
+    {
+        configuration.AddCommandLine(args);
+    }
 }
 
 public partial class Program

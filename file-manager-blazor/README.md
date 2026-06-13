@@ -4,7 +4,8 @@ Standalone Blazor WebAssembly copy of the file manager mock, reskinned to match 
 
 ## Run
 
-Start the cached ADLS API first:
+Shared non-secret settings live in the repository root `appsettings.json`.
+Start the cached ADLS API with the ADLS secret in the environment:
 
 ```powershell
 $env:BulkAnalysisAdls__ConnectionString = "DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
@@ -20,7 +21,7 @@ $env:PATH = "$env:USERPROFILE\.dotnet;$env:PATH"
 dotnet run --project .\FileManagerBlazor.csproj
 ```
 
-The bulk analysis page reads ADLS categories and documents through the API configured by `wwwroot/appsettings.json` under `BulkAnalysisApi:BaseUrl`. The ADLS connection string stays server-side in the API process.
+The bulk analysis page reads ADLS categories and documents through the API configured by the root `appsettings.json` under `BulkAnalysisApi:BaseUrl`. The ADLS connection string stays server-side in the API process.
 
 ## Styling Notes
 
