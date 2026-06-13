@@ -2,7 +2,8 @@
 .env
 .env.*
 !.env.example
-
+.vscode/**
 # Build outputs
 **/bin/
 **/obj/
+launch.json
