@@ -1,2 +1,8 @@
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Build outputs
 **/bin/
 **/obj/
