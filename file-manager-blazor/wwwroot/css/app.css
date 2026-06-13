@@ -2248,7 +2248,7 @@ svg {
 }
 
 .document-step-layout.document-selection-collapsed {
-    grid-template-columns: minmax(15rem, 0.26fr) minmax(0, 1fr);
+    grid-template-columns: 2.75rem minmax(0, 1fr);
 }
 
 .document-selection-card,
@@ -2256,17 +2256,25 @@ svg {
     min-width: 0;
 }
 
-.document-selection-card.collapsed {
+.document-selection-card.collapsed,
+.result-selection-card.collapsed {
     align-self: start;
+    padding: 0.22rem;
 }
 
-.document-selection-card.collapsed .workflow-card-header {
+.document-selection-card.collapsed .workflow-card-header,
+.result-selection-card.collapsed .workflow-card-header {
     align-items: center;
+    justify-content: center;
+    gap: 0;
     padding-bottom: 0;
     border-bottom: 0;
 }
 
-.document-selection-card.collapsed .document-selection-actions {
+.document-selection-card.collapsed .workflow-card-header > div:first-child,
+.result-selection-card.collapsed .workflow-card-header > div:first-child,
+.document-selection-card.collapsed .document-selection-actions,
+.result-selection-card.collapsed .selection-shortcut-actions {
     display: none;
 }
 
@@ -2933,22 +2941,12 @@ svg {
 }
 
 .results-step-layout.results-panel-collapsed {
-    grid-template-columns: minmax(15rem, 0.26fr) minmax(0, 1fr);
+    grid-template-columns: 2.75rem minmax(0, 1fr);
 }
 
 .result-selection-card,
 .result-preview-panel {
     min-width: 0;
-}
-
-.result-selection-card.collapsed {
-    align-self: start;
-}
-
-.result-selection-card.collapsed .workflow-card-header {
-    align-items: center;
-    padding-bottom: 0;
-    border-bottom: 0;
 }
 
 .document-panel-header-actions,
@@ -2963,6 +2961,13 @@ svg {
 
 .result-panel-header-actions .selection-shortcut-actions {
     justify-content: flex-end;
+}
+
+.document-selection-card.collapsed .document-panel-header-actions,
+.result-selection-card.collapsed .result-panel-header-actions {
+    width: 100%;
+    justify-content: center;
+    gap: 0;
 }
 
 .document-selection-panel-toggle,
@@ -3196,7 +3201,7 @@ svg {
 
     .document-step-layout.document-selection-collapsed,
     .results-step-layout.results-panel-collapsed {
-        grid-template-columns: 1fr;
+        grid-template-columns: 2.75rem minmax(0, 1fr);
     }
 
     .step-one-preview-card {
