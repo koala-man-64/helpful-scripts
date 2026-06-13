@@ -4,12 +4,23 @@ Standalone Blazor WebAssembly copy of the file manager mock, reskinned to match 
 
 ## Run
 
+Start the cached ADLS API first:
+
+```powershell
+$env:BulkAnalysisAdls__ConnectionString = "DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=core.windows.net"
+$env:BulkAnalysisAdls__FileSystemName = "bulk-analysis"
+$env:BulkAnalysisAdls__CatalogCacheMinutes = "5"
+dotnet run --project ..\file-manager-api\file-manager-api.csproj
+```
+
+Then start the Blazor WebAssembly app:
+
 ```powershell
 $env:PATH = "$env:USERPROFILE\.dotnet;$env:PATH"
 dotnet run --project .\FileManagerBlazor.csproj
 ```
 
-The app preserves the original demo behavior with mock file data, document analysis modes, and simulated chat responses. It does not read local files or call an AI/backend service.
+The bulk analysis page reads ADLS categories and documents through the API configured by `wwwroot/appsettings.json` under `BulkAnalysisApi:BaseUrl`. The ADLS connection string stays server-side in the API process.
 
 ## Styling Notes
 

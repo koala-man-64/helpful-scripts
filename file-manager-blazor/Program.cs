@@ -7,31 +7,41 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
-builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
+var bulkAnalysisApiOptions = ReadBulkAnalysisApiOptions(builder.Configuration);
+builder.Services.AddSingleton(bulkAnalysisApiOptions);
 
-var bulkAnalysisAdlsOptions = ReadBulkAnalysisAdlsOptions(builder.Configuration);
-builder.Services.AddSingleton(bulkAnalysisAdlsOptions);
-
-if (bulkAnalysisAdlsOptions.IsConfigured)
+builder.Services.AddScoped(sp => new HttpClient
 {
-    builder.Services.AddSingleton<IBulkAnalysisResultProvider, AdlsBulkAnalysisResultProvider>();
-}
-else
-{
-    builder.Services.AddSingleton<IBulkAnalysisResultProvider, MockBulkAnalysisResultProvider>();
-}
+    BaseAddress = ResolveApiBaseAddress(builder.HostEnvironment.BaseAddress, bulkAnalysisApiOptions.BaseUrl)
+});
+builder.Services.AddScoped<IBulkAnalysisResultProvider, ApiBulkAnalysisResultProvider>();
 
 await builder.Build().RunAsync();
 
-static BulkAnalysisAdlsOptions ReadBulkAnalysisAdlsOptions(IConfiguration configuration)
+static BulkAnalysisApiOptions ReadBulkAnalysisApiOptions(IConfiguration configuration)
 {
-    var section = configuration.GetSection(BulkAnalysisAdlsOptions.SectionName);
+    var section = configuration.GetSection(BulkAnalysisApiOptions.SectionName);
 
-    return new BulkAnalysisAdlsOptions
+    return new BulkAnalysisApiOptions
     {
-        Enabled = bool.TryParse(section["Enabled"], out var enabled) && enabled,
-        AccountName = section["AccountName"] ?? string.Empty,
-        FileSystemName = section["FileSystemName"] ?? string.Empty,
-        SasToken = section["SasToken"] ?? string.Empty
+        BaseUrl = section["BaseUrl"] ?? string.Empty
     };
+}
+
+static Uri ResolveApiBaseAddress(string hostBaseAddress, string configuredBaseUrl)
+{
+    if (string.IsNullOrWhiteSpace(configuredBaseUrl))
+    {
+        return new Uri(hostBaseAddress);
+    }
+
+    return Uri.TryCreate(configuredBaseUrl, UriKind.Absolute, out var absoluteUri)
+        ? EnsureTrailingSlash(absoluteUri)
+        : new Uri(new Uri(hostBaseAddress), configuredBaseUrl);
+}
+
+static Uri EnsureTrailingSlash(Uri uri)
+{
+    var value = uri.ToString();
+    return value.EndsWith("/", StringComparison.Ordinal) ? uri : new Uri($"{value}/");
 }
