@@ -2611,7 +2611,7 @@ svg {
 .document-option-list {
     display: flex;
     flex-direction: column;
-    gap: 0.45rem;
+    gap: 0;
 }
 
 .document-selection-list {
@@ -2627,26 +2627,22 @@ svg {
 .document-folder-card {
     position: relative;
     margin-left: calc(var(--folder-depth, 0) * 0.75rem);
-    border: 1px solid rgba(35, 55, 89, 0.08);
-    border-radius: var(--shell-radius-control);
-    background: rgba(246, 248, 252, 0.46);
-    padding: 0.55rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0.45rem 0;
+}
+
+.document-folder-card + .document-folder-card {
+    border-top: 1px solid rgba(35, 55, 89, 0.08);
 }
 
 .document-folder-card:not(.root-folder-card)::before {
-    position: absolute;
-    top: -0.5rem;
-    bottom: 50%;
-    left: -0.5rem;
-    width: 0.5rem;
-    border-bottom: 1px solid rgba(35, 55, 89, 0.16);
-    border-left: 1px solid rgba(35, 55, 89, 0.16);
-    border-bottom-left-radius: 0.55rem;
-    content: "";
+    content: none;
 }
 
 .root-folder-card {
-    background: rgba(255, 255, 255, 0.92);
+    background: transparent;
 }
 
 .document-folder-header {
@@ -2738,35 +2734,33 @@ svg {
     gap: 0.55rem;
     align-items: center;
     min-width: 0;
-    border: 1px solid var(--shell-line);
-    background: rgba(255, 255, 255, 0.82);
+    border: 0;
+    border-bottom: 1px solid rgba(35, 55, 89, 0.08);
+    background: transparent;
     color: var(--shell-heading);
     cursor: pointer;
     transition:
         border-color 120ms ease,
         background 120ms ease,
-        box-shadow 120ms ease,
-        transform 120ms ease;
+        color 120ms ease;
 }
 
 .document-option-row {
-    min-height: 3rem;
-    padding: 0.55rem 0.65rem;
-    border-radius: var(--shell-radius-control);
+    min-height: 2.85rem;
+    padding: 0.5rem 0.35rem;
+    border-radius: 0;
 }
 
 .document-option-row:hover,
 .analysis-type-option:hover {
-    transform: translateY(-1px);
-    border-color: rgba(17, 127, 139, 0.24);
-    background: #ffffff;
-    box-shadow: 0 8px 18px rgba(27, 48, 78, 0.045);
+    border-bottom-color: rgba(17, 127, 139, 0.18);
+    background: rgba(236, 248, 246, 0.34);
 }
 
 .document-option-row.selected,
 .analysis-type-option.selected {
-    border-color: rgba(17, 127, 139, 0.38);
-    background: rgba(236, 248, 246, 0.8);
+    border-bottom-color: rgba(17, 127, 139, 0.2);
+    background: rgba(236, 248, 246, 0.56);
 }
 
 .document-option-row input,
@@ -2988,7 +2982,7 @@ svg {
 }
 
 .result-sop-list {
-    gap: 0.45rem;
+    gap: 0;
 }
 
 .result-folder-card .document-folder-heading {
@@ -3015,13 +3009,13 @@ svg {
 }
 
 .result-document-row.active {
-    border-color: rgba(17, 127, 139, 0.32);
-    box-shadow: inset 2px 0 0 var(--shell-accent-strong);
+    border-bottom-color: rgba(17, 127, 139, 0.24);
+    background: linear-gradient(90deg, rgba(17, 127, 139, 0.16), rgba(236, 248, 246, 0.54) 1.9rem, rgba(236, 248, 246, 0.44));
 }
 
 .result-document-row.mixed {
-    border-color: rgba(17, 127, 139, 0.28);
-    background: rgba(236, 248, 246, 0.52);
+    border-bottom-color: rgba(17, 127, 139, 0.2);
+    background: rgba(236, 248, 246, 0.44);
 }
 
 .result-document-row input:disabled {
