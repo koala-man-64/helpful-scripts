@@ -280,13 +280,14 @@
                 </div>
             }
 
-            <footer class="workflow-footer">
-                <button type="button" class="workflow-action-button secondary" @onclick="GoToDocumentStep">Back</button>
-                <button type="button" class="workflow-action-button primary" disabled="@(selectedAnalysisTypeIds.Count == 0)" @onclick="GoToResultsStep">
-                    Next
-                </button>
-            </footer>
         </section>
+
+        <footer class="workflow-footer document-step-actions">
+            <button type="button" class="workflow-action-button secondary" @onclick="GoToDocumentStep">Back</button>
+            <button type="button" class="workflow-action-button primary" disabled="@(selectedAnalysisTypeIds.Count == 0)" @onclick="GoToResultsStep">
+                Next
+            </button>
+        </footer>
     }
     else
     {
