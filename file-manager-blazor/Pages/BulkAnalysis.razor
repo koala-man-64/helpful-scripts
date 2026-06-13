@@ -108,6 +108,10 @@
                                 var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
                                 var selectedInFolder = folderPanel.VisibleDocuments.Count(document => selectedDocumentIds.Contains(document.Id));
                                 var folderSelectionState = GetFolderSelectionState(folderPanel);
+                                var folderDescription = folderPanel.Folder.Description?.Trim() ?? string.Empty;
+                                var folderDescriptionId = string.IsNullOrWhiteSpace(folderDescription)
+                                    ? null
+                                    : GetFolderDescriptionId(folderPanel.Folder.Id);
 
                                 <section class="@GetFolderPanelClass(folderPanel)" style="@($"--folder-depth: {folderPanel.Depth};")">
                                     <div class="document-folder-header">
@@ -126,7 +130,23 @@
                                         </button>
                                         <div class="document-folder-heading">
                                             <div>
-                                                <h3>@folderPanel.Folder.DisplayName</h3>
+                                                <h3 class="@(folderDescriptionId is not null ? "has-category-tooltip" : null)">
+                                                    @if (folderDescriptionId is not null)
+                                                    {
+                                                        <span class="category-tooltip-trigger"
+                                                              tabindex="0"
+                                                              title="@folderDescription"
+                                                              data-tooltip="@folderDescription"
+                                                              aria-describedby="@folderDescriptionId">
+                                                            <span class="category-tooltip-label">@folderPanel.Folder.DisplayName</span>
+                                                        </span>
+                                                        <span id="@folderDescriptionId" class="sr-only">@folderDescription</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        @folderPanel.Folder.DisplayName
+                                                    }
+                                                </h3>
                                                 @if (!string.IsNullOrWhiteSpace(folderPanel.Folder.ParentDisplayName))
                                                 {
                                                     <p>@folderPanel.Folder.ParentDisplayName</p>
@@ -1405,6 +1425,15 @@
             .ToArray()).Trim('-');
 
         return $"analysis-description-{(string.IsNullOrWhiteSpace(normalized) ? "type" : normalized)}";
+    }
+
+    private static string GetFolderDescriptionId(string folderId)
+    {
+        var normalized = new string(folderId
+            .Select(character => char.IsLetterOrDigit(character) ? char.ToLowerInvariant(character) : '-')
+            .ToArray()).Trim('-');
+
+        return $"folder-description-{(string.IsNullOrWhiteSpace(normalized) ? "category" : normalized)}";
     }
 
     private string GetResultFolderPanelClass(DocumentFolderPanel panel) =>
