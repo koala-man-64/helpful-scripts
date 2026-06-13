@@ -180,8 +180,7 @@
                 {
                     <div class="source-preview-summary">
                         <div class="source-preview-summary-copy">
-                            <strong class="source-preview-title">@selectedPreviewDocument.Document.Title</strong>
-                            <span class="source-preview-file-name">@selectedPreviewDocument.Document.OriginalFileName</span>
+                            <strong class="source-preview-file-name">@selectedPreviewDocument.Document.OriginalFileName</strong>
                             <div class="source-preview-summary-meta" aria-label="Source details">
                                 <span class="source-preview-summary-meta-item">
                                     <span class="source-preview-summary-meta-label">Folder</span>
@@ -203,7 +202,6 @@
 
                     <div class="source-preview-body">
                         <div class="source-preview-original">
-                            <p class="control-label">Original file preview</p>
                             @if (!string.IsNullOrWhiteSpace(rawPreviewError))
                             {
                                 <div class="workflow-empty-state preview-empty">
