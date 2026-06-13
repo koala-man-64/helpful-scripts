@@ -2256,13 +2256,6 @@ svg {
     min-width: 0;
 }
 
-.document-selection-card {
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-}
-
 .document-selection-card.collapsed,
 .result-selection-card.collapsed {
     align-self: start;
