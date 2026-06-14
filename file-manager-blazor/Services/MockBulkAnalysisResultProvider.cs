@@ -82,6 +82,15 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                                             Result("claims-intake-summary", "claims-front-door", "claims-intake", "Front Door Intake", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Executive Summary", BaseDate.AddHours(-2), ClaimsSummary()),
                                             Result("claims-intake-risk", "claims-front-door", "claims-intake", "Front Door Intake", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Risk Analysis", BaseDate.AddHours(-3), ClaimsRisk()),
                                             Result("claims-intake-gap", "claims-front-door", "claims-intake", "Front Door Intake", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Gap Analysis", BaseDate.AddDays(-1), ClaimsGap())
+                                        ]),
+                                    CreateDocument(
+                                        "provider-attachments",
+                                        "claims-front-door",
+                                        "Provider Attachment Requirements",
+                                        "provider-attachment-requirements.pdf",
+                                        [
+                                            Result("provider-attachments-summary", "claims-front-door", "provider-attachments", "Front Door Intake", "Provider Attachment Requirements", "provider-attachment-requirements.pdf", "Executive Summary", BaseDate.AddHours(-5), ProviderAttachmentSummary()),
+                                            Result("provider-attachments-controls", "claims-front-door", "provider-attachments", "Front Door Intake", "Provider Attachment Requirements", "provider-attachment-requirements.pdf", "Control Review", BaseDate.AddHours(-6), ProviderAttachmentControls())
                                         ])
                                 ]),
                             CreateFolder(
@@ -97,6 +106,15 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                                         [
                                             Result("appeals-summary", "claims-appeals", "appeals-resolution", "Appeals and Disputes", "Appeals Resolution Guide", "appeals-resolution-guide.docx", "Executive Summary", BaseDate.AddDays(-2), AppealsSummary()),
                                             Result("appeals-compliance", "claims-appeals", "appeals-resolution", "Appeals and Disputes", "Appeals Resolution Guide", "appeals-resolution-guide.docx", "Compliance Review", BaseDate.AddDays(-2).AddHours(-2), AppealsCompliance())
+                                        ]),
+                                    CreateDocument(
+                                        "appeal-evidence-checklist",
+                                        "claims-appeals",
+                                        "Appeal Evidence Checklist",
+                                        "appeal-evidence-checklist.docx",
+                                        [
+                                            Result("appeal-evidence-summary", "claims-appeals", "appeal-evidence-checklist", "Appeals and Disputes", "Appeal Evidence Checklist", "appeal-evidence-checklist.docx", "Executive Summary", BaseDate.AddDays(-2).AddHours(-4), AppealEvidenceSummary()),
+                                            Result("appeal-evidence-risk", "claims-appeals", "appeal-evidence-checklist", "Appeals and Disputes", "Appeal Evidence Checklist", "appeal-evidence-checklist.docx", "Risk Review", BaseDate.AddDays(-3), AppealEvidenceRisk())
                                         ])
                                 ])
                         ]),
@@ -119,6 +137,15 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                                         [
                                             Result("notice-summary", "member-notices", "notice-generation", "Notice Operations", "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully", "notice-generation-style-guide-long-title.docx", "Executive Summary", BaseDate.AddDays(-7), NoticeSummary()),
                                             Result("notice-unavailable", "member-notices", "notice-generation", "Notice Operations", "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully", "notice-generation-style-guide-long-title.docx", "Compliance Review", BaseDate.AddDays(-8), UnavailablePreviewContent(), IsPreviewAvailable: false)
+                                        ]),
+                                    CreateDocument(
+                                        "notice-timing-matrix",
+                                        "member-notices",
+                                        "Notice Timing Matrix",
+                                        "notice-timing-matrix.pdf",
+                                        [
+                                            Result("notice-timing-review", "member-notices", "notice-timing-matrix", "Notice Operations", "Notice Timing Matrix", "notice-timing-matrix.pdf", "Timing Review", BaseDate.AddDays(-8).AddHours(-4), NoticeTimingReview()),
+                                            Result("notice-timing-compliance", "member-notices", "notice-timing-matrix", "Notice Operations", "Notice Timing Matrix", "notice-timing-matrix.pdf", "Compliance Review", BaseDate.AddDays(-9), NoticeTimingCompliance())
                                         ])
                                 ]),
                             CreateFolder(
@@ -171,6 +198,15 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                                         [
                                             Result("pa-review-impact", "clinical-review", "pa-clinical-review", "Clinical Review", "Clinical Review Policy Brief", "clinical-review-policy.md", "Operational Impact", BaseDate.AddDays(-4), PriorAuthImpact()),
                                             Result("pa-review-recommendations", "clinical-review", "pa-clinical-review", "Clinical Review", "Clinical Review Policy Brief", "clinical-review-policy.md", "Recommendations", BaseDate.AddDays(-5), PriorAuthRecommendations())
+                                        ]),
+                                    CreateDocument(
+                                        "peer-review-escalation",
+                                        "clinical-review",
+                                        "Peer Review Escalation Guide",
+                                        "peer-review-escalation-guide.docx",
+                                        [
+                                            Result("peer-review-escalation-summary", "clinical-review", "peer-review-escalation", "Clinical Review", "Peer Review Escalation Guide", "peer-review-escalation-guide.docx", "Executive Summary", BaseDate.AddDays(-5).AddHours(-2), PeerReviewEscalationSummary()),
+                                            Result("peer-review-controls", "clinical-review", "peer-review-escalation", "Clinical Review", "Peer Review Escalation Guide", "peer-review-escalation-guide.docx", "Decision Controls", BaseDate.AddDays(-5).AddHours(-4), PeerReviewDecisionControls())
                                         ])
                                 ]),
                             CreateFolder(
@@ -185,6 +221,15 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                                         "authorization-data-quality-checklist.pdf",
                                         [
                                             Result("pa-data-quality", "authorization-data", "pa-data-quality", "Authorization Data Controls", "Authorization Data Quality Checklist", "authorization-data-quality-checklist.pdf", "Data Quality Review", BaseDate.AddDays(-6), DataQualityReview())
+                                        ]),
+                                    CreateDocument(
+                                        "pa-audit-sampling",
+                                        "authorization-data",
+                                        "Authorization Audit Sampling Plan",
+                                        "authorization-audit-sampling-plan.pdf",
+                                        [
+                                            Result("pa-audit-sampling-review", "authorization-data", "pa-audit-sampling", "Authorization Data Controls", "Authorization Audit Sampling Plan", "authorization-audit-sampling-plan.pdf", "Audit Sampling Review", BaseDate.AddDays(-6).AddHours(-3), AuthorizationAuditSamplingReview()),
+                                            Result("pa-audit-sampling-recommendations", "authorization-data", "pa-audit-sampling", "Authorization Data Controls", "Authorization Audit Sampling Plan", "authorization-audit-sampling-plan.pdf", "Recommendations", BaseDate.AddDays(-7), AuthorizationAuditSamplingRecommendations())
                                         ])
                                 ])
                         ])
@@ -332,6 +377,36 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         <strong>Raw HTML should not render as HTML in the preview.</strong>
         """;
 
+    private static string ProviderAttachmentSummary() =>
+        """
+        # Provider Attachment Requirements - Executive Summary
+
+        The attachment requirements are clear enough for routine submissions, but the workflow depends on staff recognizing incomplete packets before case creation.
+
+        ## Strengths
+
+        - Lists required clinical and billing artifacts by claim type.
+        - Separates provider-submitted files from internal research notes.
+        - Gives intake staff a visible path for missing attachment outreach.
+        """;
+
+    private static string ProviderAttachmentControls() =>
+        """
+        # Provider Attachment Requirements - Control Review
+
+        ## Control Observations
+
+        | Control | Current State | Recommended Change |
+        | --- | --- | --- |
+        | Attachment completeness | Defined by claim type | Add a required checklist before submit |
+        | Late document receipt | Routed manually | Add received-date capture |
+        | Duplicate attachments | Reviewed during intake | Add duplicate-file warning |
+
+        ## Recommendation
+
+        Treat attachment completeness as a pre-routing control so downstream adjudication does not discover missing evidence after the claim ages.
+        """;
+
     private static string AppealsSummary() =>
         """
         # Appeals Resolution Guide - Executive Summary
@@ -367,6 +442,35 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         Add a single timeline checkpoint table to reduce inconsistent date handling.
         """;
 
+    private static string AppealEvidenceSummary() =>
+        """
+        # Appeal Evidence Checklist - Executive Summary
+
+        The checklist gives appeal coordinators a consistent packet standard before review assignment. It is most useful for distinguishing member-provided evidence from plan records.
+
+        ## Evidence Groups
+
+        - Original adverse determination
+        - Member or representative statement
+        - Clinical records or payment documentation
+        - Applicable benefit or policy language
+        """;
+
+    private static string AppealEvidenceRisk() =>
+        """
+        # Appeal Evidence Checklist - Risk Review
+
+        ## Watch Items
+
+        - The checklist does not name a backup owner when evidence collection stalls.
+        - External records can arrive after reviewer assignment without a visible packet refresh.
+        - Representative authorization is referenced but not tied to a required validation step.
+
+        ## Recommendation
+
+        Add a packet-readiness checkpoint before review assignment and another checkpoint before determination drafting.
+        """;
+
     private static string PriorAuthImpact() =>
         """
         # Clinical Review Policy Brief - Operational Impact
@@ -397,6 +501,32 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         The changes should reduce rework and make urgent cases easier to identify before they age.
         """;
 
+    private static string PeerReviewEscalationSummary() =>
+        """
+        # Peer Review Escalation Guide - Executive Summary
+
+        The escalation guide defines when nurse reviewers should route prior authorization cases to a medical director. It improves consistency for ambiguous evidence and urgent service requests.
+
+        ## Escalation Triggers
+
+        - Criteria conflict with documented clinical facts.
+        - Urgent requests lack enough evidence for a same-day decision.
+        - A provider requests peer-to-peer review.
+        """;
+
+    private static string PeerReviewDecisionControls() =>
+        """
+        # Peer Review Escalation Guide - Decision Controls
+
+        ## Control Review
+
+        Peer-review decisions should include the reviewer name, criteria used, evidence gaps, outreach attempted, and final disposition.
+
+        ## Suggested Control
+
+        Require a same-day note when an urgent case is not escalated, including the reason the reviewer kept the case in standard review.
+        """;
+
     private static string DataQualityReview() =>
         """
         # Authorization Data Quality Checklist - Data Quality Review
@@ -410,6 +540,34 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         ## Summary
 
         The checklist has useful validation guidance but should centralize the authoritative source for each required field.
+        """;
+
+    private static string AuthorizationAuditSamplingReview() =>
+        """
+        # Authorization Audit Sampling Plan - Audit Sampling Review
+
+        The sampling plan gives operations a repeatable way to inspect prior authorization record quality without reviewing every case.
+
+        ## Sample Design
+
+        - Stratify by urgent, standard, approved, and denied outcomes.
+        - Include reopened cases and records with late attachments.
+        - Compare reviewer notes against source evidence and outbound notices.
+        """;
+
+    private static string AuthorizationAuditSamplingRecommendations() =>
+        """
+        # Authorization Audit Sampling Plan - Recommendations
+
+        ## Recommended Changes
+
+        - Define the monthly sample size and replacement rule.
+        - Add a severity scale for documentation defects.
+        - Track repeat findings by queue and reviewer role.
+
+        ## Expected Outcome
+
+        A consistent sample plan should make recurring data-quality problems visible before they become audit findings.
         """;
 
     private static string NoticeSummary() =>
@@ -430,6 +588,33 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         # Notice Generation Style Guide - Compliance Review
 
         This mock result is intentionally marked unavailable for preview so the UI can show the unavailable state while preserving result selection behavior.
+        """;
+
+    private static string NoticeTimingReview() =>
+        """
+        # Notice Timing Matrix - Timing Review
+
+        The timing matrix maps notice deadlines to decision categories and receipt channels. It is useful for selecting the correct production path before the notice is drafted.
+
+        ## Timing Inputs
+
+        - Case type and urgency
+        - Decision date
+        - Member communication preference
+        - Required outbound notice channel
+        """;
+
+    private static string NoticeTimingCompliance() =>
+        """
+        # Notice Timing Matrix - Compliance Review
+
+        ## Findings
+
+        The matrix centralizes key timing rules, but two rows rely on external policy notes for exceptions.
+
+        ## Recommendation
+
+        Add exception text directly in the matrix for urgent extensions and corrected notices so staff do not have to reconcile timing from multiple sources.
         """;
 
     private static string TypographyRegressionReview() =>

@@ -472,6 +472,21 @@ public static class MockFileData
             Handoff Notes
             Intake owns first-contact quality. Adjudication owns benefit interpretation after the intake record is complete.
             """,
+        ["provider-attachment-requirements.pdf"] = """
+            Provider Attachment Requirements
+
+            Purpose
+            This reference defines which supporting files must be attached before front-door claims intake routes a case downstream.
+
+            Required Attachments
+            - Itemized provider bill or standard claim form.
+            - Clinical notes when service necessity affects routing.
+            - Prior authorization reference when available.
+            - Corrected claim indicator for resubmissions.
+
+            Intake Checkpoint
+            Intake staff must verify attachment completeness before creating the case. Missing evidence should trigger outreach rather than silent downstream routing.
+            """,
         ["appeals-resolution-guide.docx"] = """
             Appeals Resolution Guide
 
@@ -490,6 +505,21 @@ public static class MockFileData
             Closure Criteria
             A case may close only after determination language, evidence references, and notification dates are complete.
             """,
+        ["appeal-evidence-checklist.docx"] = """
+            Appeal Evidence Checklist
+
+            Purpose
+            This checklist helps appeal coordinators assemble a complete evidence packet before assigning the case for review.
+
+            Packet Requirements
+            - Original denial or adverse determination.
+            - Member appeal statement and representative authorization when applicable.
+            - Plan language, clinical criteria, or payment policy used in the original decision.
+            - Medical records, claim history, and outreach notes.
+
+            Readiness Rule
+            Assign the case only after evidence ownership, missing-record outreach, and due-date tracking are documented.
+            """,
         ["notice-generation-style-guide-long-title.docx"] = """
             Notice Generation Style Guide
 
@@ -504,6 +534,21 @@ public static class MockFileData
 
             Quality Review
             A second reviewer checks regulatory timing, template selection, and source-record alignment before release.
+            """,
+        ["notice-timing-matrix.pdf"] = """
+            Notice Timing Matrix
+
+            Purpose
+            The timing matrix maps decision categories to required member notice deadlines and outbound communication channels.
+
+            Timing Inputs
+            - Decision type and urgency.
+            - Receipt date and decision date.
+            - Member communication preference.
+            - Required notice template and delivery method.
+
+            Exception Notes
+            Corrected notices and urgent extensions require supervisor review before release.
             """,
         ["member-notice-typography-regression-source-file-with-extra-long-name-for-preview-wrapping.txt"] = """
             Member Notice Typography Regression Source
@@ -534,6 +579,21 @@ public static class MockFileData
             ## Operational Note
             Ambiguous requests should be routed for peer review rather than denied for incomplete evidence without outreach.
             """,
+        ["peer-review-escalation-guide.docx"] = """
+            Peer Review Escalation Guide
+
+            Purpose
+            This guide defines when prior authorization reviewers should escalate cases for peer review or medical director input.
+
+            Escalation Criteria
+            - Clinical evidence conflicts with policy criteria.
+            - Urgent requests lack enough documentation for a same-day decision.
+            - Provider asks for peer-to-peer discussion.
+            - Reviewer cannot resolve medical necessity from available records.
+
+            Documentation Requirement
+            Every escalation decision must include the reviewer, criteria used, evidence gap, outreach attempted, and final disposition.
+            """,
         ["authorization-data-quality-checklist.pdf"] = """
             Authorization Data Quality Checklist
 
@@ -549,6 +609,21 @@ public static class MockFileData
 
             Exception Handling
             Records that fail validation remain in pending status until corrected or explicitly waived by an authorized lead.
+            """,
+        ["authorization-audit-sampling-plan.pdf"] = """
+            Authorization Audit Sampling Plan
+
+            Objective
+            Provide a consistent sampling method for reviewing prior authorization record quality across urgent, standard, approved, and denied outcomes.
+
+            Sampling Rules
+            - Include cases with late attachments and reopened decisions.
+            - Validate source evidence against reviewer notes.
+            - Compare decision reason codes with member notices.
+            - Record defects by severity and operational queue.
+
+            Reporting
+            Monthly findings should show recurring defect patterns, queue ownership, and corrective actions.
             """,
         ["complete-claims-corpus.zip"] = """
             Complete Claims Document Corpus
