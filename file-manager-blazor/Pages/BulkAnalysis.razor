@@ -53,8 +53,6 @@
                                   aria-describedby="select-documents-tooltip">
                                 Select documents
                             </span>
-                            <span class="panel-title-separator" aria-hidden="true"></span>
-                            <span class="panel-title-count">@($"{selectedDocumentIds.Count} selected")</span>
                         </h2>
                         <span id="select-documents-tooltip" class="sr-only">Choose the documents you want included in the bulk analysis review.</span>
                     </div>
@@ -106,7 +104,6 @@
                             @foreach (var folderPanel in visibleDocumentPanels)
                             {
                                 var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
-                                var selectedInFolder = folderPanel.VisibleDocuments.Count(document => selectedDocumentIds.Contains(document.Id));
                                 var folderSelectionState = GetFolderSelectionState(folderPanel);
                                 var folderDescription = folderPanel.Folder.Description?.Trim() ?? string.Empty;
                                 var folderDescriptionId = string.IsNullOrWhiteSpace(folderDescription)
@@ -152,7 +149,6 @@
                                                     <p>@folderPanel.Folder.ParentDisplayName</p>
                                                 }
                                             </div>
-                                            <span>@($"{selectedInFolder} of {folderPanel.VisibleDocumentCount} selected")</span>
                                         </div>
                                     </div>
 
