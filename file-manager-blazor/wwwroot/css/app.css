@@ -2235,9 +2235,16 @@ svg {
 }
 
 .guided-analysis-page {
+    --bulk-panel-max-height: calc(100vh - 1.5rem);
+    --bulk-panel-max-height: calc(100dvh - 1.5rem);
     width: min(100%, 62rem);
     margin: 0 auto;
     padding: 1rem var(--density-page-x) 2rem;
+}
+
+.guided-analysis-page:not(.document-step-page) > .workflow-card {
+    max-height: var(--bulk-panel-max-height);
+    overflow: auto;
 }
 
 .workflow-card {
@@ -2265,7 +2272,9 @@ svg {
     gap: var(--density-gap);
     align-items: stretch;
     min-height: 0;
+    max-height: var(--bulk-panel-max-height);
     flex: 1 1 auto;
+    overflow: hidden;
 }
 
 .document-step-layout.document-selection-collapsed {
@@ -2281,6 +2290,7 @@ svg {
 .document-selection-card:not(.collapsed) {
     display: flex;
     flex-direction: column;
+    max-height: var(--bulk-panel-max-height);
     overflow: hidden;
 }
 
@@ -2310,7 +2320,7 @@ svg {
     position: sticky;
     top: 0.75rem;
     height: 100%;
-    max-height: calc(100vh - 1.5rem);
+    max-height: var(--bulk-panel-max-height);
     display: flex;
     flex-direction: column;
     gap: 0.65rem;
@@ -3181,7 +3191,8 @@ svg {
     min-width: 0;
 }
 
-.document-selection-card:not(.collapsed) .document-selection-panel-content {
+.document-selection-card:not(.collapsed) .document-selection-panel-content,
+.result-selection-card:not(.collapsed) .result-panel-content {
     min-height: 0;
     flex: 1 1 auto;
     overflow: auto;
@@ -3414,6 +3425,8 @@ svg {
 
     .document-step-layout {
         grid-template-columns: 1fr;
+        max-height: none;
+        overflow: visible;
     }
 
     .document-step-layout.document-selection-collapsed,
@@ -3424,7 +3437,7 @@ svg {
     .step-one-preview-card {
         position: static;
         height: auto;
-        max-height: none;
+        max-height: var(--bulk-panel-max-height);
     }
 
     .results-grid {
