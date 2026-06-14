@@ -2788,6 +2788,22 @@ svg {
     gap: 0.6rem;
 }
 
+.document-folder-heading > div {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.document-selection-card .category-tooltip-trigger::before {
+    right: 1.25rem;
+    left: auto;
+}
+
+.document-selection-card .category-tooltip-trigger::after {
+    right: 0;
+    left: auto;
+}
+
 .document-folder-header h3 {
     overflow: hidden;
     color: var(--shell-heading);
