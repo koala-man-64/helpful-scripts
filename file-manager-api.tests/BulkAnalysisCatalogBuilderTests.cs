@@ -42,6 +42,8 @@ public sealed class BulkAnalysisCatalogBuilderTests
         Assert.Equal("claims/raw/2024_01_claims-handbook.pdf", claimsDocument.SourcePath);
         Assert.Equal("pdf", claimsDocument.SourceExtension);
         Assert.Equal(["Risk Review", "Summary"], claimsDocument.Results.Select(result => result.AnalysisType).ToArray());
+        Assert.Equal("2024_01_claims-handbook.summary.md", claimsDocument.Results.Single(result => result.AnalysisType == "Summary").ResultFileName);
+        Assert.Equal("md", claimsDocument.Results.Single(result => result.AnalysisType == "Summary").ResultExtension);
 
         Assert.True(catalog.RawFilesByDocumentId.ContainsKey(claimsDocument.Id));
         Assert.True(catalog.ResultFilesById.ContainsKey("claims/2024_01_claims-handbook/summary"));
@@ -70,5 +72,63 @@ public sealed class BulkAnalysisCatalogBuilderTests
         Assert.Empty(appealsDocument.Results);
         Assert.Single(claimsDocument.Results);
         Assert.Equal("claims/shared/summary", claimsDocument.Results.Single().Id);
+    }
+
+    [Fact]
+    public async Task BuildAsync_discovers_supported_result_extensions()
+    {
+        var now = DateTimeOffset.Parse("2026-06-13T00:00:00Z");
+        var paths = new[]
+        {
+            new AdlsPathItem("claims/raw/doc-html.pdf", IsDirectory: false, now),
+            new AdlsPathItem("claims/raw/doc-htm.pdf", IsDirectory: false, now),
+            new AdlsPathItem("claims/raw/doc-doc.pdf", IsDirectory: false, now),
+            new AdlsPathItem("claims/raw/doc-docx.pdf", IsDirectory: false, now),
+            new AdlsPathItem("claims/raw/doc-pdf.pdf", IsDirectory: false, now),
+            new AdlsPathItem("claims/raw/doc-md.pdf", IsDirectory: false, now),
+            new AdlsPathItem("claims/raw/doc-txt.pdf", IsDirectory: false, now),
+            new AdlsPathItem("claims/llm_results/summary/doc-html.summary.html", IsDirectory: false, now),
+            new AdlsPathItem("claims/llm_results/summary/doc-htm.summary.htm", IsDirectory: false, now),
+            new AdlsPathItem("claims/llm_results/summary/doc-doc.summary.doc", IsDirectory: false, now),
+            new AdlsPathItem("claims/llm_results/summary/doc-docx.summary.docx", IsDirectory: false, now),
+            new AdlsPathItem("claims/llm_results/summary/doc-pdf.summary.pdf", IsDirectory: false, now),
+            new AdlsPathItem("claims/llm_results/summary/doc-md.summary.md", IsDirectory: false, now),
+            new AdlsPathItem("claims/llm_results/summary/doc-txt.summary.txt", IsDirectory: false, now)
+        };
+
+        var catalog = await BulkAnalysisCatalogBuilder.BuildAsync(
+            paths,
+            (_, _) => Task.FromResult<IReadOnlyDictionary<string, string>>(
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)));
+
+        var resultExtensions = catalog.Folders
+            .Single(folder => folder.Id == "claims")
+            .Documents
+            .OrderBy(document => document.Id, StringComparer.Ordinal)
+            .Select(document => document.Results.Single().ResultExtension!)
+            .ToArray();
+
+        Assert.Equal(["doc", "docx", "htm", "html", "md", "pdf", "txt"], resultExtensions);
+    }
+
+    [Fact]
+    public async Task BuildAsync_throws_for_duplicate_result_artifacts_for_same_document_and_analysis()
+    {
+        var now = DateTimeOffset.Parse("2026-06-13T00:00:00Z");
+        var paths = new[]
+        {
+            new AdlsPathItem("claims/raw/shared.pdf", IsDirectory: false, now),
+            new AdlsPathItem("claims/llm_results/summary/shared.summary.md", IsDirectory: false, now),
+            new AdlsPathItem("claims/llm_results/summary/shared.summary.html", IsDirectory: false, now)
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            BulkAnalysisCatalogBuilder.BuildAsync(
+                paths,
+                (_, _) => Task.FromResult<IReadOnlyDictionary<string, string>>(
+                    new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))));
+
+        Assert.Contains("Duplicate bulk analysis result files detected", exception.Message);
+        Assert.Contains("claims|shared|summary", exception.Message);
     }
 }

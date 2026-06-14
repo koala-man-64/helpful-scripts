@@ -11,6 +11,17 @@ public static class BulkAnalysisCatalogBuilder
         ".pdf"
     };
 
+    private static readonly HashSet<string> SupportedResultExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".html",
+        ".htm",
+        ".doc",
+        ".docx",
+        ".pdf",
+        ".md",
+        ".txt"
+    };
+
     public static async Task<BulkAnalysisCatalog> BuildAsync(
         IEnumerable<AdlsPathItem> pathItems,
         Func<string, CancellationToken, Task<IReadOnlyDictionary<string, string>>> loadTransformedMetadataAsync,
@@ -27,12 +38,7 @@ public static class BulkAnalysisCatalogBuilder
                 item => item,
                 StringComparer.OrdinalIgnoreCase);
 
-        var resultItemsByCategoryAndStem = fileItems
-            .Where(IsNestedResultMarkdownPath)
-            .GroupBy(
-                item => GetLookupKey(GetSegment(item.Name, 0), GetResultDocumentStem(item.Name)),
-                StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+        var resultItemsByCategoryAndStem = BuildResultItemsByCategoryAndStem(fileItems);
 
         var rawReferences = new Dictionary<string, RawFileReference>(StringComparer.Ordinal);
         var resultReferences = new Dictionary<string, ResultFileReference>(StringComparer.Ordinal);
@@ -73,11 +79,11 @@ public static class BulkAnalysisCatalogBuilder
                 var results = new List<BulkAnalysisResult>();
                 if (resultItemsByCategoryAndStem.TryGetValue(GetLookupKey(category, stem), out var resultItems))
                 {
-                    foreach (var resultItem in resultItems.OrderBy(item => GetSegment(item.Name, 2), StringComparer.OrdinalIgnoreCase))
+                    foreach (var resultItem in resultItems.OrderBy(item => item.AnalysisSlug, StringComparer.OrdinalIgnoreCase))
                     {
-                        var analysisSlug = GetSegment(resultItem.Name, 2);
+                        var analysisSlug = resultItem.AnalysisSlug;
                         var analysisType = GetDisplayName(analysisSlug);
-                        var generatedAt = resultItem.LastModified.UtcDateTime;
+                        var generatedAt = resultItem.GeneratedAt.UtcDateTime;
                         var resultId = $"{documentId}/{analysisSlug}";
 
                         results.Add(new BulkAnalysisResult(
@@ -89,11 +95,17 @@ public static class BulkAnalysisCatalogBuilder
                             originalFileName,
                             analysisType,
                             generatedAt,
-                            string.Empty,
                             IsPreviewAvailable: true,
                             AnalysisSlug: analysisSlug,
-                            ResultPath: resultItem.Name));
-                        resultReferences[resultId] = new ResultFileReference(resultItem.Name);
+                            ResultPath: resultItem.Path,
+                            ResultFileName: resultItem.FileName,
+                            ResultContentType: resultItem.ContentType,
+                            ResultExtension: resultItem.FileExtension));
+                        resultReferences[resultId] = new ResultFileReference(
+                            resultItem.Path,
+                            resultItem.FileName,
+                            resultItem.ContentType,
+                            resultItem.FileExtension);
                     }
                 }
 
@@ -134,12 +146,60 @@ public static class BulkAnalysisCatalogBuilder
             string.Equals(Path.GetExtension(parts[2]), ".md", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsNestedResultMarkdownPath(AdlsPathItem item)
+    private static IReadOnlyDictionary<string, ResultCatalogItem[]> BuildResultItemsByCategoryAndStem(IEnumerable<AdlsPathItem> fileItems)
+    {
+        var resultItems = fileItems
+            .Where(IsNestedResultFilePath)
+            .Select(CreateResultCatalogItem)
+            .ToArray();
+
+        var duplicates = resultItems
+            .GroupBy(
+                item => GetResultLookupKey(item.Category, item.DocumentStem, item.AnalysisSlug),
+                StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .ToArray();
+
+        if (duplicates.Length > 0)
+        {
+            var duplicateMessage = string.Join(
+                "; ",
+                duplicates.Select(group =>
+                    $"{group.Key} => {string.Join(", ", group.Select(item => item.Path).OrderBy(path => path, StringComparer.OrdinalIgnoreCase))}"));
+
+            throw new InvalidOperationException($"Duplicate bulk analysis result files detected: {duplicateMessage}");
+        }
+
+        return resultItems
+            .GroupBy(item => GetLookupKey(item.Category, item.DocumentStem), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group.ToArray(),
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static ResultCatalogItem CreateResultCatalogItem(AdlsPathItem item)
+    {
+        var fileName = Path.GetFileName(item.Name);
+        var fileExtension = Path.GetExtension(fileName).TrimStart('.').ToLowerInvariant();
+
+        return new ResultCatalogItem(
+            GetSegment(item.Name, 0),
+            GetResultDocumentStem(item.Name),
+            GetSegment(item.Name, 2),
+            item.Name,
+            fileName,
+            GetContentType(fileName),
+            fileExtension,
+            item.LastModified);
+    }
+
+    private static bool IsNestedResultFilePath(AdlsPathItem item)
     {
         var parts = SplitPath(item.Name);
         return parts.Length == 4 &&
             string.Equals(parts[1], "llm_results", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(Path.GetExtension(parts[3]), ".md", StringComparison.OrdinalIgnoreCase);
+            SupportedResultExtensions.Contains(Path.GetExtension(parts[3]));
     }
 
     private static string[] SplitPath(string path) =>
@@ -162,13 +222,8 @@ public static class BulkAnalysisCatalogBuilder
     {
         var fileName = Path.GetFileName(path);
         var analysisSlug = GetSegment(path, 2);
-        var summarySuffix = ".summary.md";
-        var analysisSuffix = $".{analysisSlug}.md";
-
-        if (fileName.EndsWith(summarySuffix, StringComparison.OrdinalIgnoreCase))
-        {
-            return fileName[..^summarySuffix.Length];
-        }
+        var extension = Path.GetExtension(fileName);
+        var analysisSuffix = $".{analysisSlug}{extension}";
 
         return fileName.EndsWith(analysisSuffix, StringComparison.OrdinalIgnoreCase)
             ? fileName[..^analysisSuffix.Length]
@@ -177,6 +232,9 @@ public static class BulkAnalysisCatalogBuilder
 
     private static string GetLookupKey(string category, string stem) =>
         $"{category}|{stem}";
+
+    private static string GetResultLookupKey(string category, string stem, string analysisSlug) =>
+        $"{category}|{stem}|{analysisSlug}";
 
     private static string GetSlugFromStem(string stem)
     {
@@ -193,10 +251,23 @@ public static class BulkAnalysisCatalogBuilder
     private static string GetContentType(string fileName) =>
         Path.GetExtension(fileName).ToLowerInvariant() switch
         {
-            ".pdf" => "application/pdf",
+            ".doc" => "application/msword",
             ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".htm" => "text/html;charset=utf-8",
+            ".html" => "text/html;charset=utf-8",
             ".md" => "text/markdown;charset=utf-8",
+            ".pdf" => "application/pdf",
             ".txt" => "text/plain;charset=utf-8",
             _ => "application/octet-stream"
         };
+
+    private sealed record ResultCatalogItem(
+        string Category,
+        string DocumentStem,
+        string AnalysisSlug,
+        string Path,
+        string FileName,
+        string ContentType,
+        string FileExtension,
+        DateTimeOffset GeneratedAt);
 }

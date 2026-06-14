@@ -35,17 +35,32 @@ public sealed record BulkAnalysisResult(
     string OriginalFileName,
     string AnalysisType,
     DateTime GeneratedAt,
-    string Markdown,
     bool IsPreviewAvailable = true,
     string? AnalysisSlug = null,
-    string? ResultPath = null)
-{
-    public int EstimatedTokens => (int)Math.Ceiling(Markdown.Length / 4.0);
-}
+    string? ResultPath = null,
+    string? ResultFileName = null,
+    string? ResultContentType = null,
+    string? ResultExtension = null);
 
 public sealed record BulkAnalysisRawFile(
     string DocumentId,
     string FileName,
     string ContentType,
     string SourcePath,
+    byte[] Content);
+
+public sealed record BulkAnalysisResultFile(
+    string ResultId,
+    string FileName,
+    string ContentType,
+    string FileExtension,
+    string SourcePath,
+    byte[] Content);
+
+public sealed record BulkAnalysisResultPreview(
+    string ResultId,
+    string FileName,
+    string ContentType,
+    string FileExtension,
+    string Format,
     byte[] Content);
