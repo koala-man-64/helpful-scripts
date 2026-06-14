@@ -449,7 +449,6 @@
                                                                                 class="result-document-preview-button"
                                                                                 @onclick="() => SetActiveResult(item)">
                                                                             <strong>@item.Document.OriginalFileName</strong>
-                                                                            <small>@GetResultFileSummary(item)</small>
                                                                         </button>
                                                                     </div>
                                                                 }
@@ -1616,12 +1615,6 @@
         document.Results.Count == 0
             ? "No generated outputs available"
             : string.Join(", ", document.Results.Select(result => result.AnalysisType).Distinct(StringComparer.OrdinalIgnoreCase));
-
-    private static string GetResultFileSummary(ResultFileItem item) =>
-        string.IsNullOrWhiteSpace(item.Document.Title) ||
-        string.Equals(item.Document.Title, item.Document.OriginalFileName, StringComparison.OrdinalIgnoreCase)
-            ? $"Generated {item.Result.GeneratedAt:MMM d, yyyy h:mm tt}"
-            : item.Document.Title;
 
     private async Task RenderSelectedSourcePreviewAsync()
     {
