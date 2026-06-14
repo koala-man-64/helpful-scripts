@@ -1,3 +1,6 @@
+using System.IO.Compression;
+using System.Net;
+using System.Security;
 using System.Text;
 using FileManagerBlazor.Data;
 using FileManagerBlazor.Models;
@@ -40,7 +43,7 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
             bytes));
     }
 
-    public Task<string?> GetResultMarkdownAsync(string resultId, CancellationToken cancellationToken = default)
+    public Task<BulkAnalysisResultFile?> GetResultFileAsync(string resultId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -49,7 +52,42 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
             .SelectMany(document => document.Results)
             .FirstOrDefault(result => string.Equals(result.Id, resultId, StringComparison.Ordinal));
 
-        return Task.FromResult(result?.Markdown);
+        if (result is null ||
+            string.IsNullOrWhiteSpace(result.ResultFileName) ||
+            string.IsNullOrWhiteSpace(result.ResultContentType) ||
+            string.IsNullOrWhiteSpace(result.ResultExtension) ||
+            string.IsNullOrWhiteSpace(result.ResultPath))
+        {
+            return Task.FromResult<BulkAnalysisResultFile?>(null);
+        }
+
+        var content = BuildResultFileContent(result, GetResultBody(result.Id));
+        return Task.FromResult<BulkAnalysisResultFile?>(new(
+            result.Id,
+            result.ResultFileName,
+            result.ResultContentType,
+            result.ResultExtension,
+            result.ResultPath,
+            content));
+    }
+
+    public Task<BulkAnalysisResultPreview?> GetResultPreviewAsync(string resultId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var result = Folders.Value
+            .SelectMany(EnumerateDocuments)
+            .SelectMany(document => document.Results)
+            .FirstOrDefault(result => string.Equals(result.Id, resultId, StringComparison.Ordinal));
+
+        if (result is null || string.IsNullOrWhiteSpace(result.ResultExtension))
+        {
+            return Task.FromResult<BulkAnalysisResultPreview?>(null);
+        }
+
+        var body = GetResultBody(result.Id);
+        var preview = BuildResultPreview(result, body);
+        return Task.FromResult<BulkAnalysisResultPreview?>(preview);
     }
 
     private static IReadOnlyList<BulkAnalysisFolder> CreateFolders()
@@ -81,7 +119,7 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                                         [
                                             Result("claims-intake-summary", "claims-front-door", "claims-intake", "Front Door Intake", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Executive Summary", BaseDate.AddHours(-2), ClaimsSummary()),
                                             Result("claims-intake-risk", "claims-front-door", "claims-intake", "Front Door Intake", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Risk Analysis", BaseDate.AddHours(-3), ClaimsRisk()),
-                                            Result("claims-intake-gap", "claims-front-door", "claims-intake", "Front Door Intake", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Gap Analysis", BaseDate.AddDays(-1), ClaimsGap())
+                                            Result("claims-intake-gap", "claims-front-door", "claims-intake", "Front Door Intake", "Claims Intake Playbook", "claims-intake-playbook.pdf", "Gap Analysis", BaseDate.AddDays(-1), ClaimsGap(), ResultExtension: "pdf")
                                         ]),
                                     CreateDocument(
                                         "provider-attachments",
@@ -104,8 +142,8 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                                         "Appeals Resolution Guide",
                                         "appeals-resolution-guide.docx",
                                         [
-                                            Result("appeals-summary", "claims-appeals", "appeals-resolution", "Appeals and Disputes", "Appeals Resolution Guide", "appeals-resolution-guide.docx", "Executive Summary", BaseDate.AddDays(-2), AppealsSummary()),
-                                            Result("appeals-compliance", "claims-appeals", "appeals-resolution", "Appeals and Disputes", "Appeals Resolution Guide", "appeals-resolution-guide.docx", "Compliance Review", BaseDate.AddDays(-2).AddHours(-2), AppealsCompliance())
+                                            Result("appeals-summary", "claims-appeals", "appeals-resolution", "Appeals and Disputes", "Appeals Resolution Guide", "appeals-resolution-guide.docx", "Executive Summary", BaseDate.AddDays(-2), AppealsSummary(), ResultExtension: "docx"),
+                                            Result("appeals-compliance", "claims-appeals", "appeals-resolution", "Appeals and Disputes", "Appeals Resolution Guide", "appeals-resolution-guide.docx", "Compliance Review", BaseDate.AddDays(-2).AddHours(-2), AppealsCompliance(), ResultExtension: "doc")
                                         ]),
                                     CreateDocument(
                                         "appeal-evidence-checklist",
@@ -135,7 +173,7 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                                         "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully",
                                         "notice-generation-style-guide-long-title.docx",
                                         [
-                                            Result("notice-summary", "member-notices", "notice-generation", "Notice Operations", "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully", "notice-generation-style-guide-long-title.docx", "Executive Summary", BaseDate.AddDays(-7), NoticeSummary()),
+                                            Result("notice-summary", "member-notices", "notice-generation", "Notice Operations", "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully", "notice-generation-style-guide-long-title.docx", "Executive Summary", BaseDate.AddDays(-7), NoticeSummary(), ResultExtension: "html"),
                                             Result("notice-unavailable", "member-notices", "notice-generation", "Notice Operations", "Notice Generation Style Guide With A Very Long Title That Must Truncate Gracefully", "notice-generation-style-guide-long-title.docx", "Compliance Review", BaseDate.AddDays(-8), UnavailablePreviewContent(), IsPreviewAvailable: false)
                                         ]),
                                     CreateDocument(
@@ -168,7 +206,8 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
                                                 "member-notice-typography-regression-source-file-with-extra-long-name-for-preview-wrapping.txt",
                                                 "Typography Regression Review",
                                                 BaseDate.AddDays(-9).AddHours(-3),
-                                                TypographyRegressionReview())
+                                                TypographyRegressionReview(),
+                                                ResultExtension: "txt")
                                         ])
                                 ])
                         ])
@@ -309,19 +348,359 @@ public sealed class MockBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         string originalFileName,
         string analysisType,
         DateTime generatedAt,
-        string markdown,
-        bool IsPreviewAvailable = true) =>
-        new(id, folderId, documentId, folderName, documentTitle, originalFileName, analysisType, generatedAt, markdown.Trim(), IsPreviewAvailable);
+        string content,
+        bool IsPreviewAvailable = true,
+        string ResultExtension = "md")
+    {
+        var analysisSlug = GetResultAnalysisSlug(analysisType);
+        var resultFileName = BuildResultFileName(originalFileName, analysisSlug, ResultExtension);
+
+        return new BulkAnalysisResult(
+            id,
+            folderId,
+            documentId,
+            folderName,
+            documentTitle,
+            originalFileName,
+            analysisType,
+            generatedAt,
+            IsPreviewAvailable,
+            AnalysisSlug: analysisSlug,
+            ResultPath: $"mock/{folderId}/llm_results/{analysisSlug}/{resultFileName}",
+            ResultFileName: resultFileName,
+            ResultContentType: GetContentType(resultFileName),
+            ResultExtension: ResultExtension);
+    }
 
     private static string GetContentType(string fileName) =>
         Path.GetExtension(fileName).ToLowerInvariant() switch
         {
-            ".pdf" => "application/pdf",
+            ".doc" => "application/msword",
             ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".htm" => "text/html;charset=utf-8",
+            ".html" => "text/html;charset=utf-8",
             ".md" => "text/markdown;charset=utf-8",
+            ".pdf" => "application/pdf",
             ".txt" => "text/plain;charset=utf-8",
             _ => "application/octet-stream"
         };
+
+    private static string GetResultBody(string resultId) =>
+        resultId switch
+        {
+            "claims-intake-summary" => ClaimsSummary(),
+            "claims-intake-risk" => ClaimsRisk(),
+            "claims-intake-gap" => ClaimsGap(),
+            "provider-attachments-summary" => ProviderAttachmentSummary(),
+            "provider-attachments-controls" => ProviderAttachmentControls(),
+            "appeals-summary" => AppealsSummary(),
+            "appeals-compliance" => AppealsCompliance(),
+            "appeal-evidence-summary" => AppealEvidenceSummary(),
+            "appeal-evidence-risk" => AppealEvidenceRisk(),
+            "notice-summary" => NoticeSummary(),
+            "notice-unavailable" => UnavailablePreviewContent(),
+            "notice-timing-review" => NoticeTimingReview(),
+            "notice-timing-compliance" => NoticeTimingCompliance(),
+            "member-notice-typography-regression-report" => TypographyRegressionReview(),
+            "pa-review-impact" => PriorAuthImpact(),
+            "pa-review-recommendations" => PriorAuthRecommendations(),
+            "peer-review-escalation-summary" => PeerReviewEscalationSummary(),
+            "peer-review-controls" => PeerReviewDecisionControls(),
+            "pa-data-quality" => DataQualityReview(),
+            "pa-audit-sampling-review" => AuthorizationAuditSamplingReview(),
+            "pa-audit-sampling-recommendations" => AuthorizationAuditSamplingRecommendations(),
+            "enterprise-corpus-crosswalk" => LargeCorpusMarkdown(),
+            _ => string.Empty
+        };
+
+    private static BulkAnalysisResultPreview BuildResultPreview(BulkAnalysisResult result, string body)
+    {
+        return result.ResultExtension switch
+        {
+            "doc" => new BulkAnalysisResultPreview(
+                result.Id,
+                Path.ChangeExtension(result.ResultFileName, ".docx") ?? $"{result.DocumentId}.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "docx",
+                "Word",
+                CreateDocxDocumentBytes(ConvertMarkdownToPreviewText(body))),
+            "docx" => new BulkAnalysisResultPreview(
+                result.Id,
+                result.ResultFileName ?? $"{result.DocumentId}.docx",
+                result.ResultContentType ?? "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "docx",
+                "Word",
+                CreateDocxDocumentBytes(ConvertMarkdownToPreviewText(body))),
+            "html" or "htm" => new BulkAnalysisResultPreview(
+                result.Id,
+                result.ResultFileName ?? $"{result.DocumentId}.html",
+                result.ResultContentType ?? "text/html;charset=utf-8",
+                result.ResultExtension,
+                "HTML",
+                Encoding.UTF8.GetBytes(BuildHtmlDocument(result, body))),
+            "md" => new BulkAnalysisResultPreview(
+                result.Id,
+                result.ResultFileName ?? $"{result.DocumentId}.md",
+                result.ResultContentType ?? "text/markdown;charset=utf-8",
+                "md",
+                "Markdown",
+                Encoding.UTF8.GetBytes(StripFrontMatter(BuildStoredMarkdownContent(result, body)))),
+            "pdf" => new BulkAnalysisResultPreview(
+                result.Id,
+                result.ResultFileName ?? $"{result.DocumentId}.pdf",
+                result.ResultContentType ?? "application/pdf",
+                "pdf",
+                "PDF",
+                CreatePdfDocumentBytes(result, ConvertMarkdownToPreviewText(body))),
+            "txt" => new BulkAnalysisResultPreview(
+                result.Id,
+                result.ResultFileName ?? $"{result.DocumentId}.txt",
+                result.ResultContentType ?? "text/plain;charset=utf-8",
+                "txt",
+                "Plain Text",
+                Encoding.UTF8.GetBytes(ConvertMarkdownToPreviewText(body))),
+            _ => new BulkAnalysisResultPreview(
+                result.Id,
+                result.ResultFileName ?? $"{result.DocumentId}.bin",
+                result.ResultContentType ?? "application/octet-stream",
+                result.ResultExtension ?? "bin",
+                "Binary",
+                BuildResultFileContent(result, body))
+        };
+    }
+
+    private static byte[] BuildResultFileContent(BulkAnalysisResult result, string body) =>
+        result.ResultExtension switch
+        {
+            "doc" => CreateLegacyWordDocumentBytes(ConvertMarkdownToPreviewText(body)),
+            "docx" => CreateDocxDocumentBytes(ConvertMarkdownToPreviewText(body)),
+            "html" or "htm" => Encoding.UTF8.GetBytes(BuildHtmlDocument(result, body)),
+            "md" => Encoding.UTF8.GetBytes(BuildStoredMarkdownContent(result, body)),
+            "pdf" => CreatePdfDocumentBytes(result, ConvertMarkdownToPreviewText(body)),
+            "txt" => Encoding.UTF8.GetBytes(ConvertMarkdownToPreviewText(body)),
+            _ => Encoding.UTF8.GetBytes(body)
+        };
+
+    private static string BuildResultFileName(string originalFileName, string analysisSlug, string resultExtension)
+    {
+        var sourceStem = Path.GetFileNameWithoutExtension(originalFileName);
+        return $"{sourceStem}.{analysisSlug}.{resultExtension}";
+    }
+
+    private static string GetResultAnalysisSlug(string analysisType)
+    {
+        if (analysisType.Contains("summary", StringComparison.OrdinalIgnoreCase))
+        {
+            return "summary";
+        }
+
+        var slug = new string(analysisType
+            .Trim()
+            .ToLowerInvariant()
+            .Select(character => char.IsLetterOrDigit(character) ? character : '-')
+            .ToArray());
+
+        while (slug.Contains("--", StringComparison.Ordinal))
+        {
+            slug = slug.Replace("--", "-", StringComparison.Ordinal);
+        }
+
+        return slug.Trim('-');
+    }
+
+    private static string BuildStoredMarkdownContent(BulkAnalysisResult result, string body) =>
+        $"---\ntitle: {result.DocumentTitle} - {result.AnalysisType}\nformat: markdown\n---\n\n{body.Trim()}";
+
+    private static string BuildHtmlDocument(BulkAnalysisResult result, string body) =>
+        $$"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="utf-8" />
+            <title>{{WebUtility.HtmlEncode(result.DocumentTitle)}} - {{WebUtility.HtmlEncode(result.AnalysisType)}}</title>
+            <style>
+                body { font-family: "Segoe UI", sans-serif; margin: 0; padding: 2rem; color: #132033; background: #f4f6fb; }
+                main { max-width: 52rem; margin: 0 auto; padding: 1.5rem; border-radius: 1rem; background: white; box-shadow: 0 18px 40px rgba(19, 32, 51, 0.12); }
+                h1 { margin-top: 0; font-size: 1.25rem; }
+                pre { margin: 0; white-space: pre-wrap; font: 0.95rem/1.55 Consolas, "Courier New", monospace; }
+            </style>
+        </head>
+        <body>
+            <main>
+                <h1>{{WebUtility.HtmlEncode(result.AnalysisType)}}</h1>
+                <pre>{{WebUtility.HtmlEncode(ConvertMarkdownToPreviewText(body))}}</pre>
+            </main>
+        </body>
+        </html>
+        """;
+
+    private static string ConvertMarkdownToPreviewText(string value)
+    {
+        var normalized = NormalizeLineEndings(value);
+        var lines = normalized
+            .Split('\n')
+            .Where(line => !line.StartsWith("---", StringComparison.Ordinal))
+            .Select(line =>
+            {
+                var trimmed = line.TrimEnd();
+                if (trimmed.StartsWith("```", StringComparison.Ordinal))
+                {
+                    return string.Empty;
+                }
+
+                return trimmed.TrimStart('#', ' ');
+            });
+
+        return string.Join(Environment.NewLine, lines).Trim();
+    }
+
+    private static string StripFrontMatter(string markdown)
+    {
+        markdown = NormalizeLineEndings(markdown);
+
+        if (!markdown.StartsWith("---\n", StringComparison.Ordinal))
+        {
+            return markdown.Trim();
+        }
+
+        var end = markdown.IndexOf("\n---\n", 4, StringComparison.Ordinal);
+        return end < 0 ? markdown.Trim() : markdown[(end + 5)..].Trim();
+    }
+
+    private static string NormalizeLineEndings(string value) =>
+        value.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+
+    private static byte[] CreateLegacyWordDocumentBytes(string body)
+    {
+        var escaped = body
+            .Replace(@"\", @"\\", StringComparison.Ordinal)
+            .Replace("{", @"\{", StringComparison.Ordinal)
+            .Replace("}", @"\}", StringComparison.Ordinal)
+            .Replace("\r\n", @"\par ", StringComparison.Ordinal)
+            .Replace("\n", @"\par ", StringComparison.Ordinal);
+
+        return Encoding.ASCII.GetBytes(@"{\rtf1\ansi\deff0 {\fonttbl{\f0 Calibri;}}\fs22 " + escaped + "}");
+    }
+
+    private static byte[] CreateDocxDocumentBytes(string body)
+    {
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            WriteZipEntry(archive, "[Content_Types].xml",
+                """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+                  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" />
+                  <Default Extension="xml" ContentType="application/xml" />
+                  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml" />
+                </Types>
+                """);
+            WriteZipEntry(archive, "_rels/.rels",
+                """
+                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml" />
+                </Relationships>
+                """);
+            WriteZipEntry(archive, "word/document.xml", BuildDocxDocumentXml(body));
+        }
+
+        return stream.ToArray();
+    }
+
+    private static string BuildDocxDocumentXml(string body)
+    {
+        var paragraphs = NormalizeLineEndings(body)
+            .Split('\n')
+            .Select(line => line.TrimEnd())
+            .Where(line => line.Length > 0)
+            .Select(line => $"<w:p><w:r><w:t xml:space=\"preserve\">{SecurityElement.Escape(line)}</w:t></w:r></w:p>");
+
+        return $$"""
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+          <w:body>
+            {{string.Join(string.Empty, paragraphs)}}
+            <w:sectPr>
+              <w:pgSz w:w="12240" w:h="15840" />
+              <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0" />
+            </w:sectPr>
+          </w:body>
+        </w:document>
+        """;
+    }
+
+    private static byte[] CreatePdfDocumentBytes(BulkAnalysisResult result, string body)
+    {
+        var lines = NormalizeLineEndings($"{result.AnalysisType}\n{body}")
+            .Split('\n')
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Take(28)
+            .ToArray();
+
+        var streamBuilder = new StringBuilder();
+        streamBuilder.AppendLine("BT");
+        streamBuilder.AppendLine("/F1 11 Tf");
+        streamBuilder.AppendLine("50 760 Td");
+        streamBuilder.AppendLine("14 TL");
+
+        foreach (var line in lines)
+        {
+            streamBuilder.Append('(')
+                .Append(EscapePdfText(line))
+                .AppendLine(") Tj");
+            streamBuilder.AppendLine("T*");
+        }
+
+        streamBuilder.AppendLine("ET");
+        var pageStream = streamBuilder.ToString();
+
+        var objects = new[]
+        {
+            "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
+            "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
+            "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n",
+            "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
+            $"5 0 obj << /Length {Encoding.ASCII.GetByteCount(pageStream)} >> stream\n{pageStream}endstream\nendobj\n"
+        };
+
+        var builder = new StringBuilder("%PDF-1.4\n");
+        var offsets = new List<int>();
+        foreach (var pdfObject in objects)
+        {
+            offsets.Add(Encoding.ASCII.GetByteCount(builder.ToString()));
+            builder.Append(pdfObject);
+        }
+
+        var xrefOffset = Encoding.ASCII.GetByteCount(builder.ToString());
+        builder.AppendLine("xref");
+        builder.AppendLine($"0 {objects.Length + 1}");
+        builder.AppendLine("0000000000 65535 f ");
+        foreach (var offset in offsets)
+        {
+            builder.AppendLine($"{offset:D10} 00000 n ");
+        }
+
+        builder.AppendLine($"trailer << /Size {objects.Length + 1} /Root 1 0 R >>");
+        builder.AppendLine("startxref");
+        builder.AppendLine(xrefOffset.ToString());
+        builder.Append("%%EOF");
+
+        return Encoding.ASCII.GetBytes(builder.ToString());
+    }
+
+    private static string EscapePdfText(string value) =>
+        value.Replace(@"\", @"\\", StringComparison.Ordinal)
+            .Replace("(", @"\(", StringComparison.Ordinal)
+            .Replace(")", @"\)", StringComparison.Ordinal);
+
+    private static void WriteZipEntry(ZipArchive archive, string name, string content)
+    {
+        var entry = archive.CreateEntry(name);
+        using var writer = new StreamWriter(entry.Open(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        writer.Write(content);
+    }
 
     private static string ClaimsSummary() =>
         """

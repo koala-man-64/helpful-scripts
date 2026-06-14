@@ -15,8 +15,9 @@
     var activeResult = activeDocument is null || activeAnalysisType is null
         ? null
         : activeDocument.Document.Results.FirstOrDefault(result => string.Equals(result.AnalysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase));
-    var activeResultMarkdown = activeResult is null ? null : GetResultMarkdown(activeResult);
-    var activeResultMarkdownError = activeResult is null ? null : GetResultMarkdownError(activeResult);
+    var activeResultPreview = activeResult is null ? null : GetResultPreview(activeResult);
+    var activeResultPreviewError = activeResult is null ? null : GetResultPreviewError(activeResult);
+    var activeResultPreviewText = activeResultPreview is null ? null : GetResultPreviewText(activeResultPreview);
     var availableDownloadResultCount = CountAvailableResults(selectedDocuments.Select(entry => entry.Document), selectedAnalysisTypes);
     var selectedDownloadResults = GetSelectedDownloadResults();
     var selectedPreviewDocument = GetSelectionPreviewDocument(selectedDocuments);
@@ -491,13 +492,20 @@
                                 @if (activeResult is not null)
                                 {
                                     <span class="source-preview-summary-meta-item">
-                                        <span class="source-preview-summary-meta-label">Tokens</span>
-                                        <span class="source-preview-summary-meta-value">@(activeResultMarkdown is null ? "-" : FormatTokens(EstimateTokens(activeResultMarkdown)))</span>
+                                        <span class="source-preview-summary-meta-label">Format</span>
+                                        <span class="source-preview-summary-meta-value">@(activeResultPreview?.Format ?? GetResultFormatLabel(activeResult))</span>
                                     </span>
                                     <span class="source-preview-summary-meta-item">
                                         <span class="source-preview-summary-meta-label">Generated</span>
                                         <span class="source-preview-summary-meta-value">@activeResult.GeneratedAt.ToString("MMM d, yyyy h:mm tt")</span>
                                     </span>
+                                    @if (activeResultPreview is not null && IsMarkdownPreview(activeResultPreview))
+                                    {
+                                        <span class="source-preview-summary-meta-item">
+                                            <span class="source-preview-summary-meta-label">Tokens</span>
+                                            <span class="source-preview-summary-meta-value">@(activeResultPreviewText is null ? "-" : FormatTokens(EstimateTokens(activeResultPreviewText)))</span>
+                                        </span>
+                                    }
                                 }
                             </div>
                         </div>
@@ -526,26 +534,39 @@
                                     <span>It can still be included in a download.</span>
                                 </div>
                             }
-                            else if (!string.IsNullOrWhiteSpace(activeResultMarkdownError))
+                            else if (!string.IsNullOrWhiteSpace(activeResultPreviewError))
                             {
                                 <div class="workflow-empty-state preview-empty">
                                     <strong>Unable to load @activeAnalysisType result</strong>
-                                    <span>@activeResultMarkdownError</span>
+                                    <span>@activeResultPreviewError</span>
                                 </div>
                             }
-                            else if (activeResultMarkdown is null)
+                            else if (activeResultPreview is null)
                             {
                                 <div class="workflow-empty-state preview-empty">
                                     <strong>Loading generated result</strong>
-                                    <span>Retrieving Markdown from ADLS.</span>
+                                    <span>Retrieving native preview from ADLS.</span>
                                 </div>
+                            }
+                            else if (IsMarkdownPreview(activeResultPreview))
+                            {
+                                <article class="markdown-preview">
+                                    @RenderMarkdown(activeResultPreviewText ?? string.Empty)
+                                </article>
+                            }
+                            else if (IsPlainTextPreview(activeResultPreview))
+                            {
+                                <pre class="plain-document result-text-preview">@activeResultPreviewText</pre>
                             }
                             else
                             {
-                                <article class="markdown-preview">
-                                    @RenderMarkdown(activeResultMarkdown)
-                                </article>
+                                @* Native preview renders in the shared host below. *@
                             }
+
+                            <div class="source-preview-native result-preview-native"
+                                 @ref="resultPreviewHost"
+                                 aria-live="polite"
+                                 hidden="@(activeResultPreview is null || !IsNativePreview(activeResultPreview))"></div>
                         </div>
                     </div>
 
@@ -587,8 +608,8 @@
     private readonly HashSet<string> selectedResultIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> collapsedFolderIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> collapsedResultNodeIds = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> resultMarkdownById = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> resultMarkdownErrorsById = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, BulkAnalysisResultPreview> resultPreviewById = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> resultPreviewErrorsById = new(StringComparer.Ordinal);
     private WorkflowStep workflowStep = WorkflowStep.SelectDocuments;
     private bool isResultsPanelCollapsed;
     private bool isDocumentSelectionPanelCollapsed;
@@ -599,8 +620,10 @@
     private string? selectionPreviewDocumentId;
     private string? dismissedAnalysisTooltipType;
     private ElementReference sourcePreviewHost;
+    private ElementReference resultPreviewHost;
     private string? renderedSourcePreviewDocumentId;
-    private string? loadingResultId;
+    private string? renderedResultPreviewId;
+    private string? loadingResultPreviewId;
     private string? rawPreviewError;
     private string? loadErrorMessage;
     private string? downloadErrorMessage;
@@ -640,7 +663,8 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         await RenderSelectedSourcePreviewAsync();
-        await LoadActiveResultMarkdownAsync();
+        await LoadActiveResultPreviewAsync();
+        await RenderActiveResultNativePreviewAsync();
     }
 
     private async Task RefreshAsync()
@@ -648,8 +672,8 @@
         isLoadingDocuments = true;
         loadErrorMessage = null;
         downloadErrorMessage = null;
-        resultMarkdownById.Clear();
-        resultMarkdownErrorsById.Clear();
+        resultPreviewById.Clear();
+        resultPreviewErrorsById.Clear();
         collapsedResultNodeIds.Clear();
 
         try
@@ -667,6 +691,7 @@
         }
 
         renderedSourcePreviewDocumentId = null;
+        renderedResultPreviewId = null;
         CollapseAllFolders();
     }
 
@@ -1257,16 +1282,16 @@
 
         try
         {
-            var markdownByResultId = new Dictionary<string, string>(StringComparer.Ordinal);
+            var filesByResultId = new Dictionary<string, BulkAnalysisResultFile>(StringComparer.Ordinal);
             foreach (var result in results)
             {
-                markdownByResultId[result.Id] = await GetOrLoadResultMarkdownAsync(result);
+                filesByResultId[result.Id] = await GetOrLoadResultFileAsync(result);
             }
 
             await JSRuntime.InvokeVoidAsync(
                 "bulkAnalysisDownloads.downloadBinaryFile",
                 GetResultsZipFileName(results),
-                BuildResultsZipArchive(results, markdownByResultId),
+                BuildResultsZipArchive(results, filesByResultId),
                 "application/zip");
         }
         catch (Exception ex)
@@ -1281,9 +1306,8 @@
 
     private static byte[] BuildResultsZipArchive(
         IReadOnlyList<BulkAnalysisResult> results,
-        IReadOnlyDictionary<string, string> markdownByResultId)
+        IReadOnlyDictionary<string, BulkAnalysisResultFile> filesByResultId)
     {
-        var downloadedAt = DateTime.Now;
         using var stream = new MemoryStream();
 
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
@@ -1292,33 +1316,15 @@
 
             foreach (var result in results)
             {
-                var entry = archive.CreateEntry(GetResultZipEntryName(result, usedEntryNames), CompressionLevel.Optimal);
+                var resultFile = filesByResultId[result.Id];
+                var entry = archive.CreateEntry(GetResultZipEntryName(result, resultFile, usedEntryNames), CompressionLevel.Optimal);
 
                 using var entryStream = entry.Open();
-                using var writer = new StreamWriter(entryStream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-                writer.Write(BuildResultDownloadMarkdown(result, markdownByResultId[result.Id], downloadedAt));
+                entryStream.Write(resultFile.Content);
             }
         }
 
         return stream.ToArray();
-    }
-
-    private static string BuildResultDownloadMarkdown(BulkAnalysisResult result, string markdown, DateTime downloadedAt)
-    {
-        var builder = new StringBuilder();
-
-        builder
-            .AppendLine($"# {result.DocumentTitle} - {result.AnalysisType}")
-            .AppendLine()
-            .AppendLine($"- Category: {result.FolderName}")
-            .AppendLine($"- Source file: {result.OriginalFileName}")
-            .AppendLine($"- Generated: {result.GeneratedAt:MMM d, yyyy h:mm tt}")
-            .AppendLine($"- Downloaded: {downloadedAt:MMM d, yyyy h:mm tt}")
-            .AppendLine($"- Estimated tokens: {FormatTokens(EstimateTokens(markdown))}")
-            .AppendLine()
-            .AppendLine(markdown.Trim());
-
-        return builder.ToString().TrimEnd() + Environment.NewLine;
     }
 
     private static string GetResultsZipFileName(IReadOnlyList<BulkAnalysisResult> results)
@@ -1330,18 +1336,22 @@
         return $"{SlugifyFileName(name)}.zip";
     }
 
-    private static string GetResultZipEntryName(BulkAnalysisResult result, ISet<string> usedEntryNames)
+    private static string GetResultZipEntryName(
+        BulkAnalysisResult result,
+        BulkAnalysisResultFile resultFile,
+        ISet<string> usedEntryNames)
     {
         var folderName = SlugifyFileName(result.FolderName);
         var documentName = SlugifyFileName(result.DocumentTitle);
-        var fileName = SlugifyFileName($"{result.OriginalFileName}-{result.AnalysisType}");
+        var fileName = SlugifyFileName(Path.GetFileNameWithoutExtension(resultFile.FileName));
         var directoryName = $"{folderName}/{documentName}";
-        var entryName = $"{directoryName}/{fileName}.md";
+        var extension = string.IsNullOrWhiteSpace(resultFile.FileExtension) ? string.Empty : $".{resultFile.FileExtension}";
+        var entryName = $"{directoryName}/{fileName}{extension}";
         var suffix = 2;
 
         while (!usedEntryNames.Add(entryName))
         {
-            entryName = $"{directoryName}/{fileName}-{suffix}.md";
+            entryName = $"{directoryName}/{fileName}-{suffix}{extension}";
             suffix++;
         }
 
@@ -1662,36 +1672,33 @@
         }
     }
 
-    private string? GetResultMarkdown(BulkAnalysisResult result)
+    private BulkAnalysisResultPreview? GetResultPreview(BulkAnalysisResult result) =>
+        resultPreviewById.GetValueOrDefault(result.Id);
+
+    private string? GetResultPreviewError(BulkAnalysisResult result) =>
+        resultPreviewErrorsById.GetValueOrDefault(result.Id);
+
+    private async Task<BulkAnalysisResultFile> GetOrLoadResultFileAsync(BulkAnalysisResult result) =>
+        await ResultProvider.GetResultFileAsync(result.Id)
+            ?? throw new InvalidOperationException($"The selected {result.AnalysisType} result file could not be found in ADLS.");
+
+    private async Task<BulkAnalysisResultPreview> GetOrLoadResultPreviewAsync(BulkAnalysisResult result)
     {
-        if (resultMarkdownById.TryGetValue(result.Id, out var markdown))
+        var existingPreview = GetResultPreview(result);
+        if (existingPreview is not null)
         {
-            return markdown;
+            return existingPreview;
         }
 
-        return string.IsNullOrWhiteSpace(result.Markdown) ? null : result.Markdown;
+        var preview = await ResultProvider.GetResultPreviewAsync(result.Id)
+            ?? throw new InvalidOperationException($"The selected {result.AnalysisType} preview could not be found in ADLS.");
+
+        resultPreviewById[result.Id] = preview;
+        resultPreviewErrorsById.Remove(result.Id);
+        return preview;
     }
 
-    private string? GetResultMarkdownError(BulkAnalysisResult result) =>
-        resultMarkdownErrorsById.GetValueOrDefault(result.Id);
-
-    private async Task<string> GetOrLoadResultMarkdownAsync(BulkAnalysisResult result)
-    {
-        var existingMarkdown = GetResultMarkdown(result);
-        if (existingMarkdown is not null)
-        {
-            return existingMarkdown;
-        }
-
-        var markdown = await ResultProvider.GetResultMarkdownAsync(result.Id)
-            ?? throw new InvalidOperationException($"The selected {result.AnalysisType} result could not be found in ADLS.");
-
-        resultMarkdownById[result.Id] = markdown;
-        resultMarkdownErrorsById.Remove(result.Id);
-        return markdown;
-    }
-
-    private async Task LoadActiveResultMarkdownAsync()
+    private async Task LoadActiveResultPreviewAsync()
     {
         if (workflowStep != WorkflowStep.Results)
         {
@@ -1708,42 +1715,109 @@
 
         if (activeResult is null ||
             !activeResult.IsPreviewAvailable ||
-            GetResultMarkdown(activeResult) is not null ||
-            resultMarkdownErrorsById.ContainsKey(activeResult.Id) ||
-            string.Equals(loadingResultId, activeResult.Id, StringComparison.Ordinal))
+            GetResultPreview(activeResult) is not null ||
+            resultPreviewErrorsById.ContainsKey(activeResult.Id) ||
+            string.Equals(loadingResultPreviewId, activeResult.Id, StringComparison.Ordinal))
         {
             return;
         }
 
-        loadingResultId = activeResult.Id;
+        loadingResultPreviewId = activeResult.Id;
         await InvokeAsync(StateHasChanged);
 
         try
         {
-            await GetOrLoadResultMarkdownAsync(activeResult);
+            await GetOrLoadResultPreviewAsync(activeResult);
         }
         catch (Exception ex)
         {
-            resultMarkdownErrorsById[activeResult.Id] = ex.Message;
+            resultPreviewErrorsById[activeResult.Id] = ex.Message;
         }
         finally
         {
-            if (string.Equals(loadingResultId, activeResult.Id, StringComparison.Ordinal))
+            if (string.Equals(loadingResultPreviewId, activeResult.Id, StringComparison.Ordinal))
             {
-                loadingResultId = null;
+                loadingResultPreviewId = null;
             }
 
             await InvokeAsync(StateHasChanged);
         }
     }
 
+    private async Task RenderActiveResultNativePreviewAsync()
+    {
+        if (workflowStep != WorkflowStep.Results)
+        {
+            renderedResultPreviewId = null;
+            return;
+        }
+
+        var selectedDocuments = GetSelectedDocuments();
+        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(selectedDocuments));
+        var activeDocument = GetActiveDocument(selectedDocuments);
+        var activeAnalysisType = GetActiveAnalysisType(selectedAnalysisTypes);
+        var activeResult = activeDocument is null || activeAnalysisType is null
+            ? null
+            : activeDocument.Document.Results.FirstOrDefault(result => string.Equals(result.AnalysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase));
+        var preview = activeResult is null ? null : GetResultPreview(activeResult);
+
+        if (activeResult is null || preview is null || !IsNativePreview(preview))
+        {
+            if (renderedResultPreviewId is not null)
+            {
+                renderedResultPreviewId = null;
+                await JSRuntime.InvokeVoidAsync("bulkAnalysisPreview.clear", resultPreviewHost);
+            }
+
+            return;
+        }
+
+        if (string.Equals(renderedResultPreviewId, activeResult.Id, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        renderedResultPreviewId = activeResult.Id;
+        await JSRuntime.InvokeVoidAsync(
+            "bulkAnalysisPreview.render",
+            resultPreviewHost,
+            preview.FileName,
+            preview.ContentType,
+            preview.Content);
+    }
+
     private static MarkupString RenderMarkdown(string markdown) =>
         new(Markdown.ToHtml(markdown, MarkdownPipeline));
+
+    private static string? GetResultPreviewText(BulkAnalysisResultPreview preview) =>
+        IsTextPreview(preview) ? Encoding.UTF8.GetString(preview.Content) : null;
 
     private static string GetFolderPath(BulkAnalysisFolder folder) =>
         string.IsNullOrWhiteSpace(folder.ParentDisplayName)
             ? folder.DisplayName
             : $"{folder.ParentDisplayName} / {folder.DisplayName}";
+
+    private static string GetResultFormatLabel(BulkAnalysisResult result) =>
+        (result.ResultExtension ?? string.Empty).ToLowerInvariant() switch
+        {
+            "doc" or "docx" => "Word",
+            "htm" or "html" => "HTML",
+            "md" => "Markdown",
+            "pdf" => "PDF",
+            "txt" => "Plain Text",
+            _ => "Binary"
+        };
+
+    private static bool IsMarkdownPreview(BulkAnalysisResultPreview preview) =>
+        string.Equals(preview.FileExtension, "md", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPlainTextPreview(BulkAnalysisResultPreview preview) =>
+        string.Equals(preview.FileExtension, "txt", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsTextPreview(BulkAnalysisResultPreview preview) =>
+        IsMarkdownPreview(preview) || IsPlainTextPreview(preview);
+
+    private static bool IsNativePreview(BulkAnalysisResultPreview preview) => !IsTextPreview(preview);
 
     private static int EstimateTokens(string markdown) =>
         (int)Math.Ceiling(markdown.Length / 4.0);

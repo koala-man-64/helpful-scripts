@@ -30,15 +30,27 @@ internal sealed class FallbackBulkAnalysisResultProvider(
         }
     }
 
-    public async Task<string?> GetResultMarkdownAsync(string resultId, CancellationToken cancellationToken = default)
+    public async Task<BulkAnalysisResultFile?> GetResultFileAsync(string resultId, CancellationToken cancellationToken = default)
     {
         try
         {
-            return await primary.GetResultMarkdownAsync(resultId, cancellationToken);
+            return await primary.GetResultFileAsync(resultId, cancellationToken);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested && CanUseFallback(ex))
         {
-            return await fallback.GetResultMarkdownAsync(resultId, cancellationToken);
+            return await fallback.GetResultFileAsync(resultId, cancellationToken);
+        }
+    }
+
+    public async Task<BulkAnalysisResultPreview?> GetResultPreviewAsync(string resultId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await primary.GetResultPreviewAsync(resultId, cancellationToken);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested && CanUseFallback(ex))
+        {
+            return await fallback.GetResultPreviewAsync(resultId, cancellationToken);
         }
     }
 

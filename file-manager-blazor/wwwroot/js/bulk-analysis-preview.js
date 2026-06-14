@@ -20,6 +20,11 @@ window.bulkAnalysisPreview = (() => {
         objectUrls.set(container, url);
 
         const normalizedName = (fileName || "").toLowerCase();
+        if ((contentType || "").includes("html") || normalizedName.endsWith(".html") || normalizedName.endsWith(".htm")) {
+            renderHtml(container, url, fileName);
+            return;
+        }
+
         if ((contentType || "").includes("pdf") || normalizedName.endsWith(".pdf")) {
             renderPdf(container, url, fileName);
             return;
@@ -36,6 +41,16 @@ window.bulkAnalysisPreview = (() => {
         }
 
         renderFallback(container, url, fileName, "Preview is not available for this file type.");
+    }
+
+    function renderHtml(container, url, fileName) {
+        const frame = document.createElement("iframe");
+        frame.className = "raw-html-preview";
+        frame.title = fileName || "HTML preview";
+        frame.sandbox = "";
+        frame.referrerPolicy = "no-referrer";
+        frame.src = url;
+        container.appendChild(frame);
     }
 
     function renderPdf(container, url, fileName) {
