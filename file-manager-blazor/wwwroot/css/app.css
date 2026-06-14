@@ -3174,6 +3174,19 @@ svg {
     white-space: normal;
 }
 
+.result-analysis-card {
+    padding-bottom: 0.35rem;
+}
+
+.result-category-card {
+    padding-top: 0.28rem;
+    padding-bottom: 0.18rem;
+}
+
+.result-category-card .document-folder-header {
+    gap: 0.5rem;
+}
+
 .result-folder-card .document-folder-header h3,
 .result-folder-card .document-folder-header p {
     overflow: visible;
@@ -3197,6 +3210,10 @@ svg {
 
 .result-document-row input:disabled {
     cursor: not-allowed;
+}
+
+.result-file-row {
+    align-items: start;
 }
 
 .result-document-preview-button {

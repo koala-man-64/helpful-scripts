@@ -365,65 +365,107 @@
                         }
                         else
                         {
-                            var visibleResultPanels = GetVisibleResultDocumentPanels(selectedDocuments);
+                            var visibleResultPanels = GetVisibleResultAnalysisPanels(selectedDocuments, selectedAnalysisTypes);
 
-                            <div class="document-selection-list result-document-list">
-                                @foreach (var folderPanel in visibleResultPanels)
-                                {
-                                    var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
-                                    var folderSelectionState = GetResultSelectionState(folderPanel.VisibleDocuments, selectedAnalysisTypes);
-                                    var selectedResultsInFolder = CountSelectedResults(folderPanel.VisibleDocuments, selectedAnalysisTypes);
-                                    var availableResultsInFolder = CountAvailableResults(folderPanel.VisibleDocuments, selectedAnalysisTypes);
+                            @if (visibleResultPanels.Count == 0)
+                            {
+                                <div class="workflow-empty-state">
+                                    <strong>No generated results match the selected analysis types.</strong>
+                                    <span>Go back to choose a different analysis type or document set.</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="document-selection-list result-document-list">
+                                    @foreach (var analysisPanel in visibleResultPanels)
+                                    {
+                                        var isAnalysisCollapsed = IsResultNodeCollapsed(analysisPanel.NodeId);
+                                        var analysisSelectionState = GetResultSelectionState(analysisPanel.Results);
+                                        var selectedResultsInAnalysis = CountSelectedResults(analysisPanel.Results);
+                                        var availableResultsInAnalysis = analysisPanel.Results.Count;
 
-                                    <section class="@GetResultFolderPanelClass(folderPanel)" style="@($"--folder-depth: {folderPanel.Depth};")">
-                                        <div class="document-folder-header">
-                                            <button type="button"
-                                                    class="@GetFolderSelectClass(folderSelectionState)"
-                                                    role="checkbox"
-                                                    aria-checked="@GetAriaChecked(folderSelectionState)"
-                                                    aria-label="@($"Select generated results under {folderPanel.Folder.DisplayName}")"
-                                                    disabled="@(availableResultsInFolder == 0)"
-                                                    @onclick="() => ToggleFolderResultSelection(folderPanel, selectedAnalysisTypes)"></button>
-                                            <button type="button"
-                                                    class="folder-collapse-button"
-                                                    aria-expanded="@(!isCollapsed)"
-                                                    aria-label="@($"Toggle {folderPanel.Folder.DisplayName}")"
-                                                    @onclick="() => ToggleFolderPanel(folderPanel.Folder.Id)">
-                                                <span aria-hidden="true">@(isCollapsed ? ">" : "v")</span>
-                                            </button>
-                                            <div class="document-folder-heading">
-                                                <h3>@folderPanel.Folder.DisplayName</h3>
-                                                <span>@($"{selectedResultsInFolder} of {availableResultsInFolder} selected")</span>
+                                        <section class="@GetResultAnalysisPanelClass(analysisPanel)" style="--folder-depth: 0;">
+                                            <div class="document-folder-header">
+                                                <button type="button"
+                                                        class="@GetFolderSelectClass(analysisSelectionState)"
+                                                        role="checkbox"
+                                                        aria-checked="@GetAriaChecked(analysisSelectionState)"
+                                                        aria-label="@($"Select {analysisPanel.AnalysisType} generated results")"
+                                                        disabled="@(availableResultsInAnalysis == 0)"
+                                                        @onclick="() => ToggleResultGroupSelection(analysisPanel.Items)"></button>
+                                                <button type="button"
+                                                        class="folder-collapse-button"
+                                                        aria-expanded="@(!isAnalysisCollapsed)"
+                                                        aria-label="@($"Toggle {analysisPanel.AnalysisType}")"
+                                                        @onclick="() => ToggleResultNode(analysisPanel.NodeId)">
+                                                    <span aria-hidden="true">@(isAnalysisCollapsed ? ">" : "v")</span>
+                                                </button>
+                                                <div class="document-folder-heading">
+                                                    <h3>@analysisPanel.AnalysisType</h3>
+                                                    <span>@($"{selectedResultsInAnalysis} of {availableResultsInAnalysis} selected")</span>
+                                                </div>
                                             </div>
-                                        </div>
 
-                                        @if (!isCollapsed && folderPanel.Documents.Count > 0)
-                                        {
-                                            <div class="document-option-list result-sop-list">
-                                                @foreach (var document in folderPanel.Documents)
+                                            @if (!isAnalysisCollapsed)
+                                            {
+                                                @foreach (var categoryPanel in analysisPanel.Categories)
                                                 {
-                                                    var documentSelectionState = GetResultSelectionState(document, selectedAnalysisTypes);
-                                                    var availableResultsForDocument = CountAvailableResults(document, selectedAnalysisTypes);
+                                                    var isCategoryCollapsed = IsResultNodeCollapsed(categoryPanel.NodeId);
+                                                    var categorySelectionState = GetResultSelectionState(categoryPanel.Results);
+                                                    var selectedResultsInCategory = CountSelectedResults(categoryPanel.Results);
+                                                    var availableResultsInCategory = categoryPanel.Results.Count;
 
-                                                    <div class="@GetResultDocumentOptionClass(document.Id, documentSelectionState)">
-                                                        <input type="checkbox"
-                                                               checked="@(documentSelectionState == SelectionState.Checked)"
-                                                               disabled="@(availableResultsForDocument == 0)"
-                                                               aria-label="@($"Select generated results for {document.Title}")"
-                                                               @onchange="() => ToggleDocumentResultSelection(document, selectedAnalysisTypes)" />
-                                                        <button type="button"
-                                                                class="result-document-preview-button"
-                                                                @onclick="() => SetActiveDocument(document.Id)">
-                                                            <strong>@document.Title</strong>
-                                                            <small>@document.OriginalFileName - @GetResultAvailabilitySummary(document, selectedAnalysisTypes)</small>
-                                                        </button>
-                                                    </div>
+                                                    <section class="@GetResultCategoryPanelClass(categoryPanel)" style="@($"--folder-depth: {categoryPanel.Depth};")">
+                                                        <div class="document-folder-header">
+                                                            <button type="button"
+                                                                    class="@GetFolderSelectClass(categorySelectionState)"
+                                                                    role="checkbox"
+                                                                    aria-checked="@GetAriaChecked(categorySelectionState)"
+                                                                    aria-label="@($"Select {analysisPanel.AnalysisType} generated results under {categoryPanel.Folder.DisplayName}")"
+                                                                    disabled="@(availableResultsInCategory == 0)"
+                                                                    @onclick="() => ToggleResultGroupSelection(categoryPanel.Items)"></button>
+                                                            <button type="button"
+                                                                    class="folder-collapse-button"
+                                                                    aria-expanded="@(!isCategoryCollapsed)"
+                                                                    aria-label="@($"Toggle {categoryPanel.Folder.DisplayName}")"
+                                                                    @onclick="() => ToggleResultNode(categoryPanel.NodeId)">
+                                                                <span aria-hidden="true">@(isCategoryCollapsed ? ">" : "v")</span>
+                                                            </button>
+                                                            <div class="document-folder-heading">
+                                                                <h3>@categoryPanel.Folder.DisplayName</h3>
+                                                                <span>@($"{selectedResultsInCategory} of {availableResultsInCategory} selected")</span>
+                                                            </div>
+                                                        </div>
+
+                                                        @if (!isCategoryCollapsed)
+                                                        {
+                                                            <div class="document-option-list result-sop-list">
+                                                                @foreach (var item in categoryPanel.Items)
+                                                                {
+                                                                    var isSelected = selectedResultIds.Contains(item.Result.Id);
+
+                                                                    <div class="@GetResultFileOptionClass(item, isSelected)">
+                                                                        <input type="checkbox"
+                                                                               checked="@isSelected"
+                                                                               aria-label="@($"Select {item.Result.AnalysisType} result for {item.Document.OriginalFileName}")"
+                                                                               @onchange="() => ToggleResultFileSelection(item)" />
+                                                                        <button type="button"
+                                                                                class="result-document-preview-button"
+                                                                                @onclick="() => SetActiveResult(item)">
+                                                                            <strong>@item.Document.OriginalFileName</strong>
+                                                                            <small>@GetResultFileSummary(item)</small>
+                                                                        </button>
+                                                                    </div>
+                                                                }
+                                                            </div>
+                                                        }
+                                                    </section>
                                                 }
-                                            </div>
-                                        }
-                                    </section>
-                                }
-                            </div>
+                                            }
+                                        </section>
+                                    }
+                                </div>
+                            }
                         }
                 </div>
             </section>
@@ -549,6 +591,7 @@
     private readonly HashSet<string> selectedAnalysisTypeIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> selectedResultIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> collapsedFolderIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> collapsedResultNodeIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> resultMarkdownById = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> resultMarkdownErrorsById = new(StringComparer.Ordinal);
     private WorkflowStep workflowStep = WorkflowStep.SelectDocuments;
@@ -612,6 +655,7 @@
         downloadErrorMessage = null;
         resultMarkdownById.Clear();
         resultMarkdownErrorsById.Clear();
+        collapsedResultNodeIds.Clear();
 
         try
         {
@@ -716,26 +760,55 @@
         return panels;
     }
 
-    private IReadOnlyList<DocumentFolderPanel> GetVisibleResultDocumentPanels(IReadOnlyList<DocumentWithFolder> selectedDocuments)
+    private IReadOnlyList<ResultAnalysisPanel> GetVisibleResultAnalysisPanels(
+        IReadOnlyList<DocumentWithFolder> selectedDocuments,
+        IReadOnlyList<string> selectedAnalysisTypes)
     {
-        var panels = new List<DocumentFolderPanel>();
+        var panels = new List<ResultAnalysisPanel>();
 
-        foreach (var folderGroup in selectedDocuments
-            .GroupBy(entry => entry.Folder.Id)
-            .OrderBy(group => group.First().Folder.DisplayName, StringComparer.OrdinalIgnoreCase))
+        foreach (var analysisType in selectedAnalysisTypes)
         {
-            var folder = folderGroup.First().Folder;
-            var documents = folderGroup
-                .Select(entry => entry.Document)
-                .OrderBy(document => document.Title, StringComparer.OrdinalIgnoreCase)
+            var items = selectedDocuments
+                .Select(entry => new
+                {
+                    entry.Folder,
+                    entry.Document,
+                    Result = GetResult(entry.Document, analysisType)
+                })
+                .Where(entry => entry.Result is not null)
+                .Select(entry => new ResultFileItem(entry.Folder, entry.Document, entry.Result!))
                 .ToArray();
 
-            var panel = new DocumentFolderPanel(folder, documents, Array.Empty<DocumentFolderPanel>(), 0);
-            panels.Add(panel);
+            if (items.Length == 0)
+            {
+                continue;
+            }
+
+            var categories = items
+                .GroupBy(item => item.Folder.Id)
+                .OrderBy(group => group.First().Folder.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new ResultCategoryPanel(
+                    GetResultCategoryNodeId(analysisType, group.First().Folder.Id),
+                    group.First().Folder,
+                    group
+                        .OrderBy(item => item.Document.OriginalFileName, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(item => item.Document.Title, StringComparer.OrdinalIgnoreCase)
+                        .ToArray(),
+                    Depth: 1))
+                .ToArray();
+
+            panels.Add(new ResultAnalysisPanel(GetResultAnalysisNodeId(analysisType), analysisType, categories));
         }
 
         return panels;
     }
+
+    private ResultFileItem? GetFirstResultFileItem(
+        IReadOnlyList<DocumentWithFolder> selectedDocuments,
+        IReadOnlyList<string> selectedAnalysisTypes) =>
+        GetVisibleResultAnalysisPanels(selectedDocuments, selectedAnalysisTypes)
+            .SelectMany(panel => panel.Items)
+            .FirstOrDefault();
 
     private void AddVisibleDocumentPanels(DocumentFolderPanel panel, List<DocumentFolderPanel> panels)
     {
@@ -941,15 +1014,6 @@
             .Select(result => result!)
             .ToArray();
 
-    private static string GetResultAvailabilitySummary(BulkAnalysisDocument document, IReadOnlyList<string> selectedAnalysisTypes)
-    {
-        var availableCount = GetAvailableResults(document, selectedAnalysisTypes).Count;
-
-        return availableCount == 0
-            ? "No selected result types available"
-            : $"{availableCount} of {selectedAnalysisTypes.Count} selected result type{(selectedAnalysisTypes.Count == 1 ? "" : "s")} available";
-    }
-
     private void SetActiveDocument(string documentId)
     {
         activeDocumentId = documentId;
@@ -966,45 +1030,33 @@
         }
     }
 
-    private SelectionState GetResultSelectionState(
-        IEnumerable<BulkAnalysisDocument> documents,
-        IReadOnlyList<string> selectedAnalysisTypes)
+    private void SetActiveResult(ResultFileItem item)
     {
-        var results = documents
-            .SelectMany(document => GetAvailableResults(document, selectedAnalysisTypes))
-            .ToArray();
+        activeDocumentId = item.Document.Id;
+        activeAnalysisType = item.Result.AnalysisType;
+    }
 
-        if (results.Length == 0 || results.All(result => !selectedResultIds.Contains(result.Id)))
+    private SelectionState GetResultSelectionState(IEnumerable<BulkAnalysisResult> results)
+    {
+        var resultList = results.ToArray();
+
+        if (resultList.Length == 0 || resultList.All(result => !selectedResultIds.Contains(result.Id)))
         {
             return SelectionState.Unchecked;
         }
 
-        return results.All(result => selectedResultIds.Contains(result.Id))
+        return resultList.All(result => selectedResultIds.Contains(result.Id))
             ? SelectionState.Checked
             : SelectionState.Mixed;
     }
-
-    private SelectionState GetResultSelectionState(
-        BulkAnalysisDocument document,
-        IReadOnlyList<string> selectedAnalysisTypes) =>
-        GetResultSelectionState(new[] { document }, selectedAnalysisTypes);
 
     private int CountAvailableResults(
         IEnumerable<BulkAnalysisDocument> documents,
         IReadOnlyList<string> selectedAnalysisTypes) =>
         documents.Sum(document => GetAvailableResults(document, selectedAnalysisTypes).Count);
 
-    private int CountAvailableResults(
-        BulkAnalysisDocument document,
-        IReadOnlyList<string> selectedAnalysisTypes) =>
-        GetAvailableResults(document, selectedAnalysisTypes).Count;
-
-    private int CountSelectedResults(
-        IEnumerable<BulkAnalysisDocument> documents,
-        IReadOnlyList<string> selectedAnalysisTypes) =>
-        documents
-            .SelectMany(document => GetAvailableResults(document, selectedAnalysisTypes))
-            .Count(result => selectedResultIds.Contains(result.Id));
+    private int CountSelectedResults(IEnumerable<BulkAnalysisResult> results) =>
+        results.Count(result => selectedResultIds.Contains(result.Id));
 
     private void SelectAllResults(
         IReadOnlyList<DocumentWithFolder> selectedDocuments,
@@ -1021,11 +1073,9 @@
         selectedResultIds.Clear();
     }
 
-    private void ToggleFolderResultSelection(DocumentFolderPanel panel, IReadOnlyList<string> selectedAnalysisTypes)
+    private void ToggleResultGroupSelection(IReadOnlyList<ResultFileItem> items)
     {
-        var results = panel.VisibleDocuments
-            .SelectMany(document => GetAvailableResults(document, selectedAnalysisTypes))
-            .ToArray();
+        var results = items.Select(item => item.Result).ToArray();
 
         if (results.Length == 0)
         {
@@ -1047,34 +1097,17 @@
             }
         }
 
-        SetActiveDocument(panel.VisibleDocuments.First().Id);
+        SetActiveResult(items[0]);
     }
 
-    private void ToggleDocumentResultSelection(BulkAnalysisDocument document, IReadOnlyList<string> selectedAnalysisTypes)
+    private void ToggleResultFileSelection(ResultFileItem item)
     {
-        var results = GetAvailableResults(document, selectedAnalysisTypes);
-
-        if (results.Count == 0)
+        if (!selectedResultIds.Add(item.Result.Id))
         {
-            return;
+            selectedResultIds.Remove(item.Result.Id);
         }
 
-        if (results.All(result => selectedResultIds.Contains(result.Id)))
-        {
-            foreach (var result in results)
-            {
-                selectedResultIds.Remove(result.Id);
-            }
-        }
-        else
-        {
-            foreach (var result in results)
-            {
-                selectedResultIds.Add(result.Id);
-            }
-        }
-
-        SetActiveDocument(document.Id);
+        SetActiveResult(item);
     }
 
     private void PreviousDocument()
@@ -1087,7 +1120,7 @@
 
         var currentIndex = Math.Max(0, selectedDocuments.ToList().FindIndex(entry => string.Equals(entry.Document.Id, GetActiveDocument(selectedDocuments)?.Document.Id, StringComparison.Ordinal)));
         var nextIndex = currentIndex == 0 ? selectedDocuments.Count - 1 : currentIndex - 1;
-        activeDocumentId = selectedDocuments[nextIndex].Document.Id;
+        SetActiveDocument(selectedDocuments[nextIndex].Document.Id);
     }
 
     private void NextDocument()
@@ -1100,7 +1133,7 @@
 
         var currentIndex = Math.Max(0, selectedDocuments.ToList().FindIndex(entry => string.Equals(entry.Document.Id, GetActiveDocument(selectedDocuments)?.Document.Id, StringComparison.Ordinal)));
         var nextIndex = currentIndex >= selectedDocuments.Count - 1 ? 0 : currentIndex + 1;
-        activeDocumentId = selectedDocuments[nextIndex].Document.Id;
+        SetActiveDocument(selectedDocuments[nextIndex].Document.Id);
     }
 
     private DocumentWithFolder? GetSelectionPreviewDocument(IReadOnlyList<DocumentWithFolder> selectedDocuments) =>
@@ -1167,6 +1200,19 @@
         if (selectedAnalysisTypes.All(type => !string.Equals(type, activeAnalysisType, StringComparison.OrdinalIgnoreCase)))
         {
             activeAnalysisType = selectedAnalysisTypes.FirstOrDefault();
+        }
+
+        var activeDocument = GetActiveDocument(selectedDocuments);
+        var resolvedActiveAnalysisType = GetActiveAnalysisType(selectedAnalysisTypes);
+        if (activeDocument is not null &&
+            resolvedActiveAnalysisType is not null &&
+            GetResult(activeDocument.Document, resolvedActiveAnalysisType) is null)
+        {
+            var firstAvailableResult = GetFirstResultFileItem(selectedDocuments, selectedAnalysisTypes);
+            if (firstAvailableResult is not null)
+            {
+                SetActiveResult(firstAvailableResult);
+            }
         }
     }
 
@@ -1374,6 +1420,17 @@
         }
     }
 
+    private bool IsResultNodeCollapsed(string nodeId) =>
+        collapsedResultNodeIds.Contains(nodeId);
+
+    private void ToggleResultNode(string nodeId)
+    {
+        if (!collapsedResultNodeIds.Add(nodeId))
+        {
+            collapsedResultNodeIds.Remove(nodeId);
+        }
+    }
+
     private void ToggleResultsPanel()
     {
         isResultsPanelCollapsed = !isResultsPanelCollapsed;
@@ -1436,23 +1493,47 @@
         return $"folder-description-{(string.IsNullOrWhiteSpace(normalized) ? "category" : normalized)}";
     }
 
-    private string GetResultFolderPanelClass(DocumentFolderPanel panel) =>
-        $"{GetFolderPanelClass(panel)} result-folder-card";
+    private static string GetResultAnalysisNodeId(string analysisType) =>
+        $"result-analysis:{analysisType}";
 
-    private string GetResultDocumentOptionClass(string documentId, SelectionState state)
+    private static string GetResultCategoryNodeId(string analysisType, string folderId) =>
+        $"result-category:{analysisType}:{folderId}";
+
+    private string GetResultAnalysisPanelClass(ResultAnalysisPanel panel)
     {
-        var classes = new List<string> { "document-option-row", "result-document-row" };
+        var classes = new List<string> { "document-folder-card", "root-folder-card", "result-folder-card", "result-analysis-card" };
 
-        if (state == SelectionState.Checked)
+        if (IsResultNodeCollapsed(panel.NodeId))
+        {
+            classes.Add("collapsed");
+        }
+
+        return string.Join(' ', classes);
+    }
+
+    private string GetResultCategoryPanelClass(ResultCategoryPanel panel)
+    {
+        var classes = new List<string> { "document-folder-card", "result-folder-card", "result-category-card" };
+
+        if (IsResultNodeCollapsed(panel.NodeId))
+        {
+            classes.Add("collapsed");
+        }
+
+        return string.Join(' ', classes);
+    }
+
+    private string GetResultFileOptionClass(ResultFileItem item, bool isSelected)
+    {
+        var classes = new List<string> { "document-option-row", "result-document-row", "result-file-row" };
+
+        if (isSelected)
         {
             classes.Add("selected");
         }
-        else if (state == SelectionState.Mixed)
-        {
-            classes.Add("mixed");
-        }
 
-        if (string.Equals(documentId, activeDocumentId, StringComparison.Ordinal))
+        if (string.Equals(item.Document.Id, activeDocumentId, StringComparison.Ordinal) &&
+            string.Equals(item.Result.AnalysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase))
         {
             classes.Add("active");
         }
@@ -1539,6 +1620,12 @@
         document.Results.Count == 0
             ? "No generated outputs available"
             : string.Join(", ", document.Results.Select(result => result.AnalysisType).Distinct(StringComparer.OrdinalIgnoreCase));
+
+    private static string GetResultFileSummary(ResultFileItem item) =>
+        string.IsNullOrWhiteSpace(item.Document.Title) ||
+        string.Equals(item.Document.Title, item.Document.OriginalFileName, StringComparison.OrdinalIgnoreCase)
+            ? $"Generated {item.Result.GeneratedAt:MMM d, yyyy h:mm tt}"
+            : item.Document.Title;
 
     private async Task RenderSelectedSourcePreviewAsync()
     {
@@ -1676,6 +1763,33 @@
         tokens >= 1_000 ? $"{tokens / 1_000.0:0.#}k" : tokens.ToString("N0");
 
     private sealed record DocumentWithFolder(BulkAnalysisFolder Folder, BulkAnalysisDocument Document);
+
+    private sealed record ResultAnalysisPanel(
+        string NodeId,
+        string AnalysisType,
+        IReadOnlyList<ResultCategoryPanel> Categories)
+    {
+        public IReadOnlyList<ResultFileItem> Items =>
+            Categories.SelectMany(category => category.Items).ToArray();
+
+        public IReadOnlyList<BulkAnalysisResult> Results =>
+            Items.Select(item => item.Result).ToArray();
+    }
+
+    private sealed record ResultCategoryPanel(
+        string NodeId,
+        BulkAnalysisFolder Folder,
+        IReadOnlyList<ResultFileItem> Items,
+        int Depth)
+    {
+        public IReadOnlyList<BulkAnalysisResult> Results =>
+            Items.Select(item => item.Result).ToArray();
+    }
+
+    private sealed record ResultFileItem(
+        BulkAnalysisFolder Folder,
+        BulkAnalysisDocument Document,
+        BulkAnalysisResult Result);
 
     private sealed record DocumentFolderPanel(
         BulkAnalysisFolder Folder,
