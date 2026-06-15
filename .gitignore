@@ -3,11 +3,9 @@
 .env.*
 !.env.example
 .vscode/**
-!.vscode/
 !.vscode/tasks.json
 # Build outputs
 **/bin/
 **/obj/
 launch.json
-!.vscode/launch.json
 file-manager-blazor/wwwroot/appsettings.json

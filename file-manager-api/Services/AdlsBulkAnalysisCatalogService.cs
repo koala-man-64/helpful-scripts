@@ -9,25 +9,24 @@ namespace FileManagerApi.Services;
 public sealed class AdlsBulkAnalysisCatalogService : IBulkAnalysisCatalogService
 {
     private const string CatalogCacheKey = "bulk-analysis-adls-catalog";
+    private static readonly BulkAnalysisCatalog EmptyCatalog = new(
+        [],
+        new Dictionary<string, RawFileReference>(StringComparer.Ordinal),
+        new Dictionary<string, ResultFileReference>(StringComparer.Ordinal));
 
     private readonly BulkAnalysisAdlsOptions options;
-    private readonly DataLakeFileSystemClient fileSystemClient;
     private readonly IMemoryCache memoryCache;
     private readonly ILogger<AdlsBulkAnalysisCatalogService> logger;
     private readonly SemaphoreSlim catalogLock = new(1, 1);
+    private DataLakeFileSystemClient? fileSystemClient;
+    private bool loggedDisabledCatalog;
 
     public AdlsBulkAnalysisCatalogService(
         BulkAnalysisAdlsOptions options,
         IMemoryCache memoryCache,
         ILogger<AdlsBulkAnalysisCatalogService> logger)
     {
-        if (!options.IsConfigured)
-        {
-            throw new InvalidOperationException("Bulk Analysis ADLS options are incomplete.");
-        }
-
         this.options = options;
-        fileSystemClient = new DataLakeFileSystemClient(options.ConnectionString, options.FileSystemName);
         this.memoryCache = memoryCache;
         this.logger = logger;
     }
@@ -68,6 +67,12 @@ public sealed class AdlsBulkAnalysisCatalogService : IBulkAnalysisCatalogService
 
     private async Task<BulkAnalysisCatalog> GetCatalogAsync(CancellationToken cancellationToken)
     {
+        var configuredFileSystemClient = GetConfiguredFileSystemClient();
+        if (configuredFileSystemClient is null)
+        {
+            return EmptyCatalog;
+        }
+
         if (memoryCache.TryGetValue(CatalogCacheKey, out BulkAnalysisCatalog? cachedCatalog) && cachedCatalog is not null)
         {
             return cachedCatalog;
@@ -84,7 +89,7 @@ public sealed class AdlsBulkAnalysisCatalogService : IBulkAnalysisCatalogService
             logger.LogInformation("Loading bulk analysis ADLS catalog from file system {FileSystemName}.", options.FileSystemName);
 
             var catalog = await BulkAnalysisCatalogBuilder.BuildAsync(
-                await ListPathsAsync(cancellationToken),
+                await ListPathsAsync(configuredFileSystemClient, cancellationToken),
                 DownloadMarkdownMetadataAsync,
                 cancellationToken);
 
@@ -102,11 +107,13 @@ public sealed class AdlsBulkAnalysisCatalogService : IBulkAnalysisCatalogService
         }
     }
 
-    private async Task<IReadOnlyList<AdlsPathItem>> ListPathsAsync(CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<AdlsPathItem>> ListPathsAsync(
+        DataLakeFileSystemClient configuredFileSystemClient,
+        CancellationToken cancellationToken)
     {
         var paths = new List<AdlsPathItem>();
 
-        await foreach (var path in fileSystemClient
+        await foreach (var path in configuredFileSystemClient
             .GetPathsAsync(path: string.Empty, recursive: true, userPrincipalName: false, cancellationToken: cancellationToken)
             .ConfigureAwait(false))
         {
@@ -138,7 +145,10 @@ public sealed class AdlsBulkAnalysisCatalogService : IBulkAnalysisCatalogService
 
     private async Task<byte[]> DownloadBytesAsync(string path, CancellationToken cancellationToken)
     {
-        var fileClient = fileSystemClient.GetFileClient(path);
+        var configuredFileSystemClient = GetConfiguredFileSystemClient()
+            ?? throw new InvalidOperationException("Bulk Analysis ADLS catalog is disabled.");
+
+        var fileClient = configuredFileSystemClient.GetFileClient(path);
         var response = await fileClient.ReadAsync(cancellationToken: cancellationToken);
         await using var content = response.Value.Content;
         using var memory = new MemoryStream();
@@ -197,4 +207,41 @@ public sealed class AdlsBulkAnalysisCatalogService : IBulkAnalysisCatalogService
 
     private static string NormalizeLineEndings(string value) =>
         value.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+
+    private DataLakeFileSystemClient? GetConfiguredFileSystemClient()
+    {
+        if (!options.IsConfigured)
+        {
+            LogDisabledCatalog();
+            return null;
+        }
+
+        fileSystemClient ??= CreateFileSystemClient(options);
+        return fileSystemClient;
+    }
+
+    private void LogDisabledCatalog()
+    {
+        if (loggedDisabledCatalog)
+        {
+            return;
+        }
+
+        loggedDisabledCatalog = true;
+        logger.LogWarning("Bulk Analysis ADLS catalog is disabled because storage options are incomplete or contain placeholder values.");
+    }
+
+    private static DataLakeFileSystemClient CreateFileSystemClient(BulkAnalysisAdlsOptions options)
+    {
+        try
+        {
+            return new DataLakeFileSystemClient(options.ConnectionString, options.FileSystemName);
+        }
+        catch (FormatException ex)
+        {
+            throw new InvalidOperationException(
+                "Bulk Analysis ADLS connection string is invalid. Configure a real storage connection string or leave it unset for local fallback data.",
+                ex);
+        }
+    }
 }

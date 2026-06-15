@@ -24,6 +24,22 @@
       "group": "build"
     },
     {
+      "label": "kill file-manager-blazor port 5167",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\kill-port.ps1",
+        "-Port",
+        "5167"
+      ],
+      "problemMatcher": []
+    },
+    {
       "label": "stop existing file-manager-blazor instances",
       "type": "shell",
       "command": "powershell",
@@ -66,6 +82,7 @@
     {
       "label": "prepare launch file-manager-api",
       "dependsOn": [
+        "kill file-manager-blazor port 5167",
         "stop existing file-manager-api instances",
         "build file-manager-api"
       ],
@@ -84,6 +101,7 @@
         "http"
       ],
       "dependsOn": [
+        "kill file-manager-blazor port 5167",
         "stop existing file-manager-blazor instances"
       ],
       "dependsOrder": "sequence",

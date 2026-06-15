@@ -1,9 +1,44 @@
 using FileManagerApi.Services;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FileManagerApi.Tests;
 
 public sealed class BulkAnalysisCatalogBuilderTests
 {
+    [Fact]
+    public void BulkAnalysisAdlsOptions_rejects_placeholder_connection_string()
+    {
+        var options = new BulkAnalysisAdlsOptions
+        {
+            ConnectionString = "DefaultEndpointsProtocol=https;AccountName=your_account;AccountKey=your_key;EndpointSuffix=core.windows.net",
+            FileSystemName = "bulk-analysis"
+        };
+
+        Assert.True(options.HasPlaceholderConnectionString);
+        Assert.False(options.IsConfigured);
+    }
+
+    [Fact]
+    public async Task AdlsCatalogService_returns_empty_catalog_when_options_are_placeholder()
+    {
+        var options = new BulkAnalysisAdlsOptions
+        {
+            ConnectionString = "DefaultEndpointsProtocol=https;AccountName=your_account;AccountKey=your_key;EndpointSuffix=core.windows.net",
+            FileSystemName = "bulk-analysis"
+        };
+
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var service = new AdlsBulkAnalysisCatalogService(
+            options,
+            memoryCache,
+            NullLogger<AdlsBulkAnalysisCatalogService>.Instance);
+
+        var folders = await service.GetFoldersAsync();
+
+        Assert.Empty(folders);
+    }
+
     [Fact]
     public async Task BuildAsync_groups_supported_raw_documents_by_category()
     {
