@@ -26,19 +26,20 @@
 
 <PageTitle>Bulk Analysis</PageTitle>
 
-<header class="guided-workflow-header">
-    <h1>@HeaderTitle</h1>
-    <p>@HeaderDescription</p>
-    <div class="workflow-progress" aria-label="Workflow progress">
-        <div class="workflow-progress-track">
-            <span class="workflow-progress-fill" style="@($"width: {CurrentStepNumber * 100 / 3}%;")"></span>
+<div class="bulk-analysis-workflow">
+    <header class="guided-workflow-header">
+        <h1>@HeaderTitle</h1>
+        <p>@HeaderDescription</p>
+        <div class="workflow-progress" aria-label="Workflow progress">
+            <div class="workflow-progress-track">
+                <span class="workflow-progress-fill" style="@($"width: {CurrentStepNumber * 100 / 3}%;")"></span>
+            </div>
+            <p class="workflow-step">Step @CurrentStepNumber of 3</p>
         </div>
-        <p class="workflow-step">Step @CurrentStepNumber of 3</p>
-    </div>
-    <div class="workflow-divider" aria-hidden="true"></div>
-</header>
+        <div class="workflow-divider" aria-hidden="true"></div>
+    </header>
 
-<section class="@($"guided-analysis-page {(workflowStep is WorkflowStep.SelectDocuments or WorkflowStep.Results ? "document-step-page" : "")}")" aria-label="Bulk Analysis workflow">
+    <section class="@($"guided-analysis-page {(workflowStep is WorkflowStep.SelectDocuments or WorkflowStep.Results ? "document-step-page" : "")}")" aria-label="Bulk Analysis workflow">
     @if (workflowStep == WorkflowStep.SelectDocuments)
     {
         <div class="@($"document-step-layout {(isDocumentSelectionPanelCollapsed ? "document-selection-collapsed" : "")}")">
@@ -599,7 +600,8 @@
             </div>
         }
     }
-</section>
+    </section>
+</div>
 
 @code {
     private static readonly MarkdownPipeline MarkdownPipeline = new MarkdownPipelineBuilder()
