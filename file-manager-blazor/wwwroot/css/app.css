@@ -2348,7 +2348,7 @@ svg {
     height: 100%;
 }
 
-.document-selection-card:not(.collapsed) {
+.selection-nav-card:not(.collapsed) {
     display: flex;
     flex-direction: column;
     max-height: none;
@@ -2402,6 +2402,7 @@ svg {
 .title-tooltip-trigger::before,
 .title-tooltip-trigger::after {
     position: absolute;
+    display: none;
     opacity: 0;
     pointer-events: none;
     transform: translateY(0.25rem);
@@ -2440,6 +2441,7 @@ svg {
 .title-tooltip-trigger:hover::after,
 .title-tooltip-trigger:focus-visible::before,
 .title-tooltip-trigger:focus-visible::after {
+    display: block;
     opacity: 1;
     transform: translateY(0);
 }
@@ -2694,6 +2696,10 @@ svg {
     border-bottom: 1px solid var(--shell-line);
 }
 
+.selection-nav-header {
+    flex: 0 0 auto;
+}
+
 .workflow-card-header h2 {
     color: var(--shell-heading);
     font-size: var(--type-section-title);
@@ -2763,6 +2769,7 @@ svg {
     flex: 1 1 22rem;
 }
 
+.selection-nav-list,
 .document-selection-list,
 .document-option-list {
     display: flex;
@@ -2770,6 +2777,7 @@ svg {
     gap: 0;
 }
 
+.selection-nav-list,
 .document-selection-list {
     margin-top: var(--density-gap);
 }
@@ -2883,6 +2891,11 @@ svg {
     outline-offset: 2px;
 }
 
+.selection-nav-control-spacer {
+    width: 1.15rem;
+    height: 1.15rem;
+}
+
 .document-folder-heading {
     display: flex;
     min-width: 0;
@@ -2949,6 +2962,7 @@ svg {
 .category-tooltip-trigger::before,
 .category-tooltip-trigger::after {
     position: absolute;
+    display: none;
     opacity: 0;
     pointer-events: none;
     transform: translateY(0.25rem);
@@ -2987,6 +3001,7 @@ svg {
 .category-tooltip-trigger:hover::after,
 .category-tooltip-trigger:focus-visible::before,
 .category-tooltip-trigger:focus-visible::after {
+    display: block;
     opacity: 1;
     transform: translateY(0);
 }
@@ -3123,6 +3138,7 @@ svg {
 .analysis-type-option::before,
 .analysis-type-option::after {
     position: absolute;
+    display: none;
     opacity: 0;
     pointer-events: none;
     transform: translateY(0.25rem);
@@ -3170,12 +3186,14 @@ svg {
 .analysis-type-option:hover::after,
 .analysis-type-option:has(input:focus-visible)::before,
 .analysis-type-option:has(input:focus-visible)::after {
+    display: block;
     opacity: 1;
     transform: translateY(0);
 }
 
 .analysis-type-option.tooltip-dismissed::before,
 .analysis-type-option.tooltip-dismissed::after {
+    display: none;
     opacity: 0;
     transform: translateY(0.25rem);
 }
@@ -3238,6 +3256,7 @@ svg {
     height: 100%;
 }
 
+.selection-nav-header-actions,
 .document-panel-header-actions,
 .result-panel-header-actions {
     display: flex;
@@ -3271,16 +3290,17 @@ svg {
     line-height: 1;
 }
 
+.selection-nav-content,
 .document-selection-panel-content,
 .result-panel-content {
     min-width: 0;
 }
 
-.document-selection-card:not(.collapsed) .document-selection-panel-content,
-.result-selection-card:not(.collapsed) .result-panel-content {
+.selection-nav-card:not(.collapsed) .selection-nav-content {
     min-height: 0;
     flex: 1 1 auto;
     overflow: auto;
+    padding-right: 0.15rem;
 }
 
 .result-sop-list {
@@ -3433,12 +3453,8 @@ svg {
     grid-template-columns: minmax(18rem, 0.52fr) minmax(0, 1.48fr);
 }
 
-.prompt-selection-card .workflow-card-header {
-    flex: 0 0 auto;
-}
-
 .prompt-folder-card .document-folder-header {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto auto minmax(0, 1fr);
 }
 
 .prompt-folder-heading {
@@ -3451,56 +3467,55 @@ svg {
 }
 
 .prompt-option-list {
-    gap: 0.25rem;
+    gap: 0;
 }
 
 .prompt-option-row {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    align-items: start;
+    align-items: center;
     column-gap: 0.55rem;
     row-gap: 0.12rem;
     width: 100%;
     min-width: 0;
-    padding: 0.55rem 0.65rem;
-    border: 1px solid transparent;
-    border-radius: var(--shell-radius-control);
+    min-height: 2.85rem;
+    padding: 0.5rem 0.35rem;
+    border: 0;
+    border-bottom: 1px solid rgba(35, 55, 89, 0.08);
+    border-radius: 0;
     background: transparent;
     color: var(--shell-heading);
     cursor: pointer;
     text-align: left;
     transition:
         border-color 120ms ease,
-        background 120ms ease,
-        transform 120ms ease;
+        background 120ms ease;
 }
 
 .prompt-option-row input[type="radio"] {
-    width: 0.9rem;
-    height: 0.9rem;
-    margin: 0.12rem 0 0;
-    accent-color: #117f8b;
+    width: 1.05rem;
+    height: 1.05rem;
+    margin: 0;
+    accent-color: var(--shell-accent-strong);
 }
 
 .prompt-option-row:hover,
 .prompt-option-row:focus-visible {
-    transform: translateY(-1px);
-    border-color: rgba(17, 127, 139, 0.24);
-    background: rgba(236, 248, 246, 0.58);
+    border-bottom-color: rgba(17, 127, 139, 0.18);
+    background: rgba(236, 248, 246, 0.34);
     outline: none;
 }
 
 .prompt-option-row:focus-within {
-    transform: translateY(-1px);
-    border-color: rgba(17, 127, 139, 0.34);
-    background: rgba(236, 248, 246, 0.58);
-    outline: 2px solid rgba(17, 127, 139, 0.28);
+    border-bottom-color: rgba(17, 127, 139, 0.2);
+    background: rgba(236, 248, 246, 0.56);
+    outline: 3px solid rgba(17, 127, 139, 0.18);
     outline-offset: 2px;
 }
 
 .prompt-option-row.selected {
-    border-color: rgba(17, 127, 139, 0.34);
-    background: linear-gradient(90deg, rgba(17, 127, 139, 0.16), rgba(236, 248, 246, 0.54) 2rem, rgba(255, 255, 255, 0.72));
+    border-bottom-color: rgba(17, 127, 139, 0.2);
+    background: rgba(236, 248, 246, 0.56);
 }
 
 .prompt-option-copy {
@@ -3510,12 +3525,16 @@ svg {
 
 .prompt-option-copy strong,
 .prompt-option-copy span {
+    display: block;
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .prompt-option-copy strong {
-    font-size: var(--type-body);
+    color: var(--shell-heading);
+    font-size: var(--type-row-title);
     line-height: 1.25;
 }
 

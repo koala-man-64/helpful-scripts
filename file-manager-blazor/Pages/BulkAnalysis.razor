@@ -48,8 +48,8 @@
     @if (workflowStep == WorkflowStep.SelectDocuments)
     {
         <div class="@($"document-step-layout {(isDocumentSelectionPanelCollapsed ? "document-selection-collapsed" : "")}")">
-            <section class="@($"workflow-card document-selection-card {(isDocumentSelectionPanelCollapsed ? "collapsed" : "")}")" aria-labelledby="select-documents-title">
-                <div class="workflow-card-header">
+            <section class="@($"workflow-card selection-nav-card document-selection-card {(isDocumentSelectionPanelCollapsed ? "collapsed" : "")}")" aria-labelledby="select-documents-title">
+                <div class="workflow-card-header selection-nav-header">
                     <div>
                         <h2 id="select-documents-title" class="panel-title-inline">
                             <span class="title-tooltip-trigger"
@@ -62,7 +62,7 @@
                         </h2>
                         <span id="select-documents-tooltip" class="sr-only">Use the folder checkboxes to select whole categories at once.</span>
                     </div>
-                    <div class="document-panel-header-actions">
+                    <div class="selection-nav-header-actions document-panel-header-actions">
                         <div class="document-selection-actions" aria-label="Document selection shortcuts">
                             <button type="button" class="link-button" @onclick="SelectAllDocuments">
                                 Select all
@@ -84,7 +84,7 @@
                     </div>
                 </div>
 
-                <div id="document-selection-panel-content" class="document-selection-panel-content" hidden="@isDocumentSelectionPanelCollapsed">
+                <div id="document-selection-panel-content" class="selection-nav-content document-selection-panel-content" hidden="@isDocumentSelectionPanelCollapsed">
                     @{
                         var visibleDocumentPanels = GetVisibleDocumentPanels();
                     }
@@ -106,7 +106,7 @@
                     }
                     else
                     {
-                        <div class="document-selection-list">
+                        <div class="selection-nav-list document-selection-list">
                             @foreach (var folderPanel in visibleDocumentPanels)
                             {
                                 var isCollapsed = IsFolderCollapsed(folderPanel.Folder.Id);
@@ -323,8 +323,8 @@
     else if (workflowStep == WorkflowStep.Results)
     {
         <div class="@($"document-step-layout results-step-layout {(isResultsPanelCollapsed ? "results-panel-collapsed" : "")}")">
-            <section class="@($"workflow-card document-selection-card result-selection-card {(isResultsPanelCollapsed ? "collapsed" : "")}")" aria-labelledby="results-title">
-                <div class="workflow-card-header">
+            <section class="@($"workflow-card selection-nav-card document-selection-card result-selection-card {(isResultsPanelCollapsed ? "collapsed" : "")}")" aria-labelledby="results-title">
+                <div class="workflow-card-header selection-nav-header">
                     <div>
                         <h2 id="results-title" class="results-title-inline">
                             <span class="title-tooltip-trigger"
@@ -339,7 +339,7 @@
                         </h2>
                         <span id="results-tooltip" class="sr-only">Review generated bulk analysis results for the selected documents.</span>
                     </div>
-                    <div class="result-panel-header-actions">
+                    <div class="selection-nav-header-actions result-panel-header-actions">
                         <div class="selection-shortcut-actions" aria-label="Result selection shortcuts">
                             <button type="button"
                                     class="link-button"
@@ -367,7 +367,7 @@
                     </div>
                 </div>
 
-                <div id="results-panel-content" class="result-panel-content" hidden="@isResultsPanelCollapsed">
+                <div id="results-panel-content" class="selection-nav-content result-panel-content" hidden="@isResultsPanelCollapsed">
                         @if (selectedDocuments.Count == 0 || selectedAnalysisTypes.Count == 0)
                         {
                             <div class="workflow-empty-state">
@@ -388,7 +388,7 @@
                             }
                             else
                             {
-                                <div class="document-selection-list result-document-list">
+                                <div class="selection-nav-list document-selection-list result-document-list">
                                     @foreach (var analysisPanel in visibleResultPanels)
                                     {
                                         var isAnalysisCollapsed = IsResultNodeCollapsed(analysisPanel.NodeId);
@@ -615,8 +615,8 @@
     else if (workflowStep == WorkflowStep.ContextualAnalysis)
     {
         <div class="document-step-layout results-step-layout prompt-step-layout">
-            <section class="workflow-card document-selection-card result-selection-card prompt-selection-card" aria-labelledby="contextual-prompts-title">
-                <div class="workflow-card-header">
+            <section class="workflow-card selection-nav-card document-selection-card result-selection-card prompt-selection-card" aria-labelledby="contextual-prompts-title">
+                <div class="workflow-card-header selection-nav-header">
                     <div>
                         <h2 id="contextual-prompts-title" class="results-title-inline">
                             <span class="title-tooltip-trigger"
@@ -633,7 +633,7 @@
                     </div>
                 </div>
 
-                <div class="result-panel-content prompt-panel-content">
+                <div class="selection-nav-content result-panel-content prompt-panel-content">
                     @if (isLoadingPrompts)
                     {
                         <div class="workflow-empty-state">
@@ -657,13 +657,14 @@
                     }
                     else
                     {
-                        <div class="document-selection-list result-document-list prompt-list" role="radiogroup" aria-label="Contextual analysis prompts">
+                        <div class="selection-nav-list document-selection-list result-document-list prompt-list" role="radiogroup" aria-label="Contextual analysis prompts">
                             @foreach (var group in promptGroups)
                             {
                                 var isGroupCollapsed = IsPromptGroupCollapsed(group.NodeId);
 
                                 <section class="@GetPromptGroupPanelClass(group)" style="--folder-depth: 0;">
                                     <div class="document-folder-header">
+                                        <span class="selection-nav-control-spacer" aria-hidden="true"></span>
                                         <button type="button"
                                                 class="folder-collapse-button"
                                                 aria-expanded="@(!isGroupCollapsed)"
