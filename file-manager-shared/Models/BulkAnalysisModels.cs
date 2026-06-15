@@ -64,3 +64,14 @@ public sealed record BulkAnalysisResultPreview(
     string FileExtension,
     string Format,
     byte[] Content);
+
+public sealed record BulkAnalysisPrompt(
+    string Id,
+    string AnalysisSlug,
+    string DisplayName,
+    string Description,
+    string PromptText,
+    IReadOnlyList<string> Tags,
+    string? Version = null,
+    string? SourcePath = null,
+    DateTimeOffset? UpdatedAt = null);

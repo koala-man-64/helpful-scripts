@@ -24,6 +24,17 @@ builder.Services.AddScoped<IBulkAnalysisResultProvider>(sp =>
 
     return new FallbackBulkAnalysisResultProvider(apiProvider, new MockBulkAnalysisResultProvider());
 });
+builder.Services.AddScoped<IBulkAnalysisPromptProvider>(sp =>
+{
+    var apiProvider = new ApiBulkAnalysisPromptProvider(sp.GetRequiredService<HttpClient>());
+    if (!bulkAnalysisApiOptions.UseMockFallback)
+    {
+        return apiProvider;
+    }
+
+    return new FallbackBulkAnalysisPromptProvider(apiProvider, new MockBulkAnalysisPromptProvider());
+});
+builder.Services.AddScoped<StriderLaunchState>();
 
 await builder.Build().RunAsync();
 
