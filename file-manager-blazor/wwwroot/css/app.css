@@ -2245,12 +2245,10 @@ svg {
     padding: 1rem var(--density-page-x) 2rem;
 }
 
-/* Step 2 is a single card: cap its width and left-align it so it lines up
-   with the left edge of the two-panel steps instead of stretching full width. */
+/* Step 2 is a single card: keep it left-aligned and use the wide workspace
+   for the option list instead of introducing an internal scroll region. */
 .guided-analysis-page:not(.document-step-page) > .workflow-card {
-    max-width: 64rem;
-    max-height: var(--bulk-panel-max-height);
-    overflow: auto;
+    max-width: 82rem;
 }
 
 .workflow-card {
@@ -3039,7 +3037,7 @@ svg {
 
 .analysis-type-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr));
     column-gap: 0.95rem;
     row-gap: 0;
     margin-top: var(--density-gap);
