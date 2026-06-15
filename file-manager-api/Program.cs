@@ -5,8 +5,12 @@ var builder = WebApplication.CreateBuilder(args);
 AddSharedAppSettings(builder.Configuration, builder.Environment, args);
 
 var adlsOptions = ReadBulkAnalysisAdlsOptions(builder.Configuration);
+var renderingOptions = ReadBulkAnalysisRenderingOptions(builder.Configuration);
 builder.Services.AddSingleton(adlsOptions);
+builder.Services.AddSingleton(renderingOptions);
 builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<IBulkAnalysisDocumentConverter, LibreOfficeBulkAnalysisDocumentConverter>();
+builder.Services.AddSingleton<IBulkAnalysisResultPreviewBuilder, BulkAnalysisResultPreviewBuilder>();
 builder.Services.AddSingleton<IBulkAnalysisCatalogService, AdlsBulkAnalysisCatalogService>();
 
 var allowedOrigins = builder.Configuration
@@ -74,15 +78,26 @@ bulkAnalysis.MapGet("/raw", async (
     return rawFile is null ? Results.NotFound() : Results.Ok(rawFile);
 });
 
-bulkAnalysis.MapGet("/results/markdown", async (
+bulkAnalysis.MapGet("/results/file", async (
     string resultId,
     IBulkAnalysisCatalogService catalogService,
     CancellationToken cancellationToken) =>
 {
-    var markdown = await catalogService.GetResultMarkdownAsync(resultId, cancellationToken);
-    return markdown is null
+    var resultFile = await catalogService.GetResultFileAsync(resultId, cancellationToken);
+    return resultFile is null
         ? Results.NotFound()
-        : Results.Text(markdown, "text/markdown; charset=utf-8");
+        : Results.Ok(resultFile);
+});
+
+bulkAnalysis.MapGet("/results/preview", async (
+    string resultId,
+    IBulkAnalysisCatalogService catalogService,
+    CancellationToken cancellationToken) =>
+{
+    var preview = await catalogService.GetResultPreviewAsync(resultId, cancellationToken);
+    return preview is null
+        ? Results.NotFound()
+        : Results.Ok(preview);
 });
 
 app.Run();
@@ -103,6 +118,16 @@ static BulkAnalysisAdlsOptions ReadBulkAnalysisAdlsOptions(IConfiguration config
     };
 }
 
+static BulkAnalysisRenderingOptions ReadBulkAnalysisRenderingOptions(IConfiguration configuration)
+{
+    var section = configuration.GetSection(BulkAnalysisRenderingOptions.SectionName);
+
+    return new BulkAnalysisRenderingOptions
+    {
+        LibreOfficePath = section["LibreOfficePath"] ?? string.Empty
+    };
+}
+
 static bool IsBulkAnalysisRoute(HttpContext context) =>
     context.Request.Path.StartsWithSegments("/api/bulk-analysis", StringComparison.OrdinalIgnoreCase);
 
@@ -110,8 +135,10 @@ static bool IsBulkAnalysisServiceException(Exception ex) =>
     ex is InvalidOperationException or FormatException or RequestFailedException;
 
 static string GetBulkAnalysisErrorDetail(Exception ex) =>
-    ex is InvalidOperationException
-        ? "Configure BulkAnalysisAdls__ConnectionString and BulkAnalysisAdls__FileSystemName, or ADLS_CONNECTION_STRING and ADLS_FILE_SYSTEM, before starting the API."
+    ex is InvalidOperationException invalidOperationException
+        ? invalidOperationException.Message == "Bulk Analysis ADLS options are incomplete."
+            ? "Configure BulkAnalysisAdls__ConnectionString and BulkAnalysisAdls__FileSystemName, or ADLS_CONNECTION_STRING and ADLS_FILE_SYSTEM, before starting the API."
+            : invalidOperationException.Message
         : "The API could not read the configured ADLS catalog. Check the storage connection string, file system name, and account permissions.";
 
 static string FirstConfiguredValue(params string?[] values) =>

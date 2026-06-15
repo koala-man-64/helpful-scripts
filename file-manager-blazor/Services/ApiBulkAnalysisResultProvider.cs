@@ -8,7 +8,8 @@ public sealed class ApiBulkAnalysisResultProvider : IBulkAnalysisResultProvider
 {
     private readonly HttpClient httpClient;
     private readonly SemaphoreSlim catalogLock = new(1, 1);
-    private readonly Dictionary<string, string> resultMarkdownById = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, BulkAnalysisResultFile> resultFilesById = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, BulkAnalysisResultPreview> resultPreviewsById = new(StringComparer.Ordinal);
 
     private IReadOnlyList<BulkAnalysisFolder>? cachedFolders;
 
@@ -60,15 +61,15 @@ public sealed class ApiBulkAnalysisResultProvider : IBulkAnalysisResultProvider
         return await response.Content.ReadFromJsonAsync<BulkAnalysisRawFile>(cancellationToken: cancellationToken);
     }
 
-    public async Task<string?> GetResultMarkdownAsync(string resultId, CancellationToken cancellationToken = default)
+    public async Task<BulkAnalysisResultFile?> GetResultFileAsync(string resultId, CancellationToken cancellationToken = default)
     {
-        if (resultMarkdownById.TryGetValue(resultId, out var cachedMarkdown))
+        if (resultFilesById.TryGetValue(resultId, out var cachedFile))
         {
-            return cachedMarkdown;
+            return cachedFile;
         }
 
         using var response = await httpClient.GetAsync(
-            $"api/bulk-analysis/results/markdown?resultId={Uri.EscapeDataString(resultId)}",
+            $"api/bulk-analysis/results/file?resultId={Uri.EscapeDataString(resultId)}",
             cancellationToken);
 
         if (response.StatusCode == HttpStatusCode.NotFound)
@@ -78,8 +79,39 @@ public sealed class ApiBulkAnalysisResultProvider : IBulkAnalysisResultProvider
 
         response.EnsureSuccessStatusCode();
 
-        var markdown = await response.Content.ReadAsStringAsync(cancellationToken);
-        resultMarkdownById[resultId] = markdown;
-        return markdown;
+        var resultFile = await response.Content.ReadFromJsonAsync<BulkAnalysisResultFile>(cancellationToken: cancellationToken);
+        if (resultFile is not null)
+        {
+            resultFilesById[resultId] = resultFile;
+        }
+
+        return resultFile;
+    }
+
+    public async Task<BulkAnalysisResultPreview?> GetResultPreviewAsync(string resultId, CancellationToken cancellationToken = default)
+    {
+        if (resultPreviewsById.TryGetValue(resultId, out var cachedPreview))
+        {
+            return cachedPreview;
+        }
+
+        using var response = await httpClient.GetAsync(
+            $"api/bulk-analysis/results/preview?resultId={Uri.EscapeDataString(resultId)}",
+            cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+
+        var preview = await response.Content.ReadFromJsonAsync<BulkAnalysisResultPreview>(cancellationToken: cancellationToken);
+        if (preview is not null)
+        {
+            resultPreviewsById[resultId] = preview;
+        }
+
+        return preview;
     }
 }

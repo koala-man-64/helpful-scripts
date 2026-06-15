@@ -17,6 +17,7 @@ public sealed class AdlsBulkAnalysisCatalogService : IBulkAnalysisCatalogService
     private readonly BulkAnalysisAdlsOptions options;
     private readonly IMemoryCache memoryCache;
     private readonly ILogger<AdlsBulkAnalysisCatalogService> logger;
+    private readonly IBulkAnalysisResultPreviewBuilder resultPreviewBuilder;
     private readonly SemaphoreSlim catalogLock = new(1, 1);
     private DataLakeFileSystemClient? fileSystemClient;
     private bool loggedDisabledCatalog;
@@ -24,11 +25,13 @@ public sealed class AdlsBulkAnalysisCatalogService : IBulkAnalysisCatalogService
     public AdlsBulkAnalysisCatalogService(
         BulkAnalysisAdlsOptions options,
         IMemoryCache memoryCache,
-        ILogger<AdlsBulkAnalysisCatalogService> logger)
+        ILogger<AdlsBulkAnalysisCatalogService> logger,
+        IBulkAnalysisResultPreviewBuilder resultPreviewBuilder)
     {
         this.options = options;
         this.memoryCache = memoryCache;
         this.logger = logger;
+        this.resultPreviewBuilder = resultPreviewBuilder;
     }
 
     public async Task<IReadOnlyList<BulkAnalysisFolder>> GetFoldersAsync(CancellationToken cancellationToken = default)
@@ -54,7 +57,7 @@ public sealed class AdlsBulkAnalysisCatalogService : IBulkAnalysisCatalogService
             content);
     }
 
-    public async Task<string?> GetResultMarkdownAsync(string resultId, CancellationToken cancellationToken = default)
+    public async Task<BulkAnalysisResultFile?> GetResultFileAsync(string resultId, CancellationToken cancellationToken = default)
     {
         var catalog = await GetCatalogAsync(cancellationToken);
         if (!catalog.ResultFilesById.TryGetValue(resultId, out var reference))
@@ -62,7 +65,31 @@ public sealed class AdlsBulkAnalysisCatalogService : IBulkAnalysisCatalogService
             return null;
         }
 
-        return StripFrontMatter(await DownloadTextAsync(reference.ResultPath, cancellationToken));
+        var content = await DownloadBytesAsync(reference.ResultPath, cancellationToken);
+        return new BulkAnalysisResultFile(
+            resultId,
+            reference.FileName,
+            reference.ContentType,
+            reference.FileExtension,
+            reference.ResultPath,
+            content);
+    }
+
+    public async Task<BulkAnalysisResultPreview?> GetResultPreviewAsync(string resultId, CancellationToken cancellationToken = default)
+    {
+        var resultFile = await GetResultFileAsync(resultId, cancellationToken);
+        if (resultFile is null)
+        {
+            return null;
+        }
+
+        var reference = new ResultFileReference(
+            resultFile.SourcePath,
+            resultFile.FileName,
+            resultFile.ContentType,
+            resultFile.FileExtension);
+
+        return await resultPreviewBuilder.BuildAsync(resultId, reference, resultFile.Content, cancellationToken);
     }
 
     private async Task<BulkAnalysisCatalog> GetCatalogAsync(CancellationToken cancellationToken)
@@ -190,19 +217,6 @@ public sealed class AdlsBulkAnalysisCatalogService : IBulkAnalysisCatalogService
         }
 
         return result;
-    }
-
-    private static string StripFrontMatter(string markdown)
-    {
-        markdown = NormalizeLineEndings(markdown);
-
-        if (!markdown.StartsWith("---\n", StringComparison.Ordinal))
-        {
-            return markdown.Trim();
-        }
-
-        var end = markdown.IndexOf("\n---\n", 4, StringComparison.Ordinal);
-        return end < 0 ? markdown.Trim() : markdown[(end + 5)..].Trim();
     }
 
     private static string NormalizeLineEndings(string value) =>

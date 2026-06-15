@@ -8,5 +8,7 @@ public interface IBulkAnalysisCatalogService
 
     Task<BulkAnalysisRawFile?> GetRawFileAsync(string documentId, CancellationToken cancellationToken = default);
 
-    Task<string?> GetResultMarkdownAsync(string resultId, CancellationToken cancellationToken = default);
+    Task<BulkAnalysisResultFile?> GetResultFileAsync(string resultId, CancellationToken cancellationToken = default);
+
+    Task<BulkAnalysisResultPreview?> GetResultPreviewAsync(string resultId, CancellationToken cancellationToken = default);
 }
