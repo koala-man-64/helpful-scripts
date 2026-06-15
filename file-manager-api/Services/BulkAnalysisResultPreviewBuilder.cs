@@ -30,14 +30,21 @@ public sealed class BulkAnalysisResultPreviewBuilder(
         byte[] content,
         CancellationToken cancellationToken)
     {
-        var convertedContent = await documentConverter.ConvertDocToDocxAsync(reference.FileName, content, cancellationToken);
-        return new BulkAnalysisResultPreview(
-            resultId,
-            Path.ChangeExtension(reference.FileName, ".docx"),
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "docx",
-            "Word",
-            convertedContent);
+        try
+        {
+            var convertedContent = await documentConverter.ConvertDocToDocxAsync(reference.FileName, content, cancellationToken);
+            return new BulkAnalysisResultPreview(
+                resultId,
+                Path.ChangeExtension(reference.FileName, ".docx"),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "docx",
+                "Word",
+                convertedContent);
+        }
+        catch (InvalidOperationException)
+        {
+            return BuildPassthroughPreview(resultId, reference, "Word", content);
+        }
     }
 
     private static BulkAnalysisResultPreview BuildMarkdownPreview(
