@@ -5,8 +5,8 @@
     --shell-surface-soft: #eef3f8;
     --shell-foreground: #22324a;
     --shell-heading: #273753;
-    --shell-muted: #6d7b91;
-    --shell-placeholder: #94a2b8;
+    --shell-muted: #5c6b82;
+    --shell-placeholder: #7a899f;
     --shell-line: rgba(35, 55, 89, 0.12);
     --shell-line-strong: rgba(35, 55, 89, 0.2);
     --shell-accent: #4a9f37;
@@ -446,7 +446,10 @@ svg {
 }
 
 .link-button {
-    padding: 0;
+    /* Padding + negative margin keep the visual position while giving the
+       control a >=24px hit area for touch (WCAG 2.5.8). */
+    padding: 0.35rem 0.3rem;
+    margin: -0.35rem 0;
     background: transparent;
     color: var(--shell-accent-strong);
     font-size: var(--type-row-title);
@@ -2210,7 +2213,7 @@ svg {
 }
 
 .guided-workflow-header {
-    width: min(100%, 62rem);
+    width: min(100%, 98rem);
     margin: 0 auto;
     padding: 1.6rem var(--density-page-x) 0;
 }
@@ -2237,12 +2240,15 @@ svg {
 .guided-analysis-page {
     --bulk-panel-max-height: calc(100vh - 1.5rem);
     --bulk-panel-max-height: calc(100dvh - 1.5rem);
-    width: min(100%, 62rem);
+    width: min(100%, 98rem);
     margin: 0 auto;
     padding: 1rem var(--density-page-x) 2rem;
 }
 
+/* Step 2 is a single card: cap its width and left-align it so it lines up
+   with the left edge of the two-panel steps instead of stretching full width. */
 .guided-analysis-page:not(.document-step-page) > .workflow-card {
+    max-width: 64rem;
     max-height: var(--bulk-panel-max-height);
     overflow: auto;
 }
@@ -2252,14 +2258,10 @@ svg {
     border-radius: var(--shell-radius-card);
     background: rgba(255, 255, 255, 0.96);
     box-shadow: var(--shell-shadow-soft);
-}
-
-.workflow-card {
     padding: var(--density-card-pad);
 }
 
 .guided-analysis-page.document-step-page {
-    width: min(100%, 98rem);
     min-height: 0;
     flex: 1 1 auto;
     display: flex;
@@ -2673,7 +2675,6 @@ svg {
     line-height: 1.42;
 }
 
-.document-panel-header-actions,
 .document-selection-actions,
 .selection-shortcut-actions {
     display: inline-flex;
@@ -2683,12 +2684,8 @@ svg {
     white-space: nowrap;
 }
 
-.document-panel-header-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 0.45rem 0.55rem;
-    min-width: 0;
-}
+/* .document-panel-header-actions is defined alongside
+   .result-panel-header-actions further below. */
 
 .analysis-type-selection-actions {
     display: flex;
@@ -2700,7 +2697,7 @@ svg {
 
 .selection-toolbar {
     align-items: end;
-    margin-top: 0.8rem;
+    margin-top: var(--density-gap);
 }
 
 .selection-toolbar .search-box {
@@ -2715,11 +2712,11 @@ svg {
 }
 
 .document-selection-list {
-    margin-top: 0.8rem;
+    margin-top: var(--density-gap);
 }
 
 .document-step-actions {
-    margin-top: 0.65rem;
+    margin-top: var(--density-gap);
     padding-right: 0.25rem;
     padding-left: 0.25rem;
 }
@@ -2789,6 +2786,30 @@ svg {
     outline-offset: 2px;
 }
 
+/* Consistent chevron icon used for folder toggles, panel toggles, and
+   cycle buttons. Base points right; modifier classes rotate for state. */
+.chevron {
+    display: inline-block;
+    width: 0.46rem;
+    height: 0.46rem;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: translateX(-0.1em) rotate(-45deg);
+    transition: transform 120ms ease;
+}
+
+.chevron-left {
+    transform: translateX(0.1em) rotate(135deg);
+}
+
+.chevron-down {
+    transform: translateY(-0.1em) rotate(45deg);
+}
+
+.chevron-up {
+    transform: translateY(0.1em) rotate(-135deg);
+}
+
 .folder-select-button {
     margin-top: 0;
     cursor: pointer;
@@ -2827,7 +2848,8 @@ svg {
     left: auto;
 }
 
-.document-folder-header h3 {
+.document-folder-header h3,
+.document-folder-header h4 {
     overflow: hidden;
     color: var(--shell-heading);
     font-size: var(--type-body);
@@ -2969,8 +2991,10 @@ svg {
 
 .document-option-row input,
 .analysis-type-option input {
-    width: 0.9rem;
-    height: 0.9rem;
+    /* Sized to match the custom tri-state folder checkbox (1.15rem) so the
+       tree uses one consistent checkbox scale at every level. */
+    width: 1.05rem;
+    height: 1.05rem;
     margin: 0;
     accent-color: var(--shell-accent-strong);
 }
@@ -3004,7 +3028,7 @@ svg {
 
 .workflow-footer {
     align-items: center;
-    margin-top: 0.8rem;
+    margin-top: var(--density-gap);
     padding-top: 0.75rem;
     border-top: 1px solid var(--shell-line);
     color: var(--shell-muted);
@@ -3016,7 +3040,7 @@ svg {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: 0.95rem;
     row-gap: 0;
-    margin-top: 0.65rem;
+    margin-top: var(--density-gap);
 }
 
 .analysis-type-option {
@@ -3130,13 +3154,10 @@ svg {
 }
 
 .analysis-type-option em {
-    margin-top: 0;
-    font-size: var(--type-row-meta);
-}
-
-.analysis-type-option em {
     justify-self: end;
-    color: #5c6b82;
+    margin-top: 0;
+    color: var(--shell-muted);
+    font-size: var(--type-row-meta);
     font-weight: 600;
 }
 
@@ -3208,10 +3229,10 @@ svg {
 }
 
 .result-folder-card .document-folder-heading > span {
-    max-width: 4.8rem;
+    max-width: 7rem;
     text-align: right;
     line-height: 1.35;
-    white-space: normal;
+    white-space: nowrap;
 }
 
 .result-analysis-card {
@@ -3228,6 +3249,7 @@ svg {
 }
 
 .result-folder-card .document-folder-header h3,
+.result-folder-card .document-folder-header h4,
 .result-folder-card .document-folder-header p {
     overflow: visible;
     text-overflow: clip;
@@ -3564,8 +3586,7 @@ svg {
 
     .workflow-card-header,
     .selection-toolbar,
-    .workflow-footer,
-    .document-folder-header {
+    .workflow-footer {
         flex-direction: column;
         align-items: stretch;
     }
@@ -3718,7 +3739,7 @@ svg {
     }
 
     .document-option-row {
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: auto minmax(0, 1fr);
     }
 
     .analysis-type-option {

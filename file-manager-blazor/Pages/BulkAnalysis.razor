@@ -27,7 +27,6 @@
 <PageTitle>Bulk Analysis</PageTitle>
 
 <header class="guided-workflow-header">
-    <p class="page-kicker">Bulk document analysis</p>
     <h1>@HeaderTitle</h1>
     <p>@HeaderDescription</p>
     <div class="workflow-progress" aria-label="Workflow progress">
@@ -49,13 +48,13 @@
                         <h2 id="select-documents-title" class="panel-title-inline">
                             <span class="title-tooltip-trigger"
                                   tabindex="0"
-                                  title="Choose the documents you want included in the bulk analysis review."
-                                  data-tooltip="Choose the documents you want included in the bulk analysis review."
+                                  title="Use the folder checkboxes to select whole categories at once."
+                                  data-tooltip="Use the folder checkboxes to select whole categories at once."
                                   aria-describedby="select-documents-tooltip">
                                 Select documents
                             </span>
                         </h2>
-                        <span id="select-documents-tooltip" class="sr-only">Choose the documents you want included in the bulk analysis review.</span>
+                        <span id="select-documents-tooltip" class="sr-only">Use the folder checkboxes to select whole categories at once.</span>
                     </div>
                     <div class="document-panel-header-actions">
                         <div class="document-selection-actions" aria-label="Document selection shortcuts">
@@ -74,7 +73,7 @@
                                 aria-label="@(isDocumentSelectionPanelCollapsed ? "Expand document selection panel" : "Collapse document selection panel")"
                                 title="@(isDocumentSelectionPanelCollapsed ? "Expand document selection panel" : "Collapse document selection panel")"
                                 @onclick="ToggleDocumentSelectionPanel">
-                            <span aria-hidden="true">@(isDocumentSelectionPanelCollapsed ? ">" : "<")</span>
+                            <span class="chevron @(isDocumentSelectionPanelCollapsed ? null : "chevron-left")" aria-hidden="true"></span>
                         </button>
                     </div>
                 </div>
@@ -96,7 +95,7 @@
                     {
                         <div class="workflow-empty-state">
                             <strong>Loading ADLS documents</strong>
-                            <span>Retrieving raw SOP files and available analysis results.</span>
+                            <span>Retrieving source documents and available analysis results.</span>
                         </div>
                     }
                     else
@@ -124,7 +123,7 @@
                                                 aria-expanded="@(!isCollapsed)"
                                                 aria-label="@($"Toggle {folderPanel.Folder.DisplayName}")"
                                                 @onclick="() => ToggleFolderPanel(folderPanel.Folder.Id)">
-                                            <span aria-hidden="true">@(isCollapsed ? ">" : "v")</span>
+                                            <span class="chevron @(isCollapsed ? null : "chevron-down")" aria-hidden="true"></span>
                                         </button>
                                         <div class="document-folder-heading">
                                             <div>
@@ -210,8 +209,8 @@
                             @if (selectedDocuments.Count > 1)
                             {
                                 <div class="preview-cycle-actions" aria-label="Cycle selected source documents">
-                                    <button type="button" class="icon-button bordered" @onclick="() => PreviousSelectionPreviewDocument(selectedDocuments)" aria-label="Previous selected source document">&lt;</button>
-                                    <button type="button" class="icon-button bordered" @onclick="() => NextSelectionPreviewDocument(selectedDocuments)" aria-label="Next selected source document">&gt;</button>
+                                    <button type="button" class="icon-button bordered" @onclick="() => PreviousSelectionPreviewDocument(selectedDocuments)" aria-label="Previous selected source document"><span class="chevron chevron-left" aria-hidden="true"></span></button>
+                                    <button type="button" class="icon-button bordered" @onclick="() => NextSelectionPreviewDocument(selectedDocuments)" aria-label="Next selected source document"><span class="chevron" aria-hidden="true"></span></button>
                                 </div>
                             }
                         </div>
@@ -247,7 +246,16 @@
         <section class="workflow-card" aria-labelledby="select-analysis-title">
             <div class="workflow-card-header">
                 <div>
-                    <h2 id="select-analysis-title">Select bulk analysis types</h2>
+                    <h2 id="select-analysis-title" class="panel-title-inline">
+                        <span class="title-tooltip-trigger"
+                              tabindex="0"
+                              title="Choose which analysis outputs to compare across the selected documents."
+                              data-tooltip="Choose which analysis outputs to compare across the selected documents."
+                              aria-describedby="select-analysis-tooltip">
+                            Select bulk analysis types
+                        </span>
+                    </h2>
+                    <span id="select-analysis-tooltip" class="sr-only">Choose which analysis outputs to compare across the selected documents.</span>
                 </div>
                 <div class="analysis-type-selection-actions">
                     <div class="selection-shortcut-actions" aria-label="Analysis type selection shortcuts">
@@ -271,6 +279,7 @@
 
                     <label class="@GetAnalysisOptionClass(analysisType)"
                            data-tooltip="@analysisDescription"
+                           title="@analysisDescription"
                            @onpointerdown="() => DismissAnalysisTooltip(analysisType)"
                            @onpointerleave="() => ClearDismissedAnalysisTooltip(analysisType)"
                            @onfocusout="() => ClearDismissedAnalysisTooltip(analysisType)">
@@ -314,15 +323,15 @@
                         <h2 id="results-title" class="results-title-inline">
                             <span class="title-tooltip-trigger"
                                   tabindex="0"
-                                  title="Review generated bulk analysis results for selected SOPs."
-                                  data-tooltip="Review generated bulk analysis results for selected SOPs."
+                                  title="Review generated bulk analysis results for the selected documents."
+                                  data-tooltip="Review generated bulk analysis results for the selected documents."
                                   aria-describedby="results-tooltip">
-                                Select Results
+                                Select results
                             </span>
                             <span class="results-title-separator" aria-hidden="true"></span>
                             <span class="results-title-count">@($"{selectedDownloadResults.Count} selected")</span>
                         </h2>
-                        <span id="results-tooltip" class="sr-only">Review generated bulk analysis results for selected SOPs.</span>
+                        <span id="results-tooltip" class="sr-only">Review generated bulk analysis results for the selected documents.</span>
                     </div>
                     <div class="result-panel-header-actions">
                         <div class="selection-shortcut-actions" aria-label="Result selection shortcuts">
@@ -330,7 +339,7 @@
                                     class="link-button"
                                     disabled="@(availableDownloadResultCount == 0)"
                                     @onclick="() => SelectAllResults(selectedDocuments, selectedAnalysisTypes)">
-                                All
+                                Select all
                             </button>
                             <span aria-hidden="true">/</span>
                             <button type="button"
@@ -347,7 +356,7 @@
                                 aria-label="@(isResultsPanelCollapsed ? "Expand results panel" : "Collapse results panel")"
                                 title="@(isResultsPanelCollapsed ? "Expand results panel" : "Collapse results panel")"
                                 @onclick="ToggleResultsPanel">
-                            <span aria-hidden="true">@(isResultsPanelCollapsed ? ">" : "<")</span>
+                            <span class="chevron @(isResultsPanelCollapsed ? null : "chevron-left")" aria-hidden="true"></span>
                         </button>
                     </div>
                 </div>
@@ -356,8 +365,8 @@
                         @if (selectedDocuments.Count == 0 || selectedAnalysisTypes.Count == 0)
                         {
                             <div class="workflow-empty-state">
-                                <strong>Select documents and analysis types to review results.</strong>
-                                <span>Use the previous steps to build a results set.</span>
+                                <strong>No results yet</strong>
+                                <span>Select documents and analysis types in the previous steps to build a results set.</span>
                             </div>
                         }
                         else
@@ -367,8 +376,8 @@
                             @if (visibleResultPanels.Count == 0)
                             {
                                 <div class="workflow-empty-state">
-                                    <strong>No generated results match the selected analysis types.</strong>
-                                    <span>Go back to choose a different analysis type or document set.</span>
+                                    <strong>No matching results</strong>
+                                    <span>No generated results match the selected analysis types. Go back to choose a different analysis type or document set.</span>
                                 </div>
                             }
                             else
@@ -395,11 +404,11 @@
                                                         aria-expanded="@(!isAnalysisCollapsed)"
                                                         aria-label="@($"Toggle {analysisPanel.AnalysisType}")"
                                                         @onclick="() => ToggleResultNode(analysisPanel.NodeId)">
-                                                    <span aria-hidden="true">@(isAnalysisCollapsed ? ">" : "v")</span>
+                                                    <span class="chevron @(isAnalysisCollapsed ? null : "chevron-down")" aria-hidden="true"></span>
                                                 </button>
                                                 <div class="document-folder-heading">
                                                     <h3>@analysisPanel.AnalysisType</h3>
-                                                    <span>@($"{selectedResultsInAnalysis} of {availableResultsInAnalysis} selected")</span>
+                                                    <span>@($"{selectedResultsInAnalysis} of {availableResultsInAnalysis}")</span>
                                                 </div>
                                             </div>
 
@@ -426,11 +435,11 @@
                                                                     aria-expanded="@(!isCategoryCollapsed)"
                                                                     aria-label="@($"Toggle {categoryPanel.Folder.DisplayName}")"
                                                                     @onclick="() => ToggleResultNode(categoryPanel.NodeId)">
-                                                                <span aria-hidden="true">@(isCategoryCollapsed ? ">" : "v")</span>
+                                                                <span class="chevron @(isCategoryCollapsed ? null : "chevron-down")" aria-hidden="true"></span>
                                                             </button>
                                                             <div class="document-folder-heading">
-                                                                <h3>@categoryPanel.Folder.DisplayName</h3>
-                                                                <span>@($"{selectedResultsInCategory} of {availableResultsInCategory} selected")</span>
+                                                                <h4>@categoryPanel.Folder.DisplayName</h4>
+                                                                <span>@($"{selectedResultsInCategory} of {availableResultsInCategory}")</span>
                                                             </div>
                                                         </div>
 
@@ -471,7 +480,7 @@
                 {
                     <div class="workflow-empty-state step-preview-empty">
                         <strong>No result selected</strong>
-                        <span>Select an SOP from the left panel to preview generated analysis.</span>
+                        <span>Select a document from the left panel to preview generated analysis.</span>
                     </div>
                 }
                 else
@@ -484,10 +493,6 @@
                                 <span class="source-preview-summary-meta-item">
                                     <span class="source-preview-summary-meta-label">Category</span>
                                     <span class="source-preview-summary-meta-value">@GetFolderPath(activeDocument.Folder)</span>
-                                </span>
-                                <span class="source-preview-summary-meta-item">
-                                    <span class="source-preview-summary-meta-label">Type</span>
-                                    <span class="source-preview-summary-meta-value">@activeAnalysisType</span>
                                 </span>
                                 @if (activeResult is not null)
                                 {
@@ -512,8 +517,8 @@
                         <div class="source-preview-summary-controls">
                             <span class="selected-count">@($"{GetSelectionPreviewOrdinal(selectedDocuments, activeDocument)} of {selectedDocuments.Count}")</span>
                             <div class="preview-cycle-actions result-cycle-actions" aria-label="Cycle selected results">
-                                <button type="button" class="icon-button bordered" @onclick="PreviousDocument" aria-label="Previous SOP">&lt;</button>
-                                <button type="button" class="icon-button bordered" @onclick="NextDocument" aria-label="Next SOP">&gt;</button>
+                                <button type="button" class="icon-button bordered" @onclick="PreviousDocument" aria-label="Previous document"><span class="chevron chevron-left" aria-hidden="true"></span></button>
+                                <button type="button" class="icon-button bordered" @onclick="NextDocument" aria-label="Next document"><span class="chevron" aria-hidden="true"></span></button>
                             </div>
                         </div>
                     </div>
@@ -523,15 +528,15 @@
                             @if (activeResult is null)
                             {
                                 <div class="workflow-empty-state preview-empty">
-                                    <strong>No @activeAnalysisType result for this SOP</strong>
-                                    <span>Choose another SOP or go back to update selected analysis types.</span>
+                                    <strong>No @activeAnalysisType result for this document</strong>
+                                    <span>Choose another document or go back to update selected analysis types.</span>
                                 </div>
                             }
                             else if (!activeResult.IsPreviewAvailable)
                             {
                                 <div class="workflow-empty-state preview-empty">
-                                    <strong>This analysis result is not available for preview.</strong>
-                                    <span>It can still be included in a download.</span>
+                                    <strong>Preview not available</strong>
+                                    <span>This analysis result can still be included in a download.</span>
                                 </div>
                             }
                             else if (!string.IsNullOrWhiteSpace(activeResultPreviewError))
@@ -651,7 +656,7 @@
         {
             WorkflowStep.SelectDocuments => "Select the documents you want to analyze before choosing the bulk review outputs.",
             WorkflowStep.SelectAnalysisTypes => "Choose the analysis outputs to compare across the selected documents.",
-            _ => "Navigate between selected SOPs and analysis types, then download the generated results you need."
+            _ => "Navigate between selected documents and analysis types, then download the generated results you need."
         };
 
     protected override async Task OnInitializedAsync()
