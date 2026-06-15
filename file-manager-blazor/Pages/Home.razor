@@ -1,4 +1,5 @@
 @page "/"
+@inject StriderLaunchState LaunchState
 
 <PageTitle>Strider Assistant</PageTitle>
 
@@ -12,7 +13,30 @@
     </header>
 
     <section class="composer-card strider-composer" aria-label="Chat composer">
-        <textarea placeholder="Ask Strider, use @@ to select an agent" rows="3" aria-label="Message composer"></textarea>
+        @if (launchContext is not null)
+        {
+            <div class="strider-launch-context" aria-label="Bulk Analysis context">
+                <div>
+                    <strong>Bulk Analysis context loaded</strong>
+                    <span>@($"{launchContext.Results.Count} result file{(launchContext.Results.Count == 1 ? "" : "s")} ready for Strider")</span>
+                </div>
+                <div class="strider-launch-context-files" aria-label="Selected Bulk Analysis results">
+                    @foreach (var result in launchContext.Results.Take(4))
+                    {
+                        <span>@($"{result.DocumentTitle} - {result.AnalysisType}")</span>
+                    }
+                    @if (launchContext.Results.Count > 4)
+                    {
+                        <span>@($"+{launchContext.Results.Count - 4} more")</span>
+                    }
+                </div>
+            </div>
+        }
+        <textarea placeholder="Ask Strider, use @@ to select an agent"
+                  rows="3"
+                  aria-label="Message composer"
+                  @bind="composerValue"
+                  @bind:event="oninput"></textarea>
         <div class="composer-actions">
             <a class="composer-icon-button" href="file-manager" aria-label="Attach files">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -113,3 +137,14 @@
         </div>
     </section>
 </section>
+
+@code {
+    private StriderLaunchContext? launchContext;
+    private string composerValue = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        launchContext = LaunchState.ConsumePending();
+        composerValue = launchContext?.PromptText ?? string.Empty;
+    }
+}

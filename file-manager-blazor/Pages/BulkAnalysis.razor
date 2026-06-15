@@ -3,8 +3,10 @@
 @using System.Text
 @using Markdig
 @inject IBulkAnalysisResultProvider ResultProvider
+@inject IBulkAnalysisPromptProvider PromptProvider
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
+@inject StriderLaunchState LaunchState
 @implements IDisposable
 
 @{
@@ -23,6 +25,8 @@
     var selectedDownloadResults = GetSelectedDownloadResults();
     var selectedPreviewDocument = GetSelectionPreviewDocument(selectedDocuments);
     var selectedPreviewOrdinal = GetSelectionPreviewOrdinal(selectedDocuments, selectedPreviewDocument);
+    var promptGroups = GetPromptGroups(selectedAnalysisTypes);
+    var activePrompt = GetActivePrompt();
 }
 
 <PageTitle>Bulk Analysis</PageTitle>
@@ -33,14 +37,14 @@
         <p>@HeaderDescription</p>
         <div class="workflow-progress" aria-label="Workflow progress">
             <div class="workflow-progress-track">
-                <span class="workflow-progress-fill" style="@($"width: {CurrentStepNumber * 100 / 3}%;")"></span>
+                <span class="workflow-progress-fill" style="@($"width: {CurrentStepNumber * 100 / 4}%;")"></span>
             </div>
-            <p class="workflow-step">Step @CurrentStepNumber of 3</p>
+            <p class="workflow-step">Step @CurrentStepNumber of 4</p>
         </div>
         <div class="workflow-divider" aria-hidden="true"></div>
     </header>
 
-    <section class="@($"guided-analysis-page {(workflowStep is WorkflowStep.SelectDocuments or WorkflowStep.Results ? "document-step-page" : "")}")" aria-label="Bulk Analysis workflow">
+    <section class="@($"guided-analysis-page {(workflowStep is WorkflowStep.SelectDocuments or WorkflowStep.Results or WorkflowStep.ContextualAnalysis ? "document-step-page" : "")}")" aria-label="Bulk Analysis workflow">
     @if (workflowStep == WorkflowStep.SelectDocuments)
     {
         <div class="@($"document-step-layout {(isDocumentSelectionPanelCollapsed ? "document-selection-collapsed" : "")}")">
@@ -316,7 +320,7 @@
             </button>
         </footer>
     }
-    else
+    else if (workflowStep == WorkflowStep.Results)
     {
         <div class="@($"document-step-layout results-step-layout {(isResultsPanelCollapsed ? "results-panel-collapsed" : "")}")">
             <section class="@($"workflow-card document-selection-card result-selection-card {(isResultsPanelCollapsed ? "collapsed" : "")}")" aria-labelledby="results-title">
@@ -590,6 +594,13 @@
                         @onclick="DownloadSelectedResults">
                     @(isDownloadingResults ? "Preparing download" : "Download results")
                 </button>
+                <button type="button"
+                        class="workflow-action-button primary"
+                        data-testid="bulk-analysis-contextual-analysis"
+                        disabled="@(selectedDownloadResults.Count == 0)"
+                        @onclick="GoToContextualAnalysisStep">
+                    Contextual Analysis
+                </button>
             </div>
         </footer>
 
@@ -598,6 +609,158 @@
             <div class="workflow-empty-state preview-empty">
                 <strong>Unable to prepare download</strong>
                 <span>@downloadErrorMessage</span>
+            </div>
+        }
+    }
+    else if (workflowStep == WorkflowStep.ContextualAnalysis)
+    {
+        <div class="document-step-layout results-step-layout prompt-step-layout">
+            <section class="workflow-card document-selection-card result-selection-card prompt-selection-card" aria-labelledby="contextual-prompts-title">
+                <div class="workflow-card-header">
+                    <div>
+                        <h2 id="contextual-prompts-title" class="results-title-inline">
+                            <span class="title-tooltip-trigger"
+                                  tabindex="0"
+                                  title="Choose the prompt Strider should use with the selected Bulk Analysis results."
+                                  data-tooltip="Choose the prompt Strider should use with the selected Bulk Analysis results."
+                                  aria-describedby="contextual-prompts-tooltip">
+                                Select prompt
+                            </span>
+                            <span class="results-title-separator" aria-hidden="true"></span>
+                            <span class="results-title-count">@($"{selectedDownloadResults.Count} result{(selectedDownloadResults.Count == 1 ? "" : "s")}")</span>
+                        </h2>
+                        <span id="contextual-prompts-tooltip" class="sr-only">Choose the prompt Strider should use with the selected Bulk Analysis results.</span>
+                    </div>
+                </div>
+
+                <div class="result-panel-content prompt-panel-content">
+                    @if (isLoadingPrompts)
+                    {
+                        <div class="workflow-empty-state">
+                            <strong>Loading prompts</strong>
+                            <span>Retrieving contextual analysis prompts.</span>
+                        </div>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(promptLoadErrorMessage))
+                    {
+                        <div class="workflow-empty-state">
+                            <strong>Unable to load prompts</strong>
+                            <span>@promptLoadErrorMessage</span>
+                        </div>
+                    }
+                    else if (promptGroups.Count == 0)
+                    {
+                        <div class="workflow-empty-state">
+                            <strong>No prompts available</strong>
+                            <span>Add prompts to the local or ADLS prompt catalog before launching Strider.</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="document-selection-list result-document-list prompt-list">
+                            @foreach (var group in promptGroups)
+                            {
+                                var isGroupCollapsed = IsPromptGroupCollapsed(group.NodeId);
+
+                                <section class="@GetPromptGroupPanelClass(group)" style="--folder-depth: 0;">
+                                    <div class="document-folder-header">
+                                        <button type="button"
+                                                class="folder-collapse-button"
+                                                aria-expanded="@(!isGroupCollapsed)"
+                                                aria-label="@($"Toggle {group.DisplayName}")"
+                                                @onclick="() => TogglePromptGroup(group.NodeId)">
+                                            <span class="chevron @(isGroupCollapsed ? null : "chevron-down")" aria-hidden="true"></span>
+                                        </button>
+                                        <div class="document-folder-heading prompt-folder-heading">
+                                            <h3>@group.DisplayName</h3>
+                                            <span>@($"{group.Prompts.Count} prompt{(group.Prompts.Count == 1 ? "" : "s")}")</span>
+                                        </div>
+                                    </div>
+
+                                    @if (!isGroupCollapsed)
+                                    {
+                                        <div class="document-option-list result-sop-list prompt-option-list">
+                                            @foreach (var prompt in group.Prompts)
+                                            {
+                                                <button type="button"
+                                                        class="@GetPromptOptionClass(prompt)"
+                                                        @onclick="() => SelectPrompt(prompt.Id)">
+                                                    <strong>@prompt.DisplayName</strong>
+                                                    <span>@prompt.Description</span>
+                                                </button>
+                                            }
+                                        </div>
+                                    }
+                                </section>
+                            }
+                        </div>
+                    }
+                </div>
+            </section>
+
+            <aside class="workflow-card step-one-preview-card result-preview-panel prompt-editor-panel" aria-label="Edit contextual analysis prompt">
+                @if (activePrompt is null)
+                {
+                    <div class="workflow-empty-state step-preview-empty">
+                        <strong>No prompt selected</strong>
+                        <span>Select a prompt from the left panel to prepare the Strider launch.</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="source-preview-summary result-preview-summary">
+                        <div class="source-preview-summary-copy">
+                            <strong class="source-preview-title">@activePrompt.DisplayName</strong>
+                            <span class="source-preview-file-name">@activePrompt.Description</span>
+                            <div class="source-preview-summary-meta" aria-label="Prompt details">
+                                <span class="source-preview-summary-meta-item">
+                                    <span class="source-preview-summary-meta-label">Results</span>
+                                    <span class="source-preview-summary-meta-value">@selectedDownloadResults.Count</span>
+                                </span>
+                                <span class="source-preview-summary-meta-item">
+                                    <span class="source-preview-summary-meta-label">Prompt</span>
+                                    <span class="source-preview-summary-meta-value">@FormatTokens(EstimateTokens(editedPromptText)) tokens</span>
+                                </span>
+                                @if (!string.IsNullOrWhiteSpace(activePrompt.Version))
+                                {
+                                    <span class="source-preview-summary-meta-item">
+                                        <span class="source-preview-summary-meta-label">Version</span>
+                                        <span class="source-preview-summary-meta-value">@activePrompt.Version</span>
+                                    </span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="source-preview-body result-preview-body prompt-editor-body">
+                        <textarea class="prompt-editor-textarea"
+                                  data-testid="bulk-analysis-contextual-prompt-editor"
+                                  aria-label="Contextual analysis prompt"
+                                  @bind="editedPromptText"
+                                  @bind:event="oninput"></textarea>
+                    </div>
+                }
+            </aside>
+        </div>
+
+        <footer class="workflow-footer document-step-actions result-step-actions">
+            <button type="button" class="workflow-action-button secondary" @onclick="GoToResultsStep">Back</button>
+            <div class="result-step-primary-actions">
+                <button type="button"
+                        class="workflow-action-button primary"
+                        data-testid="bulk-analysis-launch-strider"
+                        disabled="@(selectedDownloadResults.Count == 0 || string.IsNullOrWhiteSpace(editedPromptText) || isLaunchingStrider)"
+                        @onclick="LaunchWithStrider">
+                    @(isLaunchingStrider ? "Preparing context" : "Launch with Strider")
+                </button>
+            </div>
+        </footer>
+
+        @if (!string.IsNullOrWhiteSpace(launchErrorMessage))
+        {
+            <div class="workflow-empty-state preview-empty">
+                <strong>Unable to launch Strider</strong>
+                <span>@launchErrorMessage</span>
             </div>
         }
     }
@@ -618,15 +781,21 @@
     private readonly HashSet<string> collapsedFolderIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> collapsedResultNodeIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> loadingResultPreviewIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> collapsedPromptGroupIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, BulkAnalysisResultPreview> resultPreviewById = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> resultPreviewErrorsById = new(StringComparer.Ordinal);
+    private IReadOnlyList<BulkAnalysisPrompt> allPrompts = [];
     private WorkflowStep workflowStep = WorkflowStep.SelectDocuments;
     private bool isResultsPanelCollapsed;
     private bool isDocumentSelectionPanelCollapsed;
     private bool isLoadingDocuments;
+    private bool isLoadingPrompts;
     private bool isDownloadingResults;
+    private bool isLaunchingStrider;
     private string? activeDocumentId;
     private string? activeAnalysisType;
+    private string? activePromptId;
+    private string editedPromptText = string.Empty;
     private string? selectionPreviewDocumentId;
     private string? dismissedAnalysisTooltipType;
     private ElementReference sourcePreviewHost;
@@ -636,7 +805,9 @@
     private CancellationTokenSource? resultPreviewLoadCts;
     private string? rawPreviewError;
     private string? loadErrorMessage;
+    private string? promptLoadErrorMessage;
     private string? downloadErrorMessage;
+    private string? launchErrorMessage;
 
     private IReadOnlyList<BulkAnalysisFolder> AllFolders => allFolders;
 
@@ -651,7 +822,8 @@
         {
             WorkflowStep.SelectDocuments => 1,
             WorkflowStep.SelectAnalysisTypes => 2,
-            _ => 3
+            WorkflowStep.Results => 3,
+            _ => 4
         };
 
     private string HeaderTitle => "Bulk Analysis";
@@ -661,13 +833,15 @@
         {
             WorkflowStep.SelectDocuments => "Select the documents you want to analyze before choosing the bulk review outputs.",
             WorkflowStep.SelectAnalysisTypes => "Choose the analysis outputs to compare across the selected documents.",
-            _ => "Navigate between selected documents and analysis types, then download the generated results you need."
+            WorkflowStep.Results => "Navigate between selected documents and analysis types, then download the generated results you need.",
+            _ => "Select and edit a contextual prompt, then launch Strider with the selected results."
         };
 
     protected override async Task OnInitializedAsync()
     {
         await RefreshAsync();
         EnsureActiveTargets();
+        EnsureActivePrompt();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -682,6 +856,7 @@
         isLoadingDocuments = true;
         loadErrorMessage = null;
         downloadErrorMessage = null;
+        launchErrorMessage = null;
         resultPreviewById.Clear();
         resultPreviewErrorsById.Clear();
         collapsedResultNodeIds.Clear();
@@ -703,6 +878,28 @@
         renderedSourcePreviewDocumentId = null;
         renderedResultPreviewId = null;
         CollapseAllFolders();
+        await LoadPromptsAsync();
+        EnsureActivePrompt();
+    }
+
+    private async Task LoadPromptsAsync()
+    {
+        isLoadingPrompts = true;
+        promptLoadErrorMessage = null;
+
+        try
+        {
+            allPrompts = await PromptProvider.GetPromptsAsync();
+        }
+        catch (Exception ex)
+        {
+            allPrompts = [];
+            promptLoadErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoadingPrompts = false;
+        }
     }
 
     private void CollapseAllFolders()
@@ -831,6 +1028,151 @@
         }
 
         return panels;
+    }
+
+    private IReadOnlyList<PromptGroupPanel> GetPromptGroups(IReadOnlyList<string> selectedAnalysisTypes)
+    {
+        var groups = new List<PromptGroupPanel>();
+        var recommendedPrompts = GetMatchingPrompts(selectedAnalysisTypes);
+        var recommendedPromptIds = recommendedPrompts.Select(prompt => prompt.Id).ToHashSet(StringComparer.Ordinal);
+
+        if (recommendedPrompts.Count > 0)
+        {
+            groups.Add(new PromptGroupPanel(
+                "prompt-group:recommended",
+                "Recommended",
+                recommendedPrompts));
+        }
+
+        foreach (var promptGroup in allPrompts
+            .Where(prompt => !recommendedPromptIds.Contains(prompt.Id))
+            .GroupBy(GetPromptGroupName, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            groups.Add(new PromptGroupPanel(
+                $"prompt-group:{NormalizePromptKey(promptGroup.Key)}",
+                promptGroup.Key,
+                promptGroup
+                    .OrderBy(prompt => prompt.DisplayName, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(prompt => prompt.Id, StringComparer.OrdinalIgnoreCase)
+                    .ToArray()));
+        }
+
+        return groups;
+    }
+
+    private IReadOnlyList<BulkAnalysisPrompt> GetMatchingPrompts(IReadOnlyList<string> selectedAnalysisTypes)
+    {
+        var selectedKeys = selectedAnalysisTypes
+            .Select(NormalizePromptKey)
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .ToHashSet(StringComparer.Ordinal);
+
+        return allPrompts
+            .Where(prompt => PromptMatchesAnalysisType(prompt, selectedKeys))
+            .OrderBy(prompt => prompt.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(prompt => prompt.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private BulkAnalysisPrompt? GetActivePrompt() =>
+        allPrompts.FirstOrDefault(prompt => string.Equals(prompt.Id, activePromptId, StringComparison.Ordinal)) ??
+        allPrompts.FirstOrDefault();
+
+    private void EnsureActivePrompt()
+    {
+        if (allPrompts.Count == 0)
+        {
+            activePromptId = null;
+            editedPromptText = string.Empty;
+            return;
+        }
+
+        if (allPrompts.Any(prompt => string.Equals(prompt.Id, activePromptId, StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(GetSelectedDocuments()));
+        var prompt = GetMatchingPrompts(selectedAnalysisTypes).FirstOrDefault() ?? allPrompts.First();
+        SelectPrompt(prompt.Id);
+    }
+
+    private void SelectPrompt(string promptId)
+    {
+        var prompt = allPrompts.FirstOrDefault(prompt => string.Equals(prompt.Id, promptId, StringComparison.Ordinal));
+        if (prompt is null)
+        {
+            return;
+        }
+
+        activePromptId = prompt.Id;
+        editedPromptText = prompt.PromptText;
+    }
+
+    private static bool PromptMatchesAnalysisType(
+        BulkAnalysisPrompt prompt,
+        IReadOnlySet<string> selectedAnalysisTypeKeys)
+    {
+        if (selectedAnalysisTypeKeys.Count == 0)
+        {
+            return false;
+        }
+
+        var promptKeys = new[]
+        {
+            prompt.AnalysisSlug,
+            prompt.DisplayName
+        }
+        .Concat(prompt.Tags ?? [])
+        .Select(NormalizePromptKey)
+        .Where(key => !string.IsNullOrWhiteSpace(key));
+
+        return promptKeys.Any(selectedAnalysisTypeKeys.Contains);
+    }
+
+    private static string GetPromptGroupName(BulkAnalysisPrompt prompt)
+    {
+        var tag = (prompt.Tags ?? []).FirstOrDefault(tag =>
+            !string.Equals(tag, "contextual-analysis", StringComparison.OrdinalIgnoreCase));
+
+        return string.IsNullOrWhiteSpace(tag)
+            ? ToDisplayName(prompt.AnalysisSlug)
+            : ToDisplayName(tag);
+    }
+
+    private static string NormalizePromptKey(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var builder = new System.Text.StringBuilder(value.Length);
+        foreach (var character in value.Trim().ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                builder.Append(character);
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static string ToDisplayName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "General";
+        }
+
+        var words = value
+            .Replace('_', '-')
+            .Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(word => word.Length == 0 ? word : $"{char.ToUpperInvariant(word[0])}{word[1..].ToLowerInvariant()}");
+
+        return string.Join(' ', words);
     }
 
     private ResultFileItem? GetFirstResultFileItem(
@@ -1001,6 +1343,67 @@
 
         EnsureActiveTargets();
         workflowStep = WorkflowStep.Results;
+    }
+
+    private void GoToContextualAnalysisStep()
+    {
+        if (GetSelectedDownloadResults().Count == 0)
+        {
+            workflowStep = WorkflowStep.Results;
+            return;
+        }
+
+        EnsureActivePrompt();
+        launchErrorMessage = null;
+        workflowStep = WorkflowStep.ContextualAnalysis;
+    }
+
+    private async Task LaunchWithStrider()
+    {
+        var results = GetSelectedDownloadResults();
+        var promptText = editedPromptText.Trim();
+        if (results.Count == 0 || string.IsNullOrWhiteSpace(promptText) || isLaunchingStrider)
+        {
+            return;
+        }
+
+        isLaunchingStrider = true;
+        launchErrorMessage = null;
+
+        try
+        {
+            var contextResults = new List<StriderLaunchResultContext>();
+            foreach (var result in results)
+            {
+                var file = await GetOrLoadResultFileAsync(result);
+                contextResults.Add(new StriderLaunchResultContext(
+                    result.Id,
+                    result.DocumentId,
+                    result.FolderName,
+                    result.DocumentTitle,
+                    result.OriginalFileName,
+                    result.AnalysisType,
+                    file.FileName,
+                    file.ContentType,
+                    file.FileExtension,
+                    file.Content));
+            }
+
+            LaunchState.SetPending(new StriderLaunchContext(
+                promptText,
+                GetActivePrompt(),
+                contextResults,
+                DateTimeOffset.Now));
+            NavigationManager.NavigateTo("/");
+        }
+        catch (Exception ex)
+        {
+            launchErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isLaunchingStrider = false;
+        }
     }
 
     private IReadOnlyList<DocumentWithFolder> GetSelectedDocuments() =>
@@ -1462,6 +1865,17 @@
         isResultsPanelCollapsed = !isResultsPanelCollapsed;
     }
 
+    private bool IsPromptGroupCollapsed(string nodeId) =>
+        collapsedPromptGroupIds.Contains(nodeId);
+
+    private void TogglePromptGroup(string nodeId)
+    {
+        if (!collapsedPromptGroupIds.Add(nodeId))
+        {
+            collapsedPromptGroupIds.Remove(nodeId);
+        }
+    }
+
     private void ToggleDocumentSelectionPanel()
     {
         isDocumentSelectionPanelCollapsed = !isDocumentSelectionPanelCollapsed;
@@ -1549,6 +1963,18 @@
         return string.Join(' ', classes);
     }
 
+    private string GetPromptGroupPanelClass(PromptGroupPanel panel)
+    {
+        var classes = new List<string> { "document-folder-card", "root-folder-card", "result-folder-card", "prompt-folder-card" };
+
+        if (IsPromptGroupCollapsed(panel.NodeId))
+        {
+            classes.Add("collapsed");
+        }
+
+        return string.Join(' ', classes);
+    }
+
     private string GetResultFileOptionClass(ResultFileItem item, bool isSelected)
     {
         var classes = new List<string> { "document-option-row", "result-document-row", "result-file-row" };
@@ -1562,6 +1988,18 @@
             string.Equals(item.Result.AnalysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase))
         {
             classes.Add("active");
+        }
+
+        return string.Join(' ', classes);
+    }
+
+    private string GetPromptOptionClass(BulkAnalysisPrompt prompt)
+    {
+        var classes = new List<string> { "prompt-option-row" };
+
+        if (string.Equals(prompt.Id, activePromptId, StringComparison.Ordinal))
+        {
+            classes.Add("selected");
         }
 
         return string.Join(' ', classes);
@@ -1931,6 +2369,11 @@
         BulkAnalysisDocument Document,
         BulkAnalysisResult Result);
 
+    private sealed record PromptGroupPanel(
+        string NodeId,
+        string DisplayName,
+        IReadOnlyList<BulkAnalysisPrompt> Prompts);
+
     private sealed record DocumentFolderPanel(
         BulkAnalysisFolder Folder,
         IReadOnlyList<BulkAnalysisDocument> Documents,
@@ -1947,7 +2390,8 @@
     {
         SelectDocuments,
         SelectAnalysisTypes,
-        Results
+        Results,
+        ContextualAnalysis
     }
 
     private enum SelectionState

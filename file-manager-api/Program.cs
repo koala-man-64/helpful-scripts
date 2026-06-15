@@ -6,12 +6,15 @@ AddSharedAppSettings(builder.Configuration, builder.Environment, args);
 
 var adlsOptions = ReadBulkAnalysisAdlsOptions(builder.Configuration);
 var renderingOptions = ReadBulkAnalysisRenderingOptions(builder.Configuration);
+var promptCatalogOptions = ReadBulkAnalysisPromptCatalogOptions(builder.Configuration);
 builder.Services.AddSingleton(adlsOptions);
 builder.Services.AddSingleton(renderingOptions);
+builder.Services.AddSingleton(promptCatalogOptions);
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<IBulkAnalysisDocumentConverter, LibreOfficeBulkAnalysisDocumentConverter>();
 builder.Services.AddSingleton<IBulkAnalysisResultPreviewBuilder, BulkAnalysisResultPreviewBuilder>();
 builder.Services.AddSingleton<IBulkAnalysisCatalogService, AdlsBulkAnalysisCatalogService>();
+builder.Services.AddSingleton<IBulkAnalysisPromptCatalogService, BulkAnalysisPromptCatalogService>();
 
 var allowedOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")
@@ -100,6 +103,14 @@ bulkAnalysis.MapGet("/results/preview", async (
         : Results.Ok(preview);
 });
 
+bulkAnalysis.MapGet("/prompts", async (
+    IBulkAnalysisPromptCatalogService promptCatalogService,
+    CancellationToken cancellationToken) =>
+{
+    var prompts = await promptCatalogService.GetPromptsAsync(cancellationToken);
+    return Results.Ok(prompts);
+});
+
 app.Run();
 
 static BulkAnalysisAdlsOptions ReadBulkAnalysisAdlsOptions(IConfiguration configuration)
@@ -125,6 +136,20 @@ static BulkAnalysisRenderingOptions ReadBulkAnalysisRenderingOptions(IConfigurat
     return new BulkAnalysisRenderingOptions
     {
         LibreOfficePath = section["LibreOfficePath"] ?? string.Empty
+    };
+}
+
+static BulkAnalysisPromptCatalogOptions ReadBulkAnalysisPromptCatalogOptions(IConfiguration configuration)
+{
+    var section = configuration.GetSection(BulkAnalysisPromptCatalogOptions.SectionName);
+
+    return new BulkAnalysisPromptCatalogOptions
+    {
+        ManifestPath = section["ManifestPath"] ?? "prompts/catalog.json",
+        LocalCatalogPath = section["LocalCatalogPath"] ?? string.Empty,
+        CatalogCacheMinutes = int.TryParse(section["CatalogCacheMinutes"], out var cacheMinutes)
+            ? cacheMinutes
+            : 5
     };
 }
 

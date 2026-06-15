@@ -10,7 +10,8 @@ internal sealed class FallbackBulkAnalysisResultProvider(
     {
         try
         {
-            return await primary.GetFoldersAsync(cancellationToken);
+            var folders = await primary.GetFoldersAsync(cancellationToken);
+            return folders.Count > 0 ? folders : await fallback.GetFoldersAsync(cancellationToken);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested && CanUseFallback(ex))
         {
@@ -22,7 +23,8 @@ internal sealed class FallbackBulkAnalysisResultProvider(
     {
         try
         {
-            return await primary.GetRawFileAsync(documentId, cancellationToken);
+            return await primary.GetRawFileAsync(documentId, cancellationToken) ??
+                await fallback.GetRawFileAsync(documentId, cancellationToken);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested && CanUseFallback(ex))
         {
@@ -34,7 +36,8 @@ internal sealed class FallbackBulkAnalysisResultProvider(
     {
         try
         {
-            return await primary.GetResultFileAsync(resultId, cancellationToken);
+            return await primary.GetResultFileAsync(resultId, cancellationToken) ??
+                await fallback.GetResultFileAsync(resultId, cancellationToken);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested && CanUseFallback(ex))
         {
@@ -46,7 +49,8 @@ internal sealed class FallbackBulkAnalysisResultProvider(
     {
         try
         {
-            return await primary.GetResultPreviewAsync(resultId, cancellationToken);
+            return await primary.GetResultPreviewAsync(resultId, cancellationToken) ??
+                await fallback.GetResultPreviewAsync(resultId, cancellationToken);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested && CanUseFallback(ex))
         {

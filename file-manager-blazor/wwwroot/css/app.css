@@ -679,6 +679,53 @@ svg {
     font-size: 0.94rem;
 }
 
+.strider-launch-context {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0.65rem 0.65rem 0;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid rgba(17, 127, 139, 0.2);
+    border-radius: var(--shell-radius-control);
+    background: rgba(236, 248, 246, 0.72);
+    color: #24364e;
+}
+
+.strider-launch-context strong,
+.strider-launch-context span {
+    display: block;
+    min-width: 0;
+}
+
+.strider-launch-context strong {
+    color: #1d2532;
+    font-size: 0.9rem;
+    font-weight: 800;
+}
+
+.strider-launch-context span {
+    color: #4f5f72;
+    font-size: 0.82rem;
+    line-height: 1.35;
+}
+
+.strider-launch-context-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.strider-launch-context-files span {
+    max-width: 100%;
+    padding: 0.22rem 0.45rem;
+    border: 1px solid rgba(35, 55, 89, 0.12);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.72);
+    overflow-wrap: anywhere;
+    color: #24364e;
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
 .strider-composer .composer-actions {
     right: 0.55rem;
     bottom: 0.45rem;
@@ -3372,6 +3419,109 @@ svg {
 .result-step-primary-actions .workflow-action-button.primary {
     min-width: min(15rem, 100%);
     justify-content: center;
+}
+
+.prompt-step-layout {
+    grid-template-columns: minmax(18rem, 0.52fr) minmax(0, 1.48fr);
+}
+
+.prompt-selection-card .workflow-card-header {
+    flex: 0 0 auto;
+}
+
+.prompt-folder-card .document-folder-header {
+    grid-template-columns: auto minmax(0, 1fr);
+}
+
+.prompt-folder-heading {
+    min-width: 0;
+}
+
+.prompt-panel-content,
+.prompt-list {
+    min-height: 0;
+}
+
+.prompt-option-list {
+    gap: 0.25rem;
+}
+
+.prompt-option-row {
+    display: grid;
+    gap: 0.12rem;
+    width: 100%;
+    min-width: 0;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid transparent;
+    border-radius: var(--shell-radius-control);
+    background: transparent;
+    color: var(--shell-heading);
+    cursor: pointer;
+    text-align: left;
+    transition:
+        border-color 120ms ease,
+        background 120ms ease,
+        transform 120ms ease;
+}
+
+.prompt-option-row:hover,
+.prompt-option-row:focus-visible {
+    transform: translateY(-1px);
+    border-color: rgba(17, 127, 139, 0.24);
+    background: rgba(236, 248, 246, 0.58);
+    outline: none;
+}
+
+.prompt-option-row.selected {
+    border-color: rgba(17, 127, 139, 0.34);
+    background: linear-gradient(90deg, rgba(17, 127, 139, 0.16), rgba(236, 248, 246, 0.54) 2rem, rgba(255, 255, 255, 0.72));
+}
+
+.prompt-option-row strong,
+.prompt-option-row span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.prompt-option-row strong {
+    font-size: var(--type-body);
+    line-height: 1.25;
+}
+
+.prompt-option-row span {
+    color: var(--shell-muted);
+    font-size: var(--type-row-meta);
+    line-height: 1.35;
+}
+
+.prompt-editor-panel {
+    min-height: 0;
+}
+
+.prompt-editor-body {
+    display: flex;
+    min-height: 0;
+    padding-right: 0;
+}
+
+.prompt-editor-textarea {
+    width: 100%;
+    min-height: 22rem;
+    flex: 1 1 auto;
+    resize: none;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid var(--shell-line);
+    border-radius: var(--shell-radius-control);
+    background: #ffffff;
+    color: var(--shell-heading);
+    font: inherit;
+    font-size: var(--type-body);
+    line-height: 1.5;
+}
+
+.prompt-editor-textarea:focus-visible {
+    border-color: rgba(17, 127, 139, 0.42);
+    outline: 3px solid rgba(17, 127, 139, 0.16);
 }
 
 .results-grid {
