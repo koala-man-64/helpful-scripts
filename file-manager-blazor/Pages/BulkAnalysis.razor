@@ -1695,12 +1695,26 @@
             return existingPreview;
         }
 
-        var preview = await ResultProvider.GetResultPreviewAsync(result.Id)
-            ?? throw new InvalidOperationException($"The selected {result.AnalysisType} preview could not be found in ADLS.");
+        var preview = ShouldRenderResultFileNatively(result)
+            ? await BuildNativeResultPreviewAsync(result)
+            : await ResultProvider.GetResultPreviewAsync(result.Id)
+                ?? throw new InvalidOperationException($"The selected {result.AnalysisType} preview could not be found in ADLS.");
 
         resultPreviewById[result.Id] = preview;
         resultPreviewErrorsById.Remove(result.Id);
         return preview;
+    }
+
+    private async Task<BulkAnalysisResultPreview> BuildNativeResultPreviewAsync(BulkAnalysisResult result)
+    {
+        var resultFile = await GetOrLoadResultFileAsync(result);
+        return new BulkAnalysisResultPreview(
+            result.Id,
+            resultFile.FileName,
+            resultFile.ContentType,
+            NormalizeFileExtension(resultFile.FileExtension),
+            GetResultFormatLabel(result),
+            resultFile.Content);
     }
 
     private async Task LoadActiveResultPreviewAsync()
@@ -1823,6 +1837,12 @@
         IsMarkdownPreview(preview) || IsPlainTextPreview(preview);
 
     private static bool IsNativePreview(BulkAnalysisResultPreview preview) => !IsTextPreview(preview);
+
+    private static bool ShouldRenderResultFileNatively(BulkAnalysisResult result) =>
+        NormalizeFileExtension(result.ResultExtension) is "docx" or "pdf";
+
+    private static string NormalizeFileExtension(string? extension) =>
+        extension?.TrimStart('.').ToLowerInvariant() ?? string.Empty;
 
     private static int EstimateTokens(string markdown) =>
         (int)Math.Ceiling(markdown.Length / 4.0);

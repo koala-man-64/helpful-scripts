@@ -1,4 +1,5 @@
 using FileManagerApi.Services;
+using FileManagerBlazor.Models;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -32,7 +33,8 @@ public sealed class BulkAnalysisCatalogBuilderTests
         var service = new AdlsBulkAnalysisCatalogService(
             options,
             memoryCache,
-            NullLogger<AdlsBulkAnalysisCatalogService>.Instance);
+            NullLogger<AdlsBulkAnalysisCatalogService>.Instance,
+            new StubResultPreviewBuilder());
 
         var folders = await service.GetFoldersAsync();
 
@@ -165,5 +167,15 @@ public sealed class BulkAnalysisCatalogBuilderTests
 
         Assert.Contains("Duplicate bulk analysis result files detected", exception.Message);
         Assert.Contains("claims|shared|summary", exception.Message);
+    }
+
+    private sealed class StubResultPreviewBuilder : IBulkAnalysisResultPreviewBuilder
+    {
+        public Task<BulkAnalysisResultPreview> BuildAsync(
+            string resultId,
+            ResultFileReference reference,
+            byte[] content,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }
