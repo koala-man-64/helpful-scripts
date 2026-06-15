@@ -4,11 +4,27 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Runtime.CompilerServices;
 
 namespace FileManagerApi.Tests;
 
 public sealed class BulkAnalysisPromptCatalogTests
 {
+    [Fact]
+    public async Task SeedPromptCatalog_parses_expected_contextual_prompts()
+    {
+        var catalogPath = Path.Combine(GetRepositoryRoot(), "file-manager-api", "Data", "Prompts", "catalog.json");
+        var prompts = BulkAnalysisPromptCatalogBuilder.BuildFromJson(
+            await File.ReadAllTextAsync(catalogPath),
+            "Data/Prompts/catalog.json");
+
+        Assert.Equal(8, prompts.Count);
+        Assert.Equal(prompts.Count, prompts.Select(prompt => prompt.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.All(prompts, prompt => Assert.Contains("contextual-analysis", prompt.Tags, StringComparer.OrdinalIgnoreCase));
+        Assert.Contains(prompts, prompt => prompt.Id == "executive-synthesis" && prompt.AnalysisSlug == "summary");
+        Assert.Contains(prompts, prompt => prompt.Id == "data-quality-reconciliation" && prompt.AnalysisSlug == "data-quality-review");
+    }
+
     [Fact]
     public void BuildFromJson_sorts_prompts_by_display_name()
     {
@@ -183,6 +199,9 @@ public sealed class BulkAnalysisPromptCatalogTests
             memoryCache,
             new StubEnvironment(contentRootPath),
             NullLogger<BulkAnalysisPromptCatalogService>.Instance);
+
+    private static string GetRepositoryRoot([CallerFilePath] string sourceFilePath = "") =>
+        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(sourceFilePath)!, ".."));
 
     private sealed class StubEnvironment(string contentRootPath) : IWebHostEnvironment
     {

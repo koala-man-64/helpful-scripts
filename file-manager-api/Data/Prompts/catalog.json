@@ -1,0 +1,74 @@
+[
+  {
+    "id": "executive-synthesis",
+    "analysisSlug": "summary",
+    "displayName": "Executive Synthesis",
+    "description": "Synthesize selected results into an executive-ready readout.",
+    "promptText": "Review the selected Bulk Analysis results as context. Produce an executive synthesis with the common themes, important differences, decisions needed, recommended actions, and evidence gaps that require follow-up.",
+    "tags": [ "contextual-analysis", "summary", "executive" ],
+    "version": "1.0.0"
+  },
+  {
+    "id": "risk-control-readout",
+    "analysisSlug": "risk-analysis",
+    "displayName": "Risk Control Readout",
+    "description": "Identify priority risks, controls, owners, and mitigations.",
+    "promptText": "Use the selected Bulk Analysis results as source context. Identify the highest-priority risks, existing or missing controls, likely control owners, suggested mitigations, and the evidence that supports each finding.",
+    "tags": [ "contextual-analysis", "risk", "controls" ],
+    "version": "1.0.0"
+  },
+  {
+    "id": "evidence-gap-review",
+    "analysisSlug": "gap-analysis",
+    "displayName": "Evidence Gap Review",
+    "description": "Find missing evidence and unresolved questions across selected results.",
+    "promptText": "Using the selected Bulk Analysis results, list missing evidence, unresolved questions, ambiguous ownership, and the smallest next action needed to close each gap.",
+    "tags": [ "contextual-analysis", "evidence", "gaps" ],
+    "version": "1.0.0"
+  },
+  {
+    "id": "compliance-obligation-crosswalk",
+    "analysisSlug": "compliance-review",
+    "displayName": "Compliance Obligation Crosswalk",
+    "description": "Map compliance obligations to concerns, workflows, and proof points.",
+    "promptText": "Review the selected Bulk Analysis results and create a compliance obligation crosswalk. For each obligation or concern, identify the impacted workflow, supporting proof points, missing evidence, risk level, and recommended next action.",
+    "tags": [ "contextual-analysis", "compliance", "obligations" ],
+    "version": "1.0.0"
+  },
+  {
+    "id": "control-owner-action-plan",
+    "analysisSlug": "control-review",
+    "displayName": "Control Owner Action Plan",
+    "description": "Convert findings into owner, action, due date, and control-test format.",
+    "promptText": "Use the selected Bulk Analysis results to draft a control owner action plan. Include each finding, accountable owner or owner role, action required, suggested due date priority, control test, and evidence needed for closure.",
+    "tags": [ "contextual-analysis", "controls", "action-plan" ],
+    "version": "1.0.0"
+  },
+  {
+    "id": "operational-impact-brief",
+    "analysisSlug": "operational-impact",
+    "displayName": "Operational Impact Brief",
+    "description": "Summarize process impact, affected teams, dependencies, and rollout risk.",
+    "promptText": "Analyze the selected Bulk Analysis results and produce an operational impact brief. Summarize affected processes, impacted teams, dependencies, likely rollout risks, sequencing concerns, and the checks needed before implementation.",
+    "tags": [ "contextual-analysis", "operations", "impact" ],
+    "version": "1.0.0"
+  },
+  {
+    "id": "implementation-brief",
+    "analysisSlug": "recommendations",
+    "displayName": "Implementation Brief",
+    "description": "Convert selected results into a practical delivery brief.",
+    "promptText": "Analyze the selected Bulk Analysis results and draft an implementation brief with recommended delivery steps, dependencies, decisions needed, open questions, and a short validation checklist.",
+    "tags": [ "contextual-analysis", "recommendations", "delivery" ],
+    "version": "1.0.0"
+  },
+  {
+    "id": "data-quality-reconciliation",
+    "analysisSlug": "data-quality-review",
+    "displayName": "Data Quality Reconciliation",
+    "description": "Identify data defects, reconciliation checks, root causes, and remediation priorities.",
+    "promptText": "Use the selected Bulk Analysis results to identify data defects, reconciliation checks, likely root causes, remediation priorities, affected downstream processes, and evidence needed to confirm each issue is resolved.",
+    "tags": [ "contextual-analysis", "data-quality", "reconciliation" ],
+    "version": "1.0.0"
+  }
+]

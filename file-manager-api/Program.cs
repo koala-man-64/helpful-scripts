@@ -146,7 +146,7 @@ static BulkAnalysisPromptCatalogOptions ReadBulkAnalysisPromptCatalogOptions(ICo
     return new BulkAnalysisPromptCatalogOptions
     {
         ManifestPath = section["ManifestPath"] ?? "prompts/catalog.json",
-        LocalCatalogPath = section["LocalCatalogPath"] ?? string.Empty,
+        LocalCatalogPath = section["LocalCatalogPath"] ?? "Data/Prompts/catalog.json",
         CatalogCacheMinutes = int.TryParse(section["CatalogCacheMinutes"], out var cacheMinutes)
             ? cacheMinutes
             : 5
