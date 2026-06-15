@@ -3448,7 +3448,10 @@ svg {
 
 .prompt-option-row {
     display: grid;
-    gap: 0.12rem;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    column-gap: 0.55rem;
+    row-gap: 0.12rem;
     width: 100%;
     min-width: 0;
     padding: 0.55rem 0.65rem;
@@ -3464,6 +3467,13 @@ svg {
         transform 120ms ease;
 }
 
+.prompt-option-row input[type="radio"] {
+    width: 0.9rem;
+    height: 0.9rem;
+    margin: 0.12rem 0 0;
+    accent-color: #117f8b;
+}
+
 .prompt-option-row:hover,
 .prompt-option-row:focus-visible {
     transform: translateY(-1px);
@@ -3472,23 +3482,36 @@ svg {
     outline: none;
 }
 
+.prompt-option-row:focus-within {
+    transform: translateY(-1px);
+    border-color: rgba(17, 127, 139, 0.34);
+    background: rgba(236, 248, 246, 0.58);
+    outline: 2px solid rgba(17, 127, 139, 0.28);
+    outline-offset: 2px;
+}
+
 .prompt-option-row.selected {
     border-color: rgba(17, 127, 139, 0.34);
     background: linear-gradient(90deg, rgba(17, 127, 139, 0.16), rgba(236, 248, 246, 0.54) 2rem, rgba(255, 255, 255, 0.72));
 }
 
-.prompt-option-row strong,
-.prompt-option-row span {
+.prompt-option-copy {
+    display: grid;
+    gap: 0.12rem;
+}
+
+.prompt-option-copy strong,
+.prompt-option-copy span {
     min-width: 0;
     overflow-wrap: anywhere;
 }
 
-.prompt-option-row strong {
+.prompt-option-copy strong {
     font-size: var(--type-body);
     line-height: 1.25;
 }
 
-.prompt-option-row span {
+.prompt-option-copy span {
     color: var(--shell-muted);
     font-size: var(--type-row-meta);
     line-height: 1.35;

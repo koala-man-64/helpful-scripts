@@ -657,7 +657,7 @@
                     }
                     else
                     {
-                        <div class="document-selection-list result-document-list prompt-list">
+                        <div class="document-selection-list result-document-list prompt-list" role="radiogroup" aria-label="Contextual analysis prompts">
                             @foreach (var group in promptGroups)
                             {
                                 var isGroupCollapsed = IsPromptGroupCollapsed(group.NodeId);
@@ -682,12 +682,17 @@
                                         <div class="document-option-list result-sop-list prompt-option-list">
                                             @foreach (var prompt in group.Prompts)
                                             {
-                                                <button type="button"
-                                                        class="@GetPromptOptionClass(prompt)"
-                                                        @onclick="() => SelectPrompt(prompt.Id)">
-                                                    <strong>@prompt.DisplayName</strong>
-                                                    <span>@prompt.Description</span>
-                                                </button>
+                                                <label class="@GetPromptOptionClass(prompt)">
+                                                    <input type="radio"
+                                                           name="bulk-analysis-contextual-prompt"
+                                                           value="@prompt.Id"
+                                                           checked="@IsPromptSelected(prompt)"
+                                                           @onchange="() => SelectPrompt(prompt.Id)" />
+                                                    <span class="prompt-option-copy">
+                                                        <strong>@prompt.DisplayName</strong>
+                                                        <span>@prompt.Description</span>
+                                                    </span>
+                                                </label>
                                             }
                                         </div>
                                     }
@@ -1997,13 +2002,16 @@
     {
         var classes = new List<string> { "prompt-option-row" };
 
-        if (string.Equals(prompt.Id, activePromptId, StringComparison.Ordinal))
+        if (IsPromptSelected(prompt))
         {
             classes.Add("selected");
         }
 
         return string.Join(' ', classes);
     }
+
+    private bool IsPromptSelected(BulkAnalysisPrompt prompt) =>
+        string.Equals(prompt.Id, activePromptId, StringComparison.Ordinal);
 
     private static string GetAnalysisGlyph(string analysisType)
     {
