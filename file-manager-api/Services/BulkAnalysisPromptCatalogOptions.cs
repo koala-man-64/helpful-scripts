@@ -6,7 +6,7 @@ public sealed class BulkAnalysisPromptCatalogOptions
 
     public string ManifestPath { get; init; } = "prompts/catalog.json";
 
-    public string LocalCatalogPath { get; init; } = string.Empty;
+    public string LocalCatalogPath { get; init; } = "Data/Prompts/catalog.json";
 
     public int CatalogCacheMinutes { get; init; } = 5;
 

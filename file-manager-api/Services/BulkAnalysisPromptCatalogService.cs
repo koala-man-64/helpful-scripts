@@ -87,7 +87,7 @@ public sealed class BulkAnalysisPromptCatalogService : IBulkAnalysisPromptCatalo
     private string ResolveLocalCatalogPath()
     {
         var configuredPath = string.IsNullOrWhiteSpace(options.LocalCatalogPath)
-            ? "prompts/catalog.json"
+            ? "Data/Prompts/catalog.json"
             : options.LocalCatalogPath;
 
         return Path.IsPathRooted(configuredPath)
