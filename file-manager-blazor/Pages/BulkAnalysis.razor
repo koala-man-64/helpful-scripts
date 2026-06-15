@@ -168,7 +168,7 @@
                                                            checked="@selectedDocumentIds.Contains(document.Id)"
                                                            @onchange="() => ToggleDocumentSelection(document.Id)" />
                                                     <span>
-                                                        <strong>@document.Title</strong>
+                                                        <span class="document-option-title">@document.Title</span>
                                                         <small>@document.OriginalFileName - @($"{document.Results.Count} available analysis result{(document.Results.Count == 1 ? "" : "s")}")</small>
                                                     </span>
                                                 </label>
@@ -464,7 +464,7 @@
                                                                         <button type="button"
                                                                                 class="result-document-preview-button"
                                                                                 @onclick="() => SetActiveResult(item)">
-                                                                            <strong>@item.Document.OriginalFileName</strong>
+                                                                            <span class="result-document-title">@item.Document.OriginalFileName</span>
                                                                         </button>
                                                                     </div>
                                                                 }
