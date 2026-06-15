@@ -82,12 +82,39 @@
     {
       "label": "prepare launch file-manager-api",
       "dependsOn": [
-        "kill file-manager-blazor port 5167",
         "stop existing file-manager-api instances",
         "build file-manager-api"
       ],
       "dependsOrder": "sequence",
       "problemMatcher": []
+    },
+    {
+      "label": "run file-manager-api",
+      "type": "shell",
+      "command": "${env:USERPROFILE}\\.dotnet\\dotnet.exe",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}\\file-manager-api\\file-manager-api.csproj",
+        "--launch-profile",
+        "http"
+      ],
+      "dependsOn": [
+        "prepare launch file-manager-api"
+      ],
+      "dependsOrder": "sequence",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "file-manager-api",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Building|Determining projects to restore",
+          "endsPattern": "Now listening on:"
+        }
+      }
     },
     {
       "label": "run file-manager-blazor",
@@ -101,6 +128,7 @@
         "http"
       ],
       "dependsOn": [
+        "run file-manager-api",
         "kill file-manager-blazor port 5167",
         "stop existing file-manager-blazor instances"
       ],

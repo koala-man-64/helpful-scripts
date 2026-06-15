@@ -609,6 +609,7 @@
         .UseAdvancedExtensions()
         .DisableHtml()
         .Build();
+    private const int ResultPreviewLoadDelayMilliseconds = 150;
 
     private IReadOnlyList<BulkAnalysisFolder> allFolders = [];
     private readonly HashSet<string> selectedDocumentIds = new(StringComparer.Ordinal);
@@ -616,6 +617,7 @@
     private readonly HashSet<string> selectedResultIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> collapsedFolderIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> collapsedResultNodeIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> loadingResultPreviewIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, BulkAnalysisResultPreview> resultPreviewById = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> resultPreviewErrorsById = new(StringComparer.Ordinal);
     private WorkflowStep workflowStep = WorkflowStep.SelectDocuments;
@@ -631,7 +633,6 @@
     private ElementReference resultPreviewHost;
     private string? renderedSourcePreviewDocumentId;
     private string? renderedResultPreviewId;
-    private string? loadingResultPreviewId;
     private CancellationTokenSource? resultPreviewLoadCts;
     private string? rawPreviewError;
     private string? loadErrorMessage;
@@ -1760,27 +1761,22 @@
             return;
         }
 
-        if (loadingResultPreviewId is not null &&
-            !string.Equals(loadingResultPreviewId, activeResult.Id, StringComparison.Ordinal))
-        {
-            CancelActiveResultPreviewLoad();
-        }
-
         if (GetResultPreview(activeResult) is not null ||
             resultPreviewErrorsById.ContainsKey(activeResult.Id) ||
-            string.Equals(loadingResultPreviewId, activeResult.Id, StringComparison.Ordinal))
+            loadingResultPreviewIds.Contains(activeResult.Id))
         {
             return;
         }
 
         var loadCts = new CancellationTokenSource();
         resultPreviewLoadCts = loadCts;
-        loadingResultPreviewId = activeResult.Id;
+        loadingResultPreviewIds.Add(activeResult.Id);
         await InvokeAsync(StateHasChanged);
 
         try
         {
-            await GetOrLoadResultPreviewAsync(activeResult, loadCts.Token);
+            await Task.Delay(ResultPreviewLoadDelayMilliseconds, loadCts.Token);
+            await GetOrLoadResultPreviewAsync(activeResult);
         }
         catch (OperationCanceledException) when (loadCts.IsCancellationRequested)
         {
@@ -1794,10 +1790,10 @@
             if (ReferenceEquals(resultPreviewLoadCts, loadCts))
             {
                 resultPreviewLoadCts = null;
-                loadingResultPreviewId = null;
-                await InvokeAsync(StateHasChanged);
             }
 
+            loadingResultPreviewIds.Remove(activeResult.Id);
+            await InvokeAsync(StateHasChanged);
             loadCts.Dispose();
         }
     }
@@ -1811,7 +1807,6 @@
 
         resultPreviewLoadCts.Cancel();
         resultPreviewLoadCts = null;
-        loadingResultPreviewId = null;
     }
 
     private async Task RenderActiveResultNativePreviewAsync()
