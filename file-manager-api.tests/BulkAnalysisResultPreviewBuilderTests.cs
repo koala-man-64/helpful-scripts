@@ -57,15 +57,47 @@ public sealed class BulkAnalysisResultPreviewBuilderTests
         Assert.Equal("handbook.compliance.doc", converter.SourceFileName);
     }
 
+    [Fact]
+    public async Task BuildAsync_returns_doc_passthrough_preview_when_conversion_is_unavailable()
+    {
+        var converter = new StubDocumentConverter
+        {
+            Exception = new InvalidOperationException("LibreOffice is unavailable.")
+        };
+        var builder = new BulkAnalysisResultPreviewBuilder(converter);
+        var reference = new ResultFileReference(
+            "claims/llm_results/compliance/handbook.compliance.doc",
+            "handbook.compliance.doc",
+            "application/msword",
+            "doc");
+        var content = Encoding.UTF8.GetBytes("legacy-doc");
+
+        var preview = await builder.BuildAsync("result-2", reference, content);
+
+        Assert.Equal("Word", preview.Format);
+        Assert.Equal("doc", preview.FileExtension);
+        Assert.Equal("handbook.compliance.doc", preview.FileName);
+        Assert.Equal("application/msword", preview.ContentType);
+        Assert.Equal(content, preview.Content);
+        Assert.Equal("handbook.compliance.doc", converter.SourceFileName);
+    }
+
     private sealed class StubDocumentConverter : IBulkAnalysisDocumentConverter
     {
         public byte[] ConvertedBytes { get; init; } = [];
+
+        public Exception? Exception { get; init; }
 
         public string? SourceFileName { get; private set; }
 
         public Task<byte[]> ConvertDocToDocxAsync(string sourceFileName, byte[] content, CancellationToken cancellationToken = default)
         {
             SourceFileName = sourceFileName;
+            if (Exception is not null)
+            {
+                return Task.FromException<byte[]>(Exception);
+            }
+
             return Task.FromResult(ConvertedBytes);
         }
     }

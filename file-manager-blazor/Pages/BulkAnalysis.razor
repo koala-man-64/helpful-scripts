@@ -5,6 +5,7 @@
 @inject IBulkAnalysisResultProvider ResultProvider
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
+@implements IDisposable
 
 @{
     var selectedDocuments = GetSelectedDocuments();
@@ -631,6 +632,7 @@
     private string? renderedSourcePreviewDocumentId;
     private string? renderedResultPreviewId;
     private string? loadingResultPreviewId;
+    private CancellationTokenSource? resultPreviewLoadCts;
     private string? rawPreviewError;
     private string? loadErrorMessage;
     private string? downloadErrorMessage;
@@ -1043,6 +1045,11 @@
 
     private void SetActiveDocument(string documentId)
     {
+        if (!string.Equals(activeDocumentId, documentId, StringComparison.Ordinal))
+        {
+            CancelActiveResultPreviewLoad();
+        }
+
         activeDocumentId = documentId;
 
         var selectedAnalysisTypes = GetSelectedAnalysisTypes(GetAvailableAnalysisTypes(GetSelectedDocuments()));
@@ -1059,6 +1066,12 @@
 
     private void SetActiveResult(ResultFileItem item)
     {
+        if (!string.Equals(activeDocumentId, item.Document.Id, StringComparison.Ordinal) ||
+            !string.Equals(activeAnalysisType, item.Result.AnalysisType, StringComparison.OrdinalIgnoreCase))
+        {
+            CancelActiveResultPreviewLoad();
+        }
+
         activeDocumentId = item.Document.Id;
         activeAnalysisType = item.Result.AnalysisType;
     }
@@ -1685,11 +1698,15 @@
     private string? GetResultPreviewError(BulkAnalysisResult result) =>
         resultPreviewErrorsById.GetValueOrDefault(result.Id);
 
-    private async Task<BulkAnalysisResultFile> GetOrLoadResultFileAsync(BulkAnalysisResult result) =>
-        await ResultProvider.GetResultFileAsync(result.Id)
+    private async Task<BulkAnalysisResultFile> GetOrLoadResultFileAsync(
+        BulkAnalysisResult result,
+        CancellationToken cancellationToken = default) =>
+        await ResultProvider.GetResultFileAsync(result.Id, cancellationToken)
             ?? throw new InvalidOperationException($"The selected {result.AnalysisType} result file could not be found in ADLS.");
 
-    private async Task<BulkAnalysisResultPreview> GetOrLoadResultPreviewAsync(BulkAnalysisResult result)
+    private async Task<BulkAnalysisResultPreview> GetOrLoadResultPreviewAsync(
+        BulkAnalysisResult result,
+        CancellationToken cancellationToken = default)
     {
         var existingPreview = GetResultPreview(result);
         if (existingPreview is not null)
@@ -1698,8 +1715,8 @@
         }
 
         var preview = ShouldRenderResultFileNatively(result)
-            ? await BuildNativeResultPreviewAsync(result)
-            : await ResultProvider.GetResultPreviewAsync(result.Id)
+            ? await BuildNativeResultPreviewAsync(result, cancellationToken)
+            : await ResultProvider.GetResultPreviewAsync(result.Id, cancellationToken)
                 ?? throw new InvalidOperationException($"The selected {result.AnalysisType} preview could not be found in ADLS.");
 
         resultPreviewById[result.Id] = preview;
@@ -1707,9 +1724,11 @@
         return preview;
     }
 
-    private async Task<BulkAnalysisResultPreview> BuildNativeResultPreviewAsync(BulkAnalysisResult result)
+    private async Task<BulkAnalysisResultPreview> BuildNativeResultPreviewAsync(
+        BulkAnalysisResult result,
+        CancellationToken cancellationToken = default)
     {
-        var resultFile = await GetOrLoadResultFileAsync(result);
+        var resultFile = await GetOrLoadResultFileAsync(result, cancellationToken);
         return new BulkAnalysisResultPreview(
             result.Id,
             resultFile.FileName,
@@ -1723,6 +1742,7 @@
     {
         if (workflowStep != WorkflowStep.Results)
         {
+            CancelActiveResultPreviewLoad();
             return;
         }
 
@@ -1734,35 +1754,64 @@
             ? null
             : activeDocument.Document.Results.FirstOrDefault(result => string.Equals(result.AnalysisType, activeAnalysisType, StringComparison.OrdinalIgnoreCase));
 
-        if (activeResult is null ||
-            !activeResult.IsPreviewAvailable ||
-            GetResultPreview(activeResult) is not null ||
+        if (activeResult is null || !activeResult.IsPreviewAvailable)
+        {
+            CancelActiveResultPreviewLoad();
+            return;
+        }
+
+        if (loadingResultPreviewId is not null &&
+            !string.Equals(loadingResultPreviewId, activeResult.Id, StringComparison.Ordinal))
+        {
+            CancelActiveResultPreviewLoad();
+        }
+
+        if (GetResultPreview(activeResult) is not null ||
             resultPreviewErrorsById.ContainsKey(activeResult.Id) ||
             string.Equals(loadingResultPreviewId, activeResult.Id, StringComparison.Ordinal))
         {
             return;
         }
 
+        var loadCts = new CancellationTokenSource();
+        resultPreviewLoadCts = loadCts;
         loadingResultPreviewId = activeResult.Id;
         await InvokeAsync(StateHasChanged);
 
         try
         {
-            await GetOrLoadResultPreviewAsync(activeResult);
+            await GetOrLoadResultPreviewAsync(activeResult, loadCts.Token);
         }
-        catch (Exception ex)
+        catch (OperationCanceledException) when (loadCts.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex) when (!loadCts.IsCancellationRequested)
         {
             resultPreviewErrorsById[activeResult.Id] = ex.Message;
         }
         finally
         {
-            if (string.Equals(loadingResultPreviewId, activeResult.Id, StringComparison.Ordinal))
+            if (ReferenceEquals(resultPreviewLoadCts, loadCts))
             {
+                resultPreviewLoadCts = null;
                 loadingResultPreviewId = null;
+                await InvokeAsync(StateHasChanged);
             }
 
-            await InvokeAsync(StateHasChanged);
+            loadCts.Dispose();
         }
+    }
+
+    private void CancelActiveResultPreviewLoad()
+    {
+        if (resultPreviewLoadCts is null)
+        {
+            return;
+        }
+
+        resultPreviewLoadCts.Cancel();
+        resultPreviewLoadCts = null;
+        loadingResultPreviewId = null;
     }
 
     private async Task RenderActiveResultNativePreviewAsync()
@@ -1851,6 +1900,12 @@
 
     private static string FormatTokens(int tokens) =>
         tokens >= 1_000 ? $"{tokens / 1_000.0:0.#}k" : tokens.ToString("N0");
+
+    public void Dispose()
+    {
+        resultPreviewLoadCts?.Cancel();
+        resultPreviewLoadCts?.Dispose();
+    }
 
     private sealed record DocumentWithFolder(BulkAnalysisFolder Folder, BulkAnalysisDocument Document);
 
