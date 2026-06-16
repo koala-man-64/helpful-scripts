@@ -25,7 +25,7 @@
     var selectedDownloadResults = GetSelectedDownloadResults();
     var selectedPreviewDocument = GetSelectionPreviewDocument(selectedDocuments);
     var selectedPreviewOrdinal = GetSelectionPreviewOrdinal(selectedDocuments, selectedPreviewDocument);
-    var promptGroups = GetPromptGroups(selectedAnalysisTypes);
+    var promptGroups = GetPromptGroups();
     var activePrompt = GetActivePrompt();
 }
 
@@ -1036,22 +1036,11 @@
         return panels;
     }
 
-    private IReadOnlyList<PromptGroupPanel> GetPromptGroups(IReadOnlyList<string> selectedAnalysisTypes)
+    private IReadOnlyList<PromptGroupPanel> GetPromptGroups()
     {
         var groups = new List<PromptGroupPanel>();
-        var recommendedPrompts = GetMatchingPrompts(selectedAnalysisTypes);
-        var recommendedPromptIds = recommendedPrompts.Select(prompt => prompt.Id).ToHashSet(StringComparer.Ordinal);
-
-        if (recommendedPrompts.Count > 0)
-        {
-            groups.Add(new PromptGroupPanel(
-                "prompt-group:recommended",
-                "Recommended",
-                recommendedPrompts));
-        }
 
         foreach (var promptGroup in allPrompts
-            .Where(prompt => !recommendedPromptIds.Contains(prompt.Id))
             .GroupBy(GetPromptGroupName, StringComparer.OrdinalIgnoreCase)
             .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
         {
