@@ -3472,14 +3472,14 @@ svg {
 
 .prompt-option-row {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: 1.15rem 1.6rem minmax(0, 1fr);
     align-items: center;
-    column-gap: 0.55rem;
+    column-gap: 0.65rem;
     row-gap: 0.12rem;
     width: 100%;
     min-width: 0;
     min-height: 2.85rem;
-    padding: 0.5rem 0.35rem;
+    padding: 0.5rem 0;
     border: 0;
     border-bottom: 1px solid rgba(35, 55, 89, 0.08);
     border-radius: 0;
@@ -3493,6 +3493,8 @@ svg {
 }
 
 .prompt-option-row input[type="radio"] {
+    grid-column: 2;
+    justify-self: center;
     width: 1.05rem;
     height: 1.05rem;
     margin: 0;
@@ -3520,7 +3522,9 @@ svg {
 
 .prompt-option-copy {
     display: grid;
+    grid-column: 3;
     gap: 0.12rem;
+    min-width: 0;
 }
 
 .prompt-option-copy strong,
