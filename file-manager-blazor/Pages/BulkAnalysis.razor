@@ -1302,10 +1302,14 @@
 
         try
         {
+            var launchedAt = DateTimeOffset.Now;
+            var activePrompt = GetActivePrompt();
+            var filesByResultId = new Dictionary<string, BulkAnalysisResultFile>(StringComparer.Ordinal);
             var contextResults = new List<StriderLaunchResultContext>();
             foreach (var result in results)
             {
                 var file = await GetOrLoadResultFileAsync(result);
+                filesByResultId[result.Id] = file;
                 contextResults.Add(new StriderLaunchResultContext(
                     result.Id,
                     result.DocumentId,
@@ -1319,11 +1323,17 @@
                     file.Content));
             }
 
+            await JSRuntime.InvokeVoidAsync(
+                "bulkAnalysisDownloads.downloadTextFile",
+                StriderMarkdownDocumentBuilder.GetFileName(results, launchedAt),
+                StriderMarkdownDocumentBuilder.Build(promptText, activePrompt, results, filesByResultId, launchedAt),
+                "text/markdown;charset=utf-8");
+
             LaunchState.SetPending(new StriderLaunchContext(
                 promptText,
-                GetActivePrompt(),
+                activePrompt,
                 contextResults,
-                DateTimeOffset.Now));
+                launchedAt));
             NavigationManager.NavigateTo("/");
         }
         catch (Exception ex)
