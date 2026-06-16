@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\file-manager-api\file-manager-api.csproj" />
+    <ProjectReference Include="..\file-manager-shared\FileManager.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>
