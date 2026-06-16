@@ -4,71 +4,71 @@
     "analysisSlug": "summary",
     "displayName": "Executive Synthesis",
     "description": "Synthesize selected results into an executive-ready readout.",
-    "promptText": "Review the selected Bulk Analysis results as context. Produce an executive synthesis with the common themes, important differences, decisions needed, recommended actions, and evidence gaps that require follow-up.",
+    "promptText": "Role: Act as an executive analyst reviewing the selected Bulk Analysis results as the only source material.\n\nTask: Produce a decision-ready executive synthesis. Identify the dominant themes, meaningful differences between documents or analysis types, the highest-impact findings, the decisions that need leadership attention, recommended next actions, and evidence gaps that require follow-up.\n\nSource handling: Ground every substantive claim in the selected results. Do not invent facts, owners, dates, metrics, risks, or conclusions that are not supported by the source context. When evidence is partial, outdated, ambiguous, or conflicting, say so explicitly.\n\nOutput format:\n1. Executive takeaway with 3-5 bullets.\n2. Common themes and notable differences.\n3. Priority findings with supporting evidence.\n4. Decisions needed and recommended actions.\n5. Evidence gaps, open questions, and follow-up items.\n\nStyle: Be concise but complete, use business-ready language, and separate facts from recommendations.",
     "tags": [ "contextual-analysis", "summary", "executive" ],
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   {
     "id": "risk-control-readout",
     "analysisSlug": "risk-analysis",
     "displayName": "Risk Control Readout",
     "description": "Identify priority risks, controls, owners, and mitigations.",
-    "promptText": "Use the selected Bulk Analysis results as source context. Identify the highest-priority risks, existing or missing controls, likely control owners, suggested mitigations, and the evidence that supports each finding.",
+    "promptText": "Role: Act as a risk and controls reviewer using the selected Bulk Analysis results as source evidence.\n\nTask: Identify the highest-priority risks, the controls that appear to exist, the controls that are missing or weak, likely accountable owner roles, recommended mitigations, and the evidence supporting each finding.\n\nSource handling: Treat the selected results as the authority. Do not assume a control exists unless it is stated or directly evidenced. If ownership, severity, or mitigation priority must be inferred, label it as an inference and explain why.\n\nOutput format:\n1. Risk control summary with the most important 3-5 observations.\n2. Risk register with risk, evidence, impact, likelihood or priority, existing controls, control gaps, likely owner role, mitigation, and evidence needed for closure.\n3. Cross-cutting control weaknesses or repeated patterns.\n4. Immediate actions, near-term actions, and longer-term control improvements.\n5. Open questions and missing proof points.\n\nStyle: Be specific, audit-friendly, and action-oriented.",
     "tags": [ "contextual-analysis", "risk", "controls" ],
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   {
     "id": "evidence-gap-review",
     "analysisSlug": "gap-analysis",
     "displayName": "Evidence Gap Review",
     "description": "Find missing evidence and unresolved questions across selected results.",
-    "promptText": "Using the selected Bulk Analysis results, list missing evidence, unresolved questions, ambiguous ownership, and the smallest next action needed to close each gap.",
+    "promptText": "Role: Act as an evidence reviewer responsible for turning the selected Bulk Analysis results into a clear gap register.\n\nTask: Identify missing evidence, unresolved questions, ambiguous ownership, conflicting findings, weak assumptions, and incomplete analysis threads. For each gap, explain why it matters and the smallest practical action needed to close it.\n\nSource handling: Use only the selected results and clearly distinguish observed facts from inferred gaps. Do not treat absence of evidence as proof that something failed; describe the evidence needed to confirm the point.\n\nOutput format:\n1. Short gap summary by theme.\n2. Gap register with topic, available evidence, missing evidence, why it matters, likely owner role, priority, smallest next action, and expected closure artifact.\n3. Questions that require stakeholder input.\n4. Questions that require document, data, or system evidence.\n5. Items that can be closed now based on the selected context.\n\nStyle: Be precise, practical, and focused on closure.",
     "tags": [ "contextual-analysis", "evidence", "gaps" ],
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   {
     "id": "compliance-obligation-crosswalk",
     "analysisSlug": "compliance-review",
     "displayName": "Compliance Obligation Crosswalk",
     "description": "Map compliance obligations to concerns, workflows, and proof points.",
-    "promptText": "Review the selected Bulk Analysis results and create a compliance obligation crosswalk. For each obligation or concern, identify the impacted workflow, supporting proof points, missing evidence, risk level, and recommended next action.",
+    "promptText": "Role: Act as a compliance analyst creating a traceable obligation and concern crosswalk from the selected Bulk Analysis results.\n\nTask: Map each stated compliance obligation, policy concern, control expectation, or regulatory risk signal to the impacted workflow, supporting proof points, missing evidence, risk level, owner role, and recommended next action.\n\nSource handling: Do not create legal obligations that are not present in the selected results. If a concern appears compliance-relevant but the applicable rule, policy, jurisdiction, or standard is unclear, flag it for formal interpretation instead of overstating the conclusion.\n\nOutput format:\n1. Compliance summary with the most material obligations or concerns.\n2. Crosswalk table with obligation or concern, source evidence, impacted workflow, control or proof required, current evidence, missing evidence, risk level, owner role, and next action.\n3. Items requiring legal, compliance, or policy-owner review.\n4. Evidence collection plan ordered by urgency.\n5. Residual ambiguity and assumptions.\n\nStyle: Be careful, evidence-led, and suitable for review by compliance owners.",
     "tags": [ "contextual-analysis", "compliance", "obligations" ],
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   {
     "id": "control-owner-action-plan",
     "analysisSlug": "control-review",
     "displayName": "Control Owner Action Plan",
     "description": "Convert findings into owner, action, due date, and control-test format.",
-    "promptText": "Use the selected Bulk Analysis results to draft a control owner action plan. Include each finding, accountable owner or owner role, action required, suggested due date priority, control test, and evidence needed for closure.",
+    "promptText": "Role: Act as a control remediation lead preparing an owner-ready action plan from the selected Bulk Analysis results.\n\nTask: Convert findings into clear remediation actions. For each finding, identify the control objective, accountable owner or owner role, required action, suggested due-date priority, dependencies, control test, acceptance criteria, and evidence needed for closure.\n\nSource handling: Use named owners only when the selected results provide them; otherwise assign an owner role. Do not invent due dates. Express timing as priority or sequencing unless the source context includes specific dates.\n\nOutput format:\n1. Action plan summary with the highest-priority owner actions.\n2. Owner action table with finding, evidence, control objective, owner role, action required, priority, dependency, control test, acceptance criteria, and closure evidence.\n3. Quick wins versus actions that need planning or approval.\n4. Risks if actions are delayed.\n5. Follow-up questions for owners.\n\nStyle: Make the plan concrete enough that owners can execute without additional interpretation.",
     "tags": [ "contextual-analysis", "controls", "action-plan" ],
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   {
     "id": "operational-impact-brief",
     "analysisSlug": "operational-impact",
     "displayName": "Operational Impact Brief",
     "description": "Summarize process impact, affected teams, dependencies, and rollout risk.",
-    "promptText": "Analyze the selected Bulk Analysis results and produce an operational impact brief. Summarize affected processes, impacted teams, dependencies, likely rollout risks, sequencing concerns, and the checks needed before implementation.",
+    "promptText": "Role: Act as an operations readiness analyst assessing the selected Bulk Analysis results for delivery and run-state impact.\n\nTask: Produce an operational impact brief that explains affected processes, impacted teams or owner roles, upstream and downstream dependencies, rollout risks, sequencing concerns, failure modes, readiness checks, and post-implementation monitoring needs.\n\nSource handling: Ground the analysis in the selected results. If a team, dependency, or failure mode is inferred rather than stated, label it as an inference and explain the evidence behind it.\n\nOutput format:\n1. Operational impact summary with the biggest readiness concerns.\n2. Impact map covering process, team or role, dependency, expected change, operational risk, and mitigation.\n3. Sequencing and rollout considerations.\n4. Pre-implementation checks and post-implementation monitoring.\n5. Open operational questions and evidence gaps.\n\nStyle: Be practical, implementation-aware, and focused on reducing operational surprise.",
     "tags": [ "contextual-analysis", "operations", "impact" ],
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   {
     "id": "implementation-brief",
     "analysisSlug": "recommendations",
     "displayName": "Implementation Brief",
     "description": "Convert selected results into a practical delivery brief.",
-    "promptText": "Analyze the selected Bulk Analysis results and draft an implementation brief with recommended delivery steps, dependencies, decisions needed, open questions, and a short validation checklist.",
+    "promptText": "Role: Act as a delivery lead turning the selected Bulk Analysis results into an implementation brief.\n\nTask: Draft a practical implementation brief with goals, scope boundaries, recommended delivery steps, dependencies, sequencing, decisions needed, owner roles, open questions, validation steps, rollout considerations, and rollback or recovery notes when relevant.\n\nSource handling: Use only the selected results for factual claims. Label assumptions explicitly, avoid over-scoping beyond the evidence, and call out any missing inputs that could change the implementation path.\n\nOutput format:\n1. Implementation objective and scope.\n2. Recommended delivery plan ordered by sequence.\n3. Dependencies, prerequisites, and decisions needed.\n4. Owner roles and handoffs.\n5. Validation checklist with expected evidence.\n6. Rollout, monitoring, and rollback considerations.\n7. Open questions and risks.\n\nStyle: Make the brief executable, specific, and suitable for handoff to an implementation team.",
     "tags": [ "contextual-analysis", "recommendations", "delivery" ],
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   {
     "id": "data-quality-reconciliation",
     "analysisSlug": "data-quality-review",
     "displayName": "Data Quality Reconciliation",
     "description": "Identify data defects, reconciliation checks, root causes, and remediation priorities.",
-    "promptText": "Use the selected Bulk Analysis results to identify data defects, reconciliation checks, likely root causes, remediation priorities, affected downstream processes, and evidence needed to confirm each issue is resolved.",
+    "promptText": "Role: Act as a data quality and reconciliation lead using the selected Bulk Analysis results as the source record.\n\nTask: Identify data defects, reconciliation breaks, completeness or freshness issues, mapping problems, likely root-cause hypotheses, remediation priorities, affected downstream processes, and the evidence needed to confirm each issue is resolved.\n\nSource handling: Separate confirmed defects from suspected issues. Do not assert a root cause unless it is directly supported; otherwise label it as a hypothesis and state the check needed to confirm or reject it.\n\nOutput format:\n1. Data quality summary with the most material issues.\n2. Issue register with defect, supporting evidence, affected source or field, downstream impact, severity or priority, likely root-cause hypothesis, reconciliation check, remediation action, owner role, and verification evidence.\n3. Cross-system or recurring patterns.\n4. Recommended reconciliation tests and acceptance criteria.\n5. Open questions, missing data, and follow-up evidence.\n\nStyle: Be exact, testable, and clear about confidence level.",
     "tags": [ "contextual-analysis", "data-quality", "reconciliation" ],
-    "version": "1.0.0"
+    "version": "1.1.0"
   }
 ]

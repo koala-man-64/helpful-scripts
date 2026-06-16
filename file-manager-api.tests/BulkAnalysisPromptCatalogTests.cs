@@ -21,6 +21,7 @@ public sealed class BulkAnalysisPromptCatalogTests
         Assert.Equal(8, prompts.Count);
         Assert.Equal(prompts.Count, prompts.Select(prompt => prompt.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
         Assert.All(prompts, prompt => Assert.Contains("contextual-analysis", prompt.Tags, StringComparer.OrdinalIgnoreCase));
+        Assert.All(prompts, AssertPromptIsComplete);
         Assert.Contains(prompts, prompt => prompt.Id == "executive-synthesis" && prompt.AnalysisSlug == "summary");
         Assert.Contains(prompts, prompt => prompt.Id == "data-quality-reconciliation" && prompt.AnalysisSlug == "data-quality-review");
     }
@@ -202,6 +203,17 @@ public sealed class BulkAnalysisPromptCatalogTests
 
     private static string GetRepositoryRoot([CallerFilePath] string sourceFilePath = "") =>
         Path.GetFullPath(Path.Combine(Path.GetDirectoryName(sourceFilePath)!, ".."));
+
+    private static void AssertPromptIsComplete(BulkAnalysisPrompt prompt)
+    {
+        Assert.Equal("1.1.0", prompt.Version);
+        Assert.Contains("Role:", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("Task:", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("Source handling:", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("Output format:", prompt.PromptText, StringComparison.Ordinal);
+        Assert.Contains("Style:", prompt.PromptText, StringComparison.Ordinal);
+        Assert.True(prompt.PromptText.Length >= 900, $"Prompt {prompt.Id} should be complete, not sentence-length.");
+    }
 
     private sealed class StubEnvironment(string contentRootPath) : IWebHostEnvironment
     {
