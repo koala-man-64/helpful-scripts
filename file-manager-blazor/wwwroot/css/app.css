@@ -3453,14 +3453,6 @@ svg {
     grid-template-columns: minmax(18rem, 0.52fr) minmax(0, 1.48fr);
 }
 
-.prompt-folder-card .document-folder-header {
-    grid-template-columns: auto auto minmax(0, 1fr);
-}
-
-.prompt-folder-heading {
-    min-width: 0;
-}
-
 .prompt-panel-content,
 .prompt-list {
     min-height: 0;
@@ -3472,14 +3464,14 @@ svg {
 
 .prompt-option-row {
     display: grid;
-    grid-template-columns: 1.15rem 1.6rem minmax(0, 1fr);
+    grid-template-columns: 1.6rem minmax(0, 1fr);
     align-items: center;
     column-gap: 0.65rem;
     row-gap: 0.12rem;
     width: 100%;
     min-width: 0;
     min-height: 2.85rem;
-    padding: 0.5rem 0;
+    padding: 0.5rem 0.35rem;
     border: 0;
     border-bottom: 1px solid rgba(35, 55, 89, 0.08);
     border-radius: 0;
@@ -3493,7 +3485,7 @@ svg {
 }
 
 .prompt-option-row input[type="radio"] {
-    grid-column: 2;
+    grid-column: 1;
     justify-self: center;
     width: 1.05rem;
     height: 1.05rem;
@@ -3522,7 +3514,7 @@ svg {
 
 .prompt-option-copy {
     display: grid;
-    grid-column: 3;
+    grid-column: 2;
     gap: 0.12rem;
     min-width: 0;
 }

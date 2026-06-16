@@ -25,7 +25,7 @@
     var selectedDownloadResults = GetSelectedDownloadResults();
     var selectedPreviewDocument = GetSelectionPreviewDocument(selectedDocuments);
     var selectedPreviewOrdinal = GetSelectionPreviewOrdinal(selectedDocuments, selectedPreviewDocument);
-    var promptGroups = GetPromptGroups();
+    var promptOptions = GetPromptOptions();
     var activePrompt = GetActivePrompt();
 }
 
@@ -648,7 +648,7 @@
                             <span>@promptLoadErrorMessage</span>
                         </div>
                     }
-                    else if (promptGroups.Count == 0)
+                    else if (promptOptions.Count == 0)
                     {
                         <div class="workflow-empty-state">
                             <strong>No prompts available</strong>
@@ -658,47 +658,22 @@
                     else
                     {
                         <div class="selection-nav-list document-selection-list result-document-list prompt-list" role="radiogroup" aria-label="Contextual analysis prompts">
-                            @foreach (var group in promptGroups)
-                            {
-                                var isGroupCollapsed = IsPromptGroupCollapsed(group.NodeId);
-
-                                <section class="@GetPromptGroupPanelClass(group)" style="--folder-depth: 0;">
-                                    <div class="document-folder-header">
-                                        <span class="selection-nav-control-spacer" aria-hidden="true"></span>
-                                        <button type="button"
-                                                class="folder-collapse-button"
-                                                aria-expanded="@(!isGroupCollapsed)"
-                                                aria-label="@($"Toggle {group.DisplayName}")"
-                                                @onclick="() => TogglePromptGroup(group.NodeId)">
-                                            <span class="chevron @(isGroupCollapsed ? null : "chevron-down")" aria-hidden="true"></span>
-                                        </button>
-                                        <div class="document-folder-heading prompt-folder-heading">
-                                            <h3>@group.DisplayName</h3>
-                                            <span>@($"{group.Prompts.Count} prompt{(group.Prompts.Count == 1 ? "" : "s")}")</span>
-                                        </div>
-                                    </div>
-
-                                    @if (!isGroupCollapsed)
-                                    {
-                                        <div class="document-option-list result-sop-list prompt-option-list">
-                                            @foreach (var prompt in group.Prompts)
-                                            {
-                                                <label class="@GetPromptOptionClass(prompt)">
-                                                    <input type="radio"
-                                                           name="bulk-analysis-contextual-prompt"
-                                                           value="@prompt.Id"
-                                                           checked="@IsPromptSelected(prompt)"
-                                                           @onchange="() => SelectPrompt(prompt.Id)" />
-                                                    <span class="prompt-option-copy">
-                                                        <strong>@prompt.DisplayName</strong>
-                                                        <span>@prompt.Description</span>
-                                                    </span>
-                                                </label>
-                                            }
-                                        </div>
-                                    }
-                                </section>
-                            }
+                            <div class="document-option-list result-sop-list prompt-option-list">
+                                @foreach (var prompt in promptOptions)
+                                {
+                                    <label class="@GetPromptOptionClass(prompt)">
+                                        <input type="radio"
+                                               name="bulk-analysis-contextual-prompt"
+                                               value="@prompt.Id"
+                                               checked="@IsPromptSelected(prompt)"
+                                               @onchange="() => SelectPrompt(prompt.Id)" />
+                                        <span class="prompt-option-copy">
+                                            <strong>@prompt.DisplayName</strong>
+                                            <span>@prompt.Description</span>
+                                        </span>
+                                    </label>
+                                }
+                            </div>
                         </div>
                     }
                 </div>
@@ -787,7 +762,6 @@
     private readonly HashSet<string> collapsedFolderIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> collapsedResultNodeIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> loadingResultPreviewIds = new(StringComparer.Ordinal);
-    private readonly HashSet<string> collapsedPromptGroupIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, BulkAnalysisResultPreview> resultPreviewById = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> resultPreviewErrorsById = new(StringComparer.Ordinal);
     private IReadOnlyList<BulkAnalysisPrompt> allPrompts = [];
@@ -1036,25 +1010,11 @@
         return panels;
     }
 
-    private IReadOnlyList<PromptGroupPanel> GetPromptGroups()
-    {
-        var groups = new List<PromptGroupPanel>();
-
-        foreach (var promptGroup in allPrompts
-            .GroupBy(GetPromptGroupName, StringComparer.OrdinalIgnoreCase)
-            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
-        {
-            groups.Add(new PromptGroupPanel(
-                $"prompt-group:{NormalizePromptKey(promptGroup.Key)}",
-                promptGroup.Key,
-                promptGroup
-                    .OrderBy(prompt => prompt.DisplayName, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(prompt => prompt.Id, StringComparer.OrdinalIgnoreCase)
-                    .ToArray()));
-        }
-
-        return groups;
-    }
+    private IReadOnlyList<BulkAnalysisPrompt> GetPromptOptions() =>
+        allPrompts
+            .OrderBy(prompt => prompt.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(prompt => prompt.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
     private IReadOnlyList<BulkAnalysisPrompt> GetMatchingPrompts(IReadOnlyList<string> selectedAnalysisTypes)
     {
@@ -1126,16 +1086,6 @@
         return promptKeys.Any(selectedAnalysisTypeKeys.Contains);
     }
 
-    private static string GetPromptGroupName(BulkAnalysisPrompt prompt)
-    {
-        var tag = (prompt.Tags ?? []).FirstOrDefault(tag =>
-            !string.Equals(tag, "contextual-analysis", StringComparison.OrdinalIgnoreCase));
-
-        return string.IsNullOrWhiteSpace(tag)
-            ? ToDisplayName(prompt.AnalysisSlug)
-            : ToDisplayName(tag);
-    }
-
     private static string NormalizePromptKey(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -1153,21 +1103,6 @@
         }
 
         return builder.ToString();
-    }
-
-    private static string ToDisplayName(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return "General";
-        }
-
-        var words = value
-            .Replace('_', '-')
-            .Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(word => word.Length == 0 ? word : $"{char.ToUpperInvariant(word[0])}{word[1..].ToLowerInvariant()}");
-
-        return string.Join(' ', words);
     }
 
     private ResultFileItem? GetFirstResultFileItem(
@@ -1860,17 +1795,6 @@
         isResultsPanelCollapsed = !isResultsPanelCollapsed;
     }
 
-    private bool IsPromptGroupCollapsed(string nodeId) =>
-        collapsedPromptGroupIds.Contains(nodeId);
-
-    private void TogglePromptGroup(string nodeId)
-    {
-        if (!collapsedPromptGroupIds.Add(nodeId))
-        {
-            collapsedPromptGroupIds.Remove(nodeId);
-        }
-    }
-
     private void ToggleDocumentSelectionPanel()
     {
         isDocumentSelectionPanelCollapsed = !isDocumentSelectionPanelCollapsed;
@@ -1951,18 +1875,6 @@
         var classes = new List<string> { "document-folder-card", "result-folder-card", "result-category-card" };
 
         if (IsResultNodeCollapsed(panel.NodeId))
-        {
-            classes.Add("collapsed");
-        }
-
-        return string.Join(' ', classes);
-    }
-
-    private string GetPromptGroupPanelClass(PromptGroupPanel panel)
-    {
-        var classes = new List<string> { "document-folder-card", "root-folder-card", "result-folder-card", "prompt-folder-card" };
-
-        if (IsPromptGroupCollapsed(panel.NodeId))
         {
             classes.Add("collapsed");
         }
@@ -2366,11 +2278,6 @@
         BulkAnalysisFolder Folder,
         BulkAnalysisDocument Document,
         BulkAnalysisResult Result);
-
-    private sealed record PromptGroupPanel(
-        string NodeId,
-        string DisplayName,
-        IReadOnlyList<BulkAnalysisPrompt> Prompts);
 
     private sealed record DocumentFolderPanel(
         BulkAnalysisFolder Folder,
