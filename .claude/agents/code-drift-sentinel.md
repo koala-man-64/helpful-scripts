@@ -1,14 +1,7 @@
 ---
-name: "code-drift-sentinel"
-description: "Detect and remediate multi-agent code drift, including speculative safeguards, fallback logic, fallback settings, and fallback-oriented configuration."
+name: code-drift-sentinel
+description: "Detect, score, attribute, and remediate code drift caused by multiple AI agents and humans across style, architecture, APIs, dependencies, behavior, performance, security, tests, docs, and CI/config. Use when running drift audits locally/CI/scheduled jobs, enforcing drift score quality gates, generating drift_report.md/json artifacts, or preparing safe auto-remediation patches. Treat speculative safeguards, fallback logic, fallback settings, and fallback-oriented configuration as undesired drift unless the requirement explicitly calls for them."
 ---
-
-Preferred display name: Code Drift Sentinel
-Source export: repo-local
-Source skill directory: code-drift-sentinel
-Suggested invocation: `Use $skill-name to detect code drift, attribute causes, and propose or apply safe remediation. Treat speculative safeguards, fallback logic, fallback settings, and fallback-oriented configuration as undesired drift unless the requirement explicitly calls for them.`
-
-Follow the exported Codex skill instructions below when this agent is selected.
 
 # Code Drift Sentinel
 
@@ -39,17 +32,7 @@ python3 .codex/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode r
 python3 .codex/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode auto-remediate
 ```
 
-Useful flags:
-
-```bash
---repo .
---config .codedrift.yml
---baseline-ref <sha|tag|branch>
---ci
---pr-head <sha>
---skip-quality-gates
---include-full-tests
-```
+Useful flags: `--repo .`, `--config .codedrift.yml`, `--baseline-ref <sha|tag|branch>`, `--ci`, `--pr-head <sha>`, `--skip-quality-gates`, `--include-full-tests`.
 
 ## Mode Rules
 
@@ -66,29 +49,45 @@ Useful flags:
 ## Required Artifacts
 
 Use reporting paths from `.codedrift.yml` (defaults shown):
-
 - `artifacts/drift_report.md`
 - `artifacts/drift_report.json`
 - `artifacts/drift_remediation.patch` (auto-remediate success)
 
 ## CI Gate
 
-Fail the job when:
+Fail the job when `drift_score >= thresholds.drift_score_fail`. The script exits non-zero and prints a top-5 issue summary for CI logs.
 
-- `drift_score >= thresholds.drift_score_fail`
+## Severity and Confidence
 
-The script exits non-zero and prints a short top-5 issue summary for CI logs.
+- Severity: `low | medium | high | critical`
+- Confidence: `0.0..1.0`
+- Require explicit evidence lines (file paths, diff hunks, command output snippets).
+
+## Drift Score Weights (default)
+
+- `security`: 40
+- `api`: 35
+- `architecture`: 25
+- `behavioral`: 25
+- `test`: 25
+- `dependency`: 20
+- `performance`: 15
+- `config_infra`: 15
+- `style`: 5
+- `docs`: 3
+
+Score is the sum of `category_weight * severity_multiplier` for each finding.
+
+## Safe Auto-Remediation Constraints
+
+- Allowed: format/lint deterministic fixes, import ordering, mechanical consistency fixes, docs sync.
+- Disallowed without explicit opt-in: risky business logic rewrites, auth/IaC/migration rewrites, broad uncertain refactors.
+- Require clean working tree before auto-remediate.
+- If post-fix checks fail, revert touched files and report failure.
 
 ## Evidence Standards
 
-Include concrete evidence for every finding:
-
-- file paths
-- diff snippets / hunk excerpts
-- command output excerpts
-- attribution from `git log` against affected files
-
-Mark uncertain heuristics with lower confidence and recommend human review.
+Include concrete evidence for every finding: file paths, diff snippets, command output excerpts, attribution from `git log` against affected files. Mark uncertain heuristics with lower confidence and recommend human review.
 
 ## Resources
 
