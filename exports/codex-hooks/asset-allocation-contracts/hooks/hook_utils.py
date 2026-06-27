@@ -502,6 +502,120 @@ def normalized_command(command: str) -> str:
     return re.sub(r"\s+", " ", command.strip()).lower()
 
 
+PR_TITLE_PREFIX_PATTERN = re.compile(r"^\[[^\]\r\n]{1,160}\]\s+-\s+")
+
+
+def _codex_home() -> Path:
+    configured = os.environ.get("CODEX_HOME")
+    if configured:
+        return Path(configured)
+    return Path.home() / ".codex"
+
+
+def _walk_payload_strings(value: Any, keys: tuple[str, ...]) -> str | None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_text = str(key).lower()
+            if key_text in keys and isinstance(item, str) and item.strip():
+                return item.strip()
+        for item in value.values():
+            found = _walk_payload_strings(item, keys)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for item in value:
+            found = _walk_payload_strings(item, keys)
+            if found:
+                return found
+    return None
+
+
+def current_codex_thread_id(payload: dict[str, Any] | None = None) -> str | None:
+    for name in ("CODEX_THREAD_ID", "CODEX_CONVERSATION_ID", "CODEX_SESSION_ID"):
+        value = os.environ.get(name)
+        if value and value.strip():
+            return value.strip()
+    if payload:
+        return _walk_payload_strings(
+            payload,
+            ("threadid", "thread_id", "conversationid", "conversation_id", "sessionid", "session_id"),
+        )
+    return None
+
+
+def thread_name_from_session_index(thread_id: str | None = None) -> str | None:
+    resolved_thread_id = thread_id or current_codex_thread_id()
+    if not resolved_thread_id:
+        return None
+    index_path = _codex_home() / "session_index.jsonl"
+    try:
+        lines = index_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+
+    for line in reversed(lines):
+        if resolved_thread_id not in line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if record.get("id") != resolved_thread_id:
+            continue
+        title = record.get("thread_name") or record.get("title")
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+    return None
+
+
+def codex_conversation_title(payload: dict[str, Any] | None = None) -> str | None:
+    for name in ("CODEX_CONVERSATION_TITLE", "CODEX_THREAD_TITLE", "CODEX_SESSION_TITLE"):
+        value = os.environ.get(name)
+        if value and value.strip():
+            return value.strip()
+    if payload:
+        found = _walk_payload_strings(
+            payload,
+            ("conversationtitle", "conversation_title", "threadtitle", "thread_title", "sessiontitle", "session_title"),
+        )
+        if found:
+            return found
+    return thread_name_from_session_index(current_codex_thread_id(payload))
+
+
+def format_pull_request_title(
+    existing_title: str,
+    *,
+    conversation_title: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> str:
+    base_title = re.sub(r"\s+", " ", existing_title).strip()
+    if not base_title:
+        return ""
+
+    title = re.sub(r"\s+", " ", conversation_title or codex_conversation_title(payload) or "").strip()
+    if not title:
+        return base_title
+
+    prefix = f"[{title}] - "
+    if base_title.startswith(prefix):
+        return base_title
+    return f"{prefix}{base_title}"
+
+
+def pull_request_title_guidance(command: str) -> str | None:
+    if not (
+        re.search(r"\baz\s+repos\s+pr\s+create\b", command)
+        or re.search(r"\bgh\s+pr\s+create\b", command)
+    ):
+        return None
+    return (
+        "Pull request title rule: use `[conversation name] - [existing title]`. "
+        "Run `py -3 .codex/hooks/pr_title_helper.py \"<existing title>\"` to build the title; "
+        "it resolves CODEX_THREAD_ID from local Codex session metadata and falls back to the existing title."
+    )
+
+
 def path_is_inside(path_text: str, root: Path | None = None) -> bool:
     if not path_text:
         return True

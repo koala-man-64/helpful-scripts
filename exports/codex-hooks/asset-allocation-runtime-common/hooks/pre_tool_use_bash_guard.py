@@ -11,6 +11,7 @@ from hook_utils import (
     extract_command,
     normalized_command,
     path_is_inside,
+    pull_request_title_guidance,
     read_hook_input,
     repo_root,
     upstream_gone,
@@ -139,6 +140,8 @@ def contains_finish_workflow_command(command: str) -> bool:
         return True
     if re.search(r"\baz\s+repos\s+pr\s+create\b", command):
         return True
+    if re.search(r"\bgh\s+pr\s+create\b", command):
+        return True
     if re.search(r"\baz\s+repos\s+pr\s+update\b", command) and any(
         marker in command
         for marker in (
@@ -165,6 +168,9 @@ def finish_workflow_permission_reason(command: str, root: Path) -> str | None:
         "Allowed finish workflow command under blanket finish approval after safety checks "
         "passed for commit, push, pull request, or merge/completion work."
     ]
+    title_guidance = pull_request_title_guidance(command)
+    if title_guidance:
+        notes.append(title_guidance)
     status = dirty_summary(root)
     if status.startswith("dirty"):
         notes.append(

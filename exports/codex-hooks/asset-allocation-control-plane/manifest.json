@@ -34,6 +34,11 @@
       "size": 4843
     },
     {
+      "path": "hooks/pr_title_helper.py",
+      "sha256": "a4c9ecb370062e261caa3be4416ff4eb3b1694246ed7c1f90d579e0f26d9b26a",
+      "size": 869
+    },
+    {
       "path": "hooks.json",
       "sha256": "ef4d61553c5ccbfa389d14e06ca546e44d817b229fd1737edfe27224c502629c",
       "size": 3194

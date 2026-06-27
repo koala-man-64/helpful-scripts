@@ -77,10 +77,23 @@ When this skill creates or completes a pull request, default to the repository's
 - Enable squash merge.
 - Enable auto-complete after required policies, checks, and reviews pass.
 - Enable source-branch deletion after completion.
+- Set the pull request title to `[conversation name] - [existing title]` when the Codex conversation title is available; if unavailable, use the existing title unchanged.
+- Build the title with the repo-local helper before creating Azure Repos or GitHub pull requests:
+
+```powershell
+$prTitle = py -3 .codex/hooks/pr_title_helper.py "<existing title>"
+```
+
 - In Azure Repos, pass those options when creating the PR:
 
 ```powershell
-az repos pr create --source-branch <branch> --target-branch <base> --auto-complete true --squash true --delete-source-branch true --transition-work-items true
+az repos pr create --source-branch <branch> --target-branch <base> --title $prTitle --auto-complete true --squash true --delete-source-branch true --transition-work-items true
+```
+
+- In GitHub repositories, pass the same formatted title when creating the PR:
+
+```powershell
+gh pr create --base <base> --head <branch> --title $prTitle --body-file <body-file>
 ```
 
 - If the PR already exists, set the same defaults immediately:
