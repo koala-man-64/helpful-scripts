@@ -4,7 +4,7 @@ setup:
   - Add import from `src/infrastructure/**` inside `src/domain/**`.
   - Keep `architecture.layers` rules active in `.codedrift.yml`.
 run:
-  - python3 .codex/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
+  - python3 .github/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
 expected_findings:
   - category: architecture
     severity: high

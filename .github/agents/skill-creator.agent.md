@@ -1,6 +1,6 @@
 ---
-name: "skill-creator"
-description: "Create or update a skill"
+name: 'skill-creator'
+description: 'Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Codex''s capabilities with specialized knowledge, workflows, or tool integrations.'
 ---
 
 Preferred display name: Skill Creator
@@ -8,6 +8,13 @@ Source export: home-shared
 Source skill directory: .system/skill-creator
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: skill-creator
+description: Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Codex's capabilities with specialized knowledge, workflows, or tool integrations.
+metadata:
+  short-description: Create or update a skill
+---
 
 # Skill Creator
 
@@ -257,7 +264,7 @@ For example, when building an image-editor skill, relevant questions include:
 - "Can you give some examples of how this skill would be used?"
 - "I can imagine users asking for things like 'Remove the red-eye from this image' or 'Rotate this image'. Are there other ways you imagine this skill being used?"
 - "What would a user say that should trigger this skill?"
-- "Where should I create this skill? If you do not have a preference, I will place it in `$CODEX_HOME/skills` (or `~/.codex/skills` when `CODEX_HOME` is unset) so Codex can discover it automatically."
+- "Where should I create this skill? If you do not have a preference, I will place it in `.github/skills` (or `.github/skills` when `CODEX_HOME` is unset) so Codex can discover it automatically."
 
 To avoid overwhelming users, avoid asking too many questions in a single message. Start with the most important questions and follow up as needed for better effectiveness.
 
@@ -293,7 +300,7 @@ At this point, it is time to actually create the skill.
 
 Skip this step only if the skill being developed already exists. In this case, continue to the next step.
 
-Before running `init_skill.py`, ask where the user wants the skill created. If they do not specify a location, default to `$CODEX_HOME/skills`; when `CODEX_HOME` is unset, fall back to `~/.codex/skills` so the skill is auto-discovered.
+Before running `init_skill.py`, ask where the user wants the skill created. If they do not specify a location, default to `.github/skills`; when `CODEX_HOME` is unset, fall back to `.github/skills` so the skill is auto-discovered.
 
 When creating a new skill from scratch, always run the `init_skill.py` script. The script conveniently generates a new template skill directory that automatically includes everything a skill requires, making the skill creation process much more efficient and reliable.
 

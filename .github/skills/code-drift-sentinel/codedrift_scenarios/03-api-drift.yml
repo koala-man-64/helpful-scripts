@@ -4,7 +4,7 @@ setup:
   - Modify a function signature in a path matching `api.public_globs`.
   - Remove or rename parameters to simulate a breaking change.
 run:
-  - python3 .codex/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
+  - python3 .github/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
 expected_findings:
   - category: api
     severity: high

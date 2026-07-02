@@ -1,14 +1,18 @@
 ---
-name: "cloud-infrastructure-expert"
-description: "Cloud infra design, IaC, and ops guidance"
+name: 'cloud-infrastructure-expert'
+description: 'Senior cloud infrastructure engineering guidance for AWS, Azure, GCP, IaC, Kubernetes, CI/CD, IAM, networking, observability, reliability, security, compliance, and FinOps. Use when Codex needs to design, build, review, troubleshoot, or improve cloud infrastructure; create or modify Terraform, OpenTofu, CloudFormation, Bicep, Pulumi, Helm, Kubernetes manifests, deployment pipelines, IAM/RBAC, DNS/TLS, load balancers, private networking, monitoring, runbooks, migration plans, rollout plans, rollback plans, or infrastructure PR review findings.'
 ---
 
 Preferred display name: Cloud Infrastructure Expert
 Source export: repo-local
 Source skill directory: cloud-infrastructure-expert
-Suggested invocation: `Use $cloud-infrastructure-expert to review this Terraform change for security, reliability, and cost risks.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: cloud-infrastructure-expert
+description: Senior cloud infrastructure engineering guidance for AWS, Azure, GCP, IaC, Kubernetes, CI/CD, IAM, networking, observability, reliability, security, compliance, and FinOps. Use when Codex needs to design, build, review, troubleshoot, or improve cloud infrastructure; create or modify Terraform, OpenTofu, CloudFormation, Bicep, Pulumi, Helm, Kubernetes manifests, deployment pipelines, IAM/RBAC, DNS/TLS, load balancers, private networking, monitoring, runbooks, migration plans, rollout plans, rollback plans, or infrastructure PR review findings.
+---
 
 # Cloud Infrastructure Expert
 

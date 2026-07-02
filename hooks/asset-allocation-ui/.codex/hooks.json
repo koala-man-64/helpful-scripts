@@ -1,0 +1,64 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'root=$(git rev-parse --show-toplevel 2>/dev/null || pwd); python3 \"$root/.codex/hooks/session_start_team_context.py\"'",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$root = git rev-parse --show-toplevel 2>$null; if (-not $root) { $root = (Get-Location).Path }; py -3 (Join-Path $root \".codex\\hooks\\session_start_team_context.py\")'",
+            "timeout": 10,
+            "statusMessage": "Loading team workflow context"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'root=$(git rev-parse --show-toplevel 2>/dev/null || pwd); python3 \"$root/.codex/hooks/user_prompt_submit_router.py\"'",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$root = git rev-parse --show-toplevel 2>$null; if (-not $root) { $root = (Get-Location).Path }; py -3 (Join-Path $root \".codex\\hooks\\user_prompt_submit_router.py\")'",
+            "timeout": 10,
+            "statusMessage": "Routing request through team workflow"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'root=$(git rev-parse --show-toplevel 2>/dev/null || pwd); python3 \"$root/.codex/hooks/pre_tool_use_bash_guard.py\"'",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$root = git rev-parse --show-toplevel 2>$null; if (-not $root) { $root = (Get-Location).Path }; py -3 (Join-Path $root \".codex\\hooks\\pre_tool_use_bash_guard.py\")'",
+            "timeout": 10,
+            "statusMessage": "Checking shell safety"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'root=$(git rev-parse --show-toplevel 2>/dev/null || pwd); python3 \"$root/.codex/hooks/stop_team_closeout.py\"'",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$root = git rev-parse --show-toplevel 2>$null; if (-not $root) { $root = (Get-Location).Path }; py -3 (Join-Path $root \".codex\\hooks\\stop_team_closeout.py\")'",
+            "timeout": 10,
+            "statusMessage": "Checking team closeout"
+          },
+          {
+            "type": "command",
+            "command": "sh -c 'root=$(git rev-parse --show-toplevel 2>/dev/null || pwd); python3 \"$root/.codex/hooks/stop_gateway_bookkeeper_recap.py\"'",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$root = git rev-parse --show-toplevel 2>$null; if (-not $root) { $root = (Get-Location).Path }; py -3 (Join-Path $root \".codex\\hooks\\stop_gateway_bookkeeper_recap.py\")'",
+            "timeout": 10,
+            "statusMessage": "Checking gateway bookkeeper recap"
+          }
+        ]
+      }
+    ]
+  }
+}

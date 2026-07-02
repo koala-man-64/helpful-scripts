@@ -1,14 +1,18 @@
 ---
-name: "thesis-drift-what-changed-agent"
-description: "Detect whether a trade thesis has changed"
+name: 'thesis-drift-what-changed-agent'
+description: 'Independent thesis monitoring and change detection for institutional equities trades or strategies. Use when Codex needs to compare an original thesis, entry rationale, or strategy note against updated evidence such as news, fundamentals, macro developments, price and volume behavior, liquidity shifts, sentiment changes, or execution conditions and decide whether the thesis is intact, weakened, broken, or inverted.'
 ---
 
-Preferred display name: Thesis Drift / What Changed? Agent
+Preferred display name: Thesis Drift What Changed Agent
 Source export: repo-local
 Source skill directory: thesis-drift-what-changed-agent
-Suggested invocation: `Use $thesis-drift-what-changed-agent to compare an original trade thesis with current evidence and decide whether it is intact, weakened, broken, or inverted.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: thesis-drift-what-changed-agent
+description: Independent thesis monitoring and change detection for institutional equities trades or strategies. Use when Codex needs to compare an original thesis, entry rationale, or strategy note against updated evidence such as news, fundamentals, macro developments, price and volume behavior, liquidity shifts, sentiment changes, or execution conditions and decide whether the thesis is intact, weakened, broken, or inverted.
+---
 
 # Thesis Drift What Changed Agent
 

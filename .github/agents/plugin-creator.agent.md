@@ -1,14 +1,18 @@
 ---
-name: "plugin-creator"
-description: "Scaffold plugins and marketplace entries"
+name: 'plugin-creator'
+description: 'Create and scaffold plugin directories for Codex with a required `.codex-plugin/plugin.json`, optional plugin folders/files, valid manifest defaults, and personal-marketplace entries by default. Use when Codex needs to create a new personal plugin, add optional plugin structure, generate or update marketplace entries for plugin ordering and availability metadata, or update an existing local plugin during development with the CLI-driven cachebuster and reinstall flow.'
 ---
 
 Preferred display name: Plugin Creator
 Source export: home-shared
 Source skill directory: .system/plugin-creator
-Suggested invocation: `Use $plugin-creator to scaffold a valid plugin in the personal marketplace, then validate it before handing it back.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: plugin-creator
+description: Create and scaffold plugin directories for Codex with a required `.codex-plugin/plugin.json`, optional plugin folders/files, valid manifest defaults, and personal-marketplace entries by default. Use when Codex needs to create a new personal plugin, add optional plugin structure, generate or update marketplace entries for plugin ordering and availability metadata, or update an existing local plugin during development with the CLI-driven cachebuster and reinstall flow.
+---
 
 # Plugin Creator
 

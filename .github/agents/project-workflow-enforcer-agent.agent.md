@@ -1,14 +1,18 @@
 ---
-name: "project-workflow-enforcer-agent"
-description: "Enforce the repo's workflow, routing policy, and compliance gates."
+name: 'project-workflow-enforcer-agent'
+description: 'Enforce the repository''s authoritative multi-agent delivery workflow, routing policy, and compliance gates for features, bugs, refactors, incidents, releases, and workflow changes. Use when building a compliant plan for new work, reviewing a proposed plan, ticket, PR, or workflow for compliance, enforcing incident or CI-failure routing, or recommending periodic workflow-governance reviews. Do not use this skill to replace delivery-orchestrator-agent or project-workflow-auditor-agent; use it to enforce when and how they are used.'
 ---
 
 Preferred display name: Project Workflow Enforcer Agent
 Source export: repo-local
 Source skill directory: project-workflow-enforcer-agent
-Suggested invocation: `Classify the task, choose the correct lane, and produce a compliant workflow using the exact repo-local agent names and required ordering.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: project-workflow-enforcer-agent
+description: Enforce the repository's authoritative multi-agent delivery workflow, routing policy, and compliance gates for features, bugs, refactors, incidents, releases, and workflow changes. Use when building a compliant plan for new work, reviewing a proposed plan, ticket, PR, or workflow for compliance, enforcing incident or CI-failure routing, or recommending periodic workflow-governance reviews. Do not use this skill to replace delivery-orchestrator-agent or project-workflow-auditor-agent; use it to enforce when and how they are used.
+---
 
 # Project Workflow Enforcer Agent
 

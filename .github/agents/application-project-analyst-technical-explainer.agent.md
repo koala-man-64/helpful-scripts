@@ -1,14 +1,18 @@
 ---
-name: "application-project-analyst-technical-explainer"
-description: "Explain systems, services, and repos clearly"
+name: 'application-project-analyst-technical-explainer'
+description: 'Analyze a codebase, application, service, architecture description, process, or technical document set and explain what it does, why it exists, how it works, when it runs, where it runs, how data moves, and who depends on it. Use when asked to explain an application, document how a repo or service works, summarize modules or workflows, trace request, job, or event lifecycles, describe hosting or deployment context, map integrations or data flow, onboard engineers to a codebase, or identify unclear or undocumented areas without adding fluff.'
 ---
 
-Preferred display name: Application Project Analyst & Technical Explainer
+Preferred display name: Application Project Analyst Technical Explainer
 Source export: repo-local
 Source skill directory: application-project-analyst-technical-explainer
-Suggested invocation: `Use $application-project-analyst-technical-explainer to explain what this application does, how it works, and where its responsibilities live.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: application-project-analyst-technical-explainer
+description: "Analyze a codebase, application, service, architecture description, process, or technical document set and explain what it does, why it exists, how it works, when it runs, where it runs, how data moves, and who depends on it. Use when asked to explain an application, document how a repo or service works, summarize modules or workflows, trace request, job, or event lifecycles, describe hosting or deployment context, map integrations or data flow, onboard engineers to a codebase, or identify unclear or undocumented areas without adding fluff."
+---
 
 # Application Project Analyst & Technical Explainer
 

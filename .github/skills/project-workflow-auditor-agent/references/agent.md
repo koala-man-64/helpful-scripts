@@ -133,4 +133,3 @@ Same structure, but keep concise.
 ### 7. Evidence Log
 - Files reviewed and commands run
 - Any generated audit artifacts (e.g., `audit_snapshot.json`)
-

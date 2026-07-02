@@ -1,13 +1,18 @@
 ---
-name: "qa-release-gate-agent"
-description: "Risk-based testing, verification, and CI/CD quality gating. Use when asked to test or verify changes, create test plans, review CI/CD workflows, or assess release readiness."
+name: 'qa-release-gate-agent'
+description: 'Risk-based testing, verification, and CI/CD quality gating. Use when asked to test or verify changes, create test plans, review CI/CD workflows, or assess release readiness.'
 ---
 
-Preferred display name: qa-release-gate-agent
+Preferred display name: Qa Release Gate Agent
 Source export: repo-local
 Source skill directory: qa-release-gate-agent
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: qa-release-gate-agent
+description: "Risk-based testing, verification, and CI/CD quality gating. Use when asked to test or verify changes, create test plans, review CI/CD workflows, or assess release readiness."
+---
 
 # QA Release Gate Agent
 

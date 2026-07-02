@@ -1,14 +1,18 @@
 ---
-name: "db-steward"
-description: "Principal database design and execution guidance"
+name: 'db-steward'
+description: 'Principal database architecture and execution guidance for production data systems. Design or review OLTP and analytics schemas, SQL queries, indexes, migrations, backfills, concurrency controls, backup and restore plans, replication and failover, security controls, and operational runbooks across Postgres, MySQL, SQL Server, and justified NoSQL systems. Use when Codex needs to model data, enforce integrity, optimize query paths, plan zero or low-downtime database changes, diagnose locking or performance issues, or define database reliability and governance practices.'
 ---
 
-Preferred display name: DB Steward
+Preferred display name: Db Steward
 Source export: repo-local
 Source skill directory: db-steward
-Suggested invocation: `Use $db-steward to design or review this database work with schema, query, migration, reliability, and security guidance.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: db-steward
+description: "Principal database architecture and execution guidance for production data systems. Design or review OLTP and analytics schemas, SQL queries, indexes, migrations, backfills, concurrency controls, backup and restore plans, replication and failover, security controls, and operational runbooks across Postgres, MySQL, SQL Server, and justified NoSQL systems. Use when Codex needs to model data, enforce integrity, optimize query paths, plan zero or low-downtime database changes, diagnose locking or performance issues, or define database reliability and governance practices."
+---
 
 # DB Steward
 

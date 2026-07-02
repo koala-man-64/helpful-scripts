@@ -1,14 +1,18 @@
 ---
-name: "strict-branch-and-merge-discipline"
-description: "Safe branch isolation and merge discipline"
+name: 'strict-branch-and-merge-discipline'
+description: 'Mandatory git safety workflow for any task that changes code in one or more repositories. Use before editing files, creating branches or worktrees, committing, rebasing, pushing, syncing with base, opening PRs, or coordinating multi-repo changes when branch isolation, collision avoidance, ownership boundaries, and safe merge discipline matter.'
 ---
 
-Preferred display name: Strict Branch and Merge Discipline
+Preferred display name: Strict Branch And Merge Discipline
 Source export: repo-local
 Source skill directory: strict-branch-and-merge-discipline
-Suggested invocation: `Use $strict-branch-and-merge-discipline to set up a safe task branch and worktree before editing code in this repository.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: strict-branch-and-merge-discipline
+description: Mandatory git safety workflow for any task that changes code in one or more repositories. Use before editing files, creating branches or worktrees, committing, rebasing, pushing, syncing with base, opening PRs, or coordinating multi-repo changes when branch isolation, collision avoidance, ownership boundaries, and safe merge discipline matter.
+---
 
 # Strict Branch and Merge Discipline
 

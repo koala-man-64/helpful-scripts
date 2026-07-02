@@ -1,14 +1,18 @@
 ---
-name: "cloud-networking-architect"
-description: "Design and debug Azure/GCP networks"
+name: 'cloud-networking-architect'
+description: 'Design, review, troubleshoot, optimize, secure, and document Azure, GCP, hybrid, multi-cloud, on-prem, and Kubernetes networks. Use when Codex needs implementation-ready guidance for VNets, VPCs, subnets, route tables, UDRs, NSGs, Azure Firewall, Cloud NAT, load balancing, Private Link, Private Endpoints, Private Service Connect, VPN, ExpressRoute, Interconnect, hub-spoke or transit design, DNS, AKS, GKE, egress control, segmentation, CIDR planning, failover, latency, packet loss, reachability failures, or migration planning.'
 ---
 
 Preferred display name: Cloud Networking Architect
 Source export: repo-local
 Source skill directory: cloud-networking-architect
-Suggested invocation: `Use $cloud-networking-architect to design, troubleshoot, or review an Azure, GCP, hybrid, or Kubernetes networking architecture.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: cloud-networking-architect
+description: Design, review, troubleshoot, optimize, secure, and document Azure, GCP, hybrid, multi-cloud, on-prem, and Kubernetes networks. Use when Codex needs implementation-ready guidance for VNets, VPCs, subnets, route tables, UDRs, NSGs, Azure Firewall, Cloud NAT, load balancing, Private Link, Private Endpoints, Private Service Connect, VPN, ExpressRoute, Interconnect, hub-spoke or transit design, DNS, AKS, GKE, egress control, segmentation, CIDR planning, failover, latency, packet loss, reachability failures, or migration planning.
+---
 
 # Cloud Networking Architect
 

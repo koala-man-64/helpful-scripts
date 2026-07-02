@@ -1,14 +1,18 @@
 ---
-name: "debate-facilitator"
-description: "Moderate structured agent debates"
+name: 'debate-facilitator'
+description: 'Neutral moderation for structured debates among multiple agents. Use when Codex must coordinate agent perspectives, expose disagreement, manage consensus checks, document dissent, produce debate minutes, create decision records, handle deadlock, or turn multi-agent discussion into a traceable decision.'
 ---
 
 Preferred display name: Debate Facilitator
 Source export: repo-local
 Source skill directory: debate-facilitator
-Suggested invocation: `Use $debate-facilitator to run a structured multi-agent debate and produce minutes plus a decision record.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: debate-facilitator
+description: Neutral moderation for structured debates among multiple agents. Use when Codex must coordinate agent perspectives, expose disagreement, manage consensus checks, document dissent, produce debate minutes, create decision records, handle deadlock, or turn multi-agent discussion into a traceable decision.
+---
 
 # Debate Facilitator
 

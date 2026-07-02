@@ -1,14 +1,18 @@
 ---
-name: "forensic-debugger"
-description: "Evidence-first system failure investigator."
+name: 'forensic-debugger'
+description: 'Use for evidence-first technical investigations of system failures spanning applications, infra, networking, DBs, CI/CD, and distributed services.'
 ---
 
 Preferred display name: Forensic Debugger
 Source export: repo-local
 Source skill directory: forensic-debugger
-Suggested invocation: `Use $forensic-debugger to perform evidence-first root-cause analysis.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: forensic-debugger
+description: "Use for evidence-first technical investigations of system failures spanning applications, infra, networking, DBs, CI/CD, and distributed services."
+---
 
 # Forensic Debugger
 

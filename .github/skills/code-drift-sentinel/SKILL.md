@@ -25,9 +25,9 @@ Run a deterministic drift audit against a baseline, produce human and machine-re
 Run from repository root.
 
 ```bash
-python3 .codex/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
-python3 .codex/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode recommend
-python3 .codex/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode auto-remediate
+python3 .github/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
+python3 .github/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode recommend
+python3 .github/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode auto-remediate
 ```
 
 Useful flags:

@@ -4,7 +4,7 @@ setup:
   - Introduce formatting and import-order violations in `src/domain/example.ts`.
   - Ensure `standards.format` and `standards.lint` are configured.
 run:
-  - python3 .codex/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
+  - python3 .github/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
 expected_findings:
   - category: style
     severity: medium

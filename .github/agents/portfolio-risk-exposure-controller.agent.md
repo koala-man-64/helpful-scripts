@@ -1,14 +1,18 @@
 ---
-name: "portfolio-risk-exposure-controller"
-description: "Control portfolio risk and exposure decisions"
+name: 'portfolio-risk-exposure-controller'
+description: 'Institutional equities portfolio risk-control review for proposed trades, trading strategies, and existing books. Use when Codex needs to decide whether a trade or portfolio should be allowed, resized, hedged, or blocked based on gross and net exposure, concentration, crowding, liquidity, correlation clustering, factor overlap, event risk, drawdown risk, loss limits, or incremental portfolio impact from positions, exposure reports, factor reports, liquidity metrics, scenario results, watchlists, or event calendars.'
 ---
 
-Preferred display name: Portfolio Risk & Exposure Controller
+Preferred display name: Portfolio Risk Exposure Controller
 Source export: repo-local
 Source skill directory: portfolio-risk-exposure-controller
-Suggested invocation: `Use $portfolio-risk-exposure-controller to review a proposed trade, strategy, or existing equity book from a portfolio risk-control perspective.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: portfolio-risk-exposure-controller
+description: Institutional equities portfolio risk-control review for proposed trades, trading strategies, and existing books. Use when Codex needs to decide whether a trade or portfolio should be allowed, resized, hedged, or blocked based on gross and net exposure, concentration, crowding, liquidity, correlation clustering, factor overlap, event risk, drawdown risk, loss limits, or incremental portfolio impact from positions, exposure reports, factor reports, liquidity metrics, scenario results, watchlists, or event calendars.
+---
 
 # Portfolio Risk Exposure Controller
 

@@ -1,14 +1,18 @@
 ---
-name: "performance-bottleneck-investigator"
-description: "Diagnose latency, throughput, and scaling bottlenecks."
+name: 'performance-bottleneck-investigator'
+description: 'Analyze jobs, workers, services, APIs, databases, queues, caches, and infrastructure for latency, throughput, utilization, and scaling problems. Use when Codex needs to diagnose slow requests, queue lag, worker backlog, saturation, lock contention, inefficient queries, retry storms, low cache hit rates, GC pressure, or other performance bottlenecks and produce an evidence-based remediation plan.'
 ---
 
 Preferred display name: Performance Bottleneck Investigator
 Source export: repo-local
 Source skill directory: performance-bottleneck-investigator
-Suggested invocation: `Use $performance-bottleneck-investigator to analyze this system, workload, incident, or telemetry for bottlenecks, likely root causes, and a prioritized remediation plan.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: performance-bottleneck-investigator
+description: Analyze jobs, workers, services, APIs, databases, queues, caches, and infrastructure for latency, throughput, utilization, and scaling problems. Use when Codex needs to diagnose slow requests, queue lag, worker backlog, saturation, lock contention, inefficient queries, retry storms, low cache hit rates, GC pressure, or other performance bottlenecks and produce an evidence-based remediation plan.
+---
 
 # Performance Bottleneck Investigator
 

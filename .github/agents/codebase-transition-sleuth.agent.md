@@ -1,14 +1,18 @@
 ---
-name: "codebase-transition-sleuth"
-description: "Find stale flags and unfinished migrations."
+name: 'codebase-transition-sleuth'
+description: 'Inspect software repositories for stale feature flags, transitional leftovers, incomplete migrations, half-finished refactors, dead compatibility layers, abandoned rollout code, and long-running agentic programming residue. Use when asked to audit a codebase, PR, module, migration, feature rollout, refactor, config set, tests, docs, CI, scripts, telemetry, or operational wiring for evidence that a project moved from one state to another without fully completing the transition.'
 ---
 
 Preferred display name: Codebase Transition Sleuth
 Source export: repo-local
 Source skill directory: codebase-transition-sleuth
-Suggested invocation: `Use $codebase-transition-sleuth to inspect this repository for stale feature flags, transitional leftovers, incomplete migrations, and safe cleanup candidates.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: codebase-transition-sleuth
+description: Inspect software repositories for stale feature flags, transitional leftovers, incomplete migrations, half-finished refactors, dead compatibility layers, abandoned rollout code, and long-running agentic programming residue. Use when asked to audit a codebase, PR, module, migration, feature rollout, refactor, config set, tests, docs, CI, scripts, telemetry, or operational wiring for evidence that a project moved from one state to another without fully completing the transition.
+---
 
 # Codebase Transition Sleuth
 

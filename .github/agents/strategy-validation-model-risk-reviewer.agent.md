@@ -1,14 +1,18 @@
 ---
-name: "strategy-validation-model-risk-reviewer"
-description: "Validate trading strategies with independent model-risk rigor"
+name: 'strategy-validation-model-risk-reviewer'
+description: 'Independent model validation and strategy review for institutional equities strategies. Use when Codex needs to challenge an existing strategy, backtest, research note, rule logic, feature list, train/test design, execution assumption set, monitoring proposal, or change log for weak edge logic, bias, leakage, overfitting, execution unrealism, regime fragility, governance gaps, or deployment readiness.'
 ---
 
-Preferred display name: Strategy Validation & Model Risk Reviewer
+Preferred display name: Strategy Validation Model Risk Reviewer
 Source export: repo-local
 Source skill directory: strategy-validation-model-risk-reviewer
-Suggested invocation: `Use $strategy-validation-model-risk-reviewer to review an existing trading strategy, backtest, or monitoring proposal like an independent institutional model validation function.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: strategy-validation-model-risk-reviewer
+description: Independent model validation and strategy review for institutional equities strategies. Use when Codex needs to challenge an existing strategy, backtest, research note, rule logic, feature list, train/test design, execution assumption set, monitoring proposal, or change log for weak edge logic, bias, leakage, overfitting, execution unrealism, regime fragility, governance gaps, or deployment readiness.
+---
 
 # Strategy Validation Model Risk Reviewer
 

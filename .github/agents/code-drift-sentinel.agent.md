@@ -1,22 +1,24 @@
 ---
-name: "code-drift-sentinel"
-description: "Detect and remediate multi-agent code drift, including speculative safeguards, fallback logic, fallback settings, and fallback-oriented configuration."
+name: 'code-drift-sentinel'
+description: 'Detect, score, attribute, and remediate code drift caused by multiple AI agents and humans across style, architecture, APIs, dependencies, behavior, performance, security, tests, docs, and CI/config. Use when running drift audits locally/CI/scheduled jobs, enforcing drift score quality gates, generating drift_report.md/json artifacts, or preparing safe auto-remediation patches.'
 ---
 
 Preferred display name: Code Drift Sentinel
 Source export: repo-local
 Source skill directory: code-drift-sentinel
-Suggested invocation: `Use $skill-name to detect code drift, attribute causes, and propose or apply safe remediation. Treat speculative safeguards, fallback logic, fallback settings, and fallback-oriented configuration as undesired drift unless the requirement explicitly calls for them.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: code-drift-sentinel
+description: Detect, score, attribute, and remediate code drift caused by multiple AI agents and humans across style, architecture, APIs, dependencies, behavior, performance, security, tests, docs, and CI/config. Use when running drift audits locally/CI/scheduled jobs, enforcing drift score quality gates, generating drift_report.md/json artifacts, or preparing safe auto-remediation patches.
+---
 
 # Code Drift Sentinel
 
 ## Overview
 
 Run a deterministic drift audit against a baseline, produce human and machine-readable reports, and optionally apply safe remediations with rollback on failed verification.
-
-Behavioral/config drift includes speculative safeguards plus fallback-oriented logic, settings, and configuration that change semantics or hide source-of-truth problems without an explicit requirement.
 
 ## Workflow
 
@@ -34,9 +36,9 @@ Behavioral/config drift includes speculative safeguards plus fallback-oriented l
 Run from repository root.
 
 ```bash
-python3 .codex/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
-python3 .codex/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode recommend
-python3 .codex/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode auto-remediate
+python3 .github/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
+python3 .github/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode recommend
+python3 .github/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode auto-remediate
 ```
 
 Useful flags:

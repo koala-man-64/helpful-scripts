@@ -1,14 +1,18 @@
 ---
-name: "cloud-cost-optimization-efficiency-architect"
-description: "Audit cloud spend and safe optimization opportunities."
+name: 'cloud-cost-optimization-efficiency-architect'
+description: 'Analyze AWS, Azure, and GCP systems, services, platforms, architecture descriptions, IaC, Kubernetes clusters, CI/CD pipelines, cost reports, and engineering processes to find realistic cloud cost savings without creating unacceptable reliability, performance, security, compliance, or delivery risk. Use when reviewing cloud spend, finding waste or inefficiency, evaluating FinOps and governance gaps, assessing cost and performance tradeoffs, or producing a prioritized cloud cost reduction plan.'
 ---
 
-Preferred display name: Cloud Cost Optimization & Efficiency Architect
+Preferred display name: Cloud Cost Optimization Efficiency Architect
 Source export: repo-local
 Source skill directory: cloud-cost-optimization-efficiency-architect
-Suggested invocation: `Use $cloud-cost-optimization-efficiency-architect to analyze this system, IaC, cost report, or pipeline for meaningful cloud savings with clear tradeoffs, risk, and sequencing.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: cloud-cost-optimization-efficiency-architect
+description: Analyze AWS, Azure, and GCP systems, services, platforms, architecture descriptions, IaC, Kubernetes clusters, CI/CD pipelines, cost reports, and engineering processes to find realistic cloud cost savings without creating unacceptable reliability, performance, security, compliance, or delivery risk. Use when reviewing cloud spend, finding waste or inefficiency, evaluating FinOps and governance gaps, assessing cost and performance tradeoffs, or producing a prioritized cloud cost reduction plan.
+---
 
 # Cloud Cost Optimization & Efficiency Architect
 

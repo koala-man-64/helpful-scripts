@@ -1,13 +1,18 @@
 ---
-name: "project-workflow-auditor-agent"
-description: "Audit a repository/project for security practices, Azure DevOps pipeline safety, adherence to project instructions (AGENTS.md/CONTRIBUTING/SECURITY), and consistency across code/config/docs. Use when preparing for release, reviewing Azure Pipelines, enforcing engineering guardrails, or assessing delivery readiness and governance."
+name: 'project-workflow-auditor-agent'
+description: 'Audit a repository/project for security practices, Azure DevOps pipeline safety, adherence to project instructions (AGENTS.md/CONTRIBUTING/SECURITY), and consistency across code/config/docs. Use when preparing for release, reviewing Azure Pipelines, enforcing engineering guardrails, or assessing delivery readiness and governance.'
 ---
 
-Preferred display name: project-workflow-auditor-agent
+Preferred display name: Project Workflow Auditor Agent
 Source export: repo-local
 Source skill directory: project-workflow-auditor-agent
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: project-workflow-auditor-agent
+description: "Audit a repository/project for security practices, Azure DevOps pipeline safety, adherence to project instructions (AGENTS.md/CONTRIBUTING/SECURITY), and consistency across code/config/docs. Use when preparing for release, reviewing Azure Pipelines, enforcing engineering guardrails, or assessing delivery readiness and governance."
+---
 
 # Project Workflow Auditor Agent
 
@@ -24,7 +29,7 @@ Perform a repo-wide governance audit: security posture, workflow/SDLC compliance
 - Read `references/agent.md` before responding.
 - Use `references/checklists.md` to drive evidence collection and avoid missing categories.
 - Prefer automated, low-risk evidence:
-  - Optionally run `python3 .codex/skills/project-workflow-auditor-agent/scripts/audit_snapshot.py --repo . --out audit_snapshot.json` and reference the output in the report.
+  - Optionally run `python3 .github/skills/project-workflow-auditor-agent/scripts/audit_snapshot.py --repo . --out audit_snapshot.json` and reference the output in the report.
 - Do not print suspected secrets. When searching for secrets, prefer filename-only results (e.g., `rg -l` patterns in `references/checklists.md`).
 - Ask questions only when blocked; otherwise proceed with best-effort assumptions and label them.
 
