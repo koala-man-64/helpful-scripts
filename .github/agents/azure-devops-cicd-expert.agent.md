@@ -1,14 +1,18 @@
 ---
-name: "azure-devops-cicd-expert"
-description: "Design and debug Azure DevOps CI/CD"
+name: 'azure-devops-cicd-expert'
+description: 'Senior Azure DevOps CI/CD engineering for designing, reviewing, debugging, optimizing, explaining, and hardening Azure Pipelines YAML, classic build and release migrations, Azure Repos and GitHub integration, Azure Artifacts, service connections, deployment environments, approvals, variable groups, templates, branch policies, pipeline security, and CI/CD architecture. Use when Codex needs hands-on Azure DevOps pipeline help for .NET, Node.js, Python, Java, Docker, AKS, Azure App Service, Azure Functions, Azure Container Apps, Azure SQL, Storage, Key Vault, Terraform, Bicep, ARM, Azure CLI, monorepos, multi-repo checkout, matrix builds, artifact publishing, release promotion, or self-hosted agent troubleshooting.'
 ---
 
-Preferred display name: Azure DevOps CI/CD Expert
+Preferred display name: Azure Devops Cicd Expert
 Source export: repo-local
 Source skill directory: azure-devops-cicd-expert
-Suggested invocation: `Use $azure-devops-cicd-expert to design, debug, or harden an Azure DevOps CI/CD workflow.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: azure-devops-cicd-expert
+description: Senior Azure DevOps CI/CD engineering for designing, reviewing, debugging, optimizing, explaining, and hardening Azure Pipelines YAML, classic build and release migrations, Azure Repos and GitHub integration, Azure Artifacts, service connections, deployment environments, approvals, variable groups, templates, branch policies, pipeline security, and CI/CD architecture. Use when Codex needs hands-on Azure DevOps pipeline help for .NET, Node.js, Python, Java, Docker, AKS, Azure App Service, Azure Functions, Azure Container Apps, Azure SQL, Storage, Key Vault, Terraform, Bicep, ARM, Azure CLI, monorepos, multi-repo checkout, matrix builds, artifact publishing, release promotion, or self-hosted agent troubleshooting.
+---
 
 # Azure DevOps CI/CD Expert
 

@@ -74,7 +74,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="List/validate Code Drift Sentinel scenario definitions.")
     parser.add_argument(
         "--scenarios-dir",
-        default=".codex/skills/code-drift-sentinel/codedrift_scenarios",
+        default=".github/skills/code-drift-sentinel/codedrift_scenarios",
         help="Path to scenario yaml directory",
     )
     parser.add_argument("--list", action="store_true", help="List scenarios")

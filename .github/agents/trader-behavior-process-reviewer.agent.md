@@ -1,14 +1,18 @@
 ---
-name: "trader-behavior-process-reviewer"
-description: "Review trading discipline and process quality"
+name: 'trader-behavior-process-reviewer'
+description: 'Institutional equities trader behavior, discipline, and process review. Use when Codex needs to evaluate how a trader or PM actually behaved relative to the stated process by reviewing trade journals, pre-trade plans, post-trade reviews, blotters, override logs, entry and exit notes, P&L paths, performance summaries, or rule checklists for plan adherence, size discipline, stop discipline, thesis creep, chasing, averaging, delayed cutting, premature profit-taking, or weak review habits.'
 ---
 
-Preferred display name: Trader Behavior & Process Reviewer
+Preferred display name: Trader Behavior Process Reviewer
 Source export: repo-local
 Source skill directory: trader-behavior-process-reviewer
-Suggested invocation: `Use $trader-behavior-process-reviewer to review trader or PM behavior, process discipline, and plan adherence from trading records.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: trader-behavior-process-reviewer
+description: Institutional equities trader behavior, discipline, and process review. Use when Codex needs to evaluate how a trader or PM actually behaved relative to the stated process by reviewing trade journals, pre-trade plans, post-trade reviews, blotters, override logs, entry and exit notes, P&L paths, performance summaries, or rule checklists for plan adherence, size discipline, stop discipline, thesis creep, chasing, averaging, delayed cutting, premature profit-taking, or weak review habits.
+---
 
 # Trader Behavior & Process Reviewer
 

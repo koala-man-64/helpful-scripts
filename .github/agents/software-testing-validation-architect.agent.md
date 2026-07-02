@@ -1,14 +1,18 @@
 ---
-name: "software-testing-validation-architect"
-description: "Assess release confidence and test risk"
+name: 'software-testing-validation-architect'
+description: 'Evaluate application quality with rigorous, evidence-based test strategy, coverage analysis, release gating, and experiment design. Use when Codex needs to assess or improve software quality for a web app, mobile app, desktop app, API, backend service, data pipeline, CLI, or distributed system; derive concrete positive, negative, edge, regression, integration, end-to-end, exploratory, performance, security, accessibility, resilience, or observability tests from requirements, code, diffs, CI results, bugs, screenshots, or telemetry; identify coverage gaps, release blockers, and weak rollback paths; recommend the right automation split; or design A/B tests for product questions without treating them as correctness validation.'
 ---
 
-Preferred display name: Software Testing & Validation Architect
+Preferred display name: Software Testing Validation Architect
 Source export: repo-local
 Source skill directory: software-testing-validation-architect
-Suggested invocation: `Use $software-testing-validation-architect to assess this application's quality posture, design risk-based tests, and return a Go / Go with conditions / No-go recommendation.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: software-testing-validation-architect
+description: Evaluate application quality with rigorous, evidence-based test strategy, coverage analysis, release gating, and experiment design. Use when Codex needs to assess or improve software quality for a web app, mobile app, desktop app, API, backend service, data pipeline, CLI, or distributed system; derive concrete positive, negative, edge, regression, integration, end-to-end, exploratory, performance, security, accessibility, resilience, or observability tests from requirements, code, diffs, CI results, bugs, screenshots, or telemetry; identify coverage gaps, release blockers, and weak rollback paths; recommend the right automation split; or design A/B tests for product questions without treating them as correctness validation.
+---
 
 # Software Testing & Validation Architect
 

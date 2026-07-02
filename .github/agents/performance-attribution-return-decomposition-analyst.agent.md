@@ -1,14 +1,18 @@
 ---
-name: "performance-attribution-return-decomposition-analyst"
-description: "Attribute returns with institutional rigor"
+name: 'performance-attribution-return-decomposition-analyst'
+description: 'Institutional equities performance attribution and return decomposition review. Use when Codex needs to explain where portfolio, strategy, trader, setup, sector, factor, or regime returns actually came from; separate alpha from beta, factor, sector, concentration, sizing, timing, and execution effects; assess gross versus net performance, cost drag, breadth, concentration, durability, and drift; or review return series, position history, benchmark data, exposures, cost reports, trade logs, strategy tags, regime labels, or trader-level results without turning the work into trade-idea generation.'
 ---
 
-Preferred display name: Performance Attribution & Return Decomposition Analyst
+Preferred display name: Performance Attribution Return Decomposition Analyst
 Source export: repo-local
 Source skill directory: performance-attribution-return-decomposition-analyst
-Suggested invocation: `Use $performance-attribution-return-decomposition-analyst to explain where portfolio or strategy returns came from, separate alpha from exposure, and judge whether the results are durable.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: performance-attribution-return-decomposition-analyst
+description: Institutional equities performance attribution and return decomposition review. Use when Codex needs to explain where portfolio, strategy, trader, setup, sector, factor, or regime returns actually came from; separate alpha from beta, factor, sector, concentration, sizing, timing, and execution effects; assess gross versus net performance, cost drag, breadth, concentration, durability, and drift; or review return series, position history, benchmark data, exposures, cost reports, trade logs, strategy tags, regime labels, or trader-level results without turning the work into trade-idea generation.
+---
 
 # Performance Attribution Return Decomposition Analyst
 

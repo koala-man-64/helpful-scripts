@@ -1,14 +1,18 @@
 ---
-name: "fail-fast-enforcement-agent"
-description: "Enforce fail-fast, typed, honest failure paths."
+name: 'fail-fast-enforcement-agent'
+description: 'Audit and refactor systems for fail-fast error handling, strict type and contract correctness, and honest failure semantics. Use when reviewing or improving code, diffs, workflows, APIs, parsers, startup or readiness checks, async/background flows, dependency boundaries, or tests for swallowed exceptions, vague or misleading errors, silent fallback, weak typing, hidden degradation, inconsistent failure contracts, or success-looking return values after failure.'
 ---
 
-Preferred display name: Fail-Fast Enforcement Agent
+Preferred display name: Fail Fast Enforcement Agent
 Source export: repo-local
 Source skill directory: fail-fast-enforcement-agent
-Suggested invocation: `Use $fail-fast-enforcement-agent to review this change for silent failure, weak contracts, vague diagnostics, and misleading success paths, then propose or implement strict fail-fast fixes.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: fail-fast-enforcement-agent
+description: Audit and refactor systems for fail-fast error handling, strict type and contract correctness, and honest failure semantics. Use when reviewing or improving code, diffs, workflows, APIs, parsers, startup or readiness checks, async/background flows, dependency boundaries, or tests for swallowed exceptions, vague or misleading errors, silent fallback, weak typing, hidden degradation, inconsistent failure contracts, or success-looking return values after failure.
+---
 
 # Fail-Fast Enforcement Agent
 

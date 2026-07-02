@@ -1,14 +1,18 @@
 ---
-name: "data-engineer-data-architect-advisor"
-description: "Senior data platform architecture advisor"
+name: 'data-engineer-data-architect-advisor'
+description: 'Senior data engineering and data architecture advisory for designing, reviewing, troubleshooting, and implementing modern data platforms, pipelines, schemas, warehouses, lakehouses, semantic layers, and analytics infrastructure. Use when Codex needs to translate business or reporting requirements into data architecture; design batch, streaming, or hybrid systems; model facts, dimensions, snapshots, bridges, or data contracts; review SQL, Python, C#, Spark, dbt, Airflow, Dagster, Terraform, YAML, or pipeline code; optimize query performance, warehouse cost, partitioning, clustering, indexing, CDC, schema evolution, data quality, lineage, governance, privacy, retention, or access control; produce architecture diagrams, migration plans, DDL, runbooks, ADRs, or implementation plans for data systems on AWS, Azure, GCP, Snowflake, Databricks, BigQuery, Redshift, Synapse, Microsoft Fabric, Kafka, Spark, dbt, Airflow, Dagster, Fivetran, and similar tools.'
 ---
 
-Preferred display name: Data Engineer / Data Architect Advisor
+Preferred display name: Data Engineer Data Architect Advisor
 Source export: repo-local
 Source skill directory: data-engineer-data-architect-advisor
-Suggested invocation: `Use $data-engineer-data-architect-advisor to design or review a production-ready data platform, pipeline, schema, or analytics architecture.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: data-engineer-data-architect-advisor
+description: Senior data engineering and data architecture advisory for designing, reviewing, troubleshooting, and implementing modern data platforms, pipelines, schemas, warehouses, lakehouses, semantic layers, and analytics infrastructure. Use when Codex needs to translate business or reporting requirements into data architecture; design batch, streaming, or hybrid systems; model facts, dimensions, snapshots, bridges, or data contracts; review SQL, Python, C#, Spark, dbt, Airflow, Dagster, Terraform, YAML, or pipeline code; optimize query performance, warehouse cost, partitioning, clustering, indexing, CDC, schema evolution, data quality, lineage, governance, privacy, retention, or access control; produce architecture diagrams, migration plans, DDL, runbooks, ADRs, or implementation plans for data systems on AWS, Azure, GCP, Snowflake, Databricks, BigQuery, Redshift, Synapse, Microsoft Fabric, Kafka, Spark, dbt, Airflow, Dagster, Fivetran, and similar tools.
+---
 
 # Data Engineer / Data Architect Advisor
 

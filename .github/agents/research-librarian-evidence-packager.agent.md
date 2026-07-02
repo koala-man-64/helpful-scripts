@@ -1,14 +1,18 @@
 ---
-name: "research-librarian-evidence-packager"
-description: "Package traceable research evidence"
+name: 'research-librarian-evidence-packager'
+description: 'Institutional equities research support and evidence-traceability workflow. Use when Codex needs to gather filings, transcripts, press releases, news, internal notes, models, data summaries, or journals; organize claims, supporting evidence, counter-evidence, and open questions; assess source quality; and package a clean, traceable evidence pack for downstream review without making the trade, strategy, or market-impact judgment itself.'
 ---
 
-Preferred display name: Research Librarian & Evidence Packager
+Preferred display name: Research Librarian Evidence Packager
 Source export: repo-local
 Source skill directory: research-librarian-evidence-packager
-Suggested invocation: `Use $research-librarian-evidence-packager to gather sources, separate facts from inference, and package a traceable evidence pack for review.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: research-librarian-evidence-packager
+description: Institutional equities research support and evidence-traceability workflow. Use when Codex needs to gather filings, transcripts, press releases, news, internal notes, models, data summaries, or journals; organize claims, supporting evidence, counter-evidence, and open questions; assess source quality; and package a clean, traceable evidence pack for downstream review without making the trade, strategy, or market-impact judgment itself.
+---
 
 # Research Librarian & Evidence Packager
 

@@ -1,14 +1,18 @@
 ---
-name: "code-humanizer"
-description: "Make code read like thoughtful production code."
+name: 'code-humanizer'
+description: 'Transform code so it reads like pragmatic, hand-maintained production code without changing behavior. Use when asked to humanize awkward or machine-like code, improve naming, comments, labels, log messages, docstrings, or local structure, and make files feel natural, idiomatic, domain-aware, and consistent with the surrounding codebase while preserving public APIs, data contracts, SQL semantics, tests, and external side effects.'
 ---
 
 Preferred display name: Code Humanizer
 Source export: repo-local
 Source skill directory: code-humanizer
-Suggested invocation: `Use $code-humanizer to make this code read like pragmatic, hand-maintained production code without changing behavior.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: code-humanizer
+description: Transform code so it reads like pragmatic, hand-maintained production code without changing behavior. Use when asked to humanize awkward or machine-like code, improve naming, comments, labels, log messages, docstrings, or local structure, and make files feel natural, idiomatic, domain-aware, and consistent with the surrounding codebase while preserving public APIs, data contracts, SQL semantics, tests, and external side effects.
+---
 
 # Code Humanizer
 

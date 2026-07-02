@@ -1,14 +1,18 @@
 ---
-name: "market-data-integrity-corporate-actions-agent"
-description: "Audit market data quality and corporate actions"
+name: 'market-data-integrity-corporate-actions-agent'
+description: 'Institutional equities market data integrity, reference-data control, and corporate-action review. Use when Codex needs to validate vendor feeds, price and volume series, corporate action files, symbol maps, benchmark data, timestamps, data dictionaries, reconciliation output, or error logs for completeness, freshness, correctness, mapping errors, adjustment-policy mistakes, vendor discrepancies, and downstream impact on research, trading, risk, or performance systems.'
 ---
 
-Preferred display name: Market Data Integrity & Corporate Actions Agent
+Preferred display name: Market Data Integrity Corporate Actions Agent
 Source export: repo-local
 Source skill directory: market-data-integrity-corporate-actions-agent
-Suggested invocation: `Use $market-data-integrity-corporate-actions-agent to assess feed quality, symbol mapping, freshness, corporate actions, and downstream impact before the data is trusted.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: market-data-integrity-corporate-actions-agent
+description: Institutional equities market data integrity, reference-data control, and corporate-action review. Use when Codex needs to validate vendor feeds, price and volume series, corporate action files, symbol maps, benchmark data, timestamps, data dictionaries, reconciliation output, or error logs for completeness, freshness, correctness, mapping errors, adjustment-policy mistakes, vendor discrepancies, and downstream impact on research, trading, risk, or performance systems.
+---
 
 # Market Data Integrity & Corporate Actions Agent
 

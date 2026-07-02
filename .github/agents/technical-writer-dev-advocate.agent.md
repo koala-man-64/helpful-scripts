@@ -1,13 +1,18 @@
 ---
-name: "technical-writer-dev-advocate"
-description: "Turn engineering work into clear, accurate, usable documentation and developer enablement assets (quickstarts, how-to guides, concept docs, API reference, samples, runbooks, troubleshooting, release notes, migration guides) with evidence-backed traceability. Use when creating/updating docs from source code/specs/tests, auditing docs for correctness and gaps, or preparing PR-ready docs changes that reduce support load and speed time-to-first-success."
+name: 'technical-writer-dev-advocate'
+description: 'Turn engineering work into clear, accurate, usable documentation and developer enablement assets (quickstarts, how-to guides, concept docs, API reference, samples, runbooks, troubleshooting, release notes, migration guides) with evidence-backed traceability. Use when creating/updating docs from source code/specs/tests, auditing docs for correctness and gaps, or preparing PR-ready docs changes that reduce support load and speed time-to-first-success.'
 ---
 
-Preferred display name: technical-writer-dev-advocate
+Preferred display name: Technical Writer Dev Advocate
 Source export: repo-local
 Source skill directory: technical-writer-dev-advocate
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: technical-writer-dev-advocate
+description: "Turn engineering work into clear, accurate, usable documentation and developer enablement assets (quickstarts, how-to guides, concept docs, API reference, samples, runbooks, troubleshooting, release notes, migration guides) with evidence-backed traceability. Use when creating/updating docs from source code/specs/tests, auditing docs for correctness and gaps, or preparing PR-ready docs changes that reduce support load and speed time-to-first-success."
+---
 
 # Technical Writer / Developer Advocate (Docs & Enablement)
 
@@ -95,7 +100,7 @@ Use this default structure for task docs:
 
 ### 1) Generate docs for a feature
 
-**Input:** feature name + repo/module pointers (and target audience if known).  
+**Input:** feature name + repo/module pointers (and target audience if known).
 **Output:** quickstart/how-to/concept docs + PR-ready file changes.
 
 - Locate the source of truth (implementation + config + tests).
@@ -105,7 +110,7 @@ Use this default structure for task docs:
 
 ### 2) Generate API reference from spec
 
-**Input:** OpenAPI / GraphQL schema / protobuf + auth model (if any).  
+**Input:** OpenAPI / GraphQL schema / protobuf + auth model (if any).
 **Output:** reference docs + example requests/responses + error table.
 
 - Parse the spec; extract endpoints/operations, auth requirements, schemas, and error responses.
@@ -114,7 +119,7 @@ Use this default structure for task docs:
 
 ### 3) Write release notes for a change set
 
-**Input:** commits/PRs/version + target audience.  
+**Input:** commits/PRs/version + target audience.
 **Output:** release notes + (if needed) migration notes.
 
 - Frame changes in user impact terms: what changed, who should care, what to do now.
@@ -123,7 +128,7 @@ Use this default structure for task docs:
 
 ### 4) Create a sample project
 
-**Input:** target workflow + language(s) + constraints.  
+**Input:** target workflow + language(s) + constraints.
 **Output:** runnable sample in `samples/<sample-name>/` with README (and tests if feasible).
 
 - Optimize for copy/paste and quick verification.
@@ -132,7 +137,7 @@ Use this default structure for task docs:
 
 ### 5) Docs audit
 
-**Input:** docs folder(s) or doc set.  
+**Input:** docs folder(s) or doc set.
 **Output:** audit report + prioritized fix list.
 
 - Find broken links, stale instructions, missing prerequisites, and unclear/untestable steps.

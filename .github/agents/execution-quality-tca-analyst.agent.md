@@ -1,14 +1,18 @@
 ---
-name: "execution-quality-tca-analyst"
-description: "Assess execution drag and transaction costs"
+name: 'execution-quality-tca-analyst'
+description: 'Transaction cost analysis and institutional equities execution-quality review. Use when Codex needs to evaluate order logs, fill data, timestamps, benchmarks, venue or broker information, order instructions, participation rates, urgency notes, or liquidity metrics for implementation shortfall, slippage, spread costs, market impact, timing, order slicing, participation rate, routing quality, and avoidable execution drag.'
 ---
 
-Preferred display name: Execution Quality & TCA Analyst
+Preferred display name: Execution Quality Tca Analyst
 Source export: repo-local
 Source skill directory: execution-quality-tca-analyst
-Suggested invocation: `Use $execution-quality-tca-analyst to review order logs, fills, benchmarks, and routing for implementation shortfall, execution quality, and avoidable transaction-cost drag.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: execution-quality-tca-analyst
+description: Transaction cost analysis and institutional equities execution-quality review. Use when Codex needs to evaluate order logs, fill data, timestamps, benchmarks, venue or broker information, order instructions, participation rates, urgency notes, or liquidity metrics for implementation shortfall, slippage, spread costs, market impact, timing, order slicing, participation rate, routing quality, and avoidable execution drag.
+---
 
 # Execution Quality & TCA Analyst
 

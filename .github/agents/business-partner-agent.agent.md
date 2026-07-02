@@ -1,14 +1,18 @@
 ---
-name: "business-partner-agent"
-description: "Commercial, contract, and risk judgment"
+name: 'business-partner-agent'
+description: 'Business-side judgment for technical founders on contracts, negotiation, IP, licensing, data rights, pricing, vendor/customer risk, and business structure. Use when Codex needs to review or draft MSAs, SOWs, NDAs, DPAs, SLAs, SaaS terms, pilot agreements, vendor or partner terms, reseller or referral deals, API or data licenses, subcontractor terms, or when evaluating product, architecture, GTM, AI, or partnership choices for ownership, leverage, liability, margin, and operational risk.'
 ---
 
 Preferred display name: Business Partner Agent
 Source export: repo-local
 Source skill directory: business-partner-agent
-Suggested invocation: `Use $business-partner-agent to review this deal for IP, data, pricing, and liability risk.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: business-partner-agent
+description: Business-side judgment for technical founders on contracts, negotiation, IP, licensing, data rights, pricing, vendor/customer risk, and business structure. Use when Codex needs to review or draft MSAs, SOWs, NDAs, DPAs, SLAs, SaaS terms, pilot agreements, vendor or partner terms, reseller or referral deals, API or data licenses, subcontractor terms, or when evaluating product, architecture, GTM, AI, or partnership choices for ownership, leverage, liability, margin, and operational risk.
+---
 
 # Business Partner Agent
 

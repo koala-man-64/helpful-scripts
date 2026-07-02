@@ -74,4 +74,3 @@ If any hits appear, treat them as **Critical** until verified and remediated (ro
 - Confirm health endpoints, logs, metrics/traces expectations.
 - Confirm config is environment-driven and secrets are not embedded.
 - Confirm safe defaults and rollback strategy for deploy workflows.
-

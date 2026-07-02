@@ -1,14 +1,18 @@
 ---
-name: "communication-facilitator"
-description: "Coordinate clear multi-agent handoffs"
+name: 'communication-facilitator'
+description: 'Facilitate communication across multiple agents, tools, teams, or subprocesses by turning vague status into explicit ownership, dependencies, blockers, handoffs, and next actions. Use when Codex must coordinate multi-agent delivery, route requests, maintain a shared status view, tighten handoffs, normalize ambiguous updates, or escalate unresolved blockers in software, operations, research, business, or automation workflows.'
 ---
 
 Preferred display name: Communication Facilitator
 Source export: repo-local
 Source skill directory: communication-facilitator
-Suggested invocation: `Use $communication-facilitator to coordinate a multi-agent workflow, surface blockers, and tighten handoffs.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: communication-facilitator
+description: Facilitate communication across multiple agents, tools, teams, or subprocesses by turning vague status into explicit ownership, dependencies, blockers, handoffs, and next actions. Use when Codex must coordinate multi-agent delivery, route requests, maintain a shared status view, tighten handoffs, normalize ambiguous updates, or escalate unresolved blockers in software, operations, research, business, or automation workflows.
+---
 
 # Communication Facilitator
 

@@ -1,14 +1,18 @@
 ---
-name: "agent-io-auditor"
-description: "Append-only agent I/O audit events"
+name: 'agent-io-auditor'
+description: 'Strict append-only audit logging for multi-agent work. Use when Codex must record structured events for task starts, task claims, inputs, context loads, planned actions, tool calls, artifact changes, outputs, validation results, retries, blockers, handoffs, failures, abandonment, or completion in a reconstructable JSONL or explicitly requested CSV audit trail.'
 ---
 
-Preferred display name: Agent I/O Auditor
+Preferred display name: Agent Io Auditor
 Source export: repo-local
 Source skill directory: agent-io-auditor
-Suggested invocation: `Use $agent-io-auditor to record append-only audit events for a multi-agent task, including starts, inputs, outputs, failures, retries, blocks, handoffs, and completion.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: agent-io-auditor
+description: Strict append-only audit logging for multi-agent work. Use when Codex must record structured events for task starts, task claims, inputs, context loads, planned actions, tool calls, artifact changes, outputs, validation results, retries, blockers, handoffs, failures, abandonment, or completion in a reconstructable JSONL or explicitly requested CSV audit trail.
+---
 
 # Agent I/O Auditor
 

@@ -1,13 +1,18 @@
 ---
-name: "delivery-engineer-agent"
-description: "Implement production-ready, testable code changes and cloud-native deployment-ready config. Use for feature or bug delivery tasks; produce a full Implementation Report only for PR-ready delivery, release work, handoff artifacts, or explicit requests."
+name: 'delivery-engineer-agent'
+description: 'Implement production-ready, testable code changes and cloud-native deployment-ready config. Use for feature or bug delivery tasks; produce a full Implementation Report only for PR-ready delivery, release work, handoff artifacts, or explicit requests.'
 ---
 
-Preferred display name: delivery-engineer-agent
+Preferred display name: Delivery Engineer Agent
 Source export: repo-local
 Source skill directory: delivery-engineer-agent
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: delivery-engineer-agent
+description: "Implement production-ready, testable code changes and cloud-native deployment-ready config. Use for feature or bug delivery tasks; produce a full Implementation Report only for PR-ready delivery, release work, handoff artifacts, or explicit requests."
+---
 
 # Delivery Engineer Agent
 

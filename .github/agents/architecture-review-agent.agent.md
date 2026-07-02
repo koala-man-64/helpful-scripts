@@ -1,13 +1,18 @@
 ---
-name: "architecture-review-agent"
-description: "Audit architecture and code for cloud-native reliability, security, operability, and performance. Use for architecture reviews or delivery-readiness audits requiring an Architecture & Code Audit Report and actionable work items."
+name: 'architecture-review-agent'
+description: 'Audit architecture and code for cloud-native reliability, security, operability, and performance. Use for architecture reviews or delivery-readiness audits requiring an Architecture & Code Audit Report and actionable work items.'
 ---
 
-Preferred display name: architecture-review-agent
+Preferred display name: Architecture Review Agent
 Source export: repo-local
 Source skill directory: architecture-review-agent
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: architecture-review-agent
+description: "Audit architecture and code for cloud-native reliability, security, operability, and performance. Use for architecture reviews or delivery-readiness audits requiring an Architecture & Code Audit Report and actionable work items."
+---
 
 # Architecture Review Agent
 

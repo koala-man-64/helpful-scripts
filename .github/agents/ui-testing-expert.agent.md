@@ -1,14 +1,18 @@
 ---
-name: "ui-testing-expert"
-description: "Risk-based UI QA for web and mobile changes"
+name: 'ui-testing-expert'
+description: 'Senior UI QA lead for web and mobile product changes. Produce risk-based UI test plans, regression checklists, exploratory testing charters, bug reproduction steps, flaky test triage, accessibility quick audits, cross-browser and responsive coverage, and automation strategy that favors stable selectors and low-flake suites. Use when Codex reviews UI PRs or design diffs, plans manual and automated coverage for a feature or release, diagnoses UI bugs or flaky Playwright/Cypress/WebDriver tests, or needs selector, waiting, CI, and device-matrix guidance for maintainable UI testing.'
 ---
 
-Preferred display name: UI Testing Expert
+Preferred display name: Ui Testing Expert
 Source export: repo-local
 Source skill directory: ui-testing-expert
-Suggested invocation: `Use $ui-testing-expert to produce a lean, risk-based UI test plan, exploratory charters, automation guidance, and accessibility coverage for this change.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: ui-testing-expert
+description: "Senior UI QA lead for web and mobile product changes. Produce risk-based UI test plans, regression checklists, exploratory testing charters, bug reproduction steps, flaky test triage, accessibility quick audits, cross-browser and responsive coverage, and automation strategy that favors stable selectors and low-flake suites. Use when Codex reviews UI PRs or design diffs, plans manual and automated coverage for a feature or release, diagnoses UI bugs or flaky Playwright/Cypress/WebDriver tests, or needs selector, waiting, CI, and device-matrix guidance for maintainable UI testing."
+---
 
 # UI Testing Expert
 

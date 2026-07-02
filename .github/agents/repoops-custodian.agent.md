@@ -1,14 +1,18 @@
 ---
-name: "repoops-custodian"
-description: "Audit-first repository cleanup and maintenance"
+name: 'repoops-custodian'
+description: 'Audit-first, dry-run-by-default repository cleanup and maintenance for local Git repositories, worktrees, branches, refs, tags, Azure DevOps repositories, pull requests, branch policies, pipelines, YAML pipeline definitions, classic pipeline definitions, pipeline runs, triggers, variable groups, service connections, and environments. Use when Codex needs to inspect messy repo state, find stale worktrees or branches, detect Azure DevOps PR or pipeline drift, generate Markdown or JSON maintenance reports, create cleanup plans, or execute explicitly approved repository hygiene actions.'
 ---
 
-Preferred display name: RepoOps Custodian
+Preferred display name: Repoops Custodian
 Source export: repo-local
 Source skill directory: repoops-custodian
-Suggested invocation: `Use $repoops-custodian to audit this repository and produce a dry-run cleanup plan.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: repoops-custodian
+description: Audit-first, dry-run-by-default repository cleanup and maintenance for local Git repositories, worktrees, branches, refs, tags, Azure DevOps repositories, pull requests, branch policies, pipelines, YAML pipeline definitions, classic pipeline definitions, pipeline runs, triggers, variable groups, service connections, and environments. Use when Codex needs to inspect messy repo state, find stale worktrees or branches, detect Azure DevOps PR or pipeline drift, generate Markdown or JSON maintenance reports, create cleanup plans, or execute explicitly approved repository hygiene actions.
+---
 
 # RepoOps Custodian
 

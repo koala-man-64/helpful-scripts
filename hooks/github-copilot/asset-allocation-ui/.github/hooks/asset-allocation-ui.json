@@ -1,0 +1,43 @@
+{
+    "version":  1,
+    "hooks":  {
+                  "sessionStart":  [
+                                       {
+                                           "type":  "command",
+                                           "bash":  "root=$(git rev-parse --show-toplevel 2\u003e/dev/null || pwd); python3 \"$root/.github/hooks/asset-allocation-ui/session_start_team_context.py\"",
+                                           "powershell":  "$root = git rev-parse --show-toplevel 2\u003e$null; if (-not $root) { $root = (Get-Location).Path }; py -3 (Join-Path $root \".github\\hooks\\asset-allocation-ui\\session_start_team_context.py\")",
+                                           "timeoutSec":  10
+                                       }
+                                   ],
+                  "userPromptSubmitted":  [
+                                              {
+                                                  "type":  "command",
+                                                  "bash":  "root=$(git rev-parse --show-toplevel 2\u003e/dev/null || pwd); python3 \"$root/.github/hooks/asset-allocation-ui/user_prompt_submit_router.py\"",
+                                                  "powershell":  "$root = git rev-parse --show-toplevel 2\u003e$null; if (-not $root) { $root = (Get-Location).Path }; py -3 (Join-Path $root \".github\\hooks\\asset-allocation-ui\\user_prompt_submit_router.py\")",
+                                                  "timeoutSec":  10
+                                              }
+                                          ],
+                  "preToolUse":  [
+                                     {
+                                         "type":  "command",
+                                         "bash":  "root=$(git rev-parse --show-toplevel 2\u003e/dev/null || pwd); python3 \"$root/.github/hooks/asset-allocation-ui/pre_tool_use_bash_guard.py\"",
+                                         "powershell":  "$root = git rev-parse --show-toplevel 2\u003e$null; if (-not $root) { $root = (Get-Location).Path }; py -3 (Join-Path $root \".github\\hooks\\asset-allocation-ui\\pre_tool_use_bash_guard.py\")",
+                                         "timeoutSec":  10
+                                     }
+                                 ],
+                  "agentStop":  [
+                                    {
+                                        "type":  "command",
+                                        "bash":  "root=$(git rev-parse --show-toplevel 2\u003e/dev/null || pwd); python3 \"$root/.github/hooks/asset-allocation-ui/stop_team_closeout.py\"",
+                                        "powershell":  "$root = git rev-parse --show-toplevel 2\u003e$null; if (-not $root) { $root = (Get-Location).Path }; py -3 (Join-Path $root \".github\\hooks\\asset-allocation-ui\\stop_team_closeout.py\")",
+                                        "timeoutSec":  10
+                                    },
+                                    {
+                                        "type":  "command",
+                                        "bash":  "root=$(git rev-parse --show-toplevel 2\u003e/dev/null || pwd); python3 \"$root/.github/hooks/asset-allocation-ui/stop_gateway_bookkeeper_recap.py\"",
+                                        "powershell":  "$root = git rev-parse --show-toplevel 2\u003e$null; if (-not $root) { $root = (Get-Location).Path }; py -3 (Join-Path $root \".github\\hooks\\asset-allocation-ui\\stop_gateway_bookkeeper_recap.py\")",
+                                        "timeoutSec":  10
+                                    }
+                                ]
+              }
+}

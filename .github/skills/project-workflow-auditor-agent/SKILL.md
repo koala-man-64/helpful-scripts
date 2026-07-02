@@ -18,7 +18,7 @@ Perform a repo-wide governance audit: security posture, workflow/SDLC compliance
 - Read `references/agent.md` before responding.
 - Use `references/checklists.md` to drive evidence collection and avoid missing categories.
 - Prefer automated, low-risk evidence:
-  - Optionally run `python3 .codex/skills/project-workflow-auditor-agent/scripts/audit_snapshot.py --repo . --out audit_snapshot.json` and reference the output in the report.
+  - Optionally run `python3 .github/skills/project-workflow-auditor-agent/scripts/audit_snapshot.py --repo . --out audit_snapshot.json` and reference the output in the report.
 - Do not print suspected secrets. When searching for secrets, prefer filename-only results (e.g., `rg -l` patterns in `references/checklists.md`).
 - Ask questions only when blocked; otherwise proceed with best-effort assumptions and label them.
 

@@ -4,7 +4,7 @@ setup:
   - Add two helper files in different folders implementing the same function name.
   - Mix error-handling styles (exceptions vs result objects) across changed modules.
 run:
-  - python3 .codex/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
+  - python3 .github/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
 expected_findings:
   - category: architecture
     severity: medium

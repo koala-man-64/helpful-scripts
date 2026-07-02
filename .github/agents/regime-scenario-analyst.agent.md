@@ -1,14 +1,18 @@
 ---
-name: "regime-scenario-analyst"
-description: "Classify market regimes and scenario risk"
+name: 'regime-scenario-analyst'
+description: 'Cross-asset market regime and scenario analysis for an institutional equities trading firm. Use when Codex needs to classify the current market regime, detect regime transitions, assess whether conditions are orderly, fragile, transitionary, or stressed, explain how volatility, breadth, rates, credit, liquidity, correlation, and trend behavior affect strategies or risk posture, or build evidence-based scenario branches without turning the work into trade-idea generation or exact price prediction.'
 ---
 
-Preferred display name: Regime & Scenario Analyst
+Preferred display name: Regime Scenario Analyst
 Source export: repo-local
 Source skill directory: regime-scenario-analyst
-Suggested invocation: `Use $regime-scenario-analyst to classify the current market regime, frame the main scenario branches, and explain portfolio implications.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: regime-scenario-analyst
+description: Cross-asset market regime and scenario analysis for an institutional equities trading firm. Use when Codex needs to classify the current market regime, detect regime transitions, assess whether conditions are orderly, fragile, transitionary, or stressed, explain how volatility, breadth, rates, credit, liquidity, correlation, and trend behavior affect strategies or risk posture, or build evidence-based scenario branches without turning the work into trade-idea generation or exact price prediction.
+---
 
 # Regime Scenario Analyst
 

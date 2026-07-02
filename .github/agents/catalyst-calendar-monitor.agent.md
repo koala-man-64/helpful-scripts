@@ -1,14 +1,18 @@
 ---
-name: "catalyst-calendar-monitor"
-description: "Monitor forward event risk and catalysts"
+name: 'catalyst-calendar-monitor'
+description: 'Institutional equities event-risk and catalyst calendar monitoring for upcoming earnings, macro releases, policy events, corporate actions, index changes, lockups, dividends, and shareholder events. Use when Codex needs to map forward catalysts, rank likely market significance and portfolio relevance, identify timing uncertainty or calendar conflicts, assess surprise risk, or connect upcoming events to positions, sector exposures, factor exposures, watchlists, or crowded windows.'
 ---
 
-Preferred display name: Catalyst & Calendar Monitor
+Preferred display name: Catalyst Calendar Monitor
 Source export: repo-local
 Source skill directory: catalyst-calendar-monitor
-Suggested invocation: `Use $catalyst-calendar-monitor to review upcoming earnings, macro, and corporate catalysts for portfolio event risk.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: catalyst-calendar-monitor
+description: Institutional equities event-risk and catalyst calendar monitoring for upcoming earnings, macro releases, policy events, corporate actions, index changes, lockups, dividends, and shareholder events. Use when Codex needs to map forward catalysts, rank likely market significance and portfolio relevance, identify timing uncertainty or calendar conflicts, assess surprise risk, or connect upcoming events to positions, sector exposures, factor exposures, watchlists, or crowded windows.
+---
 
 # Catalyst & Calendar Monitor
 

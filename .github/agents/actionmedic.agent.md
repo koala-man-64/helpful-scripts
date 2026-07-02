@@ -1,14 +1,18 @@
 ---
-name: "actionmedic"
-description: "Repair failing Azure DevOps Pipeline runs"
+name: 'actionmedic'
+description: 'Autonomous Azure DevOps Pipelines troubleshooting and repair for repositories with failing CI. Use when Codex needs to audit Azure Pipeline runs on a branch or pull request, diagnose failed, cancelled, timed-out, queued, or stuck jobs, implement the smallest justified fix, validate locally, commit and push to Azure Repos, and monitor until the latest commit is green or a hard blocker is proven.'
 ---
 
-Preferred display name: PipelineMedic
+Preferred display name: Actionmedic
 Source export: repo-local
 Source skill directory: actionmedic
-Suggested invocation: `Use $actionmedic to diagnose failing Azure DevOps Pipeline runs, repair the root cause, push to Azure Repos, and iterate until the latest commit is green.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: actionmedic
+description: Autonomous Azure DevOps Pipelines troubleshooting and repair for repositories with failing CI. Use when Codex needs to audit Azure Pipeline runs on a branch or pull request, diagnose failed, cancelled, timed-out, queued, or stuck jobs, implement the smallest justified fix, validate locally, commit and push to Azure Repos, and monitor until the latest commit is green or a hard blocker is proven.
+---
 
 # ActionMedic
 

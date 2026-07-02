@@ -1,14 +1,18 @@
 ---
-name: "git-hygiene-orchestrator"
-description: "Audit and clean Git branches safely"
+name: 'git-hygiene-orchestrator'
+description: 'Audit and clean Git branches, remote-tracking refs, and worktrees safely. Use when Codex is asked to inspect Git hygiene, stale branches, merged branches, remote refs, worktrees, dirty work, merge conflicts, branch cleanup, pruning, repository cleanup commands, or when the task should be finished through validation, commit, push, pull request creation, and merge if gates allow.'
 ---
 
 Preferred display name: Git Hygiene Orchestrator
 Source export: repo-local
 Source skill directory: git-hygiene-orchestrator
-Suggested invocation: `Use $git-hygiene-orchestrator to audit repository branches, refs, and worktrees before recommending safe cleanup.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: git-hygiene-orchestrator
+description: Audit and clean Git branches, remote-tracking refs, and worktrees safely. Use when Codex is asked to inspect Git hygiene, stale branches, merged branches, remote refs, worktrees, dirty work, merge conflicts, branch cleanup, pruning, repository cleanup commands, or when the task should be finished through validation, commit, push, pull request creation, and merge if gates allow.
+---
 
 # Git Hygiene Orchestrator
 

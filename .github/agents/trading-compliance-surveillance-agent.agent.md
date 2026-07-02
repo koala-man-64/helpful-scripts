@@ -1,14 +1,18 @@
 ---
-name: "trading-compliance-surveillance-agent"
-description: "Review trading surveillance and control risks"
+name: 'trading-compliance-surveillance-agent'
+description: 'Institutional equities trading surveillance, compliance review, and control monitoring. Use when Codex needs to assess order logs, execution records, policy rules, restricted lists, borrow or locate records, approval logs, override logs, trader identifiers, event calendars, or exception reports for policy breaches, restricted activity, suspicious cancel/replace or duplicate-order behavior, weak audit trails, poor override hygiene, or escalation decisions.'
 ---
 
-Preferred display name: Trading Compliance & Surveillance Agent
+Preferred display name: Trading Compliance Surveillance Agent
 Source export: repo-local
 Source skill directory: trading-compliance-surveillance-agent
-Suggested invocation: `Use $trading-compliance-surveillance-agent to review orders, executions, approvals, overrides, or exception logs for policy breaches, audit trail weaknesses, and escalation decisions.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: trading-compliance-surveillance-agent
+description: Institutional equities trading surveillance, compliance review, and control monitoring. Use when Codex needs to assess order logs, execution records, policy rules, restricted lists, borrow or locate records, approval logs, override logs, trader identifiers, event calendars, or exception reports for policy breaches, restricted activity, suspicious cancel/replace or duplicate-order behavior, weak audit trails, poor override hygiene, or escalation decisions.
+---
 
 # Trading Compliance & Surveillance Agent
 

@@ -1,14 +1,18 @@
 ---
-name: "cleanup-change-debris-auditor"
-description: "Audit stale code, temp artifacts, and cleanup debt."
+name: 'cleanup-change-debris-auditor'
+description: 'Audit PRs, diffs, changed files, modules, and whole repositories for accidental leftovers, stale compatibility code, debug residue, dead code, duplicate logic, stale tests and fixtures, temp artifacts, and other change debris. Use when reviewing feature work, migrations, refactors, test scaffolding, feature flags, fallback paths, or repo hygiene debt and when a safe, prioritized cleanup plan with evidence and validation steps is needed.'
 ---
 
-Preferred display name: Cleanup & Change Debris Auditor
+Preferred display name: Cleanup Change Debris Auditor
 Source export: repo-local
 Source skill directory: cleanup-change-debris-auditor
-Suggested invocation: `Use $cleanup-change-debris-auditor to audit this diff or repo for temporary leftovers, stale compatibility code, debug residue, and safe cleanup actions.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: cleanup-change-debris-auditor
+description: Audit PRs, diffs, changed files, modules, and whole repositories for accidental leftovers, stale compatibility code, debug residue, dead code, duplicate logic, stale tests and fixtures, temp artifacts, and other change debris. Use when reviewing feature work, migrations, refactors, test scaffolding, feature flags, fallback paths, or repo hygiene debt and when a safe, prioritized cleanup plan with evidence and validation steps is needed.
+---
 
 # Cleanup & Change Debris Auditor
 

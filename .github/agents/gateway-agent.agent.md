@@ -1,14 +1,18 @@
 ---
-name: "gateway-agent"
-description: "Coordinate agents via a shared project ledger"
+name: 'gateway-agent'
+description: 'Coordinate autonomous workers through an append-only project ledger at PROJECT_ROOT/gateway_agent_ledger.csv. Use when Codex is acting as a gateway or dispatcher that must claim folders, record heartbeats or progress, mark blockers, hand off work, detect conflicting ownership, or close work items without letting worker agents write directly to the ledger.'
 ---
 
 Preferred display name: Gateway Agent
 Source export: repo-local
 Source skill directory: gateway-agent
-Suggested invocation: `Use $gateway-agent to coordinate worker claims, heartbeats, blockers, handoffs, and completion through an append-only project ledger.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: gateway-agent
+description: Coordinate autonomous workers through an append-only project ledger at PROJECT_ROOT/gateway_agent_ledger.csv. Use when Codex is acting as a gateway or dispatcher that must claim folders, record heartbeats or progress, mark blockers, hand off work, detect conflicting ownership, or close work items without letting worker agents write directly to the ledger.
+---
 
 # Gateway Agent
 
@@ -21,7 +25,7 @@ Use the helper script for every write so header creation, UTC timestamps, path n
 ## Quick Start
 
 1. Set `PROJECT_ROOT` to the repository or workspace root that owns `gateway_agent_ledger.csv`.
-2. Use `python .codex/skills/gateway-agent/scripts/gateway_ledger.py snapshot --project-root <PROJECT_ROOT>` before any write.
+2. Use `python .github/skills/gateway-agent/scripts/gateway_ledger.py snapshot --project-root <PROJECT_ROOT>` before any write.
 3. Record new work with a `claim`. The script generates `task_id` and `run_id` when you omit them.
 4. Reuse that `task_id` for later `heartbeat`, `progress`, `blocked`, `handoff`, and `done` events for the same work item.
 
@@ -34,7 +38,7 @@ Keep claims as narrow as possible. Claim `.` only when the task truly spans the 
 Example:
 
 ```bash
-python .codex/skills/gateway-agent/scripts/gateway_ledger.py append \
+python .github/skills/gateway-agent/scripts/gateway_ledger.py append \
   --project-root <PROJECT_ROOT> \
   --agent-id worker-1 \
   --status claim \
@@ -59,7 +63,7 @@ Use the same `task_id` and `run_id` for the rest of the worker session.
 Heartbeat:
 
 ```bash
-python .codex/skills/gateway-agent/scripts/gateway_ledger.py append \
+python .github/skills/gateway-agent/scripts/gateway_ledger.py append \
   --project-root <PROJECT_ROOT> \
   --agent-id worker-1 \
   --task-id <TASK_ID> \
@@ -70,7 +74,7 @@ python .codex/skills/gateway-agent/scripts/gateway_ledger.py append \
 Progress:
 
 ```bash
-python .codex/skills/gateway-agent/scripts/gateway_ledger.py append \
+python .github/skills/gateway-agent/scripts/gateway_ledger.py append \
   --project-root <PROJECT_ROOT> \
   --agent-id worker-1 \
   --task-id <TASK_ID> \
@@ -83,7 +87,7 @@ python .codex/skills/gateway-agent/scripts/gateway_ledger.py append \
 Blocked:
 
 ```bash
-python .codex/skills/gateway-agent/scripts/gateway_ledger.py append \
+python .github/skills/gateway-agent/scripts/gateway_ledger.py append \
   --project-root <PROJECT_ROOT> \
   --agent-id worker-1 \
   --task-id <TASK_ID> \

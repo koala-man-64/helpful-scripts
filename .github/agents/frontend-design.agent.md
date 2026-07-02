@@ -1,13 +1,18 @@
 ---
-name: "frontend-design"
-description: "Create distinctive, production-grade frontend interfaces with high design quality and a clear aesthetic point-of-view. Use when asked to design/build or restyle any web UI (components, pages, dashboards, landing pages, posters/artifacts, or full apps) in React/Next/Vite/HTML/CSS, including typography, color systems, layout composition, and motion."
+name: 'frontend-design'
+description: 'Create distinctive, production-grade frontend interfaces with high design quality and a clear aesthetic point-of-view. Use when asked to design/build or restyle any web UI (components, pages, dashboards, landing pages, posters/artifacts, or full apps) in React/Next/Vite/HTML/CSS, including typography, color systems, layout composition, and motion.'
 ---
 
-Preferred display name: frontend-design
+Preferred display name: Frontend Design
 Source export: repo-local
 Source skill directory: frontend-design
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: frontend-design
+description: Create distinctive, production-grade frontend interfaces with high design quality and a clear aesthetic point-of-view. Use when asked to design/build or restyle any web UI (components, pages, dashboards, landing pages, posters/artifacts, or full apps) in React/Next/Vite/HTML/CSS, including typography, color systems, layout composition, and motion.
+---
 
 # Frontend Design
 

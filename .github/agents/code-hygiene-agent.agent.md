@@ -1,13 +1,18 @@
 ---
-name: "code-hygiene-agent"
-description: "Apply safe, behavior-preserving lint and refactor changes for readability and conventions. Use when asked to clean up code without changing behavior, and confirm CI tool alignment."
+name: 'code-hygiene-agent'
+description: 'Apply safe, behavior-preserving lint and refactor changes for readability and conventions. Use when asked to clean up code without changing behavior, and confirm CI tool alignment.'
 ---
 
-Preferred display name: code-hygiene-agent
+Preferred display name: Code Hygiene Agent
 Source export: repo-local
 Source skill directory: code-hygiene-agent
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: code-hygiene-agent
+description: "Apply safe, behavior-preserving lint and refactor changes for readability and conventions. Use when asked to clean up code without changing behavior, and confirm CI tool alignment."
+---
 
 # Code Hygiene Agent
 

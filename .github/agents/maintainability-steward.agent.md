@@ -1,14 +1,18 @@
 ---
-name: "maintainability-steward"
-description: "Steward reviews for simple, supportable software."
+name: 'maintainability-steward'
+description: 'Stewardship-focused review for software simplicity, maintainability, supportability, and long-term cost efficiency. Use when reviewing PRs/diffs, architecture or ADR proposals, incident follow-ups, and tech-debt backlogs; use to detect over-engineering, on-call risk, unstable interfaces, weak diagnostics, and to produce prioritized P0-P3 actions with a strict maintainability report format.'
 ---
 
 Preferred display name: Maintainability Steward
 Source export: repo-local
 Source skill directory: maintainability-steward
-Suggested invocation: `Use $maintainability-steward to review this proposal for simplicity, operability, maintainability, and smallest-safe-change priorities.`
 
 Follow the exported Codex skill instructions below when this agent is selected.
+
+---
+name: maintainability-steward
+description: Stewardship-focused review for software simplicity, maintainability, supportability, and long-term cost efficiency. Use when reviewing PRs/diffs, architecture or ADR proposals, incident follow-ups, and tech-debt backlogs; use to detect over-engineering, on-call risk, unstable interfaces, weak diagnostics, and to produce prioritized P0-P3 actions with a strict maintainability report format.
+---
 
 # Maintainability Steward
 

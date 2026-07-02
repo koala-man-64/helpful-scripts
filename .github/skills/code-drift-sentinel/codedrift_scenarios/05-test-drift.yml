@@ -4,7 +4,7 @@ setup:
   - Modify business logic in source files.
   - Remove or skip corresponding tests, or do not add tests for changed paths.
 run:
-  - python3 .codex/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
+  - python3 .github/skills/code-drift-sentinel/scripts/codedrift_sentinel.py --mode audit
 expected_findings:
   - category: test
     severity: medium
