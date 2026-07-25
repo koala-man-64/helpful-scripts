@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'root=$(git rev-parse --show-toplevel 2>/dev/null || pwd); python3 \"$root/.codex/hooks/stop_runtime_ownership_closeout.py\"'",
+            "commandWindows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$root = git rev-parse --show-toplevel 2>$null; if (-not $root) { $root = (Get-Location).Path }; py -3 (Join-Path $root \".codex\\hooks\\stop_runtime_ownership_closeout.py\")'",
+            "timeout": 10,
+            "statusMessage": "Checking runtime ownership closeout"
+          }
+        ]
+      }
+    ]
+  }
+}
