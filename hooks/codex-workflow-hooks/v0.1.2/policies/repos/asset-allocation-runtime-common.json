@@ -1,0 +1,34 @@
+{
+  "$schema": "../../schemas/repository-overlay-v1.schema.json",
+  "schema_version": 1,
+  "repository_id": "asset-allocation-runtime-common",
+  "name": "asset-allocation-runtime-common",
+  "canonical_origin": "azure://rdprokes/adaptiveassetallocation/asset-allocation-runtime-common",
+  "azure": {
+    "organization": "https://dev.azure.com/rdprokes",
+    "project": "AdaptiveAssetAllocation",
+    "repository_id": "04b0a227-f446-4083-8629-22578884ddad",
+    "remote_url": "https://dev.azure.com/rdprokes/AdaptiveAssetAllocation/_git/asset-allocation-runtime-common"
+  },
+  "protected_branches": [
+    "main"
+  ],
+  "validation_profiles": [
+    {
+      "id": "runtime-common-ci",
+      "description": "Verify the pinned contracts dependency, lint, test, build, and verify wheel metadata.",
+      "working_directory": ".",
+      "commands": [
+        "python scripts/verify_pinned_dependency.py --package asset-allocation-contracts --mode published",
+        "python -m ruff check python tests",
+        "python -m pytest tests/python -q",
+        "python -m build python --sdist --wheel --outdir artifacts/python --no-isolation",
+        "python scripts/verify_pinned_dependency.py --package asset-allocation-contracts --distribution-dir artifacts/python"
+      ],
+      "evidence_state": "validated"
+    }
+  ],
+  "required_validation": [
+    "runtime-common-ci"
+  ]
+}

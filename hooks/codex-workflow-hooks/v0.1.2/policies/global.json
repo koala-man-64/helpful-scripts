@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "policy_id": "codex-workflow-hooks-global-v1",
+  "protected_branches": [
+    "main",
+    "master",
+    "develop",
+    "release/*"
+  ],
+  "managed_repositories": [
+    {
+      "repository_id": "asset-allocation-contracts",
+      "azure_repository_id": "d6e05751-7a73-4da3-915e-20c5946252a4",
+      "canonical_origin": "azure://rdprokes/adaptiveassetallocation/asset-allocation-contracts"
+    },
+    {
+      "repository_id": "asset-allocation-runtime-common",
+      "azure_repository_id": "04b0a227-f446-4083-8629-22578884ddad",
+      "canonical_origin": "azure://rdprokes/adaptiveassetallocation/asset-allocation-runtime-common"
+    },
+    {
+      "repository_id": "asset-allocation-jobs",
+      "azure_repository_id": "fe0c0481-2bb0-4397-9002-130ccdaf330f",
+      "canonical_origin": "azure://rdprokes/adaptiveassetallocation/asset-allocation-jobs"
+    },
+    {
+      "repository_id": "asset-allocation-control-plane",
+      "azure_repository_id": "e9d0aeee-9ded-454c-8336-c4ff315de7a7",
+      "canonical_origin": "azure://rdprokes/adaptiveassetallocation/asset-allocation-control-plane"
+    },
+    {
+      "repository_id": "asset-allocation-ui",
+      "azure_repository_id": "5e10a80a-e19e-487d-bd1c-1a18e3b13e1c",
+      "canonical_origin": "azure://rdprokes/adaptiveassetallocation/asset-allocation-ui"
+    },
+    {
+      "repository_id": "codex-workflow-hooks",
+      "azure_repository_id": "2adc43ad-80b3-43e1-9c9e-293d2741347b",
+      "canonical_origin": "azure://rdprokes/adaptiveassetallocation/codex-workflow-hooks"
+    }
+  ],
+  "authority": {
+    "allow": [
+      "commit_task_branch",
+      "push_task_branch",
+      "create_pull_request",
+      "update_pull_request",
+      "set_pull_request_auto_complete",
+      "delete_source_branch_after_completion",
+      "transition_linked_work_item"
+    ],
+    "deny": [
+      "self_approve_pull_request",
+      "direct_complete_pull_request",
+      "bypass_pull_request_policies",
+      "force_push",
+      "push_protected_ref",
+      "delete_protected_ref",
+      "approve_production_deployment"
+    ]
+  },
+  "safety": {
+    "pre_tool_output": "deny_only",
+    "event_handler_network_access": false,
+    "plan_mode_mutation": "deny",
+    "unknown_repository": "global_core",
+    "expected_managed_repository_without_registration": {
+      "read": "allow",
+      "mutation": "deny"
+    },
+    "corrupt_or_mismatched_worktree": {
+      "read": "allow",
+      "mutation": "quarantine"
+    },
+    "destructive_filesystem_scope": "registered_worktree_only",
+    "secret_handling": "deny_actual_value_expansion_and_persistence"
+  },
+  "evidence": {
+    "states": [
+      "source_modified",
+      "validated",
+      "committed",
+      "pushed",
+      "pr_open",
+      "pr_policy_ready",
+      "merged",
+      "artifact_published",
+      "consumer_adopted",
+      "released",
+      "deployed",
+      "runtime_healthy",
+      "user_path_verified"
+    ],
+    "state_independence": true,
+    "assistant_prose_is_evidence": false,
+    "store_raw_prompts": false,
+    "store_raw_commands": false,
+    "store_raw_output": false,
+    "store_diffs": false,
+    "sqlite": {
+      "journal_mode": "WAL",
+      "busy_timeout_ms": 250,
+      "idempotent_events": true
+    }
+  },
+  "stop": {
+    "maximum_continuations": 1,
+    "force_commit": false,
+    "force_push": false,
+    "force_pull_request": false,
+    "force_merge": false,
+    "block_mutation_without_validation": true,
+    "block_azure_write_without_readback": true,
+    "block_claim_beyond_evidence": true
+  },
+  "rollout": {
+    "modes": [
+      "shadow",
+      "canary",
+      "enforce"
+    ],
+    "initial_mode": "shadow",
+    "canary_before_broad_enforcement": true,
+    "quarantine_identity_failure": true
+  }
+}
