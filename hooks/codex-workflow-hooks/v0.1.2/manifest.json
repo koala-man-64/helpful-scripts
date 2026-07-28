@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "owner": "codex-workflow-hooks",
+  "version": "0.1.2",
+  "created_at": "2026-07-28T22:49:44.500171+00:00",
+  "source_digest": "a465065b791af26565b0b580ad518c4dd8288116f4ab6c96c7f4f618f6cda75b",
+  "files": [
+    {
+      "path": "hookctl.py",
+      "sha256": "5c85ff0bb0f536f70b8f87f815783b1e7f4cfc8a2839b5d490b27abd2bb1bffa"
+    },
+    {
+      "path": "policies/global.json",
+      "sha256": "448cf67a246a1f149d3565a7ba639efc3ac28ec2d4f2987be60fb36bd6a07cd0"
+    },
+    {
+      "path": "policies/repos/asset-allocation-contracts.json",
+      "sha256": "c08af02c463e42d74450c2c2d1e754f97df95d905d8a5d339825a5aacd587053"
+    },
+    {
+      "path": "policies/repos/asset-allocation-control-plane.json",
+      "sha256": "943428bad269ea1f8bfc2a4c3a6214e842f4fbd9b4b02a8dd119f7b8bff1dfbf"
+    },
+    {
+      "path": "policies/repos/asset-allocation-jobs.json",
+      "sha256": "17e4884a546908c9328d559f8e462dead5fab233397d4ea35fd10012f2e92fc4"
+    },
+    {
+      "path": "policies/repos/asset-allocation-runtime-common.json",
+      "sha256": "1c1ac04749d42ca81af469a676939f603b2c892d38a8bffcd5cb67deb6f727d4"
+    },
+    {
+      "path": "policies/repos/asset-allocation-ui.json",
+      "sha256": "f860b2a3444032733096e2a709eb4ba3b9b7983c09ddf8e2e1322b8c1b235e37"
+    },
+    {
+      "path": "policies/repos/codex-workflow-hooks.json",
+      "sha256": "a284a29f22dd766ea01c63e625affe27d2e0bc7dce704d28e408dc505cb1715f"
+    },
+    {
+      "path": "schemas/repository-overlay-v1.schema.json",
+      "sha256": "242383fc240b3e4e36bd4c72f0c4808262437caf000112bad848009596510da6"
+    },
+    {
+      "path": "src/codex_workflow_hooks/__init__.py",
+      "sha256": "7520a75650ba4444e64288c6eab47f0c52887726f4c9983fcaa4589055a977a0"
+    },
+    {
+      "path": "src/codex_workflow_hooks/cli.py",
+      "sha256": "14af726cb3a35d19a51d491045c3a6f8c9348c965fb29ed69a7cbbd63492944d"
+    },
+    {
+      "path": "src/codex_workflow_hooks/delivery.py",
+      "sha256": "09ce4ab3e23a1871016bdf5ff515b237816516132091cbdbc1e75723f7b7f60b"
+    },
+    {
+      "path": "src/codex_workflow_hooks/evidence.py",
+      "sha256": "94d13591b50e20e28f7ca5ec627238a9d5ab8a5594dd91c073b1209ad2040d74"
+    },
+    {
+      "path": "src/codex_workflow_hooks/guards.py",
+      "sha256": "1aa81a19b2fc8a259017e746f2e150db27298ccfa208b328171674dbaaca7273"
+    },
+    {
+      "path": "src/codex_workflow_hooks/hooks.py",
+      "sha256": "d8d5a298412bc47577b2b30a9a805893bce6a1e678e60ee0f43ad8976a3e42c1"
+    },
+    {
+      "path": "src/codex_workflow_hooks/installer.py",
+      "sha256": "ea56c12feb8becb30655183feece475bd9fc6626cf58eef6ed0d06a0a8deeabe"
+    },
+    {
+      "path": "src/codex_workflow_hooks/migration.py",
+      "sha256": "2eb2da8c89adba15feac051568f569ad61829c7b69e9d7c490bb8a5f6579ab4f"
+    },
+    {
+      "path": "src/codex_workflow_hooks/models.py",
+      "sha256": "b8cd73d6381e43f7448096c9824c0147860cef7b9802813ad4f02ccc4613c0fa"
+    },
+    {
+      "path": "src/codex_workflow_hooks/policy.py",
+      "sha256": "ebfb2b25ae2266a8eb24c3d9d84ecbb7c7f78efc9173e6a65a39aaae780ae869"
+    },
+    {
+      "path": "src/codex_workflow_hooks/runtime_log.py",
+      "sha256": "b2197f1248e10d8802464aaab7379ba57807273987fbaa73d20d920ca39a095c"
+    },
+    {
+      "path": "src/codex_workflow_hooks/utils.py",
+      "sha256": "3925e50da73755560fb3308c36509313eb0331bb09c8f4a0bb581148a1b5b792"
+    }
+  ]
+}

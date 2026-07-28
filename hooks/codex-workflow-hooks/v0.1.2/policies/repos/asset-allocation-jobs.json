@@ -1,0 +1,58 @@
+{
+  "$schema": "../../schemas/repository-overlay-v1.schema.json",
+  "schema_version": 1,
+  "repository_id": "asset-allocation-jobs",
+  "name": "asset-allocation-jobs",
+  "canonical_origin": "azure://rdprokes/adaptiveassetallocation/asset-allocation-jobs",
+  "azure": {
+    "organization": "https://dev.azure.com/rdprokes",
+    "project": "AdaptiveAssetAllocation",
+    "repository_id": "fe0c0481-2bb0-4397-9002-130ccdaf330f",
+    "remote_url": "https://dev.azure.com/rdprokes/AdaptiveAssetAllocation/_git/asset-allocation-jobs"
+  },
+  "protected_branches": [
+    "main"
+  ],
+  "validation_profiles": [
+    {
+      "id": "jobs-fast",
+      "description": "Run the canonical fast local quality gate before delivery.",
+      "working_directory": ".",
+      "commands": [
+        "python scripts/run_quality_gate.py check-fast"
+      ],
+      "evidence_state": "validated"
+    },
+    {
+      "id": "jobs-quality",
+      "description": "Run the broader Azure-parity quality and compatibility gates for high-risk or release work.",
+      "working_directory": ".",
+      "commands": [
+        "python -m ruff check .",
+        "python scripts/run_quality_gate.py test-backtesting-runtime",
+        "python scripts/run_quality_gate.py test-coverage",
+        "python scripts/workflows/validate_shared_dependency_compatibility.py"
+      ],
+      "evidence_state": "validated"
+    },
+    {
+      "id": "jobs-container",
+      "description": "Validate pinned image inputs and build the jobs container through the repository wrapper.",
+      "working_directory": ".",
+      "commands": [
+        "python scripts/workflows/validate_pinned_image_digests.py",
+        "$versions = python scripts/workflows/resolve_shared_versions.py | ConvertFrom-StringData; python scripts/workflows/build_jobs_image.py --dockerfile Dockerfile --context . --output-type cacheonly --progress plain --contracts-version $versions.contracts_version --runtime-common-version $versions.runtime_common_version --pip-config-from-auth-env"
+      ],
+      "path_globs": [
+        "Dockerfile",
+        "requirements*.txt",
+        "scripts/workflows/build_jobs_image.py",
+        "scripts/workflows/validate_pinned_image_digests.py"
+      ],
+      "evidence_state": "validated"
+    }
+  ],
+  "required_validation": [
+    "jobs-fast"
+  ]
+}

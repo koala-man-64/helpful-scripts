@@ -1,0 +1,48 @@
+{
+  "$schema": "../../schemas/repository-overlay-v1.schema.json",
+  "schema_version": 1,
+  "repository_id": "asset-allocation-control-plane",
+  "name": "asset-allocation-control-plane",
+  "canonical_origin": "azure://rdprokes/adaptiveassetallocation/asset-allocation-control-plane",
+  "azure": {
+    "organization": "https://dev.azure.com/rdprokes",
+    "project": "AdaptiveAssetAllocation",
+    "repository_id": "e9d0aeee-9ded-454c-8336-c4ff315de7a7",
+    "remote_url": "https://dev.azure.com/rdprokes/AdaptiveAssetAllocation/_git/asset-allocation-control-plane"
+  },
+  "protected_branches": [
+    "main"
+  ],
+  "validation_profiles": [
+    {
+      "id": "control-plane-ci",
+      "description": "Verify lock closure, execute the repository validation wrapper, and run the enforced type check.",
+      "working_directory": ".",
+      "commands": [
+        "python scripts/repo/compile_dependency_locks.py --check",
+        "bash scripts/azure-devops/run-control-plane-validation.sh",
+        "python scripts/automation/run_quality_gate.py typecheck"
+      ],
+      "evidence_state": "validated"
+    },
+    {
+      "id": "postgres-schema-contract",
+      "description": "Validate clean-bootstrap PostgreSQL schema and privilege behavior.",
+      "working_directory": ".",
+      "commands": [
+        "bash scripts/azure-devops/run-postgres-schema-contract-ci.sh"
+      ],
+      "path_globs": [
+        "database/**",
+        "migrations/**",
+        "scripts/azure-devops/run-postgres-schema-contract-ci.sh",
+        "scripts/provisioning/**"
+      ],
+      "evidence_state": "validated"
+    }
+  ],
+  "required_validation": [
+    "control-plane-ci",
+    "postgres-schema-contract"
+  ]
+}

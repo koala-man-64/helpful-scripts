@@ -1,0 +1,4 @@
+# Preserve immutable release bytes so the copied manifest remains verifiable.
+# The installed Windows release uses CRLF, which is intentional rather than
+# trailing whitespace.
+v0.1.2/** -text whitespace=cr-at-eol

@@ -1,0 +1,52 @@
+{
+  "$schema": "../../schemas/repository-overlay-v1.schema.json",
+  "schema_version": 1,
+  "repository_id": "asset-allocation-contracts",
+  "name": "asset-allocation-contracts",
+  "canonical_origin": "azure://rdprokes/adaptiveassetallocation/asset-allocation-contracts",
+  "azure": {
+    "organization": "https://dev.azure.com/rdprokes",
+    "project": "AdaptiveAssetAllocation",
+    "repository_id": "d6e05751-7a73-4da3-915e-20c5946252a4",
+    "remote_url": "https://dev.azure.com/rdprokes/AdaptiveAssetAllocation/_git/asset-allocation-contracts"
+  },
+  "protected_branches": [
+    "main"
+  ],
+  "validation_profiles": [
+    {
+      "id": "python-contracts",
+      "description": "Run the Python contract tests and build the distributable package.",
+      "working_directory": ".",
+      "commands": [
+        "python -m pytest tests/python tests/test_env_contract.py -q",
+        "python -m build python --sdist --wheel --outdir artifacts/python"
+      ],
+      "path_globs": [
+        "python/**",
+        "tests/python/**",
+        "tests/test_env_contract.py",
+        "python/pyproject.toml"
+      ],
+      "evidence_state": "validated"
+    },
+    {
+      "id": "typescript-contracts",
+      "description": "Install, type-check, and pack the TypeScript contracts.",
+      "working_directory": "ts",
+      "commands": [
+        "pnpm install --frozen-lockfile",
+        "pnpm typecheck",
+        "pnpm pack --pack-destination ../artifacts/ts"
+      ],
+      "path_globs": [
+        "ts/**"
+      ],
+      "evidence_state": "validated"
+    }
+  ],
+  "required_validation": [
+    "python-contracts",
+    "typescript-contracts"
+  ]
+}

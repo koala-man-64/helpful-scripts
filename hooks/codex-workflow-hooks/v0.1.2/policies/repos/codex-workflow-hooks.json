@@ -1,0 +1,49 @@
+{
+  "$schema": "../../schemas/repository-overlay-v1.schema.json",
+  "schema_version": 1,
+  "repository_id": "codex-workflow-hooks",
+  "name": "codex-workflow-hooks",
+  "canonical_origin": "azure://rdprokes/adaptiveassetallocation/codex-workflow-hooks",
+  "azure": {
+    "organization": "https://dev.azure.com/rdprokes",
+    "project": "AdaptiveAssetAllocation",
+    "repository_id": "2adc43ad-80b3-43e1-9c9e-293d2741347b",
+    "remote_url": "https://dev.azure.com/rdprokes/AdaptiveAssetAllocation/_git/codex-workflow-hooks"
+  },
+  "protected_branches": [
+    "main"
+  ],
+  "validation_profiles": [
+    {
+      "id": "hooks-core",
+      "description": "Compile and execute the complete hook runtime test suite.",
+      "working_directory": ".",
+      "commands": [
+        "python -m ruff check .",
+        "python -m mypy src",
+        "python -m compileall -q src hookctl.py",
+        "python -m unittest discover -s tests -v"
+      ],
+      "evidence_state": "validated"
+    },
+    {
+      "id": "hooks-performance",
+      "description": "Run the bounded local event-handler benchmark.",
+      "working_directory": ".",
+      "commands": [
+        "python scripts/benchmark.py --iterations 25"
+      ],
+      "path_globs": [
+        "hookctl.py",
+        "src/**",
+        "policies/**",
+        "scripts/benchmark.py"
+      ],
+      "evidence_state": "validated"
+    }
+  ],
+  "required_validation": [
+    "hooks-core",
+    "hooks-performance"
+  ]
+}

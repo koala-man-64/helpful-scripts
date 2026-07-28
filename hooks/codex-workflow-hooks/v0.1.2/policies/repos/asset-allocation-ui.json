@@ -1,0 +1,62 @@
+{
+  "$schema": "../../schemas/repository-overlay-v1.schema.json",
+  "schema_version": 1,
+  "repository_id": "asset-allocation-ui",
+  "name": "asset-allocation-ui",
+  "canonical_origin": "azure://rdprokes/adaptiveassetallocation/asset-allocation-ui",
+  "azure": {
+    "organization": "https://dev.azure.com/rdprokes",
+    "project": "AdaptiveAssetAllocation",
+    "repository_id": "5e10a80a-e19e-487d-bd1c-1a18e3b13e1c",
+    "remote_url": "https://dev.azure.com/rdprokes/AdaptiveAssetAllocation/_git/asset-allocation-ui"
+  },
+  "protected_branches": [
+    "main"
+  ],
+  "validation_profiles": [
+    {
+      "id": "ui-python-guardrails",
+      "description": "Run Python tests and the UI architecture guardrails.",
+      "working_directory": ".",
+      "commands": [
+        "python -m pytest tests -q",
+        "python scripts/check_ui_architecture_guardrails.py"
+      ],
+      "evidence_state": "validated"
+    },
+    {
+      "id": "ui-frontend",
+      "description": "Install the locked frontend graph, format-check, lint, type-check, unit test, and build.",
+      "working_directory": ".",
+      "commands": [
+        "pnpm install --frozen-lockfile",
+        "pnpm format:check",
+        "pnpm lint",
+        "pnpm exec tsc --noEmit",
+        "pnpm vitest run",
+        "pnpm build"
+      ],
+      "evidence_state": "validated"
+    },
+    {
+      "id": "ui-e2e-pr",
+      "description": "Run the smoke and critical Playwright pull-request suite.",
+      "working_directory": ".",
+      "commands": [
+        "pnpm exec playwright install --with-deps chromium",
+        "pnpm test:e2e:pr"
+      ],
+      "path_globs": [
+        "src/**",
+        "tests/e2e/**",
+        "playwright.config.*"
+      ],
+      "evidence_state": "validated"
+    }
+  ],
+  "required_validation": [
+    "ui-python-guardrails",
+    "ui-frontend",
+    "ui-e2e-pr"
+  ]
+}
