@@ -9,3 +9,5 @@
 **/obj/
 launch.json
 file-manager-blazor/wwwroot/appsettings.json
+__pycache__/
+*.pyc
