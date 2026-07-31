@@ -20,6 +20,13 @@ dependencies = [
     "azure-identity>=1.25,<2",
     # .env loading; existing repo precedent (discover_activity_to_adls.py).
     "python-dotenv>=1.2,<2",
+    # Vector math for the local document index: brute-force cosine over per-collection
+    # .npz files; avoids a vector-DB service or a FAISS build. >=2.3.2 for Python 3.14 wheels.
+    "numpy>=2.3.2,<3",
+    # PDF text extraction at document-upload time (chat attachments still reject PDFs by design).
+    "pypdf>=5,<7",
+    # .docx text extraction at document-upload time.
+    "python-docx>=1.1,<2",
 ]
 
 [project.optional-dependencies]

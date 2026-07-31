@@ -17,7 +17,18 @@ import sys
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-EXPECTED_TOOLS = {"chat", "list_conversations", "get_conversation", "delete_conversation"}
+EXPECTED_TOOLS = {
+    "chat",
+    "list_conversations",
+    "get_conversation",
+    "delete_conversation",
+    "upload_documents",
+    "search_documents",
+    "list_collections",
+    "get_collection",
+    "delete_document",
+    "delete_collection",
+}
 
 
 async def check() -> int:

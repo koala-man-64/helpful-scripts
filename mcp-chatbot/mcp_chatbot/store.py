@@ -29,15 +29,20 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def validate_name(name: str) -> str:
+def validate_name(name: str, kind: str = "conversation") -> str:
     # fullmatch, not match: with match, '$' would accept a trailing newline,
     # which passes validation but produces an invalid filename on Windows.
+    # docstore reuses this rule for collection names via `kind`.
     if not _NAME_RE.fullmatch(name):
         raise ValueError(
-            f"Invalid conversation name {name!r}: use 1-64 characters from letters, "
+            f"Invalid {kind} name {name!r}: use 1-64 characters from letters, "
             "digits, '.', '_' and '-', starting with a letter or digit."
         )
     return name
+
+
+def is_valid_name(name: str) -> bool:
+    return bool(_NAME_RE.fullmatch(name))
 
 
 def _path_for(name: str) -> Path:
