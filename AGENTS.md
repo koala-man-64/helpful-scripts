@@ -191,6 +191,18 @@ Use global guidance for Rudy-specific interaction preferences.
 Use repo-level `AGENTS.md` for team conventions, build commands, test commands, architecture notes, and project-specific rules.
 Use directory-level guidance only when a subsystem has genuinely different rules.
 
+## Project: mcp-chatbot
+
+Stdio MCP server (`mcp-chatbot/`) chatting with Azure AI Foundry deployments;
+the repo's first Python package (pyproject + pytest).
+
+- Install: `cd mcp-chatbot; py -3 -m venv .venv; .\.venv\Scripts\python.exe -m pip install -e ".[dev]"`
+- Test: `.\.venv\Scripts\python.exe -m pytest` (offline; Azure clients mocked)
+- Smoke: `.\.venv\Scripts\python.exe smoke.py` (boots the real server over stdio)
+- Run: `.\.venv\Scripts\python.exe -m mcp_chatbot.server` (stdio; config via `FOUNDRY_*` env vars, read lazily)
+- If pip hits the private `pkgs.dev.azure.com` index interactively, prefix with
+  `$env:PIP_INDEX_URL = "https://pypi.org/simple"; $env:PIP_EXTRA_INDEX_URL = ""; $env:PIP_NO_INPUT = "1"`.
+
 ## Final Principle
 
 Act like a strong senior engineer who respects Rudy's time: investigate first, reason clearly, make focused changes, validate them, and surface the important tradeoffs.

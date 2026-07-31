@@ -1,0 +1,107 @@
+"""Shared fixtures: isolated environment plus recording fakes for the Azure clients.
+
+The test seam is the two client factory functions in server.py; fakes are
+installed by monkeypatching those, so no network or credentials are ever
+touched and the whole suite runs offline.
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any
+
+import httpx
+import openai
+import pytest
+
+from mcp_chatbot import server
+
+
+class FakeOpenAI:
+    """Recording fake for the OpenAI client surface the server uses."""
+
+    def __init__(self) -> None:
+        self.responses_calls: list[dict[str, Any]] = []
+        self.chat_calls: list[dict[str, Any]] = []
+        self.conversations_created = 0
+        self.responses_failures: list[Exception] = []
+        self.reply = "fake reply"
+        self.finish_reason = "stop"
+        self.responses = SimpleNamespace(create=self._responses_create)
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._chat_create))
+        self.conversations = SimpleNamespace(create=self._conversations_create)
+
+    def _responses_create(self, **kwargs: Any) -> SimpleNamespace:
+        self.responses_calls.append(kwargs)
+        if self.responses_failures:
+            raise self.responses_failures.pop(0)
+        return SimpleNamespace(
+            id=f"resp_{len(self.responses_calls)}",
+            output_text=self.reply,
+            incomplete_details=None,
+        )
+
+    def _chat_create(self, **kwargs: Any) -> SimpleNamespace:
+        self.chat_calls.append(kwargs)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=self.reply),
+                    finish_reason=self.finish_reason,
+                )
+            ]
+        )
+
+    def _conversations_create(self, **kwargs: Any) -> SimpleNamespace:
+        self.conversations_created += 1
+        return SimpleNamespace(id=f"conv_{self.conversations_created}")
+
+
+class FakeProject:
+    """Recording fake for the AIProjectClient agents surface."""
+
+    def __init__(self) -> None:
+        self.create_version_calls: list[dict[str, Any]] = []
+        self.agents = SimpleNamespace(create_version=self._create_version)
+
+    def _create_version(self, **kwargs: Any) -> SimpleNamespace:
+        self.create_version_calls.append(kwargs)
+        return SimpleNamespace(name=kwargs.get("agent_name"))
+
+
+def make_api_error(status_code: int, message: str = "boom") -> openai.APIStatusError:
+    request = httpx.Request("POST", "https://unit.test")
+    response = httpx.Response(status_code, request=request)
+    return openai.APIStatusError(message, response=response, body=None)
+
+
+@pytest.fixture
+def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Any):
+    """Isolated Foundry env vars and a temp conversation store."""
+    data_dir = tmp_path / "conversations"
+    monkeypatch.setenv("FOUNDRY_OPENAI_BASE_URL", "https://unit.test/openai/v1/")
+    monkeypatch.setenv("FOUNDRY_API_KEY", "unit-test-key")
+    monkeypatch.setenv("FOUNDRY_PROJECT_ENDPOINT", "https://unit.test/api/projects/unit")
+    monkeypatch.setenv("FOUNDRY_DEFAULT_DEPLOYMENT", "test-deployment")
+    monkeypatch.setenv("MCP_CHATBOT_DATA_DIR", str(data_dir))
+    monkeypatch.delenv("FOUNDRY_TIMEOUT_SECONDS", raising=False)
+    # Clearing at setup is what isolates tests; at teardown the factories may
+    # still be monkeypatched fakes without a cache_clear attribute.
+    server._openai_client.cache_clear()
+    server._agents_clients.cache_clear()
+    return data_dir
+
+
+@pytest.fixture
+def fake_openai(monkeypatch: pytest.MonkeyPatch) -> FakeOpenAI:
+    fake = FakeOpenAI()
+    monkeypatch.setattr(server, "_openai_client", lambda: fake)
+    return fake
+
+
+@pytest.fixture
+def fake_agents(monkeypatch: pytest.MonkeyPatch) -> tuple[FakeProject, FakeOpenAI]:
+    project = FakeProject()
+    aoai = FakeOpenAI()
+    monkeypatch.setattr(server, "_agents_clients", lambda: (project, aoai))
+    return project, aoai
