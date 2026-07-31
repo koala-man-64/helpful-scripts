@@ -7,6 +7,8 @@ touched and the whole suite runs offline.
 
 from __future__ import annotations
 
+import hashlib
+import math
 from types import SimpleNamespace
 from typing import Any
 
@@ -27,9 +29,14 @@ class FakeOpenAI:
         self.responses_failures: list[Exception] = []
         self.reply = "fake reply"
         self.finish_reason = "stop"
+        self.embeddings_calls: list[dict[str, Any]] = []
+        self.embeddings_failures: list[Exception] = []
+        self.embedding_map: dict[str, list[float]] = {}
+        self.embedding_dimensions = 8
         self.responses = SimpleNamespace(create=self._responses_create)
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._chat_create))
         self.conversations = SimpleNamespace(create=self._conversations_create)
+        self.embeddings = SimpleNamespace(create=self._embeddings_create)
 
     def _responses_create(self, **kwargs: Any) -> SimpleNamespace:
         self.responses_calls.append(kwargs)
@@ -55,6 +62,30 @@ class FakeOpenAI:
     def _conversations_create(self, **kwargs: Any) -> SimpleNamespace:
         self.conversations_created += 1
         return SimpleNamespace(id=f"conv_{self.conversations_created}")
+
+    def _embeddings_create(self, **kwargs: Any) -> SimpleNamespace:
+        self.embeddings_calls.append(kwargs)
+        if self.embeddings_failures:
+            raise self.embeddings_failures.pop(0)
+        data = [
+            SimpleNamespace(embedding=self.vector_for(text), index=i)
+            for i, text in enumerate(kwargs["input"])
+        ]
+        # Real API response order is unspecified; .index, not position, is the
+        # contract. Returning reversed data keeps the server's sort load-bearing.
+        data.reverse()
+        return SimpleNamespace(data=data)
+
+    def vector_for(self, text: str) -> list[float]:
+        """Deterministic unit vector per text: identical text always embeds to the
+        identical vector, so an exact-text query scores 1.0 against its own chunk.
+        embedding_map overrides individual texts for predictable ranking tests."""
+        if text in self.embedding_map:
+            return self.embedding_map[text]
+        digest = hashlib.sha256(text.encode("utf-8")).digest()
+        raw = [b - 127.5 for b in digest[: self.embedding_dimensions]]
+        norm = math.sqrt(sum(v * v for v in raw)) or 1.0
+        return [v / norm for v in raw]
 
 
 class FakeProject:
@@ -83,6 +114,7 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Any):
     monkeypatch.setenv("FOUNDRY_API_KEY", "unit-test-key")
     monkeypatch.setenv("FOUNDRY_PROJECT_ENDPOINT", "https://unit.test/api/projects/unit")
     monkeypatch.setenv("FOUNDRY_DEFAULT_DEPLOYMENT", "test-deployment")
+    monkeypatch.setenv("FOUNDRY_EMBEDDING_DEPLOYMENT", "test-embedding")
     monkeypatch.setenv("MCP_CHATBOT_DATA_DIR", str(data_dir))
     monkeypatch.delenv("FOUNDRY_TIMEOUT_SECONDS", raising=False)
     # Clearing at setup is what isolates tests; at teardown the factories may

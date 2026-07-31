@@ -2,10 +2,17 @@
 """MCP server exposing a chatbot backed by Azure AI Foundry.
 
 Tools:
-  chat(...)                 - single-shot or persistent-conversation chat
+  chat(...)                 - single-shot or persistent-conversation chat;
+                              pass `collection` for retrieval-augmented answers
   list_conversations()      - stored conversation summaries
   get_conversation(name)    - full stored record
   delete_conversation(name) - remove the local record
+  upload_documents(...)     - chunk + embed local files into a named collection
+  search_documents(...)     - cosine top-k over a collection
+  list_collections()        - stored collection summaries
+  get_collection(name)      - collection metadata (chunk texts omitted)
+  delete_document(...)      - remove one document from a collection
+  delete_collection(name)   - remove a whole collection
 
 Modes per call: "responses" (default, Responses API), "chat" (Chat
 Completions), "agents" (Foundry agents via azure-ai-projects). Responses and
@@ -18,6 +25,7 @@ starts with zero configuration):
   FOUNDRY_API_KEY=...
   FOUNDRY_PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
   FOUNDRY_DEFAULT_DEPLOYMENT=optional-deployment-name
+  FOUNDRY_EMBEDDING_DEPLOYMENT=embedding-deployment-name (document tools)
   FOUNDRY_TIMEOUT_SECONDS=optional
   MCP_CHATBOT_DATA_DIR=optional
 """
@@ -41,9 +49,11 @@ from mcp.server.fastmcp import FastMCP
 from openai import APIStatusError, OpenAI
 
 from mcp_chatbot import attachments as attach
-from mcp_chatbot import store
+from mcp_chatbot import docstore, documents, store
 
 MODES = ("responses", "chat", "agents")
+EMBED_BATCH_SIZE = 64
+DEFAULT_TOP_K = 5
 
 mcp = FastMCP("mcp-chatbot")
 
@@ -78,6 +88,47 @@ def _agents_clients() -> tuple[AIProjectClient, Any]:
 
 def _azure_error(exc: APIStatusError) -> RuntimeError:
     return RuntimeError(f"Azure request failed ({exc.status_code}): {exc}")
+
+
+def _resolved_embedding_model(model: str | None) -> str:
+    resolved = model or os.getenv("FOUNDRY_EMBEDDING_DEPLOYMENT")
+    if not resolved:
+        raise RuntimeError(
+            "No embedding model given and FOUNDRY_EMBEDDING_DEPLOYMENT is not set; "
+            "pass `embedding_model` or set the environment variable to an embedding "
+            "deployment name."
+        )
+    return resolved
+
+
+def _embed_texts(texts: list[str], model: str) -> list[list[float]]:
+    """Embed texts in bounded batches; vectors come back in input order."""
+    client = _openai_client()
+    vectors: list[list[float]] = []
+    for i in range(0, len(texts), EMBED_BATCH_SIZE):
+        batch = texts[i : i + EMBED_BATCH_SIZE]
+        try:
+            response = client.embeddings.create(model=model, input=batch)
+        except APIStatusError as exc:
+            raise _azure_error(exc) from exc
+        vectors.extend(d.embedding for d in sorted(response.data, key=lambda d: d.index))
+    return vectors
+
+
+def _retrieve(
+    collection: str, query: str, top_k: int, min_score: float | None = None
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Load a collection and return (record, best-matching chunks) for a query.
+
+    The query is always embedded with the collection's pinned deployment - an
+    env-default change after creation must never mix vector spaces.
+    """
+    loaded = docstore.load(collection)
+    if loaded is None:
+        raise ValueError(f"No collection named {collection!r}; use upload_documents first.")
+    record, vectors = loaded
+    query_vector = _embed_texts([query], record["embedding_model"])[0]
+    return record, docstore.top_k(record, vectors, query_vector, top_k, min_score)
 
 
 def _replay_content(message: dict[str, Any], shape: str) -> str | list[dict[str, Any]]:
@@ -248,6 +299,7 @@ def chat(
     temperature: float | None = None,
     max_output_tokens: int | None = None,
     attachments: list[str] | None = None,
+    collection: str | None = None,
 ) -> dict[str, Any]:
     """Send a prompt to an Azure AI Foundry model deployment.
 
@@ -258,7 +310,9 @@ def chat(
     to FOUNDRY_DEFAULT_DEPLOYMENT). `attachments` are local file paths: UTF-8
     text files are inlined into the prompt, png/jpg/jpeg/gif/webp images are
     sent as vision input. `reasoning_effort` (e.g. low/medium/high) applies to
-    reasoning deployments only and is passed through verbatim.
+    reasoning deployments only and is passed through verbatim. Pass
+    `collection` to retrieve the most relevant stored document chunks (see
+    upload_documents) and inline them into the prompt.
     """
     if mode not in MODES:
         raise ValueError(f"Unknown mode {mode!r}; expected one of {MODES}.")
@@ -304,6 +358,25 @@ def chat(
                 resolved_model = record["model"]
     effective_system = record["system"] if record is not None else system
 
+    retrieved: list[dict[str, Any]] | None = None
+    if collection is not None:
+        _, hits = _retrieve(collection, prompt, DEFAULT_TOP_K)
+        retrieved = [
+            {"document": h["document"], "chunk_index": h["chunk_index"], "score": h["score"]}
+            for h in hits
+        ]
+        if hits:
+            # Augmenting the prompt text (rather than the API payload) means the
+            # retrieved context lands in the stored transcript too, so history
+            # replay and the responses-mode 404 rebuild resend exactly what the
+            # model originally saw.
+            context = "\n\n".join(
+                f"--- retrieved: {h['document']} (chunk {h['chunk_index']}, "
+                f"score {h['score']}) ---\n{h['text']}\n--- end retrieved ---"
+                for h in hits
+            )
+            prompt = f"{prompt}\n\n{context}"
+
     if mode == "responses":
         reply, text, meta = _run_responses(
             record, prompt, resolved_model, effective_system, reasoning_effort,
@@ -323,17 +396,23 @@ def chat(
         user_message: dict[str, Any] = {"role": "user", "content": text}
         if meta:
             user_message["attachments"] = meta
+        if retrieved is not None:
+            user_message["retrieval"] = {"collection": collection, "chunks": retrieved}
         record["messages"].append(user_message)
         record["messages"].append({"role": "assistant", "content": reply})
         record["model"] = resolved_model
         store.save(record)
 
-    return {
+    result: dict[str, Any] = {
         "reply": reply,
         "conversation": conversation,
         "mode": mode,
         "model": resolved_model,
     }
+    if retrieved is not None:
+        result["collection"] = collection
+        result["retrieved"] = retrieved
+    return result
 
 
 @mcp.tool()
@@ -362,6 +441,156 @@ def delete_conversation(name: str) -> dict[str, Any]:
             "deleted; remove them in the Foundry portal if desired."
         )
     return result
+
+
+@mcp.tool()
+def upload_documents(
+    paths: list[str],
+    collection: str = "default",
+    embedding_model: str | None = None,
+) -> dict[str, Any]:
+    """Extract, chunk, embed, and store local documents in a named persistent collection.
+
+    Accepts UTF-8 text/code files, .pdf (text layer), and .docx, max 15 MB
+    each. The collection is created on first use and pins its embedding
+    deployment (`embedding_model` or FOUNDRY_EMBEDDING_DEPLOYMENT); later
+    uploads must use the same deployment. Re-uploading a file replaces its
+    previous chunks; files whose content is unchanged are skipped. One bad
+    file never aborts the batch - check per-file `status` in the result.
+    """
+    if not paths:
+        raise ValueError("paths must contain at least one file path.")
+    snapshot = docstore.load(collection)  # also validates the collection name
+    if snapshot is not None:
+        pinned = snapshot[0]["embedding_model"]
+        if embedding_model is not None and embedding_model != pinned:
+            raise ValueError(
+                f"Collection {collection!r} uses embedding model {pinned!r}, which is "
+                "fixed at collection creation; use a new collection to change it."
+            )
+        model = pinned
+    else:
+        model = _resolved_embedding_model(embedding_model)
+    # Fail fast on client misconfiguration: a missing FOUNDRY_OPENAI_BASE_URL or
+    # FOUNDRY_API_KEY is an environment problem for the whole call and must not
+    # be demoted to per-file "failed" statuses by the loop below.
+    _openai_client()
+    existing_sha = {
+        d["path"]: d["content_sha256"] for d in (snapshot[0]["documents"] if snapshot else [])
+    }
+
+    staged: list[dict[str, Any]] = []
+    files: list[dict[str, Any]] = []
+    counts = {"indexed": 0, "replaced": 0, "unchanged": 0, "failed": 0}
+    seen: set[str] = set()
+    for raw in paths:
+        try:
+            path, text, digest = documents.extract_text(raw)
+        except (ValueError, RuntimeError) as exc:
+            counts["failed"] += 1
+            files.append({"path": raw, "status": "failed", "error": str(exc)})
+            continue
+        key = str(path)
+        if key in seen:
+            files.append({"path": key, "status": "duplicate"})
+            continue
+        seen.add(key)
+        if existing_sha.get(key) == digest:
+            counts["unchanged"] += 1
+            files.append({"path": key, "status": "unchanged"})
+            continue
+        chunks = documents.chunk_text(text)
+        try:
+            vectors = _embed_texts([c["text"] for c in chunks], model)
+        except RuntimeError as exc:
+            counts["failed"] += 1
+            files.append({"path": key, "status": "failed", "error": str(exc)})
+            continue
+        status = "replaced" if key in existing_sha else "indexed"
+        counts[status] += 1
+        staged.append(
+            {
+                "document": path.name,
+                "path": key,
+                "content_sha256": digest,
+                "chunks": chunks,
+                "vectors": vectors,
+            }
+        )
+        files.append({"path": key, "status": status, "chunks": len(chunks)})
+
+    result: dict[str, Any] = {"collection": collection, "embedding_model": model}
+    if staged:
+        committed = docstore.commit_documents(collection, model, staged)
+        result["dimension"] = committed["dimension"]
+    else:
+        # All failed/unchanged: never create an empty collection.
+        result["dimension"] = snapshot[0]["dimension"] if snapshot else None
+    result.update(counts)
+    result["files"] = files
+    return result
+
+
+@mcp.tool()
+def search_documents(
+    query: str,
+    collection: str = "default",
+    top_k: int = 5,
+    min_score: float | None = None,
+) -> dict[str, Any]:
+    """Semantic search over a stored document collection.
+
+    Embeds the query with the collection's pinned embedding deployment and
+    returns the `top_k` most similar chunks by cosine similarity, best first.
+    `min_score` (0-1) drops weak matches.
+    """
+    if not 1 <= top_k <= 50:
+        raise ValueError(f"top_k must be between 1 and 50, got {top_k}.")
+    record, hits = _retrieve(collection, query, top_k, min_score)
+    return {
+        "collection": collection,
+        "embedding_model": record["embedding_model"],
+        "results": hits,
+    }
+
+
+@mcp.tool()
+def list_collections() -> list[dict[str, Any]]:
+    """List document collections with embedding model, document/chunk counts, and last update."""
+    return docstore.list_all()
+
+
+@mcp.tool()
+def get_collection(name: str) -> dict[str, Any]:
+    """Return a collection's metadata and per-document details (chunk texts omitted)."""
+    loaded = docstore.load(name)
+    if loaded is None:
+        raise ValueError(f"No collection named {name!r}.")
+    record, _vectors = loaded
+    summary = {k: v for k, v in record.items() if k != "chunks"}
+    summary["chunk_count"] = len(record["chunks"])
+    return summary
+
+
+@mcp.tool()
+def delete_document(document: str, collection: str = "default") -> dict[str, Any]:
+    """Remove one document (its chunks and vectors) from a collection.
+
+    `document` is the stored document name (e.g. "notes.pdf") or its full
+    path; pass the path when two stored documents share a name.
+    """
+    return docstore.remove_document(collection, document)
+
+
+@mcp.tool()
+def delete_collection(name: str) -> dict[str, Any]:
+    """Delete an entire document collection from local storage."""
+    try:
+        loaded = docstore.load(name)
+    except RuntimeError:
+        loaded = None  # corrupt file: deletion must still be possible
+    docstore.delete(name)
+    return {"deleted": name, "documents": len(loaded[0]["documents"]) if loaded else None}
 
 
 def main() -> int:
