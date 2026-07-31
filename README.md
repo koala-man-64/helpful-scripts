@@ -1,5 +1,12 @@
 # helpful-scripts
 
+## MCP chatbot server
+
+`mcp-chatbot/` is a stdio MCP server that chats with Azure AI Foundry model
+deployments (Responses API, Chat Completions, or Foundry agents), with
+persistent conversations and file attachments. See
+[mcp-chatbot/README.md](mcp-chatbot/README.md) for setup and usage.
+
 ## Discover activity downloader/uploader
 
 `discover_activity_to_adls.py` automates:

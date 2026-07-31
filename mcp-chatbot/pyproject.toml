@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-chatbot"
+version = "0.1.0"
+description = "Stdio MCP server exposing a chatbot backed by Azure AI Foundry (Responses, Chat Completions, Agents)."
+requires-python = ">=3.10"
+dependencies = [
+    # Official MCP Python SDK: FastMCP server plus the stdio client used by smoke.py.
+    # Pinned below 2.0 (released 2026-07-28, renames FastMCP -> MCPServer); migration is a recorded follow-up.
+    "mcp>=1.29,<2",
+    # Responses + Chat Completions against Foundry's OpenAI-compatible /openai/v1 route.
+    "openai>=2.51,<3",
+    # GA SDK for Foundry agents (Responses-protocol surface). The older azure-ai-agents threads/runs
+    # path is deprecated (Assistants API retires 2026-08-26) and is deliberately not used.
+    "azure-ai-projects>=2.4,<3",
+    # DefaultAzureCredential - Entra ID auth is mandated by the Foundry agents service.
+    "azure-identity>=1.25,<2",
+    # .env loading; existing repo precedent (discover_activity_to_adls.py).
+    "python-dotenv>=1.2,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9.1"]
+
+[project.scripts]
+mcp-chatbot = "mcp_chatbot.server:main"
+
+[tool.setuptools]
+packages = ["mcp_chatbot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
