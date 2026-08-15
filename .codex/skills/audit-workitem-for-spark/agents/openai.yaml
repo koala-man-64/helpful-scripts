@@ -1,0 +1,14 @@
+interface:
+  display_name: Spark Work-Item Breakdown
+  short_description: Turn work items into Spark-sized tasks
+  default_prompt: Use $audit-workitem-for-spark to break this work item into tasks
+    suitable for Codex Spark.
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true
