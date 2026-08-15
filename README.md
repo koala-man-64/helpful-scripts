@@ -1,5 +1,16 @@
 # helpful-scripts
 
+## ServiceNow client
+
+`servicenow-client/` holds a single-file ServiceNow REST client
+(`servicenow_client.py`) usable as a CLI (`snow get INC0010023`, JSON to
+stdout) or as an importable module — create/update records, add comments and
+work notes, query with canned filters, read journal and audit history, manage
+attachments, and look up users/groups/choices/schema. Built for AI-agent use:
+structured error envelopes, deterministic exit codes, and write guardrails
+(read-only mode, dry-run, gated delete). See
+[servicenow-client/README.md](servicenow-client/README.md).
+
 ## MCP chatbot server
 
 `mcp-chatbot/` is a stdio MCP server that chats with Azure AI Foundry model

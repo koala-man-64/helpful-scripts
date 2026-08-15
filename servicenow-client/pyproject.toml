@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "servicenow-client"
+version = "0.1.0"
+description = "Single-file ServiceNow REST client (CLI + importable) for humans and AI agents"
+requires-python = ">=3.10"
+dependencies = [
+    # .env loading; existing repo precedent (mcp-chatbot, discover_activity_to_adls.py).
+    # HTTP is stdlib urllib.request on purpose - no requests/httpx (repo dependency policy).
+    "python-dotenv>=1.2,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9.1"]
+
+[project.scripts]
+snow = "servicenow_client:main"
+
+[tool.setuptools]
+py-modules = ["servicenow_client"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
