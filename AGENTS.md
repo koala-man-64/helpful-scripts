@@ -203,6 +203,19 @@ the repo's first Python package (pyproject + pytest).
 - If pip hits the private `pkgs.dev.azure.com` index interactively, prefix with
   `$env:PIP_INDEX_URL = "https://pypi.org/simple"; $env:PIP_EXTRA_INDEX_URL = ""; $env:PIP_NO_INPUT = "1"`.
 
+## Project: servicenow-client
+
+Single-file ServiceNow REST client (`servicenow-client/servicenow_client.py`),
+CLI + importable module, stdlib HTTP + python-dotenv only.
+
+- Install: `cd servicenow-client; py -3 -m venv .venv; .\.venv\Scripts\python.exe -m pip install -e ".[dev]"`
+- Test: `.\.venv\Scripts\python.exe -m pytest` (offline; transport faked)
+- Run: `.\.venv\Scripts\snow.exe <command>` or `python servicenow_client.py <command>` (config via `SERVICENOW_*` env vars, read lazily)
+- Agent sessions should default to `SERVICENOW_READ_ONLY=true` and preview
+  writes with `--dry-run`; `delete` additionally needs `SERVICENOW_ALLOW_DELETE=true` + `--force`.
+- Same pip note as mcp-chatbot: if pip hits the private `pkgs.dev.azure.com`
+  index, prefix with `$env:PIP_INDEX_URL = "https://pypi.org/simple"; $env:PIP_EXTRA_INDEX_URL = ""; $env:PIP_NO_INPUT = "1"`.
+
 ## Final Principle
 
 Act like a strong senior engineer who respects Rudy's time: investigate first, reason clearly, make focused changes, validate them, and surface the important tradeoffs.
