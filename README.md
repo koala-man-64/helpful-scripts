@@ -1,5 +1,16 @@
 # helpful-scripts
 
+## edgepy - Python inside Edge, no install
+
+`edge-pyodide/` holds a single-file tool (`edge_pyodide.py`, CLI `edgepy`) that
+runs Python scripts, modules, and a REPL inside Microsoft Edge via Pyodide
+(CPython on WebAssembly) driven over the DevTools Protocol - no pip, no venv,
+and fully offline once a vendor folder (Pyodide distribution + pure-Python
+wheels, built by `edgepy fetch` on an online machine) is copied in. Byte-exact
+stdout/stderr streaming, real exit codes, numpy/pandas from the bundled
+distribution, local folders mounted into the sandbox. See
+[edge-pyodide/README.md](edge-pyodide/README.md).
+
 ## ServiceNow client
 
 `servicenow-client/` holds a single-file ServiceNow REST client

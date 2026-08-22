@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "edge-pyodide"
+version = "1.0.0"
+description = "Run Python scripts, modules, and a REPL inside Microsoft Edge (Pyodide) with nothing installed - no pip, no venv, fully offline."
+readme = "README.md"
+requires-python = ">=3.10"
+# Deliberately empty: the tool must run from a bare python.exe on a locked-down machine.
+# The websocket client (RFC 6455), the DevTools Protocol driver, the local http.server,
+# and the PyPI resolver are all standard library. python-dotenv (repo precedent) is NOT
+# used either - env vars are read from os.environ only.
+dependencies = []
+
+[project.optional-dependencies]
+# Tests only; the tool itself never needs a venv.
+dev = ["pytest>=9"]
+
+[project.scripts]
+edgepy = "edge_pyodide:main"
+
+[tool.setuptools]
+py-modules = ["edge_pyodide"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -13,3 +13,5 @@ __pycache__/
 *.pyc
 .venv/
 *.egg-info/
+# edgepy vendored Pyodide distribution + wheels (built by `edgepy fetch`)
+edge-pyodide/vendor/
