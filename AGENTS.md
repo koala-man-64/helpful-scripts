@@ -216,6 +216,22 @@ CLI + importable module, stdlib HTTP + python-dotenv only.
 - Same pip note as mcp-chatbot: if pip hits the private `pkgs.dev.azure.com`
   index, prefix with `$env:PIP_INDEX_URL = "https://pypi.org/simple"; $env:PIP_EXTRA_INDEX_URL = ""; $env:PIP_NO_INPUT = "1"`.
 
+## Project: edge-pyodide
+
+Single-file runner (`edge-pyodide/edge_pyodide.py`, CLI `edgepy`) that executes
+Python inside Microsoft Edge (Pyodide over the DevTools Protocol); stdlib only,
+no runtime dependencies, works fully offline from a vendored `vendor/` folder.
+
+- Install: nothing for the tool itself. Tests: `cd edge-pyodide; python -m pytest`
+  (pytest 9 is installed globally; or `py -3 -m venv .venv; .\.venv\Scripts\python.exe -m pip install -e ".[dev]"`)
+- Test: `python -m pytest` (offline; Edge, websocket, HTTP and registry seams faked)
+- Vendor (online, once): `python edge_pyodide.py fetch --flavor full --pkg <name>` builds
+  `edge-pyodide/vendor/` (gitignored, ~380 MB for full; `--flavor core` is 6 MiB, stdlib only)
+- Run: `python edge_pyodide.py run script.py`, `run -m pkg.mod`, `run -c "..."`, `repl`,
+  `doctor --live`; config via `EDGEPY_*` env vars read lazily (no .env loading on purpose)
+- Live checks need Edge >= 137 on the machine; the offline suite never launches it.
+- Same pip note as mcp-chatbot for the optional dev venv.
+
 ## Final Principle
 
 Act like a strong senior engineer who respects Rudy's time: investigate first, reason clearly, make focused changes, validate them, and surface the important tradeoffs.
