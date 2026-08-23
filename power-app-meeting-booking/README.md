@@ -31,6 +31,14 @@ meant to be handed to an AI agent or pasted into a ticket: owner badges are
 `[VERIFIED]` tokens, the two figures are Mermaid blocks, the swimlane is a
 table, and a short "how to read this" block explains the ID conventions.
 
+`meeting-booking-agent-flows.md` is the diagram-first companion: fifteen
+Mermaid diagrams (system context, runtime components with numbered
+touchpoints, identity and token flow, conversation start, the end-to-end
+booking sequence, dialog and ledger state machines, data model, failure
+paths, nightly jobs, provisioning, ALM, observability, timeline) plus a
+resource inventory and a touchpoint inventory that cross-reference the design
+document's section and step numbers.
+
 ## Open it
 
 Double-click the HTML file or open it in any browser; it needs no server and

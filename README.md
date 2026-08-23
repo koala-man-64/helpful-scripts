@@ -20,7 +20,9 @@ books Microsoft 365 meetings on behalf of executives through a Copilot Studio
 orchestrator with child agents: architecture, identity model, interface
 contracts between the Power App developer and the Copilot developer, an
 8-week phased plan with owners, test plan, risks and sources — plus a
-Markdown edition (`meeting-booking-agent-design.md`) to hand to an agent. See
+Markdown edition (`meeting-booking-agent-design.md`) to hand to an agent and
+a diagram-first companion (`meeting-booking-agent-flows.md`) with fifteen
+Mermaid diagrams covering every touchpoint and resource. See
 [power-app-meeting-booking/README.md](power-app-meeting-booking/README.md).
 
 ## edgepy - Python inside Edge, no install
