@@ -25,10 +25,17 @@ custom connector.
 6. Ownership summary and RACI, test plan, Definition of Done and gates,
    risks, decision log, open questions, sources (verified vs unverified)
 
+`meeting-booking-agent-design.md` is the same document as standalone Markdown,
+meant to be handed to an AI agent or pasted into a ticket: owner badges are
+`[PA]`, `[CS]`, `[ADMIN]`, `[SHARED]`, `[BIZ]`, `[CP]`, `[UNVERIFIED]`,
+`[VERIFIED]` tokens, the two figures are Mermaid blocks, the swimlane is a
+table, and a short "how to read this" block explains the ID conventions.
+
 ## Open it
 
-Double-click the file or open it in any browser; it needs no server and no
-network. Print to PDF from the browser for distribution.
+Double-click the HTML file or open it in any browser; it needs no server and
+no network. Print to PDF from the browser for distribution. Give the `.md`
+file to an agent; it renders on GitHub with the diagrams.
 
 ## How it was produced
 
@@ -41,4 +48,6 @@ an explicit **UNVERIFIED** badge that names the Phase 0 spike that confirms it.
 
 Edit the HTML directly — it is plain HTML with a token-based stylesheet in the
 `<head>`. Keep it self-contained (no CDN scripts, fonts or images) and bump
-the version/date in the header block.
+the version/date in the header block. Apply the same change to the Markdown
+edition by hand — the two files are maintained side by side, with matching
+section numbers.
