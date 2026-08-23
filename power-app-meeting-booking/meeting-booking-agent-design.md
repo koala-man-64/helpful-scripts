@@ -856,5 +856,101 @@ Checked against Microsoft Learn and Microsoft-authored sources on 2026-08-22. An
 - **On-behalf-of login**: Custom-connector option that lets a Copilot Studio tool call Graph as the signed-in user without a per-user connection prompt.
 - **RBAC for Applications**: Exchange Online's mechanism for scoping an app's Graph permissions to a set of mailboxes (fallback branch only).
 
+## 12. Connectors & Dataverse primer
+
+Background for readers new to Power Platform. Nothing here changes the design — it explains the moving parts that §4–§6 take for granted, in the order this project meets them.
+
+### 12.1 What a connector is
+
+A **connector** is a wrapper around an API that Power Apps, Power Automate and Copilot Studio can call without writing HTTP code. Each connector exposes **actions** ("do this": *Create event*, *Search users*), sometimes **triggers** ("when this happens", flows only), and an **auth contract** — how it signs in to the underlying service.
+
+| Term | Meaning | Analogy |
+|---|---|---|
+| **Connector** | The definition: which API, which actions, which auth method | A phone model |
+| **Connection** | A signed-in instance of a connector, owned by a specific user or service account | A phone with *your* SIM in it |
+| **Connection reference** | A named slot inside a solution that says "at deploy time, plug a connection in here" | The phone's slot in the dock — Dev holds your phone, Prod holds the service account's |
+
+The last row is what makes ALM work: flows and the agent reference `mba_cr_Dataverse`, `mba_cr_O365Users`, `mba_cr_Graph` (§5.6), and each environment binds those slots to whatever connection it has.
+
+### 12.2 Who is the connector acting as?
+
+The single most important idea in this design — §4.4 hinges on it:
+
+- **Agent flows** run under the connection reference's connection (in Test/Prod: the service account). They do *not* know who is chatting — which is why flows only do Dataverse work and the two nightly jobs.
+- **Copilot Studio tools** can run with *agent-author* (maker/service) authentication — same as a flow — or with **user authentication**: each chat user connects once, and from then on the tool calls the API *as that user*. That is what makes "book as the assistant, on the executive's calendar, using the assistant's delegate rights" possible: Exchange enforces the delegation because the token really is the assistant's.
+
+**Standard vs premium:** standard connectors (Office 365 Outlook, Office 365 Users) come with Microsoft 365; premium connectors (Dataverse, custom connectors, HTTP) require a Power Apps premium licence per user — which is why every assistant needs one (RS25 in the flows document).
+
+### 12.3 The connectors in this design
+
+| Connector | What it is | Used for here | Runs as |
+|---|---|---|---|
+| Office 365 Users | Standard; directory profiles via Graph | Stub and seed-time lookups; the DLP test flow (0.5) | Service / maker connection |
+| Office 365 Outlook | Standard; mail and calendar actions on the signed-in mailbox (`/me/…`) | **Deliberately not used for booking writes** — its calendar actions target the connection owner's own mailbox and handle shared calendars unreliably (calendar-id quirks, 403s), so it cannot book on the executive's calendar cleanly | — |
+| Dataverse | Premium; CRUD on Dataverse tables, plus triggers | All flows in §5.4; the book-for picker reads the allow-list directly | Service account (flows) / app user (picker) |
+| **Graph custom connector** | Premium; defined by us from an OpenAPI document — one typed action per Graph call (§5.3), OAuth 2.0 / Entra ID security | All user-context Graph calls: people search, `findMeetingTimes`, `getSchedule`, rooms, `CreateEvent`, `GetEvent` | **The assistant** (user auth) for agent tools; the service account for the two nightly flows |
+| HTTP with Microsoft Entra ID | Premium; generic HTTP with an Entra token | Only in the application-identity fallback (0.2b) | Service identity |
+| Copilot Studio connector | Lets a flow or app call an agent (*Execute agent and wait*) | Only the rejected chat-surface fallback (§4.2) | App user |
+| Application Insights | Telemetry sink | Agent and flow telemetry (4.7) | n/a |
+
+#### Why a custom connector instead of the generic HTTP connector
+
+1. **Typed actions.** The agent sees `FindMeetingTimes(organizerUpn, attendees[], …)` with described parameters, which generative orchestration can pick and fill. Raw HTTP gives it nothing to reason with.
+2. **Response shaping.** Every action returns `status` + `errorCode` (`NOT_ALLOWED`, `GRAPH_THROTTLED`, …) instead of throwing, so the orchestrator controls the wording (§4.6 guardrail).
+3. **User authentication works on it.** The generic HTTP connector cannot run "as the chat user" inside Copilot Studio.
+4. **DLP.** Custom connectors are individually classifiable; the generic `HTTP` connector stays blocked tenant-wide because it can reach anything.
+
+How its OAuth works in practice: the connector is registered with the `MeetingAgent-Graph` app (client id + **client secret** in the connector's Security tab — the one secret of the delegated branch). The first time an assistant's conversation hits the tool, a one-time "Connect" prompt appears; Entra issues a token *for that assistant* with the delegated scopes, stored as that user's connection. Optional *on-behalf-of login* removes even that prompt by exchanging the agent's own sign-in for the connector token.
+
+**DLP policies** sort connectors into Business / Non-business / Blocked groups per environment and forbid one app, flow or agent from mixing groups. Step 1.2 puts Dataverse, Office 365 Users, the Graph custom connector, Copilot Studio and App Insights in *Business* and leaves `HTTP` blocked; spike S4 (0.5) exists because "a flow that cannot be saved" is the most common everything-built-nothing-runs failure on these projects.
+
+### 12.4 What Dataverse is
+
+Dataverse is the managed relational database and application platform underneath Power Apps: think "Azure SQL with an opinionated application layer baked in" — tables, columns and relationships, but also security roles, auditing, an OData Web API, and **solutions** for packaging. You never see the SQL; every surface talks to the tables through the Dataverse connector or the Web API.
+
+| Dataverse term | Database equivalent | In this design |
+|---|---|---|
+| Environment | A database server plus the apps attached to it | Dev / Test / Prod (1.1) |
+| Table / column / row | Table / column / row | Logical names carry the publisher prefix: `mba_BookingRequest` |
+| Alternate key | Unique index | `IdempotencyKey`; `(DelegateUpn, PrincipalUpn)` — the database, not hope, enforces "never a duplicate event" |
+| Security role | Permissions | `MBA User`, `MBA Admin` (1.6): row-level read/write per table |
+| Solution | Deployment package | Everything — tables, flows, connector, agent, app, env vars, connection references — travels as one unit Dev → Test → Prod |
+| Environment variable | Config setting | Per-environment values, including Key Vault-backed secrets (§5.6) |
+
+### 12.5 Why Dataverse is in this design at all
+
+The agent could book meetings with no database. It has one because four things need durable state outside the conversation: the **ledger** (`mba_BookingRequest` — the status machine, idempotency key and Graph event id that make retries safe and reschedule/cancel possible later), the **second gate** (`mba_DelegationAllowList` — feeds the picker and the audit trail; Exchange stays the real enforcement), a **cache** (`mba_RoomPreference` — nightly Places snapshot so room lookups are fast and cheap), and the **compliance trail** (`mba_AuditLog` — outlives the 30-day transcripts), plus reference data (`mba_TimeZoneMap`, `mba_Config`). Column detail is in §4.7.
+
+**Who touches what:** the canvas app reads only the allow-list (as the signed-in assistant, filtered by security role); Copilot Studio reads and writes only through the agent flows (decision D6) under the service account; dates are stored UTC and only `mba_FormatSlots` turns them into display labels.
+
+### 12.6 Three things that look odd but are deliberate
+
+1. The **Office 365 Outlook connector is the obvious tool and we do not use it** for writes — it cannot reliably act on someone else's calendar.
+2. **Flows cannot know who is chatting**, so they never call Graph on the user's behalf; the user-authenticated tool does.
+3. The **custom connector has a secret even though "delegated" sounds secret-free** — the secret proves the connector app to Entra; the user's token is what Graph actually authorises.
+
+## 13. End-to-end flow diagrams
+
+The complete runtime picture lives in the companion **`meeting-booking-agent-flows.md`** — eighteen Mermaid diagrams plus the `RS1`–`RS29` resource inventory and `T1`–`T17` touchpoint inventory, all cross-referenced to this document's sections, steps and spikes. The HTML edition embeds the same eighteen diagrams pre-rendered as static SVG in its §13. The diagrams:
+
+1. System context
+2. Runtime path (touchpoints T1–T15)
+3. Identity, configuration and telemetry (T3, T5, T10, T16, T17)
+4. Identity and token flow
+5. Conversation start and principal validation
+6. Gathering and fan-out
+7. Confirm and book
+8. Dialog state machine — outer
+9. Dialog state machine — inside Gathering
+10. BookingRequest lifecycle
+11. Data model (ER)
+12. Failure paths — gathering
+13. Failure paths — commit
+14. Nightly jobs
+15. Provisioning and identity setup
+16. ALM and deployment
+17. Observability and correlation
+18. Delivery timeline
+
 ---
-Meeting Booking Agent — design & implementation plan v1.0 · 2026-08-23 · Prepared by the Copilot developer for the Power App developer, the M365 admin and the business owner. Markdown edition of the HTML design document.
+Meeting Booking Agent — design & implementation plan v1.2 · 2026-08-23 · Prepared by the Copilot developer for the Power App developer, the M365 admin and the business owner. Markdown edition of the HTML design document.

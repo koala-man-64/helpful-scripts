@@ -32,6 +32,9 @@ meant to be handed to an AI agent or pasted into a ticket: owner badges are
 `[PA]`, `[CS]`, `[ADMIN]`, `[SHARED]`, `[BIZ]`, `[CP]`, `[UNVERIFIED]`,
 `[VERIFIED]` tokens, the two figures are Mermaid blocks, the swimlane is a
 table, and a short "how to read this" block explains the ID conventions.
+Since v1.2 it mirrors the HTML's §12 connectors & Dataverse primer and carries
+a §13 pointer to the flow diagrams, so the two text editions match
+section-for-section.
 
 `meeting-booking-agent-flows.md` is the diagram-first companion: eighteen
 Mermaid diagrams (system context, runtime components with numbered
