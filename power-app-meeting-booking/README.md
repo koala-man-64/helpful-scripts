@@ -6,7 +6,9 @@ designs and plans a **purely conversational Power Apps canvas app** that books
 Microsoft 365 meetings **on behalf of executives** via a **Copilot Studio
 orchestrator with child agents** (People & Delegation, Scheduling &
 Availability, Rooms & Resources) calling Microsoft Graph through a delegated
-custom connector.
+custom connector. Since v1.2 it also embeds a connectors & Dataverse primer
+(§12) and all eighteen flow diagrams pre-rendered as static SVG (§13), so the
+single file is the complete design document — offline, no Mermaid needed.
 
 ## What's inside
 
@@ -31,13 +33,14 @@ meant to be handed to an AI agent or pasted into a ticket: owner badges are
 `[VERIFIED]` tokens, the two figures are Mermaid blocks, the swimlane is a
 table, and a short "how to read this" block explains the ID conventions.
 
-`meeting-booking-agent-flows.md` is the diagram-first companion: fifteen
+`meeting-booking-agent-flows.md` is the diagram-first companion: eighteen
 Mermaid diagrams (system context, runtime components with numbered
 touchpoints, identity and token flow, conversation start, the end-to-end
 booking sequence, dialog and ledger state machines, data model, failure
 paths, nightly jobs, provisioning, ALM, observability, timeline) plus a
 resource inventory and a touchpoint inventory that cross-reference the design
-document's section and step numbers.
+document's section and step numbers. It is the editable source of the
+diagrams embedded in the HTML's §13.
 
 ## Open it
 
