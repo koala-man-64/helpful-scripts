@@ -1,5 +1,17 @@
 # helpful-scripts
 
+## Claude Code token audit (Claude Code only)
+
+`claude-code-token-audit/` holds a single-file, dependency-free Python tool
+(`claude_code_token_audit.py`) that reports where your **Claude Code** tokens
+go: by model, reasoning effort, main conversation vs Agent-tool subagents vs
+Workflow agents, subagent type, skill, session, project, and day, with
+API-list-price cost estimates. It parses the local transcripts Claude Code
+writes to `~/.claude/projects/` and de-duplicates the multi-line-per-response
+format correctly. **Specific to Anthropic's Claude Code** — it does not apply
+to Codex, Copilot, Cursor, the claude.ai web app, or direct API usage. See
+[claude-code-token-audit/README.md](claude-code-token-audit/README.md).
+
 ## Meeting Booking Agent design
 
 `power-app-meeting-booking/` holds a single self-contained HTML design and
