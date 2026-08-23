@@ -243,7 +243,7 @@ footer.doc{margin-top:3rem;padding-top:1.2rem;border-top:1px solid var(--line);f
   <h1>Meeting Booking Agent</h1>
   <p class="lede">A purely conversational Power Apps canvas app that books Microsoft 365 meetings on behalf of executives — a thin chat shell over a Copilot Studio orchestrator with child agents for people, scheduling and rooms, calling Microsoft Graph through governed connectors.</p>
   <div class="meta">
-    <span><b>Version</b> 1.0</span>
+    <span><b>Version</b> 1.1</span>
     <span><b>Date</b> 2026-08-23</span>
     <span><b>Status</b> <span class="status">Proposed</span></span>
     <span><b>Authors</b> Copilot developer (Rudy Prokes) with the Power App developer</span>
@@ -651,6 +651,35 @@ footer.doc{margin-top:3rem;padding-top:1.2rem;border-top:1px solid var(--line);f
     </div>
     <figcaption>Figure 2 — Happy path. Only the orchestrator talks to the assistant; children return structured results. Every Graph call runs with the assistant's delegated token. The Confirm &amp; Book topic (highlighted activation) is deterministic: no LLM decision sits between "Book" and the Graph write.</figcaption>
   </figure>
+
+  <h3>How the orchestrator gathers the request</h3>
+  <p>The assistant and the orchestrator do go back and forth, but there is <strong>no single "I now have enough, fan out" gate</strong>. Children are pulled in progressively, each as soon as its typed inputs (<a href="#s4c">§4.3</a>) can be satisfied, and their structured results drive the next question. The only place where "every slot must be filled" is enforced is the <code>ConfirmBooking</code> card and the deterministic Confirm &amp; Book topic behind it.</p>
+  <ol class="steps">
+    <li><strong>Before the first message.</strong> The canvas app sends <code>bookingContext</code> (§5.1): who the assistant is, their time zone, and which executive they are booking for. The orchestrator never asks "who is this for?" — it hands the principal to People &amp; Delegation immediately for the allow-list check and live delegate probe; a failure ends the conversation with the refusal wording before anything else is asked.</li>
+    <li><strong>Free-text request.</strong> Generative orchestration extracts a <code>BookingIntent</code>: attendees, duration, date window, room constraints, subject, any explicit time zone. Defaultable slots (duration, subject) are filled from <code>mba_GetConfig</code> or generated, and shown on the confirmation card rather than asked up front.</li>
+    <li><strong>Staged fan-out.</strong> Each child is called the moment its inputs exist (table below). Children never address the user; they return <code>ambiguous[]</code>, <code>unresolved[]</code>, <code>status: none</code> and the like, and the orchestrator phrases the follow-up question.</li>
+    <li><strong>Clarify only where the rules say so.</strong> The slot-filling table below is the contract: vague windows, invalid dates, group names, ambiguous people and out-of-hours times are asked about; duration, subject and time zone are defaulted and confirmed, not asked.</li>
+    <li><strong>Deterministic close.</strong> <code>SlotPicker</code> → (<code>RoomPicker</code> if needed) → <code>ConfirmBooking</code> with every resolved value and both time zones → <em>Book</em> runs the Confirm &amp; Book topic. No model decision sits between "Book" and the Graph write.</li>
+  </ol>
+  <div class="tw compact"><table>
+    <thead><tr><th>Child</th><th>Called as soon as…</th><th>What can come back to the user (via the orchestrator)</th></tr></thead>
+    <tbody>
+      <tr><td>People &amp; Delegation</td><td>the principal is known (immediately) and any attendee names are present</td><td><code>ambiguous[]</code> → <code>DisambiguatePerson</code> card; <code>unresolved[]</code> → "I can't find Priya — e-mail or another spelling?"; <code>principalOk = false</code> → refusal</td></tr>
+      <tr><td>Rooms &amp; Resources</td><td>a room, building or capacity constraint is mentioned</td><td>candidate rooms feed the slot search silently; nothing matching → "no room for 12 in Building A — online-only or another building?"</td></tr>
+      <tr><td>Scheduling &amp; Availability</td><td>attendees are <em>resolved</em>, duration and a concrete window are known</td><td><code>slots[]</code> → <code>SlotPicker</code>; <code>status: none</code> → "no common time Tue/Wed — try Thursday?"</td></tr>
+    </tbody>
+  </table></div>
+  <h4>Worked example</h4>
+  <p><em>"45 min with Megan and Christie next week, room for six in Building 2"</em></p>
+  <ol>
+    <li>Principal validated silently. People child resolves Megan; Christie has two directory matches → <code>DisambiguatePerson</code> card; the assistant picks one.</li>
+    <li>"next week" is vague by the rules → orchestrator asks <em>"Which day(s) next week?"</em> — "Tue or Wed".</li>
+    <li>Rooms child fetches Building-2 rooms with capacity ≥ 6 (silent).</li>
+    <li>Scheduling child runs <code>FindMeetingTimes</code> for both resolved attendees plus the candidate rooms → <code>SlotPicker</code> with up to five slots, each in both zones, free rooms per slot.</li>
+    <li>Assistant picks a slot → <code>ConfirmBooking</code> → <em>Book</em> → deterministic topic books it.</li>
+  </ol>
+  <p>Two or three clarification turns is the normal case; zero is possible when the request is fully specified.</p>
+  <div class="callout"><span class="t">Implementation notes (CS)</span><p>Generative orchestration will <strong>automatically ask for a child's required inputs</strong> when they are missing, but the wording is generic ("What is the window start?"). The rules above are implemented by (a) marking only the truly required inputs as required on each child and (b) putting the clarification wording and the "never auto-pick a day" rule in the orchestrator instructions — otherwise the model will invent a Tuesday.</p><p>If spike S6 or the regression set shows date/window extraction is unreliable (risk R5), move <em>window + duration</em> collection into a deterministic topic with entity questions and keep generative orchestration for everything else. That is a dial inside the orchestrator; no contract in §5 changes.</p></div>
 
   <h3>Slot-filling order and clarification rules</h3>
   <div class="tw"><table>

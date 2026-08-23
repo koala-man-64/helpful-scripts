@@ -4,7 +4,7 @@
 
 A purely conversational Power Apps canvas app that books Microsoft 365 meetings on behalf of executives — a thin chat shell over a Copilot Studio orchestrator with child agents for people, scheduling and rooms, calling Microsoft Graph through governed connectors.
 
-- **Version** 1.0
+- **Version** 1.1
 - **Date** 2026-08-23
 - **Status** Proposed
 - **Authors** Copilot developer (Rudy Prokes) with the Power App developer
@@ -300,6 +300,40 @@ sequenceDiagram
 ```
 
 *Figure 2 — Happy path. Only the orchestrator talks to the assistant; children return structured results. Every Graph call runs with the assistant's delegated token. The Confirm & Book topic (highlighted activation) is deterministic: no LLM decision sits between "Book" and the Graph write.*
+
+### How the orchestrator gathers the request
+
+The assistant and the orchestrator do go back and forth, but there is **no single "I now have enough, fan out" gate**. Children are pulled in progressively, each as soon as its typed inputs (§4.3) can be satisfied, and their structured results drive the next question. The only place where "every slot must be filled" is enforced is the `ConfirmBooking` card and the deterministic Confirm & Book topic behind it.
+
+1. **Before the first message.** The canvas app sends `bookingContext` (§5.1): who the assistant is, their time zone, and which executive they are booking for. The orchestrator never asks "who is this for?" — it hands the principal to People & Delegation immediately for the allow-list check and live delegate probe; a failure ends the conversation with the refusal wording before anything else is asked.
+2. **Free-text request.** Generative orchestration extracts a `BookingIntent`: attendees, duration, date window, room constraints, subject, any explicit time zone. Defaultable slots (duration, subject) are filled from `mba_GetConfig` or generated, and shown on the confirmation card rather than asked up front.
+3. **Staged fan-out.** Each child is called the moment its inputs exist (table below). Children never address the user; they return `ambiguous[]`, `unresolved[]`, `status: none` and the like, and the orchestrator phrases the follow-up question.
+4. **Clarify only where the rules say so.** The slot-filling table below is the contract: vague windows, invalid dates, group names, ambiguous people and out-of-hours times are asked about; duration, subject and time zone are defaulted and confirmed, not asked.
+5. **Deterministic close.** `SlotPicker` → (`RoomPicker` if needed) → `ConfirmBooking` with every resolved value and both time zones → *Book* runs the Confirm & Book topic. No model decision sits between "Book" and the Graph write.
+
+| Child | Called as soon as… | What can come back to the user (via the orchestrator) |
+|---|---|---|
+| People & Delegation | the principal is known (immediately) and any attendee names are present | `ambiguous[]` → `DisambiguatePerson` card; `unresolved[]` → "I can't find Priya — e-mail or another spelling?"; `principalOk = false` → refusal |
+| Rooms & Resources | a room, building or capacity constraint is mentioned | candidate rooms feed the slot search silently; nothing matching → "no room for 12 in Building A — online-only or another building?" |
+| Scheduling & Availability | attendees are *resolved*, duration and a concrete window are known | `slots[]` → `SlotPicker`; `status: none` → "no common time Tue/Wed — try Thursday?" |
+
+#### Worked example
+
+*"45 min with Megan and Christie next week, room for six in Building 2"*
+
+1. Principal validated silently. People child resolves Megan; Christie has two directory matches → `DisambiguatePerson` card; the assistant picks one.
+2. "next week" is vague by the rules → orchestrator asks *"Which day(s) next week?"* — "Tue or Wed".
+3. Rooms child fetches Building-2 rooms with capacity ≥ 6 (silent).
+4. Scheduling child runs `FindMeetingTimes` for both resolved attendees plus the candidate rooms → `SlotPicker` with up to five slots, each in both zones, free rooms per slot.
+5. Assistant picks a slot → `ConfirmBooking` → *Book* → deterministic topic books it.
+
+Two or three clarification turns is the normal case; zero is possible when the request is fully specified.
+
+> **Implementation notes (CS)**
+>
+> Generative orchestration will **automatically ask for a child's required inputs** when they are missing, but the wording is generic ("What is the window start?"). The rules above are implemented by (a) marking only the truly required inputs as required on each child and (b) putting the clarification wording and the "never auto-pick a day" rule in the orchestrator instructions — otherwise the model will invent a Tuesday.
+>
+> If spike S6 or the regression set shows date/window extraction is unreliable (risk R5), move *window + duration* collection into a deterministic topic with entity questions and keep generative orchestration for everything else. That is a dial inside the orchestrator; no contract in §5 changes.
 
 ### Slot-filling order and clarification rules
 
