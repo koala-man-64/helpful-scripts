@@ -7,7 +7,8 @@ implementation plan for a purely conversational Power Apps canvas app that
 books Microsoft 365 meetings on behalf of executives through a Copilot Studio
 orchestrator with child agents: architecture, identity model, interface
 contracts between the Power App developer and the Copilot developer, an
-8-week phased plan with owners, test plan, risks and sources. See
+8-week phased plan with owners, test plan, risks and sources — plus a
+Markdown edition (`meeting-booking-agent-design.md`) to hand to an agent. See
 [power-app-meeting-booking/README.md](power-app-meeting-booking/README.md).
 
 ## edgepy - Python inside Edge, no install
