@@ -1,5 +1,15 @@
 # helpful-scripts
 
+## Meeting Booking Agent design
+
+`power-app-meeting-booking/` holds a single self-contained HTML design and
+implementation plan for a purely conversational Power Apps canvas app that
+books Microsoft 365 meetings on behalf of executives through a Copilot Studio
+orchestrator with child agents: architecture, identity model, interface
+contracts between the Power App developer and the Copilot developer, an
+8-week phased plan with owners, test plan, risks and sources. See
+[power-app-meeting-booking/README.md](power-app-meeting-booking/README.md).
+
 ## edgepy - Python inside Edge, no install
 
 `edge-pyodide/` holds a single-file tool (`edge_pyodide.py`, CLI `edgepy`) that
