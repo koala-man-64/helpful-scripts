@@ -1,5 +1,16 @@
 # helpful-scripts
 
+## Codex token usage audit (Codex local clients only)
+
+`codex-token-usage-audit/` holds a dependency-free, read-only Python tool
+(`codex_token_usage_audit.py`) that reports retained local **Codex** token usage
+by turn, model, reasoning effort, root task vs subagent, agent path,
+project, and day. It calculates deltas from cumulative rollout counters, links
+nested subagent trees, exports CSV or structured JSON, and optionally enriches
+task titles from `state_5.sqlite` without modifying it. Credit figures are dated
+standard-rate estimates, not billing truth. See
+[codex-token-usage-audit/README.md](codex-token-usage-audit/README.md).
+
 ## Claude Code token audit (Claude Code only)
 
 `claude-code-token-audit/` holds a single-file, dependency-free Python tool
