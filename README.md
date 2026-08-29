@@ -1,5 +1,17 @@
 # helpful-scripts
 
+## GitHub activity scanner
+
+`github-activity-scanner/` holds a dependency-free, read-only Python tool
+(`github_activity_scanner.py`) that takes a list of author emails and reports
+their GitHub activity: every indexed commit (repo, dates, first message line,
+additions/deletions) and every pull-request review by the matching account
+(state + timestamp, so approvals are a spreadsheet filter away), written to
+`commits.csv` and `reviews.csv`. All API access goes through the GitHub CLI
+(`gh api`), so auth is just `gh auth login`; optional `--org`/`--repo`
+scoping, otherwise it searches all of public GitHub. See
+[github-activity-scanner/README.md](github-activity-scanner/README.md).
+
 ## Codex token usage audit (Codex local clients only)
 
 `codex-token-usage-audit/` holds a dependency-free, read-only Python tool
