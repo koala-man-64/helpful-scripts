@@ -131,6 +131,10 @@ When the purpose of the mock is to exercise draft logic, speed is part of the lo
 4. As soon as the clock changes to **Your Turn**, refresh availability once and select the highest remaining candidate immediately.
 5. Record the pick, overall number, grade, rejected alternatives, and reason after the selection—not while the clock is running.
 
+When draft logic selects by position, match Yahoo's exact visible position tag rather than searching the full row text. After every pick, verify that the selected player's position satisfies the planned target, Yahoo's last-pick signal names the same player, and the roster count increments. If those signals disagree, repair the remaining plan immediately instead of continuing a stale position schedule.
+
+Keep the sub-second poll active inside bounded control windows. In the observed 2026-08-30 rehearsal, an overly long browser-control call reset while the draft continued; shorter windows preserved continuous clock coverage and made reconnection state explicit.
+
 If the tool loses continuous browser control, say so immediately and let the user take over. Do not silently fall back to autodraft during a draft-logic rehearsal.
 
 ### Settings and recovery controls
