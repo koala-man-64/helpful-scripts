@@ -21,4 +21,3 @@ Workspace for gathering draft resources, recording league-specific assumptions, 
 ## Starting point
 
 Yahoo Fantasy Sports is the first platform source. Record the sport, league scoring format, roster settings, draft date, and number of teams before comparing rankings or building draft recommendations.
-
