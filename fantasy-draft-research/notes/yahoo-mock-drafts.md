@@ -121,6 +121,18 @@ Additional room tabs are **Board**, **Results**, **Standings**, and **Ultra Draf
 
 The header also provides a persistent **Autodraft** control. Turn it on only intentionally; queued players are its first source.
 
+### Active-draft operating rule
+
+When the purpose of the mock is to exercise draft logic, speed is part of the logic:
+
+1. Keep autodraft off unless it is an explicitly chosen emergency fallback.
+2. Monitor the clock continuously at sub-second intervals while the draft is active; long periodic polls can miss a pick.
+3. Before the user's turn, maintain a short ordered candidate list based on roster need, value, position scarcity, and league scoring.
+4. As soon as the clock changes to **Your Turn**, refresh availability once and select the highest remaining candidate immediately.
+5. Record the pick, overall number, grade, rejected alternatives, and reason after the selection—not while the clock is running.
+
+If the tool loses continuous browser control, say so immediately and let the user take over. Do not silently fall back to autodraft during a draft-logic rehearsal.
+
 ### Settings and recovery controls
 
 The draft-room **Settings** menu exposes:
@@ -147,6 +159,7 @@ Undo is selective: Yahoo marked simulated opponents' earliest picks as not undoa
 5. In the waiting room, compare roster and scoring settings, run the system test, choose the ranking source, and decide whether to email results.
 6. In the room, build a queue, test search and filters, make manual picks, and observe how the board and roster update.
 7. Repeat from several draft positions, but record only strategy outcomes—not participant identities or session-specific URLs.
+8. Save each completed run under [`mock-draft-results/`](mock-draft-results/) with the format, slot, results, grades, projected standings, and lessons learned.
 
 ## Limitations and safety notes
 

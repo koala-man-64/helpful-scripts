@@ -25,6 +25,7 @@ Current procedures:
 - [`notes/yahoo-league-scoring-and-settings.md`](notes/yahoo-league-scoring-and-settings.md) — complete league configuration and scoring snapshot
 - [`notes/yahoo-2026-teams-and-draft-order.md`](notes/yahoo-2026-teams-and-draft-order.md) — active teams, snake order, and keeper-occupied picks
 - [`notes/yahoo-mock-drafts.md`](notes/yahoo-mock-drafts.md) — instant and live mock-draft navigation, setup, room controls, and rehearsal workflow
+- [`notes/mock-draft-results/`](notes/mock-draft-results/) — completed mock results, Yahoo grades, projected standings, and lessons learned
 
 ## Starting point
 
