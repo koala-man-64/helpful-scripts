@@ -178,7 +178,7 @@ Complete this before entering the room:
 5. Refresh injuries, depth charts, suspensions, and material role news through the selected news path. Add NBC or Reddit only when a targeted question or conflicting claim triggers them. Remove unavailable players and every keeper from candidate data.
 6. Refresh standard-scoring tiers and non-PPR projections through the selected board sources. Refresh ADP only when market timing affects a decision. Record source timestamps; flag stale or conflicting data rather than hiding it.
 7. If DraftKick is selected, configure it with the actual scoring, starters, bench, order, keepers, and intentional source weights. Verify Board and Rosters. If it says `Not saved`, keep the tab open and maintain the independent state record below. Otherwise build the board from the selected fallback sources.
-8. Build an initial value board and position-specific fallbacks. Mark players as target, neutral, or avoid; an avoid requires a concrete reason such as injury, role, price, or keeper status.
+8. Build an initial value board and position-specific fallbacks. For each candidate, retain the league-adjusted value or replacement baseline, tier, ADP/expected availability, next equivalent, role or availability risk, and source timestamp. Mark players as target, neutral, or avoid; an avoid requires a concrete reason such as injury, role, price, or keeper status.
 9. Freeze the active source set when the Yahoo room opens. Do not activate a newly merged or newly discovered tool during the live draft without a completed readiness pass.
 10. Run a short position-1 rehearsal if time permits. A rehearsal result informs mechanics; it does not override current news or live availability.
 
@@ -249,14 +249,14 @@ state. Never report the draft as complete while the room is live.
 3. Reconcile the last selection with the Board/Picks view. Do not let a secondary tool overwrite Yahoo state.
 4. Recalculate the next-pick shortlist using the decision logic below.
 5. Keep three acceptable players ordered in the Yahoo queue. Remove drafted players immediately.
-6. At a snake turn, prepare both picks as a pair: a preferred combination plus at least two alternate combinations.
+6. At a snake turn, prepare both picks as a pair: a preferred combination plus at least two alternate combinations. Order the first pick by the larger expected loss if delayed—tier drop multiplied by no-return risk—not by raw rank alone.
 7. Consult only tools marked **Live** in the frozen source manifest. Use cached results first; run quick lookups only when they cannot interrupt the clock watch. Never call a slow/manual source from the live loop.
 
 #### Act when Yahoo shows **Your Turn**
 
 1. Refresh availability once.
 2. Confirm the current overall pick, open roster slots, keeper constraints, and top three available candidates.
-3. Choose the highest valid candidate. Do not start new web research, activate a new tool, or delegate a new task while on the clock.
+3. Apply the candidate ordering below, including the tier break, wait risk, and material risk note. Do not start new web research, activate a new tool, or delegate a new task while on the clock.
 4. In recommend mode, send one compact line: pick, need, recommendation, fallback, and the decision boundary. In delegated entry mode, select immediately.
 5. Use the player's visible **Draft** action. If filtering by position, require Yahoo's exact visible position tag.
 6. Do not write the pick explanation until Yahoo accepts the selection.
@@ -298,7 +298,9 @@ public-player behavior can differ materially from the private league.
 
 ### 4. Decision logic
 
-Apply hard exclusions first, then rank the remaining choices.
+This is the mandatory live ordering. It operationalizes the broader [advanced draft strategy foundations](draft-strategy-foundations.md); it does not replace Yahoo as the authority for availability, the clock, or completed picks.
+
+Apply hard exclusions first, then rank the remaining choices. Compare positions jointly: never select a player merely because that position is empty when a materially stronger value with acceptable roster utility is available.
 
 #### Hard exclusions
 
@@ -309,19 +311,42 @@ Apply hard exclusions first, then rank the remaining choices.
 
 #### Candidate ordering
 
-1. **Value tier:** prefer the highest remaining standard-scoring consensus tier and league-adjusted value; do not treat one source as truth.
-2. **League fit:** adjust for non-PPR scoring, three starting WRs, two RBs, flex, bonuses, and the existing Henderson keeper.
-3. **Scarcity and wait risk:** estimate the chance the player or an equivalent survives to the next team pick using Yahoo ADP, room behavior, DraftKick wait-risk, and remaining tier depth.
-4. **Roster utility:** prefer players who fill a starter or add meaningful upside. Avoid forcing positional balance when a materially better value is available.
-5. **Risk:** account for injury, role ambiguity, source disagreement, floor/ceiling, and bye concentration.
-6. **Tie-breakers:** projected points, VORP/Impact, bonus upside, and roster correlation may resolve a close call; they do not erase a clear tier gap.
+1. **League-adjusted baseline:** compare projected value with the next viable starter or flex replacement for this league's active-team count, lineup, scoring, keeper cost, and drafted-player set. Raw points and an outside site's overall rank are insufficient.
+2. **Value tier:** group candidates by the highest remaining league-appropriate tier. A tier is a close-call set, not equal projected points, ADP, injury status, or custom-scoring value. Prefer a clear tier edge; do not manufacture precision among same-tier players.
+3. **League fit:** apply non-PPR scoring, three starting WRs, two RBs, flex eligibility, yardage bonuses, bench depth, the existing keeper, and the actual open roster slots. A bonus or positional need may decide a close comparison; it does not erase a material tier gap.
+4. **Scarcity and wait risk:** compare each candidate with the next acceptable equivalent at that position. Estimate no-return risk from Yahoo ADP, picks until the next turn, remaining tier depth, observed room behavior, and—only if already configured—DraftKick wait-risk. Draft before a tier cliff when the equivalent is unlikely to return; wait when replacement depth is real.
+5. **Roster utility:** before starter coverage is adequate, favor a player who fills a required role or creates a hard-to-replace flex option. After coverage is adequate, prefer asymmetric upside and contingent value over redundant low-ceiling bench depth. Do not force a named RB/WR/QB/TE strategy after its value condition has disappeared.
+6. **Risk and concentration:** record role, availability, projection, correlation, and opportunity risk separately. Current primary news can invalidate an older ranking; source disagreement is a warning to investigate, not a reason to average incompatible fields. Avoid silently stacking several fragile assumptions from the same offense or game script.
+7. **Tie-breakers:** projected points, VORP/Impact, bonus upside, bye concentration, and roster correlation resolve only a close, same-tier decision. They do not justify passing a clear value or urgency edge.
+
+#### Turn-pair optimizer
+
+At a snake turn, evaluate feasible pairs instead of two unrelated picks:
+
+1. List the best two-player combination if both candidates survive and two alternate combinations that cover the likely first-pick loss.
+2. Take first the candidate whose absence creates the largest combined loss: tier drop plus the likelihood that no acceptable equivalent reaches the second pick.
+3. Re-read Yahoo immediately after the first selection. Rebuild the second-pick shortlist from the actual available set; never assume the planned pair survived unchanged.
+4. If the first choice was an elite value that already covers a starter, let the second choice address the largest remaining tier/roster gap. Do not use a pair to force positional symmetry.
+
+#### Decision evidence requirements
+
+Every live recommendation must be able to name:
+
+- the current tier/value edge and the next acceptable replacement;
+- why the player must be selected now or can safely wait;
+- the relevant roster/keeper constraint;
+- one material risk or the fact that none was identified; and
+- at least one fallback that remains valid if the player is drafted first.
+
+If those facts are unavailable, say so and choose the highest available verified tier rather than inventing a model output. Yahoo state still controls whether any candidate can be selected.
 
 Use this compact decision record:
 
 ```text
 Pick <overall> (<round.pick>) — <player>, <position>
 Need: <open starters / construction constraint>
-Why now: <value, fit, scarcity, or wait risk>
+Why now: <tier/value edge and wait-risk decision>
+Risk: <role, availability, projection, correlation, or none identified>
 Fallbacks: <player>; <player>
 State verified: <last pick, roster count, next pick>
 ```
@@ -369,9 +394,13 @@ Our roster by position:
 Open starters:
 Keeper slots already consumed:
 Unavailable set last refreshed:
+Replacement baseline and remaining tier breaks:
+Next-pick wait-risk / next acceptable equivalent:
 Queue, ordered (3):
 Preferred next pair:
+Pair fallback combinations:
 News or injury flags:
+Role, projection, and correlation risk flags:
 ```
 
 Do not include cookies, authorization values, account data, participant identities, or private league/room URLs.
