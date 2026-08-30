@@ -137,4 +137,3 @@ Settings can change, especially before the draft. Before using these rules for r
 2. Confirm the **Scoring & Settings** heading and current season context.
 3. Compare both tables with this snapshot, paying particular attention to roster positions, scoring type, yardage bonuses, PPR categories, waiver rules, and draft timing.
 4. Record the new access date and update changed values without adding league or account identifiers.
-
