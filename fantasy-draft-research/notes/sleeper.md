@@ -152,8 +152,9 @@ browser storage, or automate picks.
 ## Preparation procedure
 
 1. Refresh the authoritative Yahoo settings, teams, order, and keeper notes.
-2. Sign in manually using a user-owned Sleeper account; do not record account or
-   session data.
+2. Use the owner-completed [Sleeper browser sign-in and draftboard handoff](sleeper-login.md).
+   Do not record account or session data, automate authentication, inspect
+   browser storage, or automate Sleeper picks.
 3. Create a football mock board and set eight teams, snake order, slot 1, 16
    rounds, and the verified roster positions.
 4. Select non-PPR scoring. Record any Yahoo scoring rule the board cannot
