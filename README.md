@@ -116,3 +116,11 @@ python discover_activity_to_adls.py
 ```
 
 > Note: If Discover prompts for MFA/CAPTCHA, complete it manually in the opened browser window.
+
+## Claude subagent model-evaluation ladder
+
+`hooks/claude-model-evaluation/` documents how to build, install, validate,
+roll out, and roll back a portable Claude Code hook that uses the explicit
+Haiku -> Sonnet -> Opus preference and escalation order. The folder also
+contains a ready-to-paste implementation handoff for Claude. See
+[hooks/claude-model-evaluation/README.md](hooks/claude-model-evaluation/README.md).
