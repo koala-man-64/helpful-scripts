@@ -132,14 +132,12 @@ available to VS Code.
    to make it more visible.
 6. Run the static and fresh-session checks below.
 
-An agent can reproduce the edit from this folder with this bounded request:
-
-> Read `global-load-bearing-canon/load-bearing-canon.md`. Add its exact contents
-> once as a standalone section in the active user's global Codex `AGENTS.md` and
-> global Claude Code `CLAUDE.md`. Preserve all existing content. Do not edit
-> repository guidance, skills, agents, hooks, or machine reason codes. Report
-> any global override or non-default configuration directory before claiming
-> success.
+For a complete Claude Code handoff, give Claude access to this folder and paste
+the prompt from
+[claude-code-install-prompt.md](claude-code-install-prompt.md). It references
+the sibling canonical body instead of duplicating it and covers active config
+directories, Codex overrides, the VS Code source decision, backups,
+idempotence, static validation, live proof, and restart behavior.
 
 ## Does Codex, Claude, or VS Code need a restart?
 
@@ -298,6 +296,7 @@ required.
 - [Codex custom instructions with AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
 - [Codex IDE configuration](https://learn.chatgpt.com/docs/developer-settings?surface=ide)
 - [Claude Code instructions and memory](https://code.claude.com/docs/en/memory)
+- [Claude Code configuration directory](https://code.claude.com/docs/en/claude-directory)
 - [VS Code custom instructions](https://code.visualstudio.com/docs/agent-customization/custom-instructions)
 - [VS Code AI settings reference](https://code.visualstudio.com/docs/agents/reference/ai-settings)
 - [GitHub Copilot instructions in VS Code](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions-in-your-ide/add-repository-instructions-in-your-ide?tool=vscode)
