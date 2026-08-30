@@ -6,3 +6,19 @@ user-data/
 *cookies*.txt
 *storage-state*.json
 *storage_state*.json
+
+# Local draft inputs and runtime state are private, ephemeral artifacts.
+data/raw/
+data/cache/
+data/runtime/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# Python tooling artifacts.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+*.egg-info/

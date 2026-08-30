@@ -1,0 +1,29 @@
+{
+  "active_teams": 8,
+  "maximum_teams": 10,
+  "draft_slots": ["team-1", "team-2", "team-3", "team-4", "team-5", "team-6", "team-7", "team-8"],
+  "rounds": 16,
+  "draft_position": 1,
+  "pick_clock_seconds": 75,
+  "our_team": "team-1",
+  "roster": {
+    "QB": 1,
+    "WR": 3,
+    "RB": 2,
+    "TE": 1,
+    "FLEX": 1,
+    "K": 1,
+    "DEF": 1,
+    "BENCH": 6
+  },
+  "flex_positions": ["RB", "WR", "TE"],
+  "keepers": [
+    {
+      "player_id": "treveyon-henderson",
+      "overall_pick": 49,
+      "team": "team-1"
+    }
+  ],
+  "scoring_format": "non-ppr",
+  "mandatory_freshness_hours": 72
+}

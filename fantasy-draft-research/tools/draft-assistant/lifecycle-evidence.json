@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "system": {
+    "name": "fantasy-draft-assistant",
+    "ai_enabled": true,
+    "criticality": "medium"
+  },
+  "ownership_map": [
+    {
+      "resource": "private local draft run directory and SQLite event store",
+      "plane": "runtime_data",
+      "authoritative_owner": "local draft operator",
+      "provisioned_by": "draft-assistant init",
+      "runtime_identity": "interactive local user",
+      "allowed_runtime_operations": ["read configuration", "append events", "replay events", "write sanitized recommendation state"],
+      "environments": ["local-mock", "local-real"],
+      "retirement_mechanism": "disarm and delete the private run directory after required evidence retention"
+    },
+    {
+      "resource": "Yahoo visible draft-room action",
+      "plane": "runtime_data",
+      "authoritative_owner": "fantasy team manager",
+      "provisioned_by": "user-owned Yahoo account and browser-managed sign-in",
+      "runtime_identity": "user-authenticated in-app browser session",
+      "allowed_runtime_operations": ["read visible state", "submit one exact pick after allow decision", "verify visible result"],
+      "environments": ["mock", "real-draft"],
+      "retirement_mechanism": "disarm the CLI and close the browser session normally"
+    }
+  ],
+  "phases": {
+    "discovery": {
+      "status": "pass",
+      "owner": "delivery-orchestrator-agent",
+      "evidence": ["AB#3356", "README.md"],
+      "rationale": "Objective, authority boundary, risk, and acceptance criteria are tracked."
+    },
+    "architecture": {
+      "status": "pass",
+      "owner": "application owner",
+      "evidence": ["README.md", "fantasy_draft_assistant/models.py", "fantasy_draft_assistant/safety.py"],
+      "rationale": "Local runtime state and external Yahoo authority are separated with fail-closed handoff contracts."
+    },
+    "development": {
+      "status": "pass",
+      "owner": "delivery-engineer-agent",
+      "evidence": ["pyproject.toml", "fantasy_draft_assistant/", "tests/"],
+      "rationale": "The tool is typed, offline, dependency-light, explicit about bootstrap, and covered by deterministic tests."
+    },
+    "data_ai": {
+      "status": "pass",
+      "owner": "local draft operator",
+      "evidence": ["README.md", "fantasy_draft_assistant/importers.py", "fantasy_draft_assistant/recommendation.py"],
+      "rationale": "Only frozen public or manual inputs are accepted; provenance and freshness are visible; no model asset or online learning exists."
+    },
+    "build_supply_chain": {
+      "status": "pass",
+      "owner": "delivery-engineer-agent",
+      "evidence": ["pyproject.toml"],
+      "rationale": "Runtime uses the Python standard library; pytest is the only development dependency."
+    },
+    "verification": {
+      "status": "conditional",
+      "owner": "software-testing-validation-architect",
+      "evidence": ["tests/"],
+      "rationale": "Offline tests cover deterministic behavior; witnessed browser rehearsal remains required before real automatic mode.",
+      "tracking_work_item": "AB#3356",
+      "expires_on": "2026-08-31",
+      "enforcement_date": "2026-08-30"
+    },
+    "provisioning": {
+      "status": "pass",
+      "owner": "local draft operator",
+      "evidence": ["fantasy_draft_assistant_provisioning/__init__.py", "fantasy_draft_assistant/storage.py", "tests/test_storage_reducer.py"],
+      "rationale": "Only the explicit init command can create the local SQLite schema; runtime commands validate and fail when it is absent."
+    },
+    "release_deployment": {
+      "status": "not_applicable",
+      "owner": "delivery-orchestrator-agent",
+      "evidence": ["README.md", "AB#3356"],
+      "rationale": "This release is a local CLI with no deployed service or production environment.",
+      "applicability_rationale": "There is no cloud artifact, deployment target, release identity, or production approval gate."
+    },
+    "operations": {
+      "status": "pass",
+      "owner": "local draft operator",
+      "evidence": ["fantasy_draft_assistant/cli.py", "README.md"],
+      "rationale": "Doctor, status, replay, disarm, and fail-closed intent decisions expose local operating state."
+    },
+    "incident_recovery": {
+      "status": "conditional",
+      "owner": "fantasy team manager",
+      "evidence": ["README.md", "tests/test_cli.py", "tests/test_storage_reducer.py"],
+      "rationale": "Hash-chain replay, reconciliation, queue fallback, disarm, and takeover are tested offline; live browser recovery must be witnessed.",
+      "tracking_work_item": "AB#3356",
+      "expires_on": "2026-08-31",
+      "enforcement_date": "2026-08-30"
+    },
+    "retirement": {
+      "status": "pass",
+      "owner": "local draft operator",
+      "evidence": ["README.md", "fantasy-draft-research/.gitignore"],
+      "rationale": "The run is retired by disarming, retaining only sanitized evidence, and deleting the private local directory."
+    }
+  }
+}

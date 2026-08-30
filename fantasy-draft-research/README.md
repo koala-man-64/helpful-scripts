@@ -18,6 +18,10 @@ Workspace for gathering draft resources, recording league-specific assumptions, 
 - `data/` — snapshots or derived datasets used by future tooling
 - `tools/` — scripts or applications added as the workflow becomes clear
 
+Implemented tooling:
+
+- [`tools/draft-assistant/`](tools/draft-assistant/) — offline Python CLI for validated player imports, deterministic recommendations, SQLite event replay, vetted queues, and fail-closed browser pick intents
+
 Current procedures:
 
 - [`notes/draft-strategy-foundations.md`](notes/draft-strategy-foundations.md) — league-aware concepts, value and tier logic, roster construction, risk, snake/auction decisions, and an on-the-clock recommendation framework
