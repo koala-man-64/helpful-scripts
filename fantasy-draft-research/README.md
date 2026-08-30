@@ -21,6 +21,7 @@ Workspace for gathering draft resources, recording league-specific assumptions, 
 Current procedures:
 
 - [`notes/draft-day-workflow.md`](notes/draft-day-workflow.md) — canonical living playbook for draft-day preparation, live clock monitoring, decision logic, recovery, and post-draft learning
+- [`notes/research-tool-readiness-2026-08-30.md`](notes/research-tool-readiness-2026-08-30.md) — dated readiness matrix, activation decision, cross-source controls, and next tests for every inventoried draft surface
 - [`notes/draftkick-football.md`](notes/draftkick-football.md) — DraftKick Football functionality, data dictionary, settings inventory, and draft-time agent operating procedure
 - [`notes/yahoo-login.md`](notes/yahoo-login.md) — repeatable Yahoo Fantasy browser sign-in flow
 - [`notes/yahoo-football-navigation.md`](notes/yahoo-football-navigation.md) — route from Yahoo Fantasy to a specific team homepage
