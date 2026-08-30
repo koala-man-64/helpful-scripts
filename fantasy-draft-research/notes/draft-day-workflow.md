@@ -47,13 +47,49 @@ Authoritative details:
 | --- | --- | --- |
 | Yahoo draft room in the Codex browser | Execute and observe the draft | Primary authority. Use visible labels and state; never inspect or export authentication storage. |
 | Yahoo queue, player filters, Board, Picks, and roster | Maintain fallbacks and verify state | Queue only acceptable players. Match exact visible position tags, not substrings in a whole row. |
-| DraftKick | League-adjusted value, VORP, Impact, wait-risk, roster and board cross-checks | Secondary decision aid. Free unsigned state may disappear; Live sync and paid persistence remain unverified. |
+| Yahoo sign-in, verification, and browser-managed session | Restore access before the room opens | Operational dependency, not a pick signal. The manager completes password, Google sign-in, two-step verification, Account Key, passkey, CAPTCHA, recovery, or risk challenges. Never inspect or export session storage. |
+| Yahoo Draft Central, instant/live/salary-cap mocks, waiting room, and draft client controls | Rehearse room mechanics, queue management, recovery, and the decision loop | Preparation only. Public mock settings and opponents do not establish private-league availability or value. Draft Scout and Ultra Draft Kit are optional aids, not authorities. |
+| DraftKick unsigned/manual app | League-adjusted value, VORP, Impact, wait-risk, simulation, roster, and board cross-checks | Preparation decision aid. Free unsigned state may disappear; preserve an independent board. |
+| DraftKick Live extension, paid persistence, and automatic sync | Potential automatic pick synchronization | Excluded until a controlled mock verifies permissions, pick parity, disconnect recovery, and safe disablement. |
 | Boris Chen standard tiers | Consensus-value layer | Tier is not projection, ADP, injury status, or custom-league value. Check freshness and join by normalized name plus position. |
-| FFToday | Independent non-PPR ranks, projections, ADP, and risk context | Cross-check only. Its Yahoo preset does not encode this league's custom bonuses and roster. |
-| NBC Sports/Rotoworld | Current injury/role news and analyst context | Targeted fallback only. Overall ranks are PPR; visible personal-use reading must follow NBC's no-extraction terms. |
+| Boris Chen CSV/Google Sheet and FantasyPros ECR provenance | Delivery and provenance surfaces behind the tier view | One consensus family, not additional votes. Prefer one refreshed artifact and record its timestamp. |
+| FFToday rankings, projections, outlooks, tiers, and ADP | Independent non-PPR value, market timing, and risk context | Preparation cross-check. Its Yahoo preset and 12-team ADP do not encode this league's custom bonuses, eight-team depth, or keeper state. |
+| FFToday stats, consistency, strength of schedule, matchup history, Draft Buddy, and MFL integration | Historical or matchup context and optional external integrations | Preparation only and omit by default. Use a sub-tool only for a named question; authenticated/integrated paths remain unqualified until tested. |
+| NBC Sports/Rotoworld live Draft Central, articles, and player news | Current injury/role news and analyst context | Targeted fallback only. Overall ranks are PPR; visible personal-use reading must follow NBC's no-extraction terms. |
+| NBC Sports/Rotoworld static Draft Kit PDF | Offline profiles and broad cheat-sheet context | Preparation/offline fallback only. It can lag live pages and includes PPR, dynasty, best-ball, and DraftKings views that do not match this league. |
 | Reddit `r/fantasyfootball` | Breaking-signal, counterargument, and primary-source discovery | Read-only fallback. Votes/comments are attention signals; verify material claims at the underlying primary source. |
-| Sleeper | Keeper-aware mock rehearsal and secondary ADP/trend context | Preparation only until a signed-in league-matched rehearsal passes readiness. It does not establish Yahoo availability or room state; avoid double-counting Sleeper data exposed through FFToday or another tool. |
-| Fast subagents | Bounded preparation and post-draft logging tasks | Use before the room opens or after the draft for mechanical work such as normalization, comparison, and result formatting. They never own the browser, clock, unavailable set, or final pick. |
+| Sleeper mock draft and draftboard | Keeper-aware rehearsal, alternate board, and custom ADP context | Preparation only until a signed-in league-matched rehearsal passes readiness. It never establishes Yahoo availability or room state. |
+| Sleeper official read-only API | NFL state, player identity, add/drop trends, and public Sleeper context | Optional preparation input. Trends measure activity, not value; respect published limits and avoid private identifiers. |
+| Fast subagents | Optional bounded preparation and post-draft logging | Use only for mechanical work such as normalization, comparison, stale-input checks, and result formatting. They never own the browser, clock, unavailable set, or final pick. |
+
+Yahoo help pages, site terms, upstream methodology/code, Google Sheets, MFL, DraftKings, and NBC's other sports are evidence, delivery mechanisms, integrations, formats, or out-of-scope surfaces—not independent player-value tools. Consult them only when validating access, provenance, semantics, or safe use.
+
+### Selective tool activation
+
+Do not open or refresh every qualified tool for every draft. Choose the smallest source set that covers the current phase and unanswered decision risks. More sources add latency and can create false confidence when several surfaces repeat the same upstream data.
+
+The minimum viable set is:
+
+1. **Every live draft:** Yahoo room state, queue, Picks/Board, and roster.
+2. **Every final board refresh:** one league-adjusted value source plus one standard-scoring tier or projection source confirmed independent after checking DraftKick's configured upstreams. The current default is DraftKick manual plus cached Boris Chen tiers; FFToday may replace or challenge either when freshness, league fit, or upstream independence is better.
+3. **Only when a current availability or role question exists:** use Yahoo-visible player status/news first. NBC or Reddit may discover or contextualize a claim; verify it against linked official NFL/team reporting when available. If the official basis cannot be verified, mark the claim unresolved rather than treating discussion or analyst repetition as confirmation.
+4. **Only when a rehearsal or recovery question exists:** one of Yahoo mocks, Sleeper draftboard, or DraftKick simulation. Use more than one only when comparing a named mechanic such as keeper placement, timer behavior, or saved-state recovery.
+
+Select optional tools by trigger:
+
+| Trigger | Add | Do not add automatically |
+| --- | --- | --- |
+| Baseline board build or major refresh | DraftKick manual plus Boris Chen or FFToday | Reddit, NBC PDF, historical matchup tools, or multiple ADP presentations |
+| Tier disagreement or unexpected value gap | The unused independent Boris/FFToday source; inspect timestamps, scoring, and shared upstreams | Another presentation of FantasyPros ECR or a source already included in DraftKick's composite |
+| Injury, suspension, depth-chart, or role uncertainty | Yahoo-visible status/news; linked official NFL/team reporting when available; targeted NBC lookup; Reddit only for discovery | Broad article/feed browsing, old PDF profiles, or an unverified claim |
+| Identity ambiguity or trend question | Sleeper API plus Yahoo-visible name, team, and position | Treating add/drop counts as rank or Yahoo availability |
+| Keeper, order, timer, queue, or recovery rehearsal | One league-matched Yahoo or Sleeper mock; DraftKick simulation for board logic | Carrying mock availability or grade into the real room as fact |
+| Need historical durability or matchup context | One relevant FFToday stats/consistency/SOS/matchup surface | Loading the full FFToday tool suite |
+| Primary preparation source stale or unavailable | Its declared fallback from the frozen manifest | Activating a newly discovered source after room-open |
+
+For each run, mark every inventoried surface **selected**, **standby**, or **excluded**. `Standby` means qualified but unopened unless its trigger occurs. A tool's existence in the repository never makes it mandatory.
+
+The dated [research-tool readiness matrix](research-tool-readiness-2026-08-30.md) is the qualification baseline. The per-run manifest defined below is the only authority for **selected**, **standby**, and **excluded** state. Do not edit the dated matrix to represent a transient draft selection.
 
 Detailed source procedures:
 
@@ -106,6 +142,8 @@ Merged commit:
 Role:
 Readiness: qualified | degraded | excluded
 Usage: live | preparation only | fallback | excluded
+Run selection: selected | standby | excluded
+Selection trigger or exclusion reason:
 Checked at / source updated at:
 League or scoring adjustments:
 Latency class: cached | quick | slow/manual
@@ -134,12 +172,12 @@ If sources disagree, first compare timestamps, scoring format, units, injury ass
 Complete this before entering the room:
 
 1. Fetch the latest `origin/main`. Inventory merged site guides/tools plus active research tasks, branches, and PRs. Note pending work, but read draft inputs only from the merged tree.
-2. Build the source manifest. Exercise and qualify every intended source; demote or exclude any source that fails access, freshness, league-fit, semantics, latency, reliability, or safety checks.
+2. Build the source manifest for every inventoried surface, then choose the minimum selected set for this run. Recheck selected tools and any standby tool whose trigger is plausible; preserve prior qualification evidence for the rest. Demote or exclude a source that fails access, freshness, league-fit, semantics, latency, reliability, or safety checks.
 3. Reopen **League → Settings** and compare team count, roster, scoring, clock, and draft time with the settings snapshot.
 4. Reopen **League → Managers** and **Draft Results**. Confirm eight teams, position 1, 16 rounds, snake direction, traded picks, and all keepers.
-5. Refresh injuries, depth charts, suspensions, and material role news using qualified sources. Remove unavailable players and every keeper from candidate data.
-6. Refresh standard-scoring tiers, non-PPR projections, and market ADP. Record source timestamps; flag stale or conflicting data rather than hiding it.
-7. Configure DraftKick with the actual scoring, starters, bench, order, keepers, and intentional source weights. Verify Board and Rosters. If it says `Not saved`, keep the tab open and maintain the independent state record below.
+5. Refresh injuries, depth charts, suspensions, and material role news through the selected news path. Add NBC or Reddit only when a targeted question or conflicting claim triggers them. Remove unavailable players and every keeper from candidate data.
+6. Refresh standard-scoring tiers and non-PPR projections through the selected board sources. Refresh ADP only when market timing affects a decision. Record source timestamps; flag stale or conflicting data rather than hiding it.
+7. If DraftKick is selected, configure it with the actual scoring, starters, bench, order, keepers, and intentional source weights. Verify Board and Rosters. If it says `Not saved`, keep the tab open and maintain the independent state record below. Otherwise build the board from the selected fallback sources.
 8. Build an initial value board and position-specific fallbacks. Mark players as target, neutral, or avoid; an avoid requires a concrete reason such as injury, role, price, or keeper status.
 9. Freeze the active source set when the Yahoo room opens. Do not activate a newly merged or newly discovered tool during the live draft without a completed readiness pass.
 10. Run a short position-1 rehearsal if time permits. A rehearsal result informs mechanics; it does not override current news or live availability.
@@ -302,6 +340,7 @@ Prior rehearsals:
 
 | Date | Change | Evidence |
 | --- | --- | --- |
+| 2026-08-30 | Refreshed the merged inventory and added per-surface roles, minimum viable source sets, trigger-based optional packs, and selected/standby/excluded run states. | AB#3353 |
 | 2026-08-30 | Evaluated every merged research surface and linked the current activation/readiness matrix. | AB#3351 |
 | 2026-08-30 | Added dynamic discovery, promotion, readiness, manifest, latency, and source-conflict logic for research tools developed in separate tasks and branches. | AB#3349 |
 | 2026-08-30 | Initial canonical workflow assembled from Yahoo navigation/settings, draft-order research, two completed mocks, and DraftKick/FFToday/Boris Chen operating guides. | Linked notes above |
