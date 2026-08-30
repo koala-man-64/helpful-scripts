@@ -32,6 +32,7 @@ Current procedures:
 - [`notes/boris-chen-draft-tiers.md`](notes/boris-chen-draft-tiers.md) — source-grounded guide to Boris Chen tiers, live data artifacts, draft-agent use, and constraints
 - [`notes/reddit-fantasyfootball.md`](notes/reddit-fantasyfootball.md) — read-only Reddit feed, search, daily-thread, evidence-quality, authentication, and draft-time operating guide
 - [`notes/nbc-sports-fantasy.md`](notes/nbc-sports-fantasy.md) — NBC Sports/Rotoworld site map, draft-kit data dictionary, freshness rules, and terms-compliant draft-time procedure
+- [`notes/sleeper.md`](notes/sleeper.md) — Sleeper mock-draft, draftboard, official API, readiness, privacy, and draft-time operating guide
 
 ## Starting point
 
