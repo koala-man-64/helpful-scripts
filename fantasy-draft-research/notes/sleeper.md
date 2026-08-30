@@ -151,6 +151,8 @@ browser storage, or automate picks.
 
 ## Preparation procedure
 
+For the compact owner-operated checklist and copyable results record, use the [repeatable Sleeper mock-draft runbook](sleeper-mock-draft-runbook.md).
+
 1. Refresh the authoritative Yahoo settings, teams, order, and keeper notes.
 2. Use the owner-completed [Sleeper browser sign-in and draftboard handoff](sleeper-login.md).
    Do not record account or session data, automate authentication, inspect
