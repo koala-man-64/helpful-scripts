@@ -32,6 +32,16 @@ Do not stop at the first plausible solution. Look for edge cases, integration po
 
 Prefer completing the task over asking for permission at every step. Ask for approval only before destructive actions, major dependency changes, database migrations, public API changes, or broad architectural rewrites.
 
+## Timed Browser Workflows
+
+For live browser workflows with a countdown, such as fantasy mock drafts:
+
+- Prepare a ranked action queue and fallbacks before entering the timed state.
+- During a live turn, use one compact transaction: inspect only the minimum state, choose the first valid candidate, act immediately, and verify the result in the same transaction when possible.
+- Do not perform exploratory DOM inspection, selector debugging, queue maintenance, or extended reasoning between reading the state and submitting the action. If the timer is short or the state is uncertain, submit the highest-ranked safe fallback immediately.
+- Replenish the queue only during other participants' turns.
+- Report a choice as manually made by Codex only after the UI confirms it. If the timer expires, label the result as site auto-drafted; a queued player is not evidence of a submitted pick.
+
 ## Coding Preferences
 
 Rudy commonly works with:
