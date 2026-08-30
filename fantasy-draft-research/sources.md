@@ -2,6 +2,7 @@
 
 | Source | Purpose | Access notes |
 | --- | --- | --- |
+| [DraftKick Football](https://app.draftkick.com/football) | Adaptive rankings, ADP, projections, injuries, draft simulation, pick tracking, rosters, board, projected standings, and league customization | Public/free surface inspected interactively on 2026-08-30; app `v1.22.27`, built 2026-08-28, projections dated 2026-08-28; paid persistence, extension sync, live-room integration, and CSV contents remain unverified |
 | [Yahoo Fantasy Sports](https://sports.yahoo.com/fantasy/) | League settings, player pool, rankings, news, and draft room context | Opened in the Codex browser on 2026-08-30 |
 | Yahoo Fantasy Football **Scoring & Settings** page (signed-in league navigation) | Authoritative league configuration, roster, waiver, playoff, and scoring values | Verified through **League → Settings** on 2026-08-30; private league URL and identifiers intentionally not recorded |
 | Yahoo Fantasy Football **Managers** and **Draft Results** pages (signed-in league navigation) | Active 2026 team list, 16-round snake order, draft time, and keeper-occupied picks | Verified on 2026-08-30; manager/account data and private league identifiers intentionally not recorded |
