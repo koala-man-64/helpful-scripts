@@ -18,6 +18,11 @@ Workspace for gathering draft resources, recording league-specific assumptions, 
 - `data/` — snapshots or derived datasets used by future tooling
 - `tools/` — scripts or applications added as the workflow becomes clear
 
+Current procedures:
+
+- [`notes/yahoo-login.md`](notes/yahoo-login.md) — repeatable Yahoo Fantasy browser sign-in flow
+- [`notes/yahoo-football-navigation.md`](notes/yahoo-football-navigation.md) — route from Yahoo Fantasy to a specific team homepage
+
 ## Starting point
 
 Yahoo Fantasy Sports is the first platform source. Record the sport, league scoring format, roster settings, draft date, and number of teams before comparing rankings or building draft recommendations.

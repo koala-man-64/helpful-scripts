@@ -1,0 +1,8 @@
+# Authentication material must never be committed.
+auth/
+browser-profile/
+user-data/
+*cookies*.json
+*cookies*.txt
+*storage-state*.json
+*storage_state*.json
