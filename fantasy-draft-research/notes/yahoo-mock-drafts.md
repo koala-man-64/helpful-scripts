@@ -156,6 +156,8 @@ Undo is selective: Yahoo marked simulated opponents' earliest picks as not undoa
 
 ## A repeatable rehearsal workflow
 
+For the concise end-to-end checklist and a copyable results record, use the [repeatable Yahoo mock-draft runbook](yahoo-mock-draft-runbook.md).
+
 1. Refresh the real league settings, active teams, draft order, and keepers.
 2. Open **Draft Central Overview** and update **Edit My Rankings** if a custom fallback order is wanted.
 3. For interface practice, run the three-round instant preview and choose the target position.

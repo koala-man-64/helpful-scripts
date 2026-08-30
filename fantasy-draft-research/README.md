@@ -33,6 +33,7 @@ Current procedures:
 - [`notes/yahoo-league-scoring-and-settings.md`](notes/yahoo-league-scoring-and-settings.md) — complete league configuration and scoring snapshot
 - [`notes/yahoo-2026-teams-and-draft-order.md`](notes/yahoo-2026-teams-and-draft-order.md) — active teams, snake order, and keeper-occupied picks
 - [`notes/yahoo-mock-drafts.md`](notes/yahoo-mock-drafts.md) — instant and live mock-draft navigation, setup, room controls, and rehearsal workflow
+- [`notes/yahoo-mock-draft-runbook.md`](notes/yahoo-mock-draft-runbook.md) — repeatable Yahoo mock-draft checklist, verification rules, recovery steps, and results-recording procedure
 - [`notes/mock-draft-results/`](notes/mock-draft-results/) — completed mock results, Yahoo grades, projected standings, and lessons learned
 - [`notes/fftoday.md`](notes/fftoday.md) — FFToday datasets, URL mechanics, access constraints, and draft-time agent procedure
 - [`notes/boris-chen-draft-tiers.md`](notes/boris-chen-draft-tiers.md) — source-grounded guide to Boris Chen tiers, live data artifacts, draft-agent use, and constraints
