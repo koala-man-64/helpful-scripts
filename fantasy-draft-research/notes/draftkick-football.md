@@ -1,9 +1,9 @@
 # DraftKick Football: Draft-Time Agent Guide
 
-Source: [DraftKick Football](https://app.draftkick.com/football)  
-Observed: 2026-08-30, unsigned/free browser session  
-Observed build: `v1.22.27`, built 2026-08-28  
-Observed projection update: 2026-08-28
+- Source: [DraftKick Football](https://app.draftkick.com/football)
+- Observed: 2026-08-30, unsigned/free browser session
+- Observed build: `v1.22.27`, built 2026-08-28
+- Observed projection update: 2026-08-28
 
 ## Purpose and evidence boundary
 
@@ -60,7 +60,7 @@ The right-side roster panel selects a team and displays that team's configured s
 
 ### Controls and filters
 
-**Observed controls:** 
+**Observed controls:**
 
 - player-name search;
 - NFL team filter (`All Teams`, `FA`, and every NFL abbreviation);
