@@ -243,6 +243,36 @@ The loop must preserve a visible handoff to the active Yahoo room between
 control windows so monitoring can resume without rejoining or losing draft
 state. Never report the draft as complete while the room is live.
 
+#### Between-pick room circulation
+
+A wait window is active draft work, not a pause. During each observation
+window while another manager has the clock, make one useful, non-destructive
+transition inside the already-open Yahoo room, then return to the clock. The
+goal is to keep draft state fresh and advance the next decision—not to
+simulate input or evade an inactivity detector. Never add clicks, mouse
+movement, keystrokes, reloads, or tab changes solely to appear active.
+
+Run this cycle in order, restarting at **Board/Picks** after a verified
+selection:
+
+1. **Board/Picks:** read the last selection, current drafter, next-pick
+   distance, and clock; update the unavailable set and opponent ledger.
+2. **Roster/queue:** reconcile our roster and the pre-approved three-player
+   queue. Remove drafted names or reorder known acceptable candidates only;
+   do not add a new candidate merely because it is visible.
+3. **Player pool:** inspect exact visible position tags, availability, and
+   cached status for the shortlist and its fallbacks. Do not press **Draft**,
+   change the room, launch new research, or activate a slow source.
+4. **Return to clock:** return to the active Board/Picks or clock view with
+   the next three candidates known. If Yahoo shows **Your Turn** or fewer than
+   four picks remain, skip any remaining circulation steps and use the
+   live-turn procedure immediately.
+
+Perform at most one circulation step per observation window. If no completed
+pick is visible, continue with the next useful step rather than repeatedly
+refreshing the same panel. Yahoo's visible state remains authoritative, and
+the clock watch always takes priority over the cycle.
+
 #### Observe while opponents pick
 
 1. Monitor Yahoo's clock, next-pick distance, and turn state in bounded control windows. A public mock can advance several picks during a 10–15 second window; once eight or fewer picks remain, re-enter after 3–5 seconds and shorten further in the final three picks. Do not use one long browser call.
@@ -417,6 +447,7 @@ Source readiness last checked:
 Frozen live-source manifest:
 Control mode: recommend | delegated entry
 Yahoo state: connected | manager takeover | reconnecting
+Between-pick circulation: next surface / last completed room transition:
 Round / overall pick / current team:
 Our next open pick:
 Last verified selection:
@@ -470,4 +501,5 @@ Prior rehearsals:
 | 2026-08-30 | Evaluated every merged research surface and linked the current activation/readiness matrix. | AB#3351 |
 | 2026-08-30 | Added dynamic discovery, promotion, readiness, manifest, latency, and source-conflict logic for research tools developed in separate tasks and branches. | AB#3349 |
 | 2026-08-30 | Added anonymous opponent-roster tracking and pressure-aware wait-risk rules for live and turn-pair decisions. | AB#3361 |
+| 2026-08-30 | Added bounded, non-destructive between-pick room circulation so the assistant maintains Yahoo state instead of passively idling. | AB#3365 |
 | 2026-08-30 | Initial canonical workflow assembled from Yahoo navigation/settings, draft-order research, two completed mocks, and DraftKick/FFToday/Boris Chen operating guides. | Linked notes above |
