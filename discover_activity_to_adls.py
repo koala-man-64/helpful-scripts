@@ -10,12 +10,17 @@ Expected .env keys:
   DISCOVER_PASSWORD=...
   ADLS_CONNECTION_STRING=...
   ADLS_FILE_SYSTEM=...
+
+Optional .env keys:
   ADLS_DIRECTORY=optional/path
   ADLS_TARGET_FILENAME=optional.csv
+  DISCOVER_HEADLESS=false
+  DISCOVER_TIMEOUT_MS=60000
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from datetime import datetime, timezone
@@ -36,36 +41,58 @@ def require_env(name: str) -> str:
     return value
 
 
-def download_activity_csv(download_dir: Path) -> Path:
+def env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def click_login_entry(page, timeout_ms: int) -> None:
+    # Try common variants on Discover's top navigation.
+    for role in ("button", "link"):
+        locator = page.get_by_role(role, name="Log In")
+        if locator.count() > 0:
+            locator.first.click(timeout=timeout_ms)
+            return
+    raise RuntimeError('Could not find top-level "Log In" control.')
+
+
+def click_login_submit(page, timeout_ms: int) -> None:
+    button = page.get_by_role("button", name="Log In")
+    count = button.count()
+    if count == 0:
+        raise RuntimeError('Could not find login submit button labeled "Log In".')
+    # Usually second "Log In" control is the form submit; fallback to first.
+    index = 1 if count > 1 else 0
+    button.nth(index).click(timeout=timeout_ms)
+
+
+def download_activity_csv(download_dir: Path, *, headless: bool, timeout_ms: int) -> Path:
     username = require_env("DISCOVER_USERNAME")
     password = require_env("DISCOVER_PASSWORD")
 
     download_dir.mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=headless)
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
 
         try:
             page.goto(DISCOVER_URL, wait_until="domcontentloaded")
+            click_login_entry(page, timeout_ms)
 
-            # Top-left log in button in page header.
-            page.get_by_role("button", name="Log In").first.click(timeout=20_000)
+            page.get_by_label("User ID").fill(username, timeout=timeout_ms)
+            page.get_by_label("Password").fill(password, timeout=timeout_ms)
+            click_login_submit(page, timeout_ms)
 
-            page.get_by_label("User ID").fill(username, timeout=20_000)
-            page.get_by_label("Password").fill(password, timeout=20_000)
+            page.get_by_role("link", name="View Activity & Statements").click(timeout=timeout_ms)
+            page.get_by_role("link", name="Download").click(timeout=timeout_ms)
+            page.get_by_role("radio", name="CSV").check(timeout=timeout_ms)
 
-            # Form submit button below textboxes.
-            page.get_by_role("button", name="Log In").nth(1).click(timeout=20_000)
-
-            page.get_by_role("link", name="View Activity & Statements").click(timeout=60_000)
-            page.get_by_role("link", name="Download").click(timeout=60_000)
-
-            page.get_by_role("radio", name="CSV").check(timeout=20_000)
-
-            with page.expect_download(timeout=30_000) as download_info:
-                page.get_by_role("button", name="Download").click(timeout=20_000)
+            with page.expect_download(timeout=timeout_ms) as download_info:
+                page.get_by_role("button", name="Download").click(timeout=timeout_ms)
 
             download = download_info.value
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -97,23 +124,45 @@ def upload_to_adls(local_path: Path) -> str:
     remote_path = f"{adls_directory}/{remote_name}" if adls_directory else remote_name
 
     file_client = fs_client.get_file_client(remote_path)
-    with local_path.open("rb") as f:
-        data = f.read()
+    with local_path.open("rb") as handle:
+        data = handle.read()
 
-    file_client.create_file()
-    file_client.append_data(data=data, offset=0, length=len(data))
-    file_client.flush_data(len(data))
-
+    # Overwrite safely if file already exists.
+    file_client.upload_data(data, overwrite=True)
     return remote_path
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--download-dir",
+        default="downloads",
+        help="Local directory to store the CSV download (default: downloads)",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Run browser headless (overrides DISCOVER_HEADLESS in .env)",
+    )
+    parser.add_argument(
+        "--timeout-ms",
+        type=int,
+        default=None,
+        help="Action timeout in milliseconds (overrides DISCOVER_TIMEOUT_MS in .env)",
+    )
+    return parser.parse_args()
 
 
 def main() -> int:
     load_dotenv()
+    args = parse_args()
 
-    download_dir = Path("downloads")
+    headless = args.headless or env_bool("DISCOVER_HEADLESS", default=False)
+    timeout_ms = args.timeout_ms or int(os.getenv("DISCOVER_TIMEOUT_MS", "60000"))
+    download_dir = Path(args.download_dir)
 
     print("Downloading Discover activity CSV...")
-    csv_path = download_activity_csv(download_dir)
+    csv_path = download_activity_csv(download_dir, headless=headless, timeout_ms=timeout_ms)
     print(f"Saved download to {csv_path}")
 
     print("Uploading CSV to ADLS...")
