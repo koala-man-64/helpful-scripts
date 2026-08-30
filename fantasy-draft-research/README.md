@@ -29,6 +29,7 @@ Current procedures:
 - [`notes/mock-draft-results/`](notes/mock-draft-results/) — completed mock results, Yahoo grades, projected standings, and lessons learned
 - [`notes/fftoday.md`](notes/fftoday.md) — FFToday datasets, URL mechanics, access constraints, and draft-time agent procedure
 - [`notes/boris-chen-draft-tiers.md`](notes/boris-chen-draft-tiers.md) — source-grounded guide to Boris Chen tiers, live data artifacts, draft-agent use, and constraints
+- [`notes/reddit-fantasyfootball.md`](notes/reddit-fantasyfootball.md) — read-only Reddit feed, search, daily-thread, evidence-quality, authentication, and draft-time operating guide
 
 ## Starting point
 
