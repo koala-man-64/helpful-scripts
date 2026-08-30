@@ -50,7 +50,7 @@ Authoritative details:
 | DraftKick | League-adjusted value, VORP, Impact, wait-risk, roster and board cross-checks | Secondary decision aid. Free unsigned state may disappear; Live sync and paid persistence remain unverified. |
 | Boris Chen standard tiers | Consensus-value layer | Tier is not projection, ADP, injury status, or custom-league value. Check freshness and join by normalized name plus position. |
 | FFToday | Independent non-PPR ranks, projections, ADP, and risk context | Cross-check only. Its Yahoo preset does not encode this league's custom bonuses and roster. |
-| Fast subagents | Bounded preparation and logging tasks | Use before the room opens or between turns for mechanical work such as normalization, comparison, and result formatting. They never own the browser, clock, unavailable set, or final pick. |
+| Fast subagents | Bounded preparation and post-draft logging tasks | Use before the room opens or after the draft for mechanical work such as normalization, comparison, and result formatting. They never own the browser, clock, unavailable set, or final pick. |
 
 Detailed source procedures:
 
@@ -59,21 +59,85 @@ Detailed source procedures:
 - [FFToday source guide](fftoday.md)
 - [Yahoo room mechanics and mock workflow](yahoo-mock-drafts.md)
 
+### Research-tool promotion and readiness
+
+Site research is developed in separate Codex tasks and Git branches. Treat those tasks as a discovery feed, not as draft-day dependencies. A tool moves through four states:
+
+1. **Discovered:** an active task, branch, or PR identifies a potentially useful site. Its behavior and files may still change.
+2. **Merged:** its documentation or tooling is present on `origin/main`. An unmerged branch is never part of the draft workflow, even if its task reports success.
+3. **Qualified:** the primary draft assistant has reviewed the merged guide, exercised the intended read path when practical, and completed the readiness checks below.
+4. **Active:** it appears in the current draft's source manifest with a defined role, freshness result, latency class, and fallback.
+
+Do not activate a tool merely because it exists. A new site must answer these questions:
+
+| Readiness check | Required evidence |
+| --- | --- |
+| Purpose | The decision signal it contributes: news, projections, rankings, tiers, ADP, availability probability, roster fit, or another named role. |
+| Access | Public/authenticated status, user-owned login steps, subscription limits, and a successful draft-day read test. |
+| Freshness | Visible publication/update time when available, time checked, acceptable age for its role, and behavior when stale. |
+| League fit | Scoring format, roster assumptions, team count, keeper awareness, and every known mismatch with this Yahoo league. |
+| Identity join | Player name, NFL team, and position normalization; ambiguous or conflicting identities are excluded. |
+| Semantics | Definitions and units for the fields used. Inferred or undocumented fields are labeled and never treated as facts. |
+| Coverage | Positions and players represented, missing-data behavior, and whether keepers or drafted players can be removed. |
+| Latency | Measured or observed response path classified as cached, quick, or slow/manual. |
+| Reliability | Expected failure modes, retry or fallback behavior, and whether reload or sign-out destroys working state. |
+| Safety | No credentials, cookies, private URLs, participant identities, or restricted bulk data stored in the repository or draft log. |
+| Cross-check | At least one representative player or signal compared with Yahoo and an independent source; material disagreements are recorded. |
+
+Classify a qualified tool for live use:
+
+- **Live:** cached or quick, already open/configured, and safe to consult between turns.
+- **Preparation only:** useful for building the board but too slow, fragile, stateful, or distracting for the active room.
+- **Fallback:** redundant source used only when the primary source is unavailable or stale.
+- **Excluded:** unmerged, inaccessible, stale beyond its threshold, semantically unclear, unsafe, or incompatible with the league.
+
+Before every mock or real draft, build this source manifest from the current merged repository rather than copying the prior run:
+
+```text
+Source / guide:
+Merged commit:
+Role:
+Readiness: qualified | degraded | excluded
+Usage: live | preparation only | fallback | excluded
+Checked at / source updated at:
+League or scoring adjustments:
+Latency class: cached | quick | slow/manual
+Fallback:
+Open caveat:
+```
+
+The manifest is a snapshot, not a permanent allowlist. Re-check active Codex research tasks, visible Git branches/PRs, the repository's fantasy-research index, `notes/`, and `tools/` to discover additions. Only `origin/main` establishes availability; task summaries and branch contents only identify work that may become eligible after merge.
+
+When a new site guide merges:
+
+1. Confirm it is linked from the fantasy-research index and states its purpose, access model, fields, freshness, league fit, operating procedure, and failure boundaries.
+2. Run its documented smoke/read check without exposing authentication material.
+3. Normalize its player identities and units before comparing values.
+4. Assign one primary role. Additional signals are supporting evidence, not permission to double-count the same underlying rank or projection.
+5. Measure whether it can be consulted without interrupting Yahoo monitoring.
+6. Add it to the next source manifest with an explicit usage class and fallback.
+7. Promote durable mechanics into this playbook; keep volatile player values and site-specific examples in dated notes.
+
+If sources disagree, first compare timestamps, scoring format, units, injury assumptions, and whether they share an upstream feed. Yahoo remains authoritative for room state and availability. For player value, preserve the disagreement and choose using the candidate-ordering rules; do not average incompatible fields or count several presentations of the same source as independent confirmation.
+
 ## Draft-day phases
 
 ### 1. Final refresh
 
 Complete this before entering the room:
 
-1. Reopen **League → Settings** and compare team count, roster, scoring, clock, and draft time with the settings snapshot.
-2. Reopen **League → Managers** and **Draft Results**. Confirm eight teams, position 1, 16 rounds, snake direction, traded picks, and all keepers.
-3. Refresh injuries, depth charts, suspensions, and material role news using current sources. Remove unavailable players and every keeper from candidate data.
-4. Refresh standard-scoring tiers, non-PPR projections, and market ADP. Record source timestamps; flag stale or conflicting data rather than hiding it.
-5. Configure DraftKick with the actual scoring, starters, bench, order, keepers, and intentional source weights. Verify Board and Rosters. If it says `Not saved`, keep the tab open and maintain the independent state record below.
-6. Build an initial value board and position-specific fallbacks. Mark players as target, neutral, or avoid; an avoid requires a concrete reason such as injury, role, price, or keeper status.
-7. Run a short position-1 rehearsal if time permits. A rehearsal result informs mechanics; it does not override current news or live availability.
+1. Fetch the latest `origin/main`. Inventory merged site guides/tools plus active research tasks, branches, and PRs. Note pending work, but read draft inputs only from the merged tree.
+2. Build the source manifest. Exercise and qualify every intended source; demote or exclude any source that fails access, freshness, league-fit, semantics, latency, reliability, or safety checks.
+3. Reopen **League → Settings** and compare team count, roster, scoring, clock, and draft time with the settings snapshot.
+4. Reopen **League → Managers** and **Draft Results**. Confirm eight teams, position 1, 16 rounds, snake direction, traded picks, and all keepers.
+5. Refresh injuries, depth charts, suspensions, and material role news using qualified sources. Remove unavailable players and every keeper from candidate data.
+6. Refresh standard-scoring tiers, non-PPR projections, and market ADP. Record source timestamps; flag stale or conflicting data rather than hiding it.
+7. Configure DraftKick with the actual scoring, starters, bench, order, keepers, and intentional source weights. Verify Board and Rosters. If it says `Not saved`, keep the tab open and maintain the independent state record below.
+8. Build an initial value board and position-specific fallbacks. Mark players as target, neutral, or avoid; an avoid requires a concrete reason such as injury, role, price, or keeper status.
+9. Freeze the active source set when the Yahoo room opens. Do not activate a newly merged or newly discovered tool during the live draft without a completed readiness pass.
+10. Run a short position-1 rehearsal if time permits. A rehearsal result informs mechanics; it does not override current news or live availability.
 
-Fast helpers may normalize names, diff source ranks, identify stale inputs, or format the working board in this phase. The primary assistant reviews their output before it affects candidates.
+Fast helpers may check different qualified sources in parallel, normalize names, diff ranks, identify stale inputs, or format the working board in this phase. Each helper reports the source, access result, update timestamp, league mismatch, and evidence used. The primary assistant reviews their output before it affects candidates. Helpers stop when the room opens; they do not own Yahoo monitoring or introduce a new live source.
 
 ### 2. Browser and room preflight
 
@@ -101,12 +165,13 @@ Run one loop continuously from the first pick through **Draft Complete**.
 4. Recalculate the next-pick shortlist using the decision logic below.
 5. Keep three acceptable players ordered in the Yahoo queue. Remove drafted players immediately.
 6. At a snake turn, prepare both picks as a pair: a preferred combination plus at least two alternate combinations.
+7. Consult only tools marked **Live** in the frozen source manifest. Use cached results first; run quick lookups only when they cannot interrupt the clock watch. Never call a slow/manual source from the live loop.
 
 #### Act when Yahoo shows **Your Turn**
 
 1. Refresh availability once.
 2. Confirm the current overall pick, open roster slots, keeper constraints, and top three available candidates.
-3. Choose the highest valid candidate. Do not start new web research or delegate a new task while on the clock.
+3. Choose the highest valid candidate. Do not start new web research, activate a new tool, or delegate a new task while on the clock.
 4. In recommend mode, send one compact line: pick, need, recommendation, fallback, and the decision boundary. In delegated entry mode, select immediately.
 5. Use the player's visible **Draft** action. If filtering by position, require Yahoo's exact visible position tag.
 6. Do not write the pick explanation until Yahoo accepts the selection.
@@ -184,6 +249,8 @@ Do not use **Reset Draft** in any real room. **Pause Draft**, **Undo Draft Picks
 Maintain this minimal state in working memory or a non-sensitive scratch note. Update it only after Yahoo verification.
 
 ```text
+Source readiness last checked:
+Frozen live-source manifest:
 Control mode: recommend | delegated entry
 Yahoo state: connected | manager takeover | reconnecting
 Round / overall pick / current team:
@@ -219,6 +286,7 @@ Prior rehearsals:
 
 - Confirm whether the assistant will operate in recommend mode or delegated entry mode.
 - Set the final news-source refresh cutoff and the maximum acceptable age for tier/projection data.
+- Complete the source readiness matrix after the remaining site-research branches merge, and choose which qualified tools are Live, preparation-only, or fallback.
 - Decide whether DraftKick will be unsigned/manual, authenticated, or Live-enabled; do not assume unverified sync.
 - Build the final position-1 pair strategy for picks 16/17 using current tiers and keeper-adjusted availability.
 - Define manager-specific avoid/target overrides and whether any player is an automatic selection at pick 1.
@@ -227,4 +295,5 @@ Prior rehearsals:
 
 | Date | Change | Evidence |
 | --- | --- | --- |
+| 2026-08-30 | Added dynamic discovery, promotion, readiness, manifest, latency, and source-conflict logic for research tools developed in separate tasks and branches. | AB#3349 |
 | 2026-08-30 | Initial canonical workflow assembled from Yahoo navigation/settings, draft-order research, two completed mocks, and DraftKick/FFToday/Boris Chen operating guides. | Linked notes above |
