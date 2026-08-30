@@ -109,4 +109,3 @@ Yahoo currently presents this as the **2026 draft order**, with all 16 rounds an
 2. Open **Draft Results** and select or confirm **2026 draft order**.
 3. Verify Round 1, Round 2's reversal, the number of rounds, and every keeper marker.
 4. Update this snapshot and its access date if any team, position, keeper, or draft time changes.
-
