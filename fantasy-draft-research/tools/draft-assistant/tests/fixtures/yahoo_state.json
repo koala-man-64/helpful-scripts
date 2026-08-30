@@ -1,0 +1,25 @@
+{
+  "room_fingerprint": "mock-room",
+  "your_turn": true,
+  "overall_pick": 1,
+  "current_team": "team-1",
+  "clock_seconds": 54,
+  "roster_count": 0,
+  "autodraft_off": true,
+  "captured_at": "2026-08-30T16:00:00Z",
+  "unavailable_player_ids": ["treveyon-henderson"],
+  "roster_player_ids": [],
+  "rows": [
+    {
+      "name": "Alpha Runner",
+      "nfl_team": "DET",
+      "position": "RB",
+      "available": true,
+      "has_draft_control": true
+    }
+  ],
+  "authentication_challenge": false,
+  "modal_ambiguity": false,
+  "reconnecting": false,
+  "control_interrupted": false
+}

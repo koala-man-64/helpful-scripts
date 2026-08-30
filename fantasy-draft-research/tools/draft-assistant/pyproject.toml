@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fantasy-draft-assistant"
+version = "0.1.0"
+description = "Offline-first, fail-closed fantasy football draft assistant"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+draft-assistant = "fantasy_draft_assistant.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fantasy_draft_assistant*"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
