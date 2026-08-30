@@ -26,6 +26,7 @@ Current procedures:
 - [`notes/yahoo-2026-teams-and-draft-order.md`](notes/yahoo-2026-teams-and-draft-order.md) — active teams, snake order, and keeper-occupied picks
 - [`notes/yahoo-mock-drafts.md`](notes/yahoo-mock-drafts.md) — instant and live mock-draft navigation, setup, room controls, and rehearsal workflow
 - [`notes/mock-draft-results/`](notes/mock-draft-results/) — completed mock results, Yahoo grades, projected standings, and lessons learned
+- [`notes/fftoday.md`](notes/fftoday.md) — FFToday datasets, URL mechanics, access constraints, and draft-time agent procedure
 
 ## Starting point
 
