@@ -214,7 +214,33 @@ Fast helpers may check different qualified sources in parallel, normalize names,
 
 ### 3. Live draft loop
 
-Run one loop continuously from the first pick through **Draft Complete**.
+Run one persistent loop from the first pick until one of these explicit stop
+conditions: the manager gives another direction, Yahoo reports **Draft
+Complete**, the manager must complete sign-in or a verification challenge, or a
+confirmation is required for a non-delegated real-draft action. Do not finish,
+idle, or switch to post-draft analysis merely because the current turn belongs
+to another manager.
+
+The active assistant owns the clock watch. It must immediately start the next
+bounded observation window after every state read, pick, recovery, or browser
+control timeout. Reconnect to the same visible Yahoo room if a control session
+expires; do not open a second room, infer state from a stale screenshot, or
+silently turn on Autodraft. Treat a new manager instruction as the only normal
+way to change the live-loop objective.
+
+Use the clock to set the observation cadence without creating a long,
+uninterruptible browser call:
+
+| Yahoo state | Next observation window |
+| --- | --- |
+| More than 45 seconds before the next decision | Re-enter after 15–20 seconds. |
+| 11–45 seconds before the next decision | Re-enter after 5–10 seconds. |
+| 10 seconds or less, or **Your Turn** is visible | Watch continuously in short, fresh checks and act or recommend immediately. |
+| Browser control timeout or page-state uncertainty | Reconnect, obtain one fresh Yahoo state, then resume the applicable window. |
+
+The loop must preserve a visible handoff to the active Yahoo room between
+control windows so monitoring can resume without rejoining or losing draft
+state. Never report the draft as complete while the room is live.
 
 #### Observe while opponents pick
 
