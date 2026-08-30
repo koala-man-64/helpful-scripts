@@ -3,8 +3,10 @@
 ## Goal
 
 Install the same compact engineering-judgment guidance for Codex and Claude
-Code across every repository used by one local user profile. The reusable text
-is in [load-bearing-canon.md](load-bearing-canon.md).
+Code across every repository used by one local user profile. This guide also
+explains how VS Code and GitHub Copilot Chat discover equivalent user-level
+instructions without creating an unnecessary duplicate. The reusable text is
+in [load-bearing-canon.md](load-bearing-canon.md).
 
 This is behavioral guidance, not mechanical enforcement. Hooks, permissions,
 managed policy, and provider safety controls remain authoritative.
@@ -23,6 +25,8 @@ its entire contents.
 
 No repository `AGENTS.md` or `CLAUDE.md`, skill, agent, hook, hook matcher,
 machine reason code, API contract, schema, or application file was changed.
+No `.copilot` instruction file, `.github/copilot-instructions.md`, or
+`.github/instructions` file was created or changed.
 
 ## Where to install it elsewhere
 
@@ -30,8 +34,9 @@ Use the user-level instruction files for the account that runs each client:
 
 | Client | Default user-level file | Scope |
 | --- | --- | --- |
-| Codex | `~/.codex/AGENTS.md` | Local Codex work across repositories |
+| OpenAI Codex, including its VS Code IDE extension | `~/.codex/AGENTS.md` | Local Codex work across repositories |
 | Claude Code | `~/.claude/CLAUDE.md` | Local Claude Code work across projects |
+| VS Code/GitHub Copilot Chat | `~/.claude/CLAUDE.md` when enabled, or `~/.copilot/instructions/load-bearing-canon.instructions.md` | Local VS Code Chat work across workspaces |
 
 On Windows, `~` normally resolves to `%USERPROFILE%`. If `CODEX_HOME` is set,
 put the Codex file in that directory instead of `%USERPROFILE%\.codex`.
@@ -39,15 +44,74 @@ If `CLAUDE_CONFIG_DIR` is set, put the Claude file in that directory instead of
 `%USERPROFILE%\.claude`.
 
 These files are local to one user and machine. Repeat the installation for
-other users, machines, containers, remote hosts, or CI workers. They do not
-configure Copilot, Claude on the web, generic API clients, or unrelated agents.
+other users, machines, containers, remote hosts, or CI workers. The Codex
+global file configures the OpenAI Codex IDE extension, but it does not configure
+VS Code/GitHub Copilot Chat. VS Code can use its native user-level instructions
+folder or reuse the global Claude file when `chat.useClaudeMdFile` is enabled.
+These files do not configure Claude on the web, generic API clients, or
+unrelated agents.
 Native Windows and WSL use separate home and configuration directories, so
 install the canon in both environments if both run these clients.
+
+The OpenAI Codex IDE extension can run inside VS Code, but it is not VS Code/
+GitHub Copilot Chat. Each surface has separate instruction discovery.
+
+## VS Code and GitHub Copilot Chat
+
+The OpenAI Codex IDE extension has no separate VS Code instruction path. It
+uses the same `~/.codex/AGENTS.md` or `$CODEX_HOME/AGENTS.md` file as other
+Codex clients.
+
+For VS Code/GitHub Copilot Chat, choose exactly one user-level source:
+
+1. Confirm that `chat.useClaudeMdFile` is enabled. VS Code enables this setting
+   by default and can load `~/.claude/CLAUDE.md` for all workspaces.
+2. Right-click the VS Code Chat view, select **Diagnostics**, and check whether
+   `~/.claude/CLAUDE.md` is loaded without errors. The **References** section of
+   a response also shows which instruction files were used.
+3. If the global Claude file is loaded and already contains the canon, reuse it.
+   Do not create a Copilot copy.
+4. Otherwise, create
+   `~/.copilot/instructions/load-bearing-canon.instructions.md` with this YAML
+   front matter, followed by one unchanged copy of
+   [load-bearing-canon.md](load-bearing-canon.md):
+
+   ```markdown
+   ---
+   applyTo: "**"
+   ---
+   ```
+
+Keep the front matter out of `load-bearing-canon.md`. `applyTo: "**"` makes the
+native instruction file apply automatically to all files. On Rudy's Windows
+profile, its absolute path is
+`C:\Users\rdpro\.copilot\instructions\load-bearing-canon.instructions.md`.
+Use the equivalent home directory for another user. Confirm that
+`chat.instructionsFilesLocations` has not disabled the user-level folder.
+
+Do not load the canon through both `~/.claude/CLAUDE.md` and the native
+`.copilot` file in the same VS Code configuration. VS Code combines applicable
+instruction sources, so duplication is unnecessary and makes conflicts harder
+to diagnose.
+
+The `.copilot` path above is user-level and available across workspaces.
+Repository alternatives have narrower scope:
+
+- `<repository>/.github/copilot-instructions.md` applies repository-wide.
+- `<repository>/.github/instructions/*.instructions.md` is repository-scoped
+  and pattern-based.
+- `<repository>/AGENTS.md` can be loaded by VS Code Chat when
+  `chat.useAgentsMdFile` is enabled, but it is workspace guidance, not the
+  global Codex file under `~/.codex`.
+
+Do not place a user-global canon in those repository paths merely to make it
+available to VS Code.
 
 ## Prerequisites
 
 - Read/write access to the target user's Codex and Claude Code configuration
-  directories.
+  directories and, when using native VS Code instructions, the user's
+  `.copilot/instructions` directory.
 - A UTF-8-capable editor that preserves all five terms exactly, including the
   four non-ASCII terms.
 - An authenticated client when performing the optional fresh-session check.
@@ -77,7 +141,7 @@ An agent can reproduce the edit from this folder with this bounded request:
 > any global override or non-default configuration directory before claiming
 > success.
 
-## Does Codex or Claude need a restart?
+## Does Codex, Claude, or VS Code need a restart?
 
 No operating-system reboot or full application restart is required.
 
@@ -88,8 +152,13 @@ No operating-system reboot or full application restart is required.
 - **Claude Code:** start a new conversation/session, such as a new `claude`
   invocation. Claude Code loads `CLAUDE.md` files at session start. Restarting
   the machine is unnecessary. This file does not configure Claude on the web.
+- **VS Code/GitHub Copilot Chat:** no application restart or window reload is
+  required. Saved instruction files are available to subsequent requests. A
+  fresh chat is useful for a clean verification, but is not a loading
+  requirement.
 
-Starting fresh sessions is the deterministic activation step for both clients.
+Starting a fresh session is the deterministic activation step for Codex and
+Claude Code. It is an optional clean verification step for VS Code Chat.
 
 ## Static verification on Windows
 
@@ -119,6 +188,7 @@ $claudeDirectory = if ($env:CLAUDE_CONFIG_DIR) {
     Join-Path $env:USERPROFILE '.claude'
 }
 $claudeGuide = Join-Path $claudeDirectory 'CLAUDE.md'
+$copilotGuide = Join-Path $env:USERPROFILE '.copilot\instructions\load-bearing-canon.instructions.md'
 $snippetPath = '.\global-load-bearing-canon\load-bearing-canon.md'
 
 $snippet = (Get-Content -LiteralPath $snippetPath -Raw -Encoding UTF8) -replace "`r`n", "`n"
@@ -130,10 +200,27 @@ foreach ($guide in @($codexGuide, $claudeGuide)) {
     }
     "$guide`: OK"
 }
+
+if (Test-Path -LiteralPath $copilotGuide) {
+    $copilotContent = (Get-Content -LiteralPath $copilotGuide -Raw -Encoding UTF8) -replace "`r`n", "`n"
+    if ($copilotContent -notmatch '(?ms)\A---\s*\napplyTo:\s*"\*\*"\s*\n---') {
+        throw "$copilotGuide does not start with applyTo: `"**`" front matter."
+    }
+    $copilotCount = ([regex]::Matches(
+        $copilotContent,
+        [regex]::Escape($snippet.TrimEnd("`n"))
+    )).Count
+    if ($copilotCount -ne 1) {
+        throw "$copilotGuide contains $copilotCount exact canon sections; expected 1."
+    }
+    "$copilotGuide`: OK"
+}
 ```
 
 Expected result: one `OK` line for each target. A missing file, altered wording,
-or duplicate section fails the check.
+or duplicate section fails the Codex/Claude check. The Copilot check is
+conditional: no `.copilot` file is expected when VS Code reuses the global
+Claude file.
 
 ## Fresh-session verification
 
@@ -148,12 +235,22 @@ or duplicate section fails the check.
    `CLAUDE.md` appears under memory files. Ask the same question and expect the
    same sentence.
 
+3. In VS Code Chat, right-click the Chat view and select **Diagnostics**.
+   Confirm that exactly one of `~/.claude/CLAUDE.md` or the native `.copilot`
+   instruction file is loaded without errors. Submit a GitHub Copilot Chat
+   request, expand **References**, and confirm the selected file was used. Ask
+   the same question and expect the same sentence. A fresh chat makes this
+   verification easier to interpret, but is not required to load a saved file.
+
 If the file is missing from a new session:
 
 - Confirm Codex is using the expected `CODEX_HOME`.
 - Check for a non-empty global Codex `AGENTS.override.md`.
 - Confirm Claude Code is using the expected `CLAUDE_CONFIG_DIR` and that user
   settings were not excluded by the caller.
+- In VS Code, inspect `chat.instructionsFilesLocations`,
+  `chat.includeApplyingInstructions`, and `chat.useClaudeMdFile`, then recheck
+  **Diagnostics** and the response **References**.
 - Inspect repository and nested instruction files for contradictory guidance.
 
 ## Instruction precedence
@@ -168,6 +265,11 @@ into the session. More specific instructions appear later, but conflicting
 natural-language rules are not deterministic enforcement; remove conflicts
 rather than relying on ordering.
 
+VS Code combines applicable instruction files. Personal instructions have
+higher priority than repository and organization instructions, but no specific
+order is guaranteed among multiple project instruction files. Avoid duplicate
+or conflicting guidance instead of relying on discovery order.
+
 ## Validation record for the original installation
 
 - Each target contained one exact copy of the section.
@@ -179,14 +281,24 @@ rather than relying on ordering.
 - Fresh Claude Code model validation was blocked by an expired OAuth token;
   static file validation passed. Re-authenticate before running the Claude
   fresh-session check.
+- No native `.copilot` file was installed or validated. Verify VS Code through
+  **Diagnostics** and response **References** before claiming user-path proof.
 
 ## Rollback
 
 Remove the complete `## Load-bearing canon` section from each user-level file,
 preserving all surrounding content, then start new Codex and Claude Code
-sessions. No hook, cache, repository, or application rollback is required.
+sessions. If the native `.copilot` option was installed, remove that instruction
+file; when VS Code reuses `~/.claude/CLAUDE.md`, there is no separate Copilot
+artifact to roll back. No hook, cache, repository, or application rollback is
+required.
 
 ## Official references
 
 - [Codex custom instructions with AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
+- [Codex IDE configuration](https://learn.chatgpt.com/docs/developer-settings?surface=ide)
 - [Claude Code instructions and memory](https://code.claude.com/docs/en/memory)
+- [VS Code custom instructions](https://code.visualstudio.com/docs/agent-customization/custom-instructions)
+- [VS Code AI settings reference](https://code.visualstudio.com/docs/agents/reference/ai-settings)
+- [GitHub Copilot instructions in VS Code](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions-in-your-ide/add-repository-instructions-in-your-ide?tool=vscode)
+- [GitHub Copilot custom-instruction support](https://docs.github.com/en/copilot/reference/custom-instructions-support)
