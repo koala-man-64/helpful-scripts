@@ -50,6 +50,8 @@ Authoritative details:
 | DraftKick | League-adjusted value, VORP, Impact, wait-risk, roster and board cross-checks | Secondary decision aid. Free unsigned state may disappear; Live sync and paid persistence remain unverified. |
 | Boris Chen standard tiers | Consensus-value layer | Tier is not projection, ADP, injury status, or custom-league value. Check freshness and join by normalized name plus position. |
 | FFToday | Independent non-PPR ranks, projections, ADP, and risk context | Cross-check only. Its Yahoo preset does not encode this league's custom bonuses and roster. |
+| NBC Sports/Rotoworld | Current injury/role news and analyst context | Targeted fallback only. Overall ranks are PPR; visible personal-use reading must follow NBC's no-extraction terms. |
+| Reddit `r/fantasyfootball` | Breaking-signal, counterargument, and primary-source discovery | Read-only fallback. Votes/comments are attention signals; verify material claims at the underlying primary source. |
 | Sleeper | Keeper-aware mock rehearsal and secondary ADP/trend context | Preparation only until a signed-in league-matched rehearsal passes readiness. It does not establish Yahoo availability or room state; avoid double-counting Sleeper data exposed through FFToday or another tool. |
 | Fast subagents | Bounded preparation and post-draft logging tasks | Use before the room opens or after the draft for mechanical work such as normalization, comparison, and result formatting. They never own the browser, clock, unavailable set, or final pick. |
 
@@ -58,8 +60,11 @@ Detailed source procedures:
 - [DraftKick agent guide](draftkick-football.md)
 - [Boris Chen tier guide](boris-chen-draft-tiers.md)
 - [FFToday source guide](fftoday.md)
+- [NBC Sports/Rotoworld guide](nbc-sports-fantasy.md)
+- [Reddit `r/fantasyfootball` guide](reddit-fantasyfootball.md)
 - [Sleeper tool guide](sleeper.md)
 - [Yahoo room mechanics and mock workflow](yahoo-mock-drafts.md)
+- [Current research-tool readiness matrix](research-tool-readiness-2026-08-30.md)
 
 ### Research-tool promotion and readiness
 
@@ -288,7 +293,7 @@ Prior rehearsals:
 
 - Confirm whether the assistant will operate in recommend mode or delegated entry mode.
 - Set the final news-source refresh cutoff and the maximum acceptable age for tier/projection data.
-- Complete the source readiness matrix after the remaining site-research branches merge, and choose which qualified tools are Live, preparation-only, or fallback.
+- Refresh the [current source readiness matrix](research-tool-readiness-2026-08-30.md) and confirm which qualified tools remain Live, preparation-only, or fallback.
 - Decide whether DraftKick will be unsigned/manual, authenticated, or Live-enabled; do not assume unverified sync.
 - Build the final position-1 pair strategy for picks 16/17 using current tiers and keeper-adjusted availability.
 - Define manager-specific avoid/target overrides and whether any player is an automatic selection at pick 1.
@@ -297,5 +302,6 @@ Prior rehearsals:
 
 | Date | Change | Evidence |
 | --- | --- | --- |
+| 2026-08-30 | Evaluated every merged research surface and linked the current activation/readiness matrix. | AB#3351 |
 | 2026-08-30 | Added dynamic discovery, promotion, readiness, manifest, latency, and source-conflict logic for research tools developed in separate tasks and branches. | AB#3349 |
 | 2026-08-30 | Initial canonical workflow assembled from Yahoo navigation/settings, draft-order research, two completed mocks, and DraftKick/FFToday/Boris Chen operating guides. | Linked notes above |
