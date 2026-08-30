@@ -188,15 +188,29 @@ Fast helpers may check different qualified sources in parallel, normalize names,
 
 1. Open Yahoo Fantasy in the same persistent Codex browser profile. If signed out, follow the [interactive login procedure](yahoo-login.md); the manager enters all secrets and verification challenges directly.
 2. Reach the team through the [Yahoo football navigation procedure](yahoo-football-navigation.md).
-3. Enter the correct league draft room and confirm league/team labels using visible UI. Do not record the private URL.
-4. Confirm the clock, position, team count, round count, roster, scoring summary, and ranking source shown by Yahoo.
-5. Run Yahoo's system test, enable draft sounds, and verify the browser and network are stable.
-6. Confirm **Autodraft** is off. Populate and order at least three acceptable queue entries for pick 1.
-7. Arrange the room so the clock, current drafter, next pick, last pick, player search, queue, and roster are visible with minimal navigation.
-8. Agree on control mode:
+3. Open the **draft-tool readiness tab pack** in the Codex browser, keep it visible, and verify that each tab reaches its intended surface before starting a mock or entering the real room. This validates access only; it does not promote every tool to active live use.
+
+   | Tab | Readiness check | Live-use rule |
+   | --- | --- | --- |
+   | Yahoo mock lobby or draft room | The intended league label and the mock/room choice are visible. | Yahoo is the only authority for room state and completed picks. |
+   | Yahoo player pool | Player search and visible position labels load. | Use for availability, queue, roster, and player status. |
+   | DraftKick | The manual league/board surface loads without relying on unverified sync. | Selected only when configured and current; otherwise standby. |
+   | Boris Chen standard tiers | The standard-scoring tier page loads and exposes a visible update time or freshness caveat. | Consensus layer only; do not treat as projections or custom scoring. |
+   | FFToday rankings | The non-PPR-relevant rankings/projections entry point loads. | Independent cross-check only; apply league and keeper adjustments. |
+   | NBC Sports/Rotoworld Draft Central | The current Draft Central/news entry point loads. | Targeted injury or role fallback only; do not extract or bulk collect content. |
+   | Sleeper mock draft | The mock-draft entry point loads without creating a league or connecting an account. | Rehearsal and alternate-board standby only. |
+   | Reddit `r/fantasyfootball` | The community landing page loads in read-only mode. | Discovery and counterargument standby only; verify material claims elsewhere. |
+
+   Record each tab in the run manifest as **selected** or **standby**. Do not type credentials, share private data, create leagues, connect extensions, or submit a pick as part of this readiness check. If a selected tab cannot be made ready, mark it degraded, use its declared fallback, and do not troubleshoot it during the live clock.
+4. Enter the correct league draft room and confirm league/team labels using visible UI. Do not record the private URL.
+5. Confirm the clock, position, team count, round count, roster, scoring summary, and ranking source shown by Yahoo.
+6. Run Yahoo's system test, enable draft sounds, and verify the browser and network are stable.
+7. Confirm **Autodraft** is off. Populate and order at least three acceptable queue entries for pick 1.
+8. Arrange the room so the clock, current drafter, next pick, last pick, player search, queue, and roster are visible with minimal navigation. Keep Yahoo foregrounded; leave the readiness tab pack accessible but consult only the frozen **selected** sources during the live clock.
+9. Agree on control mode:
    - **Recommend mode** is the default: assistant ranks choices; manager submits the pick.
    - **Delegated entry mode** requires an explicit instruction for the real draft: assistant may submit the highest valid candidate and reports immediately afterward.
-9. Start the independent state record. Keep it free of participant identities and private room data.
+10. Start the independent state record. Keep it free of participant identities and private room data.
 
 ### 3. Live draft loop
 
