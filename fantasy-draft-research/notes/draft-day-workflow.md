@@ -233,8 +233,8 @@ uninterruptible browser call:
 
 | Yahoo state | Next observation window |
 | --- | --- |
-| More than 45 seconds before the next decision | Re-enter after 15–20 seconds. |
-| 11–45 seconds before the next decision | Re-enter after 5–10 seconds. |
+| More than eight picks and 45 seconds before the next decision | Re-enter after 10–15 seconds. |
+| Four to eight picks, or 11–45 seconds before the next decision | Re-enter after 3–5 seconds. |
 | 10 seconds or less, or **Your Turn** is visible | Watch continuously in short, fresh checks and act or recommend immediately. |
 | Browser control timeout or page-state uncertainty | Reconnect, obtain one fresh Yahoo state, then resume the applicable window. |
 
@@ -244,7 +244,7 @@ state. Never report the draft as complete while the room is live.
 
 #### Observe while opponents pick
 
-1. Monitor Yahoo's clock and turn state at sub-second intervals inside bounded control windows of roughly 15–20 seconds. Re-enter a new window before control expires; do not use one long browser call.
+1. Monitor Yahoo's clock, next-pick distance, and turn state in bounded control windows. A public mock can advance several picks during a 10–15 second window; once eight or fewer picks remain, re-enter after 3–5 seconds and shorten further in the final three picks. Do not use one long browser call.
 2. Read each completed selection from Yahoo and add the player to the unavailable set.
 3. Reconcile the last selection with the Board/Picks view. Do not let a secondary tool overwrite Yahoo state.
 4. Recalculate the next-pick shortlist using the decision logic below.
@@ -271,6 +271,30 @@ All four signals must agree:
 4. The room advances to the expected overall pick and team.
 
 If any signal disagrees, stop automatic entry, preserve the clock watch, and run the smallest recovery that can reconcile known state. Update the remaining plan immediately; never continue a stale fixed-position schedule.
+
+#### Public-mock execution findings
+
+Use public Yahoo mocks as an interface and recovery rehearsal, not as a direct
+value simulation. Their team count, roster limit, pick order, scoring, and
+public-player behavior can differ materially from the private league.
+
+1. Keep **Autodraft** off for a manual or delegated-entry rehearsal. It consumes
+   the queue first and may continue drafting from Yahoo's ranking when the
+   queue is empty. Treat the visible Autodraft state as a required preflight and
+   post-pick verification signal.
+2. Refresh the queue from the current rendered player list and verify its exact
+   contents immediately. Player rows reorder rapidly; a coordinate derived from
+   an earlier frame can queue a different player. Prefer a stable visible or
+   semantic control, then take a fresh Yahoo state before the next action.
+3. After filtering by position, verify both the selected filter and the visible
+   row position tags before acting. A changed selector can precede the visible
+   player-list refresh.
+4. Treat **Join next available draft** as a request, not proof of entry. Verify
+   the assigned room format, draft slot, and launchable draft client from fresh
+   visible state. Never save a room or session URL in this repository.
+5. Draft completion and a roster count are not sufficient validation. Audit
+   every required starter slot—especially K and DEF—against the displayed final
+   roster before recording the rehearsal as complete.
 
 ### 4. Decision logic
 
