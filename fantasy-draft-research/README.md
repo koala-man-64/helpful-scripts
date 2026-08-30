@@ -20,6 +20,7 @@ Workspace for gathering draft resources, recording league-specific assumptions, 
 
 Current procedures:
 
+- [`notes/draft-strategy-foundations.md`](notes/draft-strategy-foundations.md) — league-aware concepts, value and tier logic, roster construction, risk, snake/auction decisions, and an on-the-clock recommendation framework
 - [`notes/draft-day-workflow.md`](notes/draft-day-workflow.md) — canonical living playbook for draft-day preparation, selective tool activation, live clock monitoring, decision logic, recovery, and post-draft learning
 - [`notes/research-tool-readiness-2026-08-30.md`](notes/research-tool-readiness-2026-08-30.md) — dated readiness matrix, activation decision, cross-source controls, and next tests for every inventoried draft surface
 - [`notes/draftkick-football.md`](notes/draftkick-football.md) — DraftKick Football functionality, data dictionary, settings inventory, and draft-time agent operating procedure
