@@ -1,0 +1,42 @@
+{
+  "platform": "espn",
+  "adapter_version": "1",
+  "room_fingerprint": "room-fp:1111111111111111111111111111111111111111111111111111111111111111",
+  "phase": "in_progress",
+  "your_turn": true,
+  "overall_pick": 17,
+  "current_team": "team-4",
+  "clock_seconds": 71,
+  "roster_count": 1,
+  "roster_player_ids": ["player-keeper"],
+  "unavailable_player_ids": ["player-keeper", "player-drafted"],
+  "queue_player_ids": ["player-alpha", "player-bravo", "player-charlie"],
+  "autodraft_off": true,
+  "captured_at": "2026-08-31T15:00:00Z",
+  "control_status": "ready",
+  "authentication_challenge": false,
+  "modal_ambiguity": false,
+  "reconnecting": false,
+  "control_interrupted": false,
+  "positional_demand": {"RB": 7, "WR": 8},
+  "rows": [
+    {
+      "player_id": "player-alpha",
+      "name": "Alpha Runner",
+      "nfl_team": "DET",
+      "position": "RB",
+      "available": true,
+      "has_draft_control": true,
+      "ambiguous": false
+    },
+    {
+      "player_id": "player-bravo",
+      "name": "Bravo Receiver",
+      "nfl_team": "MIN",
+      "position": "WR",
+      "available": true,
+      "has_draft_control": true,
+      "ambiguous": false
+    }
+  ]
+}

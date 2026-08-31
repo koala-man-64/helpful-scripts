@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from .identity import identity_key, normalize_position, normalize_team
-from .models import LeagueConfig, PlayerSnapshot
+from .models import BoardManifest, CompiledPlayer, LeagueConfig, PlayerSnapshot
+from .research import ResearchBundle
 
 
 PLAYER_COLUMNS = {
@@ -56,6 +57,15 @@ def parse_timestamp(value: str) -> datetime:
     return parsed
 
 
+def _parse_csv_bool(value: str, field_name: str) -> bool:
+    normalized = value.strip().casefold()
+    if normalized in {"1", "true", "yes"}:
+        return True
+    if normalized in {"0", "false", "no"}:
+        return False
+    raise ValueError(f"{field_name} must be true/false, yes/no, or 1/0")
+
+
 def load_league(path: Path) -> LeagueConfig:
     return LeagueConfig.from_dict(_read_json(path))
 
@@ -100,7 +110,7 @@ def load_players(path: Path) -> list[PlayerSnapshot]:
                     source_family=row["source_family"].strip(),
                     checked_at=checked_at,
                     status=row["status"].strip().lower(),
-                    ambiguous=row["ambiguous"].strip().lower() in {"1", "true", "yes"},
+                    ambiguous=_parse_csv_bool(row["ambiguous"], "ambiguous"),
                 )
             except (KeyError, TypeError, ValueError) as exc:
                 raise ValueError(f"invalid player CSV line {line}: {exc}") from exc
@@ -111,3 +121,30 @@ def load_players(path: Path) -> list[PlayerSnapshot]:
     if not players:
         raise ValueError("player CSV must contain at least one player")
     return players
+
+
+def load_research_bundle(path: Path) -> ResearchBundle:
+    """Validate a sanitized Chrome/manual research snapshot."""
+
+    return ResearchBundle.from_dict(_read_json(path))
+
+
+# CLI-oriented spelling retained as the canonical import operation.
+research_import = load_research_bundle
+
+
+def load_compiled_board(path: Path) -> tuple[list[CompiledPlayer], BoardManifest]:
+    value = _read_json(path)
+    allowed = {"players", "manifest"}
+    unknown = set(value).difference(allowed)
+    if unknown:
+        raise ValueError(f"compiled board contains unknown fields: {', '.join(sorted(unknown))}")
+    players = value.get("players")
+    manifest = value.get("manifest")
+    if not isinstance(players, list) or not isinstance(manifest, dict):
+        raise ValueError("compiled board requires players and manifest")
+    result = [CompiledPlayer.from_dict(item) for item in players]
+    ids = [item.player_id for item in result]
+    if not result or len(ids) != len(set(ids)):
+        raise ValueError("compiled board must contain unique players")
+    return result, BoardManifest.from_dict(manifest)

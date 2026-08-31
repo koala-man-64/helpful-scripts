@@ -3,7 +3,9 @@
   "system": {
     "name": "fantasy-draft-assistant",
     "ai_enabled": true,
-    "criticality": "medium"
+    "criticality": "medium",
+    "classification": "local-only",
+    "tracking_work_item": "AB#3378"
   },
   "ownership_map": [
     {
@@ -17,28 +19,78 @@
       "retirement_mechanism": "disarm and delete the private run directory after required evidence retention"
     },
     {
+      "resource": "frozen research evidence bundle and compiled board",
+      "plane": "runtime_data",
+      "authoritative_owner": "local draft operator",
+      "provisioned_by": "draft-assistant research-refresh, research-import, and compile-board",
+      "runtime_identity": "interactive local user",
+      "allowed_runtime_operations": ["fetch supported public Boris and Sleeper artifacts", "validate sanitized snapshots", "freeze immutable board revisions", "read deterministic recommendations"],
+      "environments": ["local-research", "local-mock", "local-real"],
+      "retirement_mechanism": "retain only permitted sanitized artifacts and delete private raw/cache/runtime data"
+    },
+    {
       "resource": "Yahoo visible draft-room action",
       "plane": "runtime_data",
       "authoritative_owner": "fantasy team manager",
       "provisioned_by": "user-owned Yahoo account and browser-managed sign-in",
-      "runtime_identity": "user-authenticated in-app browser session",
-      "allowed_runtime_operations": ["read visible state", "submit one exact pick after allow decision", "verify visible result"],
+      "runtime_identity": "user-authenticated Chrome session",
+      "allowed_runtime_operations": ["read sanitized visible state", "replace the exact approved queue", "submit one exact approved pick once", "verify visible result"],
       "environments": ["mock", "real-draft"],
+      "write_precondition": "witnessed non-consequential Yahoo timed mock plus fresh explicit manager approval",
+      "retirement_mechanism": "disarm the CLI and close the browser session normally"
+    },
+    {
+      "resource": "ESPN visible draft-room action",
+      "plane": "runtime_data",
+      "authoritative_owner": "fantasy team manager",
+      "provisioned_by": "user-owned ESPN account and browser-managed sign-in",
+      "runtime_identity": "user-authenticated Chrome session",
+      "allowed_runtime_operations": ["read sanitized visible state", "replace the exact approved queue", "submit one exact approved pick once", "verify visible result"],
+      "environments": ["mock", "real-draft"],
+      "write_precondition": "witnessed non-consequential ESPN timed mock plus fresh explicit manager approval",
+      "retirement_mechanism": "disarm the CLI and close the browser session normally"
+    },
+    {
+      "resource": "Sleeper draft data and visible draft-room action",
+      "plane": "runtime_data",
+      "authoritative_owner": "fantasy team manager",
+      "provisioned_by": "documented public read-only API plus user-owned Sleeper account and browser-managed sign-in",
+      "runtime_identity": "unauthenticated read-only API client and user-authenticated Chrome session",
+      "allowed_runtime_operations": ["read documented structured draft data", "read sanitized visible state", "replace the exact approved queue", "submit one exact approved pick once", "verify visible result"],
+      "environments": ["research", "mock", "real-draft"],
+      "write_precondition": "Chrome-only write after a witnessed non-consequential Sleeper timed mock plus fresh explicit manager approval",
       "retirement_mechanism": "disarm the CLI and close the browser session normally"
     }
   ],
+  "platform_write_activation": {
+    "yahoo": {
+      "status": "conditional",
+      "required_evidence": "private witnessed timed-mock record",
+      "unit_tests_sufficient": false
+    },
+    "espn": {
+      "status": "conditional",
+      "required_evidence": "private witnessed timed-mock record",
+      "unit_tests_sufficient": false
+    },
+    "sleeper": {
+      "status": "conditional",
+      "required_evidence": "private witnessed timed-mock record",
+      "unit_tests_sufficient": false
+    }
+  },
   "phases": {
     "discovery": {
       "status": "pass",
       "owner": "delivery-orchestrator-agent",
-      "evidence": ["AB#3356", "README.md"],
-      "rationale": "Objective, authority boundary, risk, and acceptance criteria are tracked."
+      "evidence": ["AB#3378", "README.md", "../../notes/draft-copilot-operator-card.md"],
+      "rationale": "Objective, local-only classification, authority boundary, risk, and acceptance criteria are tracked."
     },
     "architecture": {
       "status": "pass",
       "owner": "application owner",
-      "evidence": ["README.md", "fantasy_draft_assistant/models.py", "fantasy_draft_assistant/safety.py"],
-      "rationale": "Local runtime state and external Yahoo authority are separated with fail-closed handoff contracts."
+      "evidence": ["README.md", "fantasy_draft_assistant/models.py", "fantasy_draft_assistant/safety.py", "fantasy_draft_assistant/platforms.py"],
+      "rationale": "Local research and runtime state are separated from Yahoo, ESPN, and Sleeper authority through explicit read, recommend, approve, execute, and verify contracts."
     },
     "development": {
       "status": "pass",
@@ -49,8 +101,8 @@
     "data_ai": {
       "status": "pass",
       "owner": "local draft operator",
-      "evidence": ["README.md", "fantasy_draft_assistant/importers.py", "fantasy_draft_assistant/recommendation.py"],
-      "rationale": "Only frozen public or manual inputs are accepted; provenance and freshness are visible; no model asset or online learning exists."
+      "evidence": ["README.md", "fantasy_draft_assistant/research.py", "fantasy_draft_assistant/compiler.py", "fantasy_draft_assistant/scoring.py"],
+      "rationale": "Only supported public artifacts or sanitized snapshots are accepted; provenance, upstream-family deduplication, freshness, omissions, conflicts, and board revisions are explicit; no model asset or online learning exists."
     },
     "build_supply_chain": {
       "status": "pass",
@@ -61,11 +113,11 @@
     "verification": {
       "status": "conditional",
       "owner": "software-testing-validation-architect",
-      "evidence": ["tests/"],
-      "rationale": "Offline tests cover deterministic behavior; witnessed browser rehearsal remains required before real automatic mode.",
-      "tracking_work_item": "AB#3356",
-      "expires_on": "2026-08-31",
-      "enforcement_date": "2026-08-30"
+      "evidence": ["tests/", "tests/test_platforms.py"],
+      "rationale": "Offline tests cover deterministic behavior and sanitized platform fixtures; a witnessed timed browser mock remains independently required before writes on each platform.",
+      "tracking_work_item": "AB#3378",
+      "expires_on": "2026-09-30",
+      "enforcement_date": "2026-08-31"
     },
     "provisioning": {
       "status": "pass",
@@ -76,7 +128,7 @@
     "release_deployment": {
       "status": "not_applicable",
       "owner": "delivery-orchestrator-agent",
-      "evidence": ["README.md", "AB#3356"],
+      "evidence": ["README.md", "AB#3378"],
       "rationale": "This release is a local CLI with no deployed service or production environment.",
       "applicability_rationale": "There is no cloud artifact, deployment target, release identity, or production approval gate."
     },
@@ -84,16 +136,16 @@
       "status": "pass",
       "owner": "local draft operator",
       "evidence": ["fantasy_draft_assistant/cli.py", "README.md"],
-      "rationale": "Doctor, status, replay, disarm, and fail-closed intent decisions expose local operating state."
+      "rationale": "Doctor, status, replay, cancellation, disarm, pure recommendation, and fail-closed intent decisions expose local operating state."
     },
     "incident_recovery": {
       "status": "conditional",
       "owner": "fantasy team manager",
       "evidence": ["README.md", "tests/test_cli.py", "tests/test_storage_reducer.py"],
-      "rationale": "Hash-chain replay, reconciliation, queue fallback, disarm, and takeover are tested offline; live browser recovery must be witnessed.",
-      "tracking_work_item": "AB#3356",
-      "expires_on": "2026-08-31",
-      "enforcement_date": "2026-08-30"
+      "rationale": "Hash-chain replay, atomic validation, reconciliation, issued-intent cancellation, strict no-retry verification, disarm, and takeover are tested offline; live browser recovery must be witnessed per platform.",
+      "tracking_work_item": "AB#3378",
+      "expires_on": "2026-09-30",
+      "enforcement_date": "2026-08-31"
     },
     "retirement": {
       "status": "pass",

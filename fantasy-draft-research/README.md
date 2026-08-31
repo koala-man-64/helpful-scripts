@@ -1,6 +1,6 @@
 # Fantasy Draft Research
 
-Workspace for gathering draft resources, recording league-specific assumptions, and building small tools that support fantasy draft preparation.
+Workspace for traceable fantasy-football research, league-specific board compilation, and a local deterministic draft copilot.
 
 ## Research areas
 
@@ -15,17 +15,18 @@ Workspace for gathering draft resources, recording league-specific assumptions, 
 
 - `sources.md` — source catalog with access dates and notes
 - `notes/` — league settings, strategy notes, and research summaries
-- `data/` — snapshots or derived datasets used by future tooling
-- `tools/` — scripts or applications added as the workflow becomes clear
+- `data/` — private, gitignored raw/cache/runtime inputs and locally derived boards
+- `tools/` — local scripts and applications
 
 Implemented tooling:
 
-- [`tools/draft-assistant/`](tools/draft-assistant/) — offline Python CLI for validated player imports, deterministic recommendations, SQLite event replay, vetted queues, and fail-closed browser pick intents
+- [`tools/draft-assistant/`](tools/draft-assistant/) — offline Python core for evidence validation, frozen board compilation, league-aware VBD ranking, event replay, and fail-closed Chrome pick intents for Yahoo, ESPN, and Sleeper
 
 Current procedures:
 
+- [`notes/draft-copilot-operator-card.md`](notes/draft-copilot-operator-card.md) — compact canonical live loop from research and freeze through explicit approval, exact queue/pick execution, and verification
 - [`notes/draft-strategy-foundations.md`](notes/draft-strategy-foundations.md) — league-aware concepts, value and tier logic, roster construction, risk, snake/auction decisions, and an on-the-clock recommendation framework
-- [`notes/draft-day-workflow.md`](notes/draft-day-workflow.md) — canonical living playbook for draft-day preparation, selective tool activation, live clock monitoring, decision logic, recovery, and post-draft learning
+- [`notes/draft-day-workflow.md`](notes/draft-day-workflow.md) — detailed Yahoo procedure and historical rationale; reference material behind the operator card
 - [`notes/research-tool-readiness-2026-08-30.md`](notes/research-tool-readiness-2026-08-30.md) — dated readiness matrix, activation decision, cross-source controls, and next tests for every inventoried draft surface
 - [`notes/draftkick-football.md`](notes/draftkick-football.md) — DraftKick Football functionality, data dictionary, settings inventory, and draft-time agent operating procedure
 - [`notes/yahoo-login.md`](notes/yahoo-login.md) — repeatable Yahoo Fantasy browser sign-in flow
@@ -44,6 +45,8 @@ Current procedures:
 - [`notes/sleeper-login.md`](notes/sleeper-login.md) — owner-completed Sleeper Chrome sign-in, Draftboard handoff, session-reuse, and safety procedure
 - [`notes/sleeper-mock-draft-runbook.md`](notes/sleeper-mock-draft-runbook.md) — owner-operated Sleeper Draftboard checklist, board verification, recovery, and results-recording procedure
 
-## Starting point
+## Supported workflow
 
-Yahoo Fantasy Sports is the first platform source. Record the sport, league scoring format, roster settings, draft date, and number of teams before comparing rankings or building draft recommendations.
+The v1 copilot supports standard, half-PPR, and PPR one-QB snake redrafts on Yahoo, ESPN, and Sleeper. Configure team count, roster slots, flex eligibility, scoring overrides, draft position, and keepers before compiling a board. Auction, dynasty, best ball, superflex, and IDP remain out of scope.
+
+Research is frozen before room-open. Chrome supplies sanitized, signed-in observations and performs only explicitly approved queue/pick actions; it never exports credentials, browser storage, tokens, private URLs, or raw DOM. Unit tests validate the local core, while each platform's write path stays disabled until its own witnessed non-consequential timed mock passes.

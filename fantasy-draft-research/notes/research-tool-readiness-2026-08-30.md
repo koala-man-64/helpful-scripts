@@ -6,7 +6,7 @@ Inventory base: `origin/main` at `0d641c99174efc4621608e2bf6ed26a86c12df38`
 
 League context: eight active teams in a Yahoo league configured for a maximum of ten, non-PPR, custom yardage bonuses, three starting WRs, two RBs, one flex, position 1, and TreVeyon Henderson kept in round 7. Draft modeling uses the eight active teams and published eight-position order unless the current Yahoo Managers or Draft Results page changes.
 
-This is the current source manifest required by the [draft-day workflow](draft-day-workflow.md). It evaluates every operational draft surface documented on the inventory base. Yahoo help pages, external terms, and upstream methodology pages remain evidence and safety controls; they are not separate pick-selection tools. The repository's `tools/` directory contains no implemented tool beyond its placeholder.
+This is the dated source manifest required by the [draft-day workflow](draft-day-workflow.md). It evaluates every operational draft surface documented on the inventory base. Yahoo help pages, external terms, and upstream methodology pages remain evidence and safety controls; they are not separate pick-selection tools. Since this snapshot, AB#3378 added the implemented local [`draft-assistant`](../tools/draft-assistant/) core and the compact [operator card](draft-copilot-operator-card.md); the source qualifications below remain reference evidence.
 
 ## Method
 
@@ -63,6 +63,18 @@ Freeze this set when the Yahoo room opens:
 
 No source discovered or merged after room-open is eligible for the live set during that draft.
 
+## AB#3378 copilot activation overlay — 2026-08-31
+
+The local deterministic core may validate research, compile a frozen board, and calculate recommendations offline. Browser reads may activate before writes. Queue and pick writes remain disabled independently for each platform until a witnessed, non-consequential timed mock passes for that platform; automated unit tests do not satisfy this gate.
+
+| Platform | Structured read path | Live write path | Current activation boundary |
+| --- | --- | --- | --- |
+| Yahoo | Sanitized Chrome observation | Chrome queue and pick controls only; Yahoo OAuth is deferred | Conditional on a witnessed Yahoo timed mock |
+| ESPN | Sanitized Chrome observation | Chrome queue and pick controls only; no undocumented live endpoint | Conditional on a witnessed ESPN timed mock |
+| Sleeper | Official read-only API plus sanitized Chrome observation | Chrome queue and pick controls only | Conditional on a witnessed Sleeper timed mock |
+
+Every write requires explicit approval of one player and the exact ordered queue of up to three candidates, followed by immediate re-observation. Missing or contradictory evidence fails closed to manager takeover without retrying a submitted click. See the [operator card](draft-copilot-operator-card.md) for the live transaction.
+
 ## Cross-source controls
 
 - Match players by normalized name plus position and reconcile NFL team changes. Name-only joins are not sufficient.
@@ -79,11 +91,11 @@ No source discovered or merged after room-open is eligible for the live set duri
 
 | Priority | Gap | Required test or decision |
 | ---: | --- | --- |
-| 1 | No final freshness thresholds | Before the real draft, set maximum ages for news, ranks/projections, tiers, and ADP. Any material later news invalidates an older otherwise-passing artifact. |
+| 1 | Default freshness thresholds need room-specific confirmation | Start with 6 hours for news/status, 24 hours for identity/team and ADP, and 72 hours for projections/rankings/tiers. Confirm any stricter league-day override before compilation; material later news requires a parent-linked board revision. |
 | 2 | DraftKick Live unverified | In a non-consequential mock, review extension permissions, connect the intended room, compare every synced pick with Yahoo, simulate disconnect/reconnect, and prove a safe manual fallback. |
 | 3 | Sleeper mock board not qualified | Complete a signed-in eight-team, position-1, 16-round rehearsal with the keeper at pick 49; record scoring mismatches, timer/CPU behavior, saved recovery, and latency. |
 | 4 | DraftKick configuration not frozen | Enter the exact league settings/keepers/order, verify Board and Rosters, record build/projection timestamps, and decide how state will survive or be reconstructed. |
-| 5 | No consolidated player identity map | Build a minimal ephemeral map of Yahoo player identity to normalized name, NFL team, and position; reject ambiguous rows. Do not commit restricted ranking datasets. |
+| 5 | Cross-platform identity fixtures are not live-room proof | Exercise the canonical local identity map against sanitized Yahoo, ESPN, and Sleeper observations; reject ambiguous rows. Do not commit restricted ranking datasets or treat synthetic fixtures as a platform rehearsal. |
 | 6 | Current news authority not fixed | Choose the primary team/NFL news path used to verify NBC/Reddit discoveries and define the evidence recorded for a breaking change. |
 | 7 | Live latency not rehearsed with the full source set | Run an eight-team position-1 mock using the frozen manifest and measure whether Yahoo monitoring remains continuous. Demote any tool that delays the queue or pick. |
 
