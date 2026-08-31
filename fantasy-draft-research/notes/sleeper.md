@@ -163,8 +163,9 @@ For the compact owner-operated checklist and copyable results record, use the [r
    reproduce, especially the yardage bonuses and field-goal differences.
 5. Place TreVeyon Henderson at overall pick 49 and confirm the locked tile is in
    the correct team column.
-6. Set the intended timer and CPU behavior. Populate the queue only with
-   acceptable fallbacks.
+6. Set the intended timer and CPU behavior, with **Auto-Pick** visibly off for
+   a manual rehearsal. Populate the queue only with acceptable fallbacks; a
+   queue is not permission to leave Auto-Pick enabled.
 7. Run a short mock. Verify board state, roster shape, keeper behavior, pause or
    undo recovery, and saved-result access.
 8. Compare at least one early, middle, and late candidate with Yahoo and one

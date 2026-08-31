@@ -41,8 +41,10 @@ authority for the actual Yahoo draft clock, player pool, picks, and roster.
    league area, choose football, and claim the desired draft slot. Do not copy
    the board or invite URL into this repository.
 6. Before drafting, verify the visible board settings, draft slot, team count,
-   scoring, roster positions, draft format, keeper tiles, timer mode, and CPU
-   behavior. Use the [Sleeper preparation procedure](sleeper.md#preparation-procedure)
+   scoring, roster positions, draft format, keeper tiles, timer mode, CPU
+   behavior, and the **Auto-Pick** switch. For a manual rehearsal, Auto-Pick
+   must visibly be off; opening the Queue sidebar or seeing the `AUTO-PICK`
+   label alone is not confirmation. Use the [Sleeper preparation procedure](sleeper.md#preparation-procedure)
    for the Yahoo-league rehearsal configuration.
 
 ## Session reuse and recovery
@@ -65,8 +67,9 @@ authority for the actual Yahoo draft clock, player pool, picks, and roster.
 - [ ] Chrome is signed in to the intended Sleeper account through owner input.
 - [ ] The visible league or Draftboard is the intended one; no identifiers or
       invite URLs have been copied into notes or logs.
-- [ ] Format, draft order/slot, roster positions, keepers, timer, and CPU mode
-      have been visually checked.
+- [ ] Format, draft order/slot, roster positions, keepers, timer, CPU mode,
+      and the visible **Auto-Pick** switch have been checked; Auto-Pick is off
+      for a manual rehearsal.
 - [ ] The owner, not automation, will make Sleeper pick and commissioner
       actions.
 - [ ] If this is a Yahoo rehearsal, the Yahoo room remains the authoritative

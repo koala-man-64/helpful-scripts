@@ -11,6 +11,7 @@ Completed in the owner-operated Sleeper Draftboard on YYYY-MM-DD. Private board,
 - Pick clock: `<duration / soft timer / not shown>`
 - Opponents: `<CPU / owner-invited / mixed>`
 - Commissioner auto-pick: `<off / on / not shown>`
+- Auto-Pick audit: `<off before start / off after start / off before every owned pick / exception>`
 - Board grade or projection: `<value or not shown>`
 - Selection mode: `<owner manual / mixed with CPU / CPU>`
 

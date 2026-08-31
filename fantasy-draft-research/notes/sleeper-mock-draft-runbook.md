@@ -26,14 +26,37 @@ Before starting, the owner visually verifies and records:
 - team count, scoring type, roster positions, and player-pool restriction;
 - assigned slot, round count, and time-per-pick;
 - keeper tiles, their cost/round, and the team column in which each tile appears;
-- CPU opponents and whether commissioner auto-pick is enabled; and
-- the exact players and order visible in the **Queue** sidebar, if auto-pick
-  might be used; and
+- CPU opponents and the owned slot's visible **Auto-Pick** switch, which must
+  be **off** for a manual-selection rehearsal; and
+- the exact players and order visible in the **Queue** sidebar as a recovery
+  shortlist; and
 - every material difference from the target league.
 
 Sleeper supports mock-board scoring, team-count, draft-order, roster, and keeper configuration, but not every target-league scoring rule is confirmed to map exactly. Mark unsupported or unverified rules explicitly rather than treating the board as exact.
 
 If a setup value is wrong, the owner corrects it before the draft begins. Starting a mismatched board and trying to normalize its result later defeats the rehearsal.
+
+### Auto-Pick hard gate
+
+For every manual-selection rehearsal, **Auto-Pick must remain disabled**. This
+is a blocking control, not a preference or a one-time setup note:
+
+1. Before selecting **Start Draft**, open **Queue** and visually verify the
+   owned slot's Auto-Pick switch is off. The presence of an `AUTO-PICK` label
+   does not establish its state; verify the switch or checkmark itself.
+2. After resolving the start confirmation and before any selection, verify the
+   switch is still off along with the active slot and timer.
+3. Immediately before every owned pick, verify it is off again. Recheck after
+   a clock expiry, pause/resume, edit, or any start-state transition; do not
+   assume the earlier observation still applies.
+4. If Auto-Pick is on or its state cannot be verified, do not make a manual
+   selection. The owner disables it, re-reads the visible off state, and only
+   then resumes the manual-pick path. A pick made while the state was on or
+   unknown is `CPU/autopick` or `unknown`, never `owner manual`.
+
+Record the before-start, after-start, and per-owned-pick checks in the dated
+result. The generic live walkthrough showed Auto-Pick could appear after an
+owner-clock expiry, so turning it off later cannot reclassify earlier picks.
 
 Before a timed rehearsal, qualify the manual-selection path on a non-timed
 copy: select a known available player through the visible control, then verify
@@ -45,9 +68,11 @@ use an owner-operated or paused rehearsal until it is.
 ## Run the draft
 
 1. The owner starts the Draftboard, resolves its start confirmation, and
-   verifies the live timer, active slot, and auto-pick state before the first
-   pick.
-2. Before each turn, compare the visible roster, remaining candidates, positional scarcity, keeper effects, and board state against the rehearsal objective.
+   verifies the live timer, active slot, and **Auto-Pick is off** before the
+   first pick.
+2. Before each owned turn, re-verify **Auto-Pick is off**, then compare the
+   visible roster, remaining candidates, positional scarcity, keeper effects,
+   and board state against the rehearsal objective.
 3. When the owner is on the clock, choose the best available candidate from the current shortlist, then capture the rationale after the pick is visible on the board.
 4. Verify each completed selection by checking the board tile, roster assignment, round/overall position, expected next turn, and the player's intended role. Do not label a selection as owner-made without that confirmation chain.
 5. If a selection or keeper tile does not match the intended plan, revise the remaining plan from the actual board state before the next pick.
@@ -55,12 +80,11 @@ use an owner-operated or paused rehearsal until it is.
 
 Sleeper's timer can be a soft timer when commissioner auto-pick is off: expiration need not make a selection. Only the commissioner can configure league-wide auto-pick or force a CPU pick. Do not use either as an unattended-pick mechanism; if it is used, record the resulting pick as CPU/autopick and the reason.
 
-Treat auto-pick as a per-turn verification, not a one-time setup choice. The
-generic live rehearsal on 2026-08-31 entered auto-pick after an owner-clock
-expiry; turning it off later did not change the earlier picks and it reappeared
-after a later expiry. The Queue sidebar must therefore hold safe, visible,
-ordered fallbacks before each owner turn. A local candidate list or an active
-player search does not populate the Sleeper queue. See the
+Treat Auto-Pick as a hard, per-turn off-state check, not a one-time setup
+choice. The Queue sidebar must hold safe, visible, ordered fallbacks before
+each owner turn, but a populated queue is not permission to leave Auto-Pick
+enabled. A local candidate list or an active player search does not populate
+the Sleeper queue. See the
 [dated mechanics result](mock-draft-results/2026-08-31-sleeper-generic-10-team-live.md).
 
 ## Pause, edit, and recover
@@ -68,6 +92,9 @@ player search does not populate the Sleeper queue. See the
 - **Wrong configuration before start:** the owner fixes the settings before beginning.
 - **Need a break:** the commissioner pauses the draft. On resume, verify the active team and timer; Sleeper resets the on-clock timer after a manual pause.
 - **Incorrect board selection:** the owner uses Sleeper's visible edit capability, then records the correction and re-verifies the keeper tiles, roster, and current turn.
+- **Auto-Pick is on or unknown:** do not make a manual selection. The owner
+  disables it and re-verifies the visible off state before resuming. Label any
+  pick made while the state was on or unknown as `CPU/autopick` or `unknown`.
 - **Unresponsive player action:** do not debug selectors, retry coordinate
   clicks, or research the player list on the clock. Pause if the commissioner
   permits it, or have the owner take the pick directly. Until the board
@@ -95,6 +122,8 @@ Use `not shown` for information the board does not display. Do not infer project
 
 - Is the report free of account/session material, participant identities, IDs, and board/invite URLs?
 - Do the recorded selections agree with the saved Draftboard and final roster?
+- Does the result record an Auto-Pick-off check before start, after start, and
+  before every owned pick?
 - Are every CPU/autopick and every post-pick edit labeled clearly?
 - Are keeper round costs and locations explicitly verified?
 - Does each lesson connect an observed result to a concrete next rehearsal?
