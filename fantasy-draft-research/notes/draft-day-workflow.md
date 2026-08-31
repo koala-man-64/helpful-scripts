@@ -4,7 +4,7 @@ Status: living playbook
 
 Owner: Autodraft All Stars manager and the active Codex draft assistant
 
-Last updated: 2026-08-30
+Last updated: 2026-08-31
 
 Next required review: before the next mock or live draft
 
@@ -20,22 +20,27 @@ This is the canonical operating procedure for preparing, running, and reviewing 
 - Keep Yahoo **Autodraft** off. The ordered queue is the emergency fallback, so every queued player must be acceptable.
 - Never store account credentials, verification codes, cookies, browser storage, private identifiers, or room URLs in this repository.
 
-## Current league constraints
+## Draft-time configuration and pacing
 
-Refresh the linked snapshots on draft day rather than assuming these values are unchanged.
+Do not carry team count, pick clock, round count, roster, scoring, or keeper assumptions from an earlier mock or saved snapshot. Before the room opens, record the values visible in Yahoo for this specific draft. Commissioner changes, traded picks, and a different room format can change any of them.
 
-| Constraint | Current value | Draft consequence |
+| Field | Verify and record at draft time | Used for |
 | --- | --- | --- |
-| Teams | 8 active | Replacement value is deeper than in the 14-team mocks. |
-| Draft | 16-round snake; position 1 | Picks occur in pairs at the turn after the opening selection. |
-| Pick clock | 75 seconds | The shortlist must be ready before the turn. |
-| Scoring | Head-to-head, non-PPR, fractional | Do not pay a PPR premium for receptions alone. |
-| Starters | QB, 3 WR, 2 RB, TE, WR/RB/TE flex, K, DEF | Three starting WR slots preserve WR demand even in non-PPR. |
-| Bench | 6 | Favor upside and replaceability over redundant low-ceiling depth. |
-| Keeper | TreVeyon Henderson, RB, round 7 / overall 49 | Remove him from every candidate pool; round 7 requires no live selection. |
-| Bonuses | 350 passing yards; 150 rushing or receiving yards | Use as a close tie-breaker, not a reason to override a large value gap. |
+| Draft format and order | Snake, linear, or salary-cap; our slot; direction; traded or missing pick slots | Turn-pair handling and our next-decision sequence. |
+| Active teams and round slots | Actual active-team count and the visible number of pick slots in each round | Full-round timing ceiling and total board shape. |
+| Pick clock | Configured seconds per pick, including any commissioner override | Observation cadence and the full-clock ceiling. |
+| Rounds | Actual round count and any rounds already consumed by keepers | Remaining selections and endgame planning. |
+| Roster makeup | Every required starter, flex eligibility, bench, IR, and position limit | Replacement baseline, scarcity, and roster utility. |
+| Scoring and bonuses | Visible scoring summary and material bonuses | League-adjusted value and tie-breakers. |
+| Keepers | Player, position, cost, and exact board slot | Candidate exclusions and available manual selections. |
 
-The team's expected slots are 1, 16, 17, 32, 33, 48, keeper at 49, 64, 65, 80, 81, 96, 97, 112, 113, and 128. That produces 15 manual selections plus the keeper. Confirm this against Yahoo's board because commissioner changes or traded picks supersede this sequence.
+For every round, maintain both a capacity estimate and an observed measure:
+
+- **Full-clock ceiling:** `visible round slots × configured pick-clock seconds`. It is the longest a round would take if every slot used its full clock; it is not a forecast.
+- **Observed round elapsed:** timestamp from the round's first visible selection through the final selection or Yahoo's advance to the next round. Record the completed selection count and `observed elapsed ÷ completed selections` when both are known.
+- **Time to our next decision:** use Yahoo's current drafter, visible next-pick distance, and live countdown. Never substitute a historical average for the active clock.
+
+If a round begins or ends before it can be observed, record the timing as `not observed` rather than inferring a 75-second clock, a fixed team count, or a full round duration. Faster selections shorten the observed round; they do not permit less frequent clock monitoring.
 
 Authoritative details:
 
@@ -54,7 +59,7 @@ Authoritative details:
 | DraftKick Live extension, paid persistence, and automatic sync | Potential automatic pick synchronization | Excluded until a controlled mock verifies permissions, pick parity, disconnect recovery, and safe disablement. |
 | Boris Chen standard tiers | Consensus-value layer | Tier is not projection, ADP, injury status, or custom-league value. Check freshness and join by normalized name plus position. |
 | Boris Chen CSV/Google Sheet and FantasyPros ECR provenance | Delivery and provenance surfaces behind the tier view | One consensus family, not additional votes. Prefer one refreshed artifact and record its timestamp. |
-| FFToday rankings, projections, outlooks, tiers, and ADP | Independent non-PPR value, market timing, and risk context | Preparation cross-check. Its Yahoo preset and 12-team ADP do not encode this league's custom bonuses, eight-team depth, or keeper state. |
+| FFToday rankings, projections, outlooks, tiers, and ADP | Independent non-PPR value, market timing, and risk context | Preparation cross-check. Its Yahoo preset and 12-team ADP do not encode the configured league's bonuses, team count, or keeper state. |
 | FFToday stats, consistency, strength of schedule, matchup history, Draft Buddy, and MFL integration | Historical or matchup context and optional external integrations | Preparation only and omit by default. Use a sub-tool only for a named question; authenticated/integrated paths remain unqualified until tested. |
 | NBC Sports/Rotoworld live Draft Central, articles, and player news | Current injury/role news and analyst context | Targeted fallback only. Overall ranks are PPR; visible personal-use reading must follow NBC's no-extraction terms. |
 | NBC Sports/Rotoworld static Draft Kit PDF | Offline profiles and broad cheat-sheet context | Preparation/offline fallback only. It can lag live pages and includes PPR, dynasty, best-ball, and DraftKings views that do not match this league. |
@@ -174,15 +179,15 @@ Complete this before entering the room:
 
 1. Fetch the latest `origin/main`. Inventory merged site guides/tools plus active research tasks, branches, and PRs. Note pending work, but read draft inputs only from the merged tree.
 2. Build the source manifest for every inventoried surface, then choose the minimum selected set for this run. Recheck selected tools and any standby tool whose trigger is plausible; preserve prior qualification evidence for the rest. Demote or exclude a source that fails access, freshness, league-fit, semantics, latency, reliability, or safety checks.
-3. Reopen **League → Settings** and compare team count, roster, scoring, clock, and draft time with the settings snapshot.
-4. Reopen **League → Managers** and **Draft Results**. Confirm eight teams, position 1, 16 rounds, snake direction, traded picks, and all keepers.
+3. Reopen **League → Settings** and record the actual team count, roster makeup, scoring, clock, draft format, and draft time for this run.
+4. Reopen **League → Managers** and **Draft Results**. Confirm the assigned slot, active teams, visible round slots, round count, direction, traded picks, and all keepers.
 5. Refresh injuries, depth charts, suspensions, and material role news through the selected news path. Add NBC or Reddit only when a targeted question or conflicting claim triggers them. Remove unavailable players and every keeper from candidate data.
 6. Refresh standard-scoring tiers and non-PPR projections through the selected board sources. Refresh ADP only when market timing affects a decision. Record source timestamps; flag stale or conflicting data rather than hiding it.
 7. If DraftKick is selected, configure it with the actual scoring, starters, bench, order, keepers, and intentional source weights. Verify Board and Rosters. If it says `Not saved`, keep the tab open and maintain the independent state record below. Otherwise build the board from the selected fallback sources.
 8. Build an initial value board and position-specific fallbacks. For each candidate, retain the league-adjusted value or replacement baseline, tier, ADP/expected availability, next equivalent, role or availability risk, and source timestamp. Mark players as target, neutral, or avoid; an avoid requires a concrete reason such as injury, role, price, or keeper status.
 9. Initialize the opponent ledger from confirmed keepers and draft order. Index it by draft slot or anonymous team label, never a manager identity. Record confirmed picks and starter coverage; calculate open starter/flex paths and the teams that pick before each of our turns. Treat unfilled positions as a probability signal, not proof of an opponent's next pick.
 10. Freeze the active source set when the Yahoo room opens. Do not activate a newly merged or newly discovered tool during the live draft without a completed readiness pass.
-11. Run a short position-1 rehearsal if time permits. A rehearsal result informs mechanics; it does not override current news or live availability.
+11. Run a short assigned-slot rehearsal if time permits. A rehearsal result informs mechanics; it does not override current news or live availability.
 
 Fast helpers may check different qualified sources in parallel, normalize names, diff ranks, identify stale inputs, or format the working board in this phase. Each helper reports the source, access result, update timestamp, league mismatch, and evidence used. The primary assistant reviews their output before it affects candidates. Helpers stop when the room opens; they do not own Yahoo monitoring or introduce a new live source.
 
@@ -205,15 +210,16 @@ Fast helpers may check different qualified sources in parallel, normalize names,
 
    Record each tab in the run manifest as **selected** or **standby**. Do not type credentials, share private data, create leagues, connect extensions, or submit a pick as part of this readiness check. If a selected tab cannot be made ready, mark it degraded, use its declared fallback, and do not troubleshoot it during the live clock.
 4. Enter the correct league draft room and confirm league/team labels using visible UI. Do not record the private URL.
-5. Confirm the clock, position, team count, round count, roster, scoring summary, and ranking source shown by Yahoo.
-6. Run Yahoo's system test, enable draft sounds, and verify the browser and network are stable.
-7. Confirm **Autodraft** is off. Populate and order at least three acceptable queue entries for pick 1.
-8. Arrange the room so the clock, current drafter, next pick, last pick, player search, queue, and roster are visible with minimal navigation. Keep Yahoo foregrounded; leave the readiness tab pack accessible but consult only the frozen **selected** sources during the live clock.
-9. Agree on control mode:
+5. Confirm and record the draft-time configuration from Yahoo: format and direction, assigned slot, active teams, visible round slots, round count, pick clock, roster makeup, scoring summary, and keepers/traded picks.
+6. Initialize the timing ledger with the configured pick clock, the visible slots for round 1, its full-clock ceiling, and the local timestamp at room start. Recalculate the ceiling from Yahoo whenever a round's visible slot count changes; never derive it from a prior draft's team count.
+7. Run Yahoo's system test, enable draft sounds, and verify the browser and network are stable.
+8. Confirm **Autodraft** is off. Populate and order at least three acceptable queue entries for pick 1.
+9. Arrange the room so the clock, current drafter, next pick, last pick, player search, queue, and roster are visible with minimal navigation. Keep Yahoo foregrounded; leave the readiness tab pack accessible but consult only the frozen **selected** sources during the live clock.
+10. Agree on control mode:
    - **Recommend mode** is the default: assistant ranks choices; manager submits the pick.
    - **Delegated entry mode** requires an explicit instruction for the real draft: assistant may submit the highest valid candidate and reports immediately afterward.
    - Agree on action vocabulary before the clock: **queue** changes fallbacks only; **approved** or **pick _player_** authorizes the named live selection; a named pair authorizes both only while neither has been superseded by a newer instruction.
-10. Start the independent state record, including the anonymous opponent ledger. Keep it free of participant identities and private room data.
+11. Start the independent state record, including the anonymous opponent ledger and timing ledger. Keep it free of participant identities and private room data.
 
 ### 3. Live draft loop
 
@@ -245,6 +251,17 @@ The loop must preserve a visible handoff to the active Yahoo room between
 control windows so monitoring can resume without rejoining or losing draft
 state. Never report the draft as complete while the room is live.
 
+#### Round pacing ledger
+
+At room start and whenever Yahoo advances a round, reconcile the timing ledger from the visible board:
+
+1. Record the round number, its visible pick-slot count, configured clock, full-clock ceiling, and the timestamp of the first visible selection.
+2. After every verified selection, update the completed-slot count and elapsed time. When Yahoo advances, record the observed round elapsed, observed seconds per completed selection, and whether the full round was seen.
+3. Use the current countdown and next-pick distance to choose the next observation window. The completed-round pace can inform preparation during another manager's turn, but it never overrides the live clock or permits a long unattended wait.
+4. If the room pauses, the clock changes, or Yahoo changes the board shape, close the affected observation as partial, record the reason, and start a fresh measure from the new visible state.
+
+The ledger answers how much time each round actually used while retaining a conservative ceiling for planning. It must describe the current room, not a prior 75-second, eight-team, or fixed-roster draft.
+
 #### Between-pick room circulation
 
 A wait window is active draft work, not a pause. During each observation
@@ -258,7 +275,7 @@ Run this cycle in order, restarting at **Board/Picks** after a verified
 selection:
 
 1. **Board/Picks:** read the last selection, current drafter, next-pick
-   distance, and clock; update the unavailable set and opponent ledger.
+   distance, and clock; update the unavailable set, opponent ledger, and timing ledger.
 2. **Roster/queue:** reconcile our roster and the pre-approved three-player
    queue. Remove drafted names or reorder known acceptable candidates only;
    do not add a new candidate merely because it is visible. Treat a batch
@@ -281,7 +298,7 @@ the clock watch always takes priority over the cycle.
 #### Observe while opponents pick
 
 1. Monitor Yahoo's clock, next-pick distance, and turn state in bounded control windows. A public mock can advance several picks during a 10–15 second window; once eight or fewer picks remain, re-enter after 3–5 seconds and shorten further in the final three picks. Do not use one long browser call.
-2. Read each completed selection from Yahoo and add the player to the unavailable set.
+2. Read each completed selection from Yahoo, add the player to the unavailable set, and update the current round's completed-slot count and elapsed time.
 3. Update the anonymous opponent ledger for that draft slot: drafted position, starter/flex coverage, bench or duplicate depth, unfilled starter paths, and its next pick before our turn. Base this on Yahoo's visible roster and completed picks only; do not record manager names or infer hidden intent.
 4. Reconcile the last selection with the Board/Picks view. Do not let a secondary tool overwrite Yahoo state.
 5. Recalculate the next-pick shortlist using the decision logic below, including the opponent-pressure check.
@@ -313,6 +330,8 @@ If any signal disagrees, stop automatic entry, preserve the clock watch, and run
 A click timeout or client error is an unknown outcome, not proof that the pick failed. Re-read Yahoo and retry only when the last-pick, roster, queue, and turn signals show that no selection occurred.
 
 After either our pick or an opponent pick is verified, refresh the ledger's next-pick relation and the intervening-team set for our next decision. The roster facts do not change on our pick, but the relevant opponents and available-player pressure do.
+
+When Yahoo advances to the next round, finalize the preceding round's observed timing, then initialize the new round from its visible slot count and the current configured clock before resuming normal circulation.
 
 #### Public-mock execution findings
 
@@ -462,6 +481,10 @@ Current pick-entry authorization: none | exact player | exact pair | delegated
 Yahoo state: connected | manager takeover | reconnecting
 Between-pick circulation: next surface / last completed room transition:
 Round / overall pick / current team:
+Draft-time configuration: format / teams / visible round slots / rounds / pick clock:
+Roster makeup: starters / flex eligibility / bench / IR / position limits:
+Current round timing: start / visible slots / completed slots / full-clock ceiling / elapsed:
+Previous completed round timing: observed elapsed / seconds per selection / complete or partial:
 Our next open pick:
 Last verified selection:
 Our roster by position:
@@ -484,13 +507,14 @@ Do not include cookies, authorization values, account data, participant identiti
 
 ## Draft completion and learning loop
 
-1. Confirm Yahoo displays **Draft Complete** and the final roster has the expected 16 players including the keeper.
+1. Confirm Yahoo displays **Draft Complete** and the final roster matches the draft-time roster makeup and confirmed keeper slots.
 2. Capture our picks, round/overall numbers, Yahoo grades, projected standings, and category totals. For every pick, record only the strongest supported provenance: assistant click confirmed by Yahoo, manager-reported manual click, Yahoo queue/autodraft, keeper, or not directly observed. Never infer manual control from the final roster alone. Exclude other participants' identities and private identifiers.
-3. Record the candidate shortlist and decision reason for each pick where available.
-4. Separate strategy outcomes from execution defects. A useful player selected through the wrong position matcher is still an execution defect.
-5. Compare the result with prior mocks by total projection, positional contribution, roster completeness, grade, and missed alternatives. Do not use Yahoo's letter grade as the sole success metric.
-6. Add one result file under [`mock-draft-results/`](mock-draft-results/) for a rehearsal, or a clearly labeled real-draft result file after draft day.
-7. Update only durable lessons in this playbook. Volatile player rankings, injuries, prices, and room inventory belong in dated research or result notes.
+3. Capture the draft-time configuration and per-round timing: visible slots, configured clock, full-clock ceiling, observed elapsed, observed seconds per selection, and whether the round was fully observed. Mark partial or missing measures explicitly.
+4. Record the candidate shortlist and decision reason for each pick where available.
+5. Separate strategy outcomes from execution defects. A useful player selected through the wrong position matcher is still an execution defect.
+6. Compare the result with prior mocks by total projection, positional contribution, roster completeness, grade, missed alternatives, and actual round pacing. Do not use Yahoo's letter grade as the sole success metric.
+7. Add one result file under [`mock-draft-results/`](mock-draft-results/) for a rehearsal, or a clearly labeled real-draft result file after draft day.
+8. Update only durable lessons in this playbook. Volatile player rankings, injuries, prices, and room inventory belong in dated research or result notes.
 
 Prior rehearsals:
 
@@ -507,13 +531,14 @@ Completed real draft:
 - Set the final news-source refresh cutoff and the maximum acceptable age for tier/projection data.
 - Refresh the [current source readiness matrix](research-tool-readiness-2026-08-30.md) and confirm which qualified tools remain Live, preparation-only, or fallback.
 - Decide whether DraftKick will be unsigned/manual, authenticated, or Live-enabled; do not assume unverified sync.
-- Build the final position-1 pair strategy for picks 16/17 using current tiers and keeper-adjusted availability.
+- Build the final assigned-slot strategy using current tiers, observed board shape, and keeper-adjusted availability.
 - Define manager-specific avoid/target overrides and whether any player is an automatic selection at pick 1.
 
 ## Change log
 
 | Date | Change | Evidence |
 | --- | --- | --- |
+| 2026-08-31 | Replaced fixed draft assumptions with a Yahoo-observed draft-time configuration and per-round pacing ledger. | AB#3374 |
 | 2026-08-30 | Recorded the completed Yahoo real draft and hardened queue races, pick authorization, timeout reconciliation, turn-pair resets, endgame ordering, and selection provenance. | AB#3367 |
 | 2026-08-30 | Refreshed the merged inventory and added per-surface roles, minimum viable source sets, trigger-based optional packs, and selected/standby/excluded run states. | AB#3353 |
 | 2026-08-30 | Evaluated every merged research surface and linked the current activation/readiness matrix. | AB#3351 |
