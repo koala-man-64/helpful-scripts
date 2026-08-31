@@ -124,3 +124,16 @@ roll out, and roll back a portable Claude Code hook that uses the explicit
 Haiku -> Sonnet -> Opus preference and escalation order. The folder also
 contains a ready-to-paste implementation handoff for Claude. See
 [hooks/claude-model-evaluation/README.md](hooks/claude-model-evaluation/README.md).
+
+## Resume .docx tools
+
+`resume-docx-tools/` holds two Python tools for job-application hygiene:
+`scrub_docx_metadata.py` (stdlib-only) reports and strips corporate metadata
+from Word files — MSIP sensitivity labels, classification tags, stale titles,
+attached-template paths that leak a local username, and it flags
+gateway-rewritten (urldefense/safelinks) hyperlinks; `build_resume_docx.py`
+(python-docx) generates a clean, ATS-safe .docx resume from a Markdown source
+— plain paragraphs and real heading styles instead of the stock template's
+layout table and content controls, with a `--check` mode proving a plain
+parser gets every line back. See
+[resume-docx-tools/README.md](resume-docx-tools/README.md).
