@@ -20,33 +20,59 @@ Use the owner-controlled [Sleeper sign-in and Draftboard handoff](sleeper-login.
 
 Before starting, the owner visually verifies and records:
 
+- whether the board is a generic **New Mock NFL Draft** or a mock cloned from
+  the target league;
 - draft type and order, such as snake, linear, third-round reversal, or auction;
 - team count, scoring type, roster positions, and player-pool restriction;
 - assigned slot, round count, and time-per-pick;
 - keeper tiles, their cost/round, and the team column in which each tile appears;
 - CPU opponents and whether commissioner auto-pick is enabled; and
+- the exact players and order visible in the **Queue** sidebar, if auto-pick
+  might be used; and
 - every material difference from the target league.
 
 Sleeper supports mock-board scoring, team-count, draft-order, roster, and keeper configuration, but not every target-league scoring rule is confirmed to map exactly. Mark unsupported or unverified rules explicitly rather than treating the board as exact.
 
 If a setup value is wrong, the owner corrects it before the draft begins. Starting a mismatched board and trying to normalize its result later defeats the rehearsal.
 
+Before a timed rehearsal, qualify the manual-selection path on a non-timed
+copy: select a known available player through the visible control, then verify
+the board tile, roster increment, and next turn. A player name in a search
+field, a filtered list, or an offline shortlist is not evidence that the live
+row can be selected. If that path is not reliable, do not start a live clock;
+use an owner-operated or paused rehearsal until it is.
+
 ## Run the draft
 
-1. The owner starts the Draftboard and makes every Sleeper pick directly.
+1. The owner starts the Draftboard, resolves its start confirmation, and
+   verifies the live timer, active slot, and auto-pick state before the first
+   pick.
 2. Before each turn, compare the visible roster, remaining candidates, positional scarcity, keeper effects, and board state against the rehearsal objective.
 3. When the owner is on the clock, choose the best available candidate from the current shortlist, then capture the rationale after the pick is visible on the board.
-4. Verify each completed selection by checking the board tile, roster assignment, round/overall position, and the player's intended role.
+4. Verify each completed selection by checking the board tile, roster assignment, round/overall position, expected next turn, and the player's intended role. Do not label a selection as owner-made without that confirmation chain.
 5. If a selection or keeper tile does not match the intended plan, revise the remaining plan from the actual board state before the next pick.
 6. Record only the owner's roster and aggregate board settings. Exclude participant names, owner IDs, team IDs, avatars, invite links, account data, and session values.
 
 Sleeper's timer can be a soft timer when commissioner auto-pick is off: expiration need not make a selection. Only the commissioner can configure league-wide auto-pick or force a CPU pick. Do not use either as an unattended-pick mechanism; if it is used, record the resulting pick as CPU/autopick and the reason.
+
+Treat auto-pick as a per-turn verification, not a one-time setup choice. The
+generic live rehearsal on 2026-08-31 entered auto-pick after an owner-clock
+expiry; turning it off later did not change the earlier picks and it reappeared
+after a later expiry. The Queue sidebar must therefore hold safe, visible,
+ordered fallbacks before each owner turn. A local candidate list or an active
+player search does not populate the Sleeper queue. See the
+[dated mechanics result](mock-draft-results/2026-08-31-sleeper-generic-10-team-live.md).
 
 ## Pause, edit, and recover
 
 - **Wrong configuration before start:** the owner fixes the settings before beginning.
 - **Need a break:** the commissioner pauses the draft. On resume, verify the active team and timer; Sleeper resets the on-clock timer after a manual pause.
 - **Incorrect board selection:** the owner uses Sleeper's visible edit capability, then records the correction and re-verifies the keeper tiles, roster, and current turn.
+- **Unresponsive player action:** do not debug selectors, retry coordinate
+  clicks, or research the player list on the clock. Pause if the commissioner
+  permits it, or have the owner take the pick directly. Until the board
+  confirms the selection mode, record the outcome as unknown rather than
+  owner-made.
 - **Soft-timer expiry:** the owner resumes from the visible board state. Do not assume a pick was made.
 - **Forced CPU pick:** capture it as an automated pick, including the visible player, team, and reason it was forced.
 - **Login, verification, or access prompt:** stop and let the owner complete it. Do not work around it by exporting browser data or opening another account.
