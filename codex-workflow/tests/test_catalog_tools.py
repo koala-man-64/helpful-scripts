@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import json
 import shutil
 import sys
@@ -13,19 +14,29 @@ from catalog_lib import load_document
 from render_consumer_lock import render
 from validate_catalog import validate
 
+
 class CatalogTests(unittest.TestCase):
     def test_catalog_and_five_routing_scenarios_are_valid(self) -> None:
         self.assertEqual(validate(ROOT), [])
-        scenarios = load_document(ROOT / "catalog" / "routing-scenarios.yaml")["scenarios"]
+        scenarios = load_document(ROOT / "catalog" / "routing-scenarios.yaml")[
+            "scenarios"
+        ]
         self.assertEqual(len(scenarios), 5)
         self.assertTrue(all(item["protected_gates"] == "human" for item in scenarios))
-        self.assertTrue(all(len(item["evidence_required"]) == len(set(item["evidence_required"])) for item in scenarios))
+        self.assertTrue(
+            all(
+                len(item["evidence_required"]) == len(set(item["evidence_required"]))
+                for item in scenarios
+            )
+        )
 
     def test_active_surface_and_central_force_push_denial(self) -> None:
         surface = load_document(ROOT / "catalog" / "active-surface.yaml")
         decisions = load_document(ROOT / "catalog" / "skill-decisions.yaml")
         self.assertEqual(len(surface["active_skill_ids"]), 10)
-        self.assertNotIn("strict-branch-and-merge-discipline", surface["active_skill_ids"])
+        self.assertNotIn(
+            "strict-branch-and-merge-discipline", surface["active_skill_ids"]
+        )
         self.assertIn("force_push", decisions["central_denials"])
 
     def test_invalid_lane_and_unknown_field_fail_closed(self) -> None:
@@ -36,7 +47,9 @@ class CatalogTests(unittest.TestCase):
             surface = load_document(surface_path)
             surface["lanes"]["lite"]["subagents_permitted"] = True
             surface_path.write_text(json.dumps(surface), encoding="utf-8")
-            self.assertTrue(any("lite lane invariant" in error for error in validate(root)))
+            self.assertTrue(
+                any("lite lane invariant" in error for error in validate(root))
+            )
             manifest_path = root / "catalog" / "skills.yaml"
             manifest = load_document(manifest_path)
             manifest["skills"][0]["unsupported"] = True
@@ -47,7 +60,8 @@ class CatalogTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             source = Path(temp) / "source"
             for path in (source / "one" / "same", source / "two" / "same"):
-                path.mkdir(parents=True); (path / "SKILL.md").write_text("x", encoding="utf-8")
+                path.mkdir(parents=True)
+                (path / "SKILL.md").write_text("x", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "collision"):
                 build_inventory(source)
         with self.assertRaisesRegex(ValueError, "unknown repository"):
@@ -56,4 +70,6 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(lock["unresolved_forks"])
         self.assertIn("force_push", lock["central_denials"])
 
-if __name__ == "__main__": unittest.main()
+
+if __name__ == "__main__":
+    unittest.main()
