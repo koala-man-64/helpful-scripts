@@ -21,8 +21,10 @@ dependencies = [
     # .env loading; existing repo precedent (discover_activity_to_adls.py).
     "python-dotenv>=1.2,<2",
     # Vector math for the local document index: brute-force cosine over per-collection
-    # .npz files; avoids a vector-DB service or a FAISS build. >=2.3.2 for Python 3.14 wheels.
-    "numpy>=2.3.2,<3",
+    # .npz files; avoids a vector-DB service or a FAISS build. NumPy 2.3 dropped
+    # Python 3.10, so keep that interpreter on the final compatible 2.2 line.
+    "numpy>=2.2,<2.3; python_version < '3.11'",
+    "numpy>=2.3.2,<3; python_version >= '3.11'",
     # PDF text extraction at document-upload time (chat attachments still reject PDFs by design).
     "pypdf>=5,<7",
     # .docx text extraction at document-upload time.
