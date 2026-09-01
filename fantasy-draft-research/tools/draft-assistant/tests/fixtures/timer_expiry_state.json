@@ -1,0 +1,22 @@
+{
+  "platform": "espn",
+  "adapter_version": "1",
+  "room_fingerprint": "room-fp:6666666666666666666666666666666666666666666666666666666666666666",
+  "phase": "pick_expired",
+  "your_turn": false,
+  "overall_pick": 42,
+  "current_team": "team-6",
+  "clock_seconds": 0,
+  "roster_count": 3,
+  "roster_player_ids": ["player-one", "player-two", "player-three"],
+  "unavailable_player_ids": ["player-one", "player-two", "player-three"],
+  "queue_player_ids": ["player-alpha", "player-bravo"],
+  "autodraft_off": false,
+  "captured_at": "2026-08-31T15:04:00Z",
+  "control_status": "timer_expired",
+  "authentication_challenge": false,
+  "modal_ambiguity": false,
+  "reconnecting": false,
+  "control_interrupted": true,
+  "rows": []
+}

@@ -1,0 +1,41 @@
+{
+  "platform": "espn",
+  "adapter_version": "1",
+  "room_fingerprint": "room-fp:3333333333333333333333333333333333333333333333333333333333333333",
+  "phase": "in_progress",
+  "your_turn": true,
+  "overall_pick": 18,
+  "current_team": "team-5",
+  "clock_seconds": 52,
+  "roster_count": 1,
+  "roster_player_ids": ["player-keeper"],
+  "unavailable_player_ids": ["player-keeper"],
+  "queue_player_ids": [],
+  "autodraft_off": true,
+  "captured_at": "2026-08-31T15:01:00Z",
+  "control_status": "ambiguous_player",
+  "authentication_challenge": false,
+  "modal_ambiguity": true,
+  "reconnecting": false,
+  "control_interrupted": true,
+  "rows": [
+    {
+      "player_id": null,
+      "name": "D. Johnson",
+      "nfl_team": "CLE",
+      "position": "WR",
+      "available": true,
+      "has_draft_control": false,
+      "ambiguous": true
+    },
+    {
+      "player_id": null,
+      "name": "D. Johnson",
+      "nfl_team": "TEN",
+      "position": "RB",
+      "available": true,
+      "has_draft_control": false,
+      "ambiguous": true
+    }
+  ]
+}

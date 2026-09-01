@@ -1,0 +1,32 @@
+{
+  "platform": "sleeper",
+  "adapter_version": "1",
+  "room_fingerprint": "room-fp:4444444444444444444444444444444444444444444444444444444444444444",
+  "phase": "in_progress",
+  "your_turn": true,
+  "overall_pick": 30,
+  "current_team": "team-6",
+  "clock_seconds": 35,
+  "roster_count": 2,
+  "roster_player_ids": ["player-keeper", "player-first"],
+  "unavailable_player_ids": ["player-keeper", "player-first"],
+  "queue_player_ids": ["player-alpha"],
+  "autodraft_off": true,
+  "captured_at": "2026-08-31T15:02:00Z",
+  "control_status": "missing_pick_control",
+  "authentication_challenge": false,
+  "modal_ambiguity": false,
+  "reconnecting": false,
+  "control_interrupted": true,
+  "rows": [
+    {
+      "player_id": "player-alpha",
+      "name": "Alpha Runner",
+      "nfl_team": "DET",
+      "position": "RB",
+      "available": true,
+      "has_draft_control": false,
+      "ambiguous": false
+    }
+  ]
+}

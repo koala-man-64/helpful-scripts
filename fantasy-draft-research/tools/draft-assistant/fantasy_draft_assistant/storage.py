@@ -81,14 +81,18 @@ class EventStore:
         return connection
 
     def _validate_schema(self) -> None:
+        connection: sqlite3.Connection | None = None
         try:
-            with self._connect() as connection:
-                columns = {
-                    row["name"]
-                    for row in connection.execute("PRAGMA table_info(draft_events)")
-                }
+            connection = self._connect()
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(draft_events)")
+            }
         except sqlite3.DatabaseError as exc:
             raise EventStoreError(f"cannot open event store {self.path}: {exc}") from exc
+        finally:
+            if connection is not None:
+                connection.close()
         required = {
             "sequence",
             "idempotency_key",
@@ -127,6 +131,20 @@ class EventStore:
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            # Validate the durable prefix while holding the write lock.  This
+            # makes transition validation and persistence one atomic operation:
+            # another writer cannot change the state between replay and insert.
+            durable_events = tuple(
+                self._row_to_event(row)
+                for row in connection.execute("SELECT * FROM draft_events ORDER BY sequence")
+            )
+            verify_event_chain(durable_events)
+
+            # Import locally so storage's hash-chain helpers remain usable
+            # without introducing a module import cycle.
+            from .reducer import replay as replay_events, reduce_event
+
+            current_state = replay_events(durable_events, DraftState())
             existing = connection.execute(
                 "SELECT * FROM draft_events WHERE idempotency_key = ?", (idempotency_key,)
             ).fetchone()
@@ -142,15 +160,31 @@ class EventStore:
             ).fetchone()
             sequence = 1 if last is None else int(last["sequence"]) + 1
             previous_hash = GENESIS_HASH if last is None else str(last["event_hash"])
+            canonical_payload = json.loads(payload_json)
             event_hash = compute_event_hash(
                 sequence=sequence,
                 idempotency_key=idempotency_key,
                 timestamp=event_timestamp,
                 version=version,
                 event_type=event_type,
-                payload=payload,
+                payload=canonical_payload,
                 previous_event_hash=previous_hash,
             )
+            candidate = DraftEvent(
+                sequence=sequence,
+                idempotency_key=idempotency_key,
+                timestamp=event_timestamp,
+                version=version,
+                event_type=event_type,
+                payload=canonical_payload,
+                previous_event_hash=previous_hash,
+                event_hash=event_hash,
+            )
+
+            # This is deliberately before INSERT.  InvalidEventError (or any
+            # future reducer validation error) rolls back an otherwise empty
+            # transaction, so malformed commands never enter the hash chain.
+            reduce_event(current_state, candidate)
             connection.execute(
                 """
                 INSERT INTO draft_events (
@@ -170,16 +204,7 @@ class EventStore:
                 ),
             )
             connection.execute("COMMIT")
-            return DraftEvent(
-                sequence=sequence,
-                idempotency_key=idempotency_key,
-                timestamp=event_timestamp,
-                version=version,
-                event_type=event_type,
-                payload=dict(payload),
-                previous_event_hash=previous_hash,
-                event_hash=event_hash,
-            )
+            return candidate
         except Exception:
             if connection.in_transaction:
                 connection.execute("ROLLBACK")
