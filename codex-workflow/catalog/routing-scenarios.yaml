@@ -1,0 +1,6 @@
+{"schema_version":"routing-scenarios-v1","scenarios":[
+{"name":"narrow local fix","lane":"lite","agents":1,"specialists":0,"protected_gates":"human","evidence":["source"]},
+{"name":"standard feature","lane":"standard","agents":1,"specialists":0,"protected_gates":"human","evidence":["source","ci","user_path"]},
+{"name":"cross-repo contract change","lane":"critical","agents":2,"specialists":1,"protected_gates":"human","evidence":["source","ci","release","deployment","runtime","user_path"]},
+{"name":"CI incident","lane":"critical","agents":2,"specialists":1,"protected_gates":"human","evidence":["source","ci","release","deployment","runtime","user_path"]},
+{"name":"production/IaC change","lane":"critical","agents":3,"specialists":2,"protected_gates":"human","evidence":["source","ci","release","deployment","runtime","user_path"]}]}
