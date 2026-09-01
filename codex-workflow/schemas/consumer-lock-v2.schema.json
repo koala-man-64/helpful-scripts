@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Consumer lock v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository",
+    "lane",
+    "available_skill_pins",
+    "task_participant_skill_ids",
+    "unresolved_forks",
+    "central_denials"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "consumer-lock-v2"
+    },
+    "repository": {
+      "type": "string"
+    },
+    "lane": {
+      "enum": [
+        "lite",
+        "standard",
+        "critical"
+      ]
+    },
+    "available_skill_pins": {
+      "type": "array"
+    },
+    "task_participant_skill_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "unresolved_forks": {
+      "type": "array"
+    },
+    "central_denials": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
+

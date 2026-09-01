@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Skill manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "inventory",
+    "skills"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "skill-manifest-v2"
+    },
+    "inventory": {
+      "const": "origin-inventory.yaml"
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "owner",
+          "source",
+          "content_hash",
+          "content_hash_algorithm",
+          "version",
+          "supported_repositories",
+          "risk_tier",
+          "external_state_behavior",
+          "conflicts",
+          "supersession",
+          "review_date",
+          "canonical_state",
+          "runnable"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "repository",
+              "path",
+              "commit"
+            ],
+            "properties": {
+              "repository": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "commit": {
+                "pattern": "^[0-9a-f]{40}$"
+              }
+            }
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "content_hash_algorithm": {
+            "enum": [
+              "git-tree-sha1",
+              "sha256"
+            ]
+          },
+          "version": {
+            "type": "string"
+          },
+          "supported_repositories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "risk_tier": {
+            "enum": [
+              "lite",
+              "standard",
+              "critical"
+            ]
+          },
+          "external_state_behavior": {
+            "enum": [
+              "advisory",
+              "read_only",
+              "mutation_requires_hook"
+            ]
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supersession": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "review_date": {
+            "type": "string"
+          },
+          "canonical_state": {
+            "enum": [
+              "verified_nondivergent",
+              "unresolved_fork"
+            ]
+          },
+          "runnable": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}
+
