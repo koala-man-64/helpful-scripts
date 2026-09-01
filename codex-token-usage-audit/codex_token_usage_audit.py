@@ -53,6 +53,30 @@ CREDIT_RATES: dict[str, tuple[float, float, float]] = {
     "gpt-5.6-luna": (5.0, 0.5, 30.0),
 }
 
+ROUTING_POLICY_VERSION = "builtin-v1"
+KNOWN_ROUTING_MODELS = {
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-5.3-codex-spark",
+}
+KNOWN_ROUTING_EFFORTS = {"low", "medium", "high", "xhigh", "max", "ultra"}
+CANONICAL_ROOT_ROUTES = {
+    ("gpt-5.6-luna", "low"),
+    ("gpt-5.6-terra", "medium"),
+    ("gpt-5.6-sol", "high"),
+}
+CANONICAL_SUBAGENT_ROUTES = {
+    ("gpt-5.6-luna", "low"),
+    ("gpt-5.6-terra", "medium"),
+}
+ROUTING_STATUSES = (
+    "canonical",
+    "explicit_exception",
+    "noncanonical",
+    "unknown",
+)
+
 DEFAULT_DIMENSIONS = (
     "thread",
     "model_effort",
@@ -237,6 +261,12 @@ class TurnRecord:
     estimated_credits: float | None
     source_file: str
     credits_enabled: bool = True
+
+
+@dataclass(frozen=True)
+class RouteAssessment:
+    status: str
+    reason: str
 
 
 @dataclass
@@ -1194,6 +1224,126 @@ def totals(records: Iterable[TurnRecord]) -> dict[str, Any]:
     return result
 
 
+def parse_routing_exception(value: str) -> tuple[str, str, str]:
+    match = re.fullmatch(
+        r"(root|subagent):([^@\s:]+)@([a-z0-9_-]+)", value.strip().lower()
+    )
+    if not match:
+        raise argparse.ArgumentTypeError(
+            "expected TYPE:MODEL@EFFORT, where TYPE is root or subagent"
+        )
+    thread_type, model, effort = match.groups()
+    if effort not in KNOWN_ROUTING_EFFORTS:
+        raise argparse.ArgumentTypeError(
+            "unknown routing-exception effort: " + effort
+        )
+    return thread_type, model, effort
+
+
+def assess_route(
+    record: TurnRecord,
+    exceptions: frozenset[tuple[str, str, str]] = frozenset(),
+) -> RouteAssessment:
+    thread_type = record.thread_type.lower()
+    model = record.model.strip().lower()
+    effort = record.reasoning_effort.strip().lower()
+    identity = (thread_type, model, effort)
+    if identity in exceptions:
+        return RouteAssessment(
+            "explicit_exception", "matched an explicit CLI routing exception"
+        )
+    if thread_type not in {"root", "subagent"}:
+        return RouteAssessment("unknown", "thread type is missing or unrecognized")
+    if not model or not effort:
+        return RouteAssessment("unknown", "model or reasoning effort is missing")
+    if model not in KNOWN_ROUTING_MODELS:
+        return RouteAssessment("unknown", "model is not in the routing policy snapshot")
+    if effort not in KNOWN_ROUTING_EFFORTS:
+        return RouteAssessment(
+            "unknown", "reasoning effort is not in the routing policy snapshot"
+        )
+
+    route = (model, effort)
+    allowed = (
+        CANONICAL_ROOT_ROUTES
+        if thread_type == "root"
+        else CANONICAL_SUBAGENT_ROUTES
+    )
+    if route in allowed:
+        return RouteAssessment("canonical", "matches the canonical route")
+    if thread_type == "subagent" and model == "gpt-5.6-sol":
+        reason = "Sol is not permitted as a subagent"
+    elif model == "gpt-5.3-codex-spark":
+        reason = f"Spark has no canonical {thread_type} route"
+    else:
+        expected = sorted(
+            expected_effort
+            for expected_model, expected_effort in allowed
+            if expected_model == model
+        )
+        reason = (
+            f"{model} requires {expected[0]} effort for {thread_type} work"
+            if expected
+            else f"{model} is not permitted for {thread_type} work"
+        )
+    return RouteAssessment("noncanonical", reason)
+
+
+def build_routing_adherence(
+    records: Sequence[TurnRecord],
+    exceptions: frozenset[tuple[str, str, str]] = frozenset(),
+) -> dict[str, Any]:
+    assessments = {id(record): assess_route(record, exceptions) for record in records}
+    by_status = aggregate(records, lambda record: assessments[id(record)].status)
+    by_thread_status = aggregate(
+        records,
+        lambda record: f"{record.thread_type} / {assessments[id(record)].status}",
+    )
+    issues = aggregate(
+        (
+            record
+            for record in records
+            if assessments[id(record)].status in {"noncanonical", "unknown"}
+        ),
+        lambda record: (
+            f"{record.thread_type} / "
+            f"{record.model or '?'} @ {record.reasoning_effort or '?'} / "
+            f"{assessments[id(record)].status}: {assessments[id(record)].reason}"
+        ),
+    )
+    return {
+        "policy_version": ROUTING_POLICY_VERSION,
+        "scope": (
+            "model, reasoning effort, and thread type only; task-to-lane fit "
+            "is not inferred"
+        ),
+        "canonical_root_routes": [
+            {"model": model, "effort": effort}
+            for model, effort in sorted(CANONICAL_ROOT_ROUTES)
+        ],
+        "canonical_subagent_routes": [
+            {"model": model, "effort": effort}
+            for model, effort in sorted(CANONICAL_SUBAGENT_ROUTES)
+        ],
+        "explicit_exceptions": [
+            {"thread_type": thread_type, "model": model, "effort": effort}
+            for thread_type, model, effort in sorted(exceptions)
+        ],
+        "by_status": [
+            {"status": status, **by_status.get(status, empty_metrics())}
+            for status in ROUTING_STATUSES
+        ],
+        "by_thread_status": [
+            {"key": key, **metrics}
+            for key, metrics in _sorted_rows("routing", by_thread_status)
+        ],
+        "issues": [
+            {"key": key, **metrics}
+            for key, metrics in _sorted_rows("routing", issues)
+        ],
+    }
+
+
 def _sorted_rows(dimension: str, rows: Mapping[str, dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
     if dimension == "day":
         return sorted(rows.items(), key=lambda item: item[0], reverse=True)
@@ -1207,6 +1357,7 @@ def build_report(
     stats: ScanStats,
     warnings: Sequence[str],
     filters: Mapping[str, Any],
+    routing_exceptions: frozenset[tuple[str, str, str]] = frozenset(),
 ) -> dict[str, Any]:
     breakdowns: dict[str, list[dict[str, Any]]] = {}
     for dimension in dimensions:
@@ -1222,6 +1373,7 @@ def build_report(
         "filters": dict(filters),
         "scan": asdict(stats),
         "totals": totals(records),
+        "routing_adherence": build_routing_adherence(records, routing_exceptions),
         "breakdowns": breakdowns,
         "pricing": {
             "unit": "estimated standard Codex credits per 1M tokens",
@@ -1310,6 +1462,7 @@ def print_report(
     top: int,
     include_credits: bool,
     output: TextIO,
+    routing_exceptions: frozenset[tuple[str, str, str]] = frozenset(),
 ) -> None:
     summary = totals(records)
     days = sorted({record.day for record in records if record.day})
@@ -1347,6 +1500,24 @@ def print_report(
         f"copied turns {stats.copied_turns_deduplicated}",
         file=output,
     )
+
+    adherence = build_routing_adherence(records, routing_exceptions)
+    print("\n== routing adherence ==", file=output)
+    for row in adherence["by_status"]:
+        print(
+            f"  {row['status']:<18} {row['turns']:>5} turns "
+            f"{row['model_calls']:>6} calls "
+            f"{format_number(row['total_tokens'], raw):>9} total",
+            file=output,
+        )
+    if adherence["issues"]:
+        print("  issues:", file=output)
+        for row in adherence["issues"][:top]:
+            print(
+                f"    {row['key']} - {row['turns']} turns, "
+                f"{format_number(row['total_tokens'], raw)} total",
+                file=output,
+            )
 
     for dimension in dimensions:
         print_table(
@@ -1473,6 +1644,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--no-credits", action="store_true", help="suppress rate-card credit estimates")
     parser.add_argument("--strict", action="store_true", help="return exit 2 when scan warnings occur")
+    parser.add_argument(
+        "--routing-exception",
+        action="append",
+        default=[],
+        type=parse_routing_exception,
+        metavar="TYPE:MODEL@EFFORT",
+        help=(
+            "classify one exact root/subagent model-effort route as an explicit "
+            "exception; repeatable"
+        ),
+    )
     parser.add_argument("--csv", metavar="PATH", help="write normalized turn rows; use - for stdout")
     parser.add_argument("--json", metavar="PATH", help="write full snapshot; use - for stdout")
     return parser
@@ -1508,6 +1690,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Codex data root does not exist: {codex_home}", file=sys.stderr)
         return 2
     dimensions = _dimensions(args.by, parser)
+    routing_exceptions = frozenset(args.routing_exception)
     warnings: list[str] = []
     stats = ScanStats()
 
@@ -1589,6 +1772,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "active_only": args.active_only,
         "titles_included": args.include_titles,
         "paths_included": args.include_paths,
+        "routing_exceptions": [
+            f"{thread_type}:{model}@{effort}"
+            for thread_type, model, effort in sorted(routing_exceptions)
+        ],
     }
     output_warnings = (
         warnings
@@ -1604,7 +1791,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         ]
     )
     report_home: Path | str = codex_home if args.include_paths else "<redacted>"
-    report = build_report(selected, dimensions, report_home, stats, output_warnings, filters)
+    report = build_report(
+        selected,
+        dimensions,
+        report_home,
+        stats,
+        output_warnings,
+        filters,
+        routing_exceptions,
+    )
     machine_stdout = args.csv == "-" or args.json == "-"
 
     if not machine_stdout:
@@ -1617,6 +1812,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.top,
                 include_credits=not args.no_credits,
                 output=sys.stdout,
+                routing_exceptions=routing_exceptions,
             )
         else:
             print("no Codex token usage records matched", file=sys.stdout)

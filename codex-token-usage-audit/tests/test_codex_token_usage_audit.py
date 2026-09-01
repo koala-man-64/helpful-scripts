@@ -146,6 +146,155 @@ def root_entries() -> list[dict[str, object] | str]:
     ]
 
 
+def route_record(
+    model: str,
+    effort: str,
+    *,
+    thread_type: str = "root",
+    turn_id: str = "turn-route",
+) -> audit.TurnRecord:
+    thread_id = ROOT_ID if thread_type == "root" else CHILD_ID
+    return audit.TurnRecord(
+        timestamp="2026-08-23T10:00:00Z",
+        day="2026-08-23",
+        root_thread_id=ROOT_ID,
+        root_title="",
+        thread_id=thread_id,
+        parent_thread_id="" if thread_type == "root" else ROOT_ID,
+        depth=0 if thread_type == "root" else 1,
+        thread_type=thread_type,
+        agent_path="" if thread_type == "root" else "/root/qa",
+        agent_nickname="",
+        agent_role="",
+        turn_id=turn_id,
+        turn_index=1,
+        model_calls=2,
+        model=model,
+        reasoning_effort=effort,
+        client_source="vscode",
+        originator="Codex Desktop",
+        cli_version="0.test",
+        project="helpful-scripts",
+        cwd="",
+        archived=False,
+        input_tokens=100,
+        cached_input_tokens=80,
+        fresh_input_tokens=20,
+        cache_write_input_tokens=0,
+        output_tokens=10,
+        reasoning_output_tokens=4,
+        visible_output_tokens=6,
+        total_tokens=110,
+        estimated_credits=0.01,
+        source_file="",
+    )
+
+
+class RoutingAdherenceTests(unittest.TestCase):
+    def test_builtin_policy_matches_canonical_workflow_catalog(self) -> None:
+        workflow_root = SCRIPT_DIR.parent / "codex-workflow" / "catalog"
+        surface = json.loads(
+            (workflow_root / "active-surface.yaml").read_text(encoding="utf-8")
+        )
+        scenarios = json.loads(
+            (workflow_root / "routing-scenarios.yaml").read_text(encoding="utf-8")
+        )
+        root_routes = {
+            (
+                lane["primary_route"]["model"].lower(),
+                lane["primary_route"]["effort"],
+            )
+            for lane in surface["lanes"].values()
+        }
+        child_routes = {
+            (route["model"].lower(), route["effort"])
+            for scenario in scenarios["scenarios"]
+            for route in scenario["child_routes"]
+        }
+
+        self.assertEqual(
+            {
+                (model.removeprefix("gpt-5.6-"), effort)
+                for model, effort in audit.CANONICAL_ROOT_ROUTES
+            },
+            root_routes,
+        )
+        self.assertEqual(
+            {
+                (model.removeprefix("gpt-5.6-"), effort)
+                for model, effort in audit.CANONICAL_SUBAGENT_ROUTES
+            },
+            child_routes,
+        )
+
+    def test_root_routes_cover_canonical_noncanonical_unknown_and_exception(self) -> None:
+        canonical = route_record("gpt-5.6-terra", "medium", turn_id="canonical")
+        noncanonical = route_record("gpt-5.6-terra", "max", turn_id="noncanonical")
+        unknown = route_record("future-model", "medium", turn_id="unknown")
+        spark = route_record("gpt-5.3-codex-spark", "medium", turn_id="spark")
+        exception = frozenset(
+            {("root", "gpt-5.3-codex-spark", "medium")}
+        )
+
+        report = audit.build_routing_adherence(
+            [canonical, noncanonical, unknown, spark], exception
+        )
+        counts = {row["status"]: row["turns"] for row in report["by_status"]}
+
+        self.assertEqual(
+            {
+                "canonical": 1,
+                "explicit_exception": 1,
+                "noncanonical": 1,
+                "unknown": 1,
+            },
+            counts,
+        )
+        self.assertEqual(2, len(report["issues"]))
+        self.assertEqual(
+            [{
+                "thread_type": "root",
+                "model": "gpt-5.3-codex-spark",
+                "effort": "medium",
+            }],
+            report["explicit_exceptions"],
+        )
+
+    def test_subagent_routes_reject_sol_and_spark(self) -> None:
+        luna = route_record(
+            "gpt-5.6-luna", "low", thread_type="subagent", turn_id="luna"
+        )
+        sol = route_record(
+            "gpt-5.6-sol", "high", thread_type="subagent", turn_id="sol"
+        )
+        spark = route_record(
+            "gpt-5.3-codex-spark",
+            "medium",
+            thread_type="subagent",
+            turn_id="spark",
+        )
+
+        report = audit.build_routing_adherence([luna, sol, spark])
+        counts = {row["status"]: row["turns"] for row in report["by_status"]}
+        issue_keys = "\n".join(row["key"] for row in report["issues"])
+
+        self.assertEqual(1, counts["canonical"])
+        self.assertEqual(2, counts["noncanonical"])
+        self.assertIn("Sol is not permitted as a subagent", issue_keys)
+        self.assertIn("Spark has no canonical subagent route", issue_keys)
+
+    def test_routing_exception_parser_is_strict(self) -> None:
+        self.assertEqual(
+            ("root", "gpt-5.3-codex-spark", "medium"),
+            audit.parse_routing_exception("root:gpt-5.3-codex-spark@medium"),
+        )
+        for value in ("spark@medium", "worker:spark@medium", "root:spark@warp"):
+            with self.subTest(value=value), self.assertRaises(
+                audit.argparse.ArgumentTypeError
+            ):
+                audit.parse_routing_exception(value)
+
+
 class ParserTests(unittest.TestCase):
     def test_cumulative_snapshots_produce_one_exact_delta_per_turn(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -593,6 +742,16 @@ class StateAndCliTests(unittest.TestCase):
         self.assertEqual(350, report["totals"]["total_tokens"])
         self.assertEqual(2, len(report["records"]))
         self.assertIn("model_effort", report["breakdowns"])
+        self.assertIn(
+            "task-to-lane fit is not inferred",
+            report["routing_adherence"]["scope"],
+        )
+        adherence = {
+            row["status"]: row["turns"]
+            for row in report["routing_adherence"]["by_status"]
+        }
+        self.assertEqual(1, adherence["canonical"])
+        self.assertEqual(1, adherence["noncanonical"])
         self.assertEqual("<redacted>", report["codex_home"])
         self.assertTrue(all(not record["cwd"] for record in report["records"]))
         self.assertTrue(all(not record["source_file"] for record in report["records"]))
