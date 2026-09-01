@@ -139,11 +139,11 @@ def validate(
             continue
         if strict_origin:
             result = subprocess.run(
-                ["git", "-C", str(checkout), "rev-parse", "origin/main"],
+                ["git", "-C", str(checkout), "merge-base", "--is-ancestor", item["origin_sha"], "origin/main"],
                 capture_output=True, check=False, text=True,
             )
-            if result.returncode or result.stdout.strip() != item["origin_sha"]:
-                errors.append(f"{item['id']}: fetched origin/main does not match inventory")
+            if result.returncode:
+                errors.append(f"{item['id']}: inventory origin SHA is not reachable from fetched origin/main")
         result = subprocess.run(
             ["git", "-C", str(checkout), "cat-file", "-e", f"{item['origin_sha']}:{item['skill_root']}"],
             capture_output=True, check=False, text=True,
@@ -185,10 +185,12 @@ def validate(
             continue
         ids.append(item.get("id"))
         source = item.get("source")
+        if not isinstance(source, dict):
+            errors.append(f"{item.get('id', 'unknown')}: source must be an object")
+            continue
         if (
             not isinstance(item.get("id"), str)
             or not ID.fullmatch(item["id"])
-            or not isinstance(source, dict)
             or set(source) != {"repository", "path", "commit"}
             or not isinstance(source.get("path"), str)
             or not isinstance(source.get("commit"), str)
@@ -439,8 +441,18 @@ def validate(
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path)
+    parser.add_argument("--repo", action="append", default=[], metavar="ID=PATH")
+    parser.add_argument("--strict-origin", action="store_true")
     args = parser.parse_args()
-    errors = validate(args.root)
+    roots = {}
+    for item in args.repo:
+        if "=" not in item:
+            parser.error(f"--repo must use ID=PATH: {item}")
+        name, value = item.split("=", 1)
+        if name not in REPOSITORIES or not value:
+            parser.error(f"--repo has unknown ID or empty path: {item}")
+        roots[name] = Path(value)
+    errors = validate(args.root, roots or None, args.strict_origin)
     if errors:
         print("Catalog validation failed:\n" + "\n".join("- " + x for x in errors))
         return 1
