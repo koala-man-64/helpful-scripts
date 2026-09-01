@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fantasy Football Roster Review — 2026-09-01</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #edf6f2;
+      --muted: #a9bbb5;
+      --page: #07100e;
+      --panel: #0d1916;
+      --panel-2: #12221d;
+      --line: #294039;
+      --green: #75e3aa;
+      --gold: #f4ce70;
+      --orange: #ff9f68;
+      --red: #ff7b78;
+      --blue: #87c9ff;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 88% 5%, rgba(117, 227, 170, .12), transparent 28rem),
+        linear-gradient(180deg, #081411 0, var(--page) 38rem);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+    a { color: var(--blue); }
+    main { width: min(1480px, calc(100% - 32px)); margin: 0 auto; padding: 44px 0 72px; }
+    .eyebrow { color: var(--green); text-transform: uppercase; letter-spacing: .16em; font-size: .76rem; font-weight: 800; }
+    h1 { max-width: 900px; margin: 10px 0 12px; font-size: clamp(2.2rem, 5vw, 4.8rem); line-height: .98; letter-spacing: -.055em; }
+    h2 { margin: 0 0 14px; font-size: clamp(1.35rem, 2vw, 2rem); letter-spacing: -.025em; }
+    h3 { margin: 0; font-size: 1.05rem; }
+    p { margin: 0; }
+    .lede { max-width: 850px; color: var(--muted); font-size: 1.08rem; }
+    .stamp { display: inline-flex; gap: 8px; margin-top: 18px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: .82rem; }
+    .grid { display: grid; gap: 14px; }
+    .summary { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 34px 0 18px; }
+    .card { border: 1px solid var(--line); border-radius: 18px; background: rgba(13, 25, 22, .9); box-shadow: 0 18px 45px rgba(0,0,0,.18); }
+    .metric { padding: 18px; }
+    .metric .value { margin: 7px 0 4px; font-size: 1.55rem; font-weight: 850; letter-spacing: -.03em; }
+    .metric .label, .note, .small { color: var(--muted); font-size: .86rem; }
+    .metric.good { border-color: #2f654d; }
+    .metric.warn { border-color: #725d2d; }
+    .metric.risk { border-color: #71413a; }
+    .verdict { display: grid; grid-template-columns: 1.15fr .85fr; gap: 14px; margin-bottom: 34px; }
+    .verdict > article { padding: 22px; }
+    .callout { border-left: 4px solid var(--green); }
+    .callout.risk { border-left-color: var(--orange); }
+    ul { margin: 10px 0 0; padding-left: 20px; }
+    li + li { margin-top: 6px; }
+    section { margin-top: 38px; }
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 12px; }
+    .section-head p { max-width: 760px; color: var(--muted); font-size: .9rem; }
+    .table-shell { overflow: auto; border: 1px solid var(--line); border-radius: 18px; background: rgba(9, 18, 15, .96); }
+    table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    th, td { padding: 11px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid rgba(41, 64, 57, .72); }
+    th { position: sticky; top: 0; z-index: 1; background: #13241f; color: #dff5ec; white-space: nowrap; font-size: .74rem; text-transform: uppercase; letter-spacing: .055em; }
+    tbody tr:hover { background: rgba(117, 227, 170, .045); }
+    tbody tr:last-child td { border-bottom: 0; }
+    .player { min-width: 150px; font-weight: 800; }
+    .sub { display: block; color: var(--muted); font-size: .73rem; font-weight: 500; margin-top: 2px; }
+    .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .tag { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: .7rem; font-weight: 800; letter-spacing: .02em; white-space: nowrap; }
+    .core { color: #08130f; background: var(--green); }
+    .start { color: #07131a; background: var(--blue); }
+    .hold { color: #1b1404; background: var(--gold); }
+    .watch { color: #1d0d05; background: var(--orange); }
+    .stream { color: #f1f3f2; background: #53635e; }
+    .q { color: var(--gold); font-weight: 800; }
+    .low { color: var(--orange); }
+    .good-text { color: var(--green); }
+    .tool-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .tool { padding: 18px; }
+    .tool .state { margin: 10px 0 7px; color: var(--green); font-weight: 800; }
+    .tool .state.limited { color: var(--gold); }
+    .tool .state.blocked { color: var(--red); }
+    .player-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .player-card { padding: 18px; }
+    .player-card header { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 9px; }
+    .player-card dl { display: grid; grid-template-columns: 130px 1fr; gap: 5px 12px; margin: 12px 0 0; font-size: .82rem; }
+    dt { color: var(--muted); }
+    dd { margin: 0; }
+    .sources { columns: 2; column-gap: 36px; }
+    .sources li { break-inside: avoid; }
+    footer { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; }
+
+    @media (max-width: 980px) {
+      .summary, .tool-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .verdict, .player-grid { grid-template-columns: 1fr; }
+      .sources { columns: 1; }
+    }
+    @media (max-width: 560px) {
+      main { width: min(100% - 20px, 1480px); padding-top: 24px; }
+      .summary, .tool-grid { grid-template-columns: 1fr; }
+      .player-card dl { grid-template-columns: 1fr; }
+      dd { margin-bottom: 5px; }
+    }
+    @media print {
+      :root { color-scheme: light; }
+      body { background: #fff; color: #111; }
+      main { width: 100%; padding: 0; }
+      .card, .table-shell { background: #fff; color: #111; box-shadow: none; border-color: #bbb; }
+      th { position: static; background: #eee; color: #111; }
+      .note, .small, .lede, .section-head p, dt, .sub, footer { color: #444; }
+      a { color: #124f80; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Eight-team Yahoo · Non-PPR · Week 1 preseason review</div>
+    <h1>Roster strength is real.<br>Bench efficiency is the lever.</h1>
+    <p class="lede">A player-by-player review of the live 16-slot Yahoo roster against every configured research surface: Yahoo, DraftKick, Sleeper, FFToday, Boris Chen, NBC/Rotoworld, Reddit, and the local Draft Assistant.</p>
+    <div class="stamp">Evidence refreshed 2026-09-01 · No roster moves made</div>
+  </header>
+
+  <div class="grid summary">
+    <article class="card metric good"><div class="label">Consensus anchor</div><div class="value">Jahmyr Gibbs</div><div class="note">No. 1 overall at FFToday, Boris Chen, DraftKick, and NBC.</div></article>
+    <article class="card metric good"><div class="label">Starting core</div><div class="value">QB + 4 WR</div><div class="note">Hurts plus Collins, London, Flowers, and Waddle is the roster's edge.</div></article>
+    <article class="card metric warn"><div class="label">Immediate monitors</div><div class="value">3 questionables</div><div class="note">Flowers, LaPorta, and Henderson are flagged by Yahoo; Sleeper confirms the same three.</div></article>
+    <article class="card metric risk"><div class="label">Decision zone</div><div class="value">Bench RB/WR</div><div class="note">Wilson, Mason, and Harvey carry the weakest multi-source value signals.</div></article>
+  </div>
+
+  <div class="verdict">
+    <article class="card callout">
+      <h2>Bottom line</h2>
+      <ul>
+        <li><strong>Do not dismantle the core.</strong> Gibbs is the market's clear RB1, while Collins and London are top-20 everywhere. Flowers and Waddle preserve three-WR/flex depth.</li>
+        <li><strong>Keep both tight ends for now.</strong> LaPorta has the better season rank but is returning from a hip flare-up; Andrews is healthy, on Baltimore's first team, and had the only meaningful 24-hour Sleeper add spike on this roster.</li>
+        <li><strong>The weakest roster spots are not automatic drops.</strong> Michael Wilson, Jordan Mason, and RJ Harvey sit outside the top 90 on most boards, but each is a role/upside bench asset. Compare them with the live Yahoo free-agent pool before cutting anyone.</li>
+        <li><strong>Stream special teams if matchup quality changes.</strong> Seattle and Cam Little are strongly rostered on Yahoo, but top-200 boards treat DST/K as replaceable endgame positions.</li>
+      </ul>
+    </article>
+    <article class="card callout risk">
+      <h2>Week 1 controls</h2>
+      <ul>
+        <li>Recheck official practice status for Flowers, LaPorta, and Henderson after final injury reports.</li>
+        <li>If LaPorta is limited or inactive, Andrews is the clean in-roster replacement.</li>
+        <li>Do not use Reddit sentiment to override an official designation or Yahoo availability.</li>
+        <li>Do not claim an optimizer result: the local Draft Assistant has no current frozen player board or runtime.</li>
+      </ul>
+    </article>
+  </div>
+
+  <section>
+    <div class="section-head">
+      <div><div class="eyebrow">Cross-source matrix</div><h2>Every roster slot, every configured tool</h2></div>
+      <p>Ranks are overall preseason ranks. DraftKick is its live unsigned default model, not the exact Yahoo league. “—” means the source does not provide a comparable rank—not that the player is worthless.</p>
+    </div>
+    <div class="table-shell">
+      <table>
+        <thead><tr><th>Player / live slot</th><th>Action</th><th>Yahoo live</th><th>DraftKick</th><th>Sleeper API</th><th>FFToday NPPR</th><th>Boris std.</th><th>NBC Top 200</th><th>Reddit fallback</th><th>Local CLI</th></tr></thead>
+        <tbody>
+          <tr><td class="player">Jalen Hurts<span class="sub">QB · PHI · starter</span></td><td><span class="tag core">LOCK</span></td><td class="num">305.06 · 91% start</td><td class="num">#48 · 298 pts · VORP 29</td><td>Active · no trend</td><td class="num">#65 · QB4</td><td class="num">#55 · tier 8</td><td class="num">#80 · QB6</td><td>No actionable alert</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">Jahmyr Gibbs<span class="sub">RB · DET · starter</span></td><td><span class="tag core">LOCK</span></td><td class="num">291.90 · 99% start</td><td class="num">#1 · 309 pts · VORP 164</td><td>Active · no trend</td><td class="num">#1 · RB1</td><td class="num">#1 · tier 1</td><td class="num">#1 · RB1</td><td>Consensus-core chatter only</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">Cam Skattebo<span class="sub">RB · NYG · starter</span></td><td><span class="tag start">START</span></td><td class="num">103.70 · 89% start</td><td class="num">#36 · 193 pts · VORP 48</td><td>Active · no trend</td><td class="num">#30 · RB17</td><td class="num">#53 · tier 8</td><td class="num">#42 · RB20</td><td>Bullish volume chatter; low authority</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">Nico Collins<span class="sub">WR · HOU · starter</span></td><td><span class="tag core">LOCK</span></td><td class="num">155.20 · 98% start</td><td class="num">#30 · 202 pts · VORP 58</td><td>Active · no trend</td><td class="num">#19 · WR8</td><td class="num">#14 · tier 3</td><td class="num">#15 · WR8</td><td>No actionable alert</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">Drake London<span class="sub">WR · ATL · starter</span></td><td><span class="tag core">LOCK</span></td><td class="num">135.90 · 98% start</td><td class="num">#15 · 225 pts · VORP 81</td><td>Active · no trend</td><td class="num">#12 · WR5</td><td class="num">#15 · tier 3</td><td class="num">#14 · WR7</td><td>No actionable alert</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">Zay Flowers<span class="sub">WR · BAL · starter</span></td><td><span class="tag start">START / MONITOR</span></td><td class="num"><span class="q">Q</span> · 157.30 · 94% start</td><td class="num">#32 · 199 pts · VORP 55 · injury flag</td><td><span class="q">Q · undisclosed</span></td><td class="num">#31 · WR12</td><td class="num">#31 · tier 5</td><td class="num">#37 · WR16</td><td>Quad return was positive; weekly volatility debated</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">Jaylen Waddle<span class="sub">WR · DEN · flex</span></td><td><span class="tag start">START</span></td><td class="num">130.12 · 90% start</td><td class="num">#50 · 174 pts · VORP 29</td><td>Active · no trend</td><td class="num">#54 · WR26</td><td class="num">#41 · tier 6</td><td class="num">#43 · WR19</td><td>Positive Denver-volume sentiment</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">Sam LaPorta<span class="sub">TE · DET · starter</span></td><td><span class="tag start">START / MONITOR</span></td><td class="num"><span class="q">Q</span> · 66.90 · 85% start</td><td class="num">#68 · 140 pts · VORP 17 · injury flag</td><td><span class="q">Q · hip</span></td><td class="num">#93 · TE7</td><td class="num">#79 · tier 11</td><td class="num">#88 · TE7</td><td>Hip concern; official return to team drills is reassuring</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">TreVeyon Henderson<span class="sub">RB · NE · bench</span></td><td><span class="tag hold">HOLD / MONITOR</span></td><td class="num"><span class="q">Q</span> · 171.20 · 41% start</td><td class="num">#74 · 159 pts · VORP 15 · injury flag</td><td><span class="q">Q · leg</span></td><td class="num">#61 · RB27</td><td class="num">#67 · tier 10</td><td class="num">#52 · RB25</td><td>Role/pass-protection skepticism vs. Stevenson</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">Tony Pollard<span class="sub">RB · TEN · bench</span></td><td><span class="tag hold">HOLD</span></td><td class="num">154.80 · 26% start</td><td class="num">#80 · 151 pts · VORP 7</td><td>Active · no trend</td><td class="num">#56 · RB24</td><td class="num">#75 · tier 11</td><td class="num">#74 · RB30</td><td>Bullish at-cost chatter; no hard news</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">Michael Wilson<span class="sub">WR · ARI · bench</span></td><td><span class="tag watch">BENCH / SHOP</span></td><td class="num">144.60 · 12% start</td><td class="num low">#132 · 134 pts · VORP −11</td><td>Active · no trend</td><td class="num">#100 · WR44</td><td class="num">#98 · tier 13</td><td class="num">#84 · WR37</td><td>Positive at-cost takes; Cardinals skepticism also present</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">Jordan Mason<span class="sub">RB · MIN · bench</span></td><td><span class="tag watch">BENCH / SHOP</span></td><td class="num">114.90 · 8% start</td><td class="num low">#138 · 133 pts · VORP −12</td><td>Active · no trend</td><td class="num">#112 · RB36</td><td class="num">#93 · tier 13</td><td class="num">#109 · RB41</td><td>Speculative RB1 chatter; not verified</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">RJ Harvey<span class="sub">RB · DEN · bench</span></td><td><span class="tag watch">BENCH / SHOP</span></td><td class="num">159.60 · 11% start</td><td class="num low">#107 · 142 pts · VORP −2</td><td>Active · no trend</td><td class="num">#121 · RB39</td><td class="num">#107 · tier 15</td><td class="num">#79 · RB34</td><td>No strong signal; official depth chart lists Dobbins first</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">Mark Andrews<span class="sub">TE · BAL · bench</span></td><td><span class="tag hold">HOLD</span></td><td class="num">83.00 · 32% start</td><td class="num">#78 · 134 pts · VORP 10</td><td class="good-text">Active · 11,997 adds / 24h</td><td class="num">#99 · TE8</td><td class="num">#117 · tier 16</td><td class="num">#125 · TE12</td><td>No qualifying fresh Reddit signal</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">Cam Little<span class="sub">K · JAX · starter</span></td><td><span class="tag stream">HOLD / STREAM</span></td><td class="num">159.00 · 92% start</td><td class="num low">#139 · 136 pts · VORP −12</td><td>Active · no trend</td><td class="num">#224 · K11</td><td class="num">#196 · tier 24</td><td>Not in Top 200</td><td>No qualifying signal</td><td>Unavailable: no frozen board</td></tr>
+          <tr><td class="player">Seattle Seahawks<span class="sub">DEF · starter</span></td><td><span class="tag stream">HOLD / STREAM</span></td><td class="num">173.00 · 93% start</td><td class="num">#100 · 115 pts · VORP 0</td><td>Team DST has no player trend row</td><td class="num">#188 · DST3</td><td class="num">#168 · tier 21</td><td>Not in Top 200</td><td>No qualifying signal</td><td>Unavailable: no frozen board</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><div><div class="eyebrow">Tool audit</div><h2>What each surface can actually prove</h2></div><p>The tools have different semantics. Their numbers should not be averaged into a fake consensus score.</p></div>
+    <div class="grid tool-grid">
+      <article class="card tool"><h3>Yahoo Fantasy</h3><div class="state">Live authority</div><p class="small">Confirmed the current roster, lineup slots, projected season points, roster/start rates, matchups, and visible injury designations. It is the only source here that proves this team's current roster state.</p></article>
+      <article class="card tool"><h3>DraftKick</h3><div class="state limited">Live, but default model</div><p class="small">All 16 roster entries were found in the public app. Rank, projections, and VORP are useful directional checks, but the unsigned session was a ten-team default—not this eight-team custom non-PPR league.</p></article>
+      <article class="card tool"><h3>Sleeper API</h3><div class="state">Live metadata</div><p class="small">Confirmed identity, NFL team, active status, and the three questionable designations. Its 24-hour trend is activity, not quality; Andrews' add spike is a market-interest signal only.</p></article>
+      <article class="card tool"><h3>FFToday</h3><div class="state">Best scoring match</div><p class="small">The non-PPR Top 225 was updated August 30. It best matches reception scoring, but assumes a 12-team, 18-round environment and does not encode Yahoo's bonuses or eight-team replacement level.</p></article>
+      <article class="card tool"><h3>Boris Chen</h3><div class="state limited">Useful, stale by design</div><p class="small">The standard Top 200 covers every player plus K/DST and exposes tier/rank dispersion. The artifact was last modified August 28; it is consensus clustering, not a projection model.</p></article>
+      <article class="card tool"><h3>NBC / Rotoworld</h3><div class="state limited">PPR fallback</div><p class="small">The August 26 Top 200 supports a broad value cross-check. It is PPR-oriented and excludes Cam Little and Seattle from its overall 200, so it cannot be copied directly into this league.</p></article>
+      <article class="card tool"><h3>Reddit</h3><div class="state limited">Discovery only</div><p class="small">Scoped searches surfaced injury/role debates and crowd sentiment. These are labeled as low-authority context and were not used to override official team information or structured ranks.</p></article>
+      <article class="card tool"><h3>Local Draft Assistant</h3><div class="state blocked">Not executable</div><p class="small">The CLI is installed in source, but no current frozen league/player board or runtime exists. Inventing inputs would defeat its deterministic safety model, so this report records the gap instead of claiming a score.</p></article>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><div><div class="eyebrow">Individual readouts</div><h2>Roster decisions in plain English</h2></div></div>
+    <div class="grid player-grid">
+      <article class="card player-card"><header><h3>Jahmyr Gibbs</h3><span class="tag core">LOCK</span></header><p class="small">Unanimous No. 1 overall across four independent value surfaces. No roster action is justified.</p><dl><dt>Best evidence</dt><dd>FFToday #1; Boris #1/tier 1; DraftKick #1; NBC #1.</dd><dt>Main risk</dt><dd>Normal running-back injury exposure, not a current signal.</dd></dl></article>
+      <article class="card player-card"><header><h3>Jalen Hurts</h3><span class="tag core">LOCK</span></header><p class="small">Elite one-QB starter. Overall ranks look lower only because quarterback replacement value is high in one-QB formats.</p><dl><dt>Best evidence</dt><dd>Yahoo 305.06 projected points and 91% start rate.</dd><dt>Main risk</dt><dd>No current injury or role warning.</dd></dl></article>
+      <article class="card player-card"><header><h3>Nico Collins</h3><span class="tag core">LOCK</span></header><p class="small">Top-15 on Boris/NBC and top-20 FFToday. A true WR1 in this three-WR league.</p><dl><dt>Best evidence</dt><dd>Boris #14, NBC #15, FFToday #19.</dd><dt>Main risk</dt><dd>No current tool-level alert.</dd></dl></article>
+      <article class="card player-card"><header><h3>Drake London</h3><span class="tag core">LOCK</span></header><p class="small">The most consistently ranked receiver on the roster after Gibbs: 12th–15th overall across major boards.</p><dl><dt>Best evidence</dt><dd>FFToday #12, NBC #14, Boris/DraftKick #15.</dd><dt>Main risk</dt><dd>No current tool-level alert.</dd></dl></article>
+      <article class="card player-card"><header><h3>Zay Flowers</h3><span class="tag start">START / MONITOR</span></header><p class="small">Solid WR2 value with a visible questionable tag. The earlier quad issue improved enough for a practice return, but confirm the final report.</p><dl><dt>Best evidence</dt><dd>Ranks 31–37 across all structured boards.</dd><dt>Main risk</dt><dd>Health plus week-to-week scoring volatility.</dd></dl></article>
+      <article class="card player-card"><header><h3>Jaylen Waddle</h3><span class="tag start">START</span></header><p class="small">A good flex/WR4 for this roster. Denver's official depth chart lists him first at one WR spot, and public sentiment is positive, though not authoritative.</p><dl><dt>Best evidence</dt><dd>Boris #41 and NBC #43; Yahoo 90% start.</dd><dt>Main risk</dt><dd>DraftKick/FFToday are cooler at #50/#54.</dd></dl></article>
+      <article class="card player-card"><header><h3>Cam Skattebo</h3><span class="tag start">START</span></header><p class="small">The starting RB2 by roster need. Official Giants depth-chart evidence is stronger than the low Yahoo season projection.</p><dl><dt>Best evidence</dt><dd>FFToday #30; DraftKick #36 with positive VORP.</dd><dt>Main risk</dt><dd>Yahoo projection trails your bench RB projections.</dd></dl></article>
+      <article class="card player-card"><header><h3>Sam LaPorta</h3><span class="tag start">START / MONITOR</span></header><p class="small">Still the preferred TE when active. Detroit reported his August hip flare-up and later return to team drills; Yahoo/Sleeper have not yet cleared the Q tag.</p><dl><dt>Best evidence</dt><dd>TE7 at both FFToday and NBC.</dd><dt>Main risk</dt><dd>Hip plus recent back-surgery history.</dd></dl></article>
+      <article class="card player-card"><header><h3>Mark Andrews</h3><span class="tag hold">HOLD</span></header><p class="small">A defensible hedge, not a panic add. Baltimore lists him as its first tight end, and his large Sleeper add spike shows demand, but every season board still ranks LaPorta higher.</p><dl><dt>Best evidence</dt><dd>Healthy active roster; DraftKick VORP +10.</dd><dt>Main risk</dt><dd>TE12–16 valuation limits weekly ceiling expectations.</dd></dl></article>
+      <article class="card player-card"><header><h3>TreVeyon Henderson</h3><span class="tag hold">HOLD / MONITOR</span></header><p class="small">High-upside depth with both a leg designation and real role uncertainty. Keep him, but do not force him into the lineup before health and usage are clear.</p><dl><dt>Best evidence</dt><dd>NBC #52; Yahoo projects 171.20.</dd><dt>Main risk</dt><dd>Sleeper Q/leg; community reports question pass protection and lead-back status.</dd></dl></article>
+      <article class="card player-card"><header><h3>Tony Pollard</h3><span class="tag hold">HOLD</span></header><p class="small">Useful floor depth: all four boards place him in a narrow #56–80 band. Not an automatic starter, but more proven than the bottom bench.</p><dl><dt>Best evidence</dt><dd>FFToday #56/RB24; Yahoo 154.80 projection.</dd><dt>Main risk</dt><dd>Low 26% Yahoo start rate.</dd></dl></article>
+      <article class="card player-card"><header><h3>Michael Wilson</h3><span class="tag watch">BENCH / SHOP</span></header><p class="small">A legitimate upside WR6, but the roster does not need six receivers badly enough to protect him from a clearly superior waiver option.</p><dl><dt>Best evidence</dt><dd>NBC #84; Yahoo 144.60 projection.</dd><dt>Main risk</dt><dd>DraftKick VORP −11 and only 12% Yahoo start.</dd></dl></article>
+      <article class="card player-card"><header><h3>Jordan Mason</h3><span class="tag watch">BENCH / SHOP</span></header><p class="small">Contingent-value RB depth. Public bullish takes are speculation; structured boards consistently place him near or below #100.</p><dl><dt>Best evidence</dt><dd>Boris #93, best of his overall ranks.</dd><dt>Main risk</dt><dd>DraftKick VORP −12 and 8% Yahoo start.</dd></dl></article>
+      <article class="card player-card"><header><h3>RJ Harvey</h3><span class="tag watch">BENCH / SHOP</span></header><p class="small">Yahoo's projection is attractive, but role evidence is less so: Denver's August 25 depth chart lists J.K. Dobbins first.</p><dl><dt>Best evidence</dt><dd>NBC #79; Yahoo 159.60 projection.</dd><dt>Main risk</dt><dd>FFToday #121, Boris #107, DraftKick VORP −2.</dd></dl></article>
+      <article class="card player-card"><header><h3>Cam Little</h3><span class="tag stream">HOLD / STREAM</span></header><p class="small">Yahoo usage rates are excellent, but kicker valuation is flat and replaceable. Hold unless a stronger matchup is freely available.</p><dl><dt>Best evidence</dt><dd>92% Yahoo start and 96% rostered.</dd><dt>Main risk</dt><dd>K11 at FFToday; outside NBC Top 200.</dd></dl></article>
+      <article class="card player-card"><header><h3>Seattle Seahawks D/ST</h3><span class="tag stream">HOLD / STREAM</span></header><p class="small">A credible opening defense: FFToday has Seattle DST3 and Yahoo shows strong adoption. Continue to evaluate weekly matchups.</p><dl><dt>Best evidence</dt><dd>FFToday #188/DST3; Yahoo 93% start.</dd><dt>Main risk</dt><dd>DST is inherently matchup-sensitive and replaceable.</dd></dl></article>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><div><div class="eyebrow">Evidence register</div><h2>Sources, freshness, and limits</h2></div></div>
+    <div class="card" style="padding:20px 22px">
+      <ul class="sources small">
+        <li><a href="https://football.fantasysports.yahoo.com/">Yahoo Fantasy Football</a> — signed-in roster read, 2026-09-01; private league URL and IDs omitted.</li>
+        <li><a href="https://app.draftkick.com/football">DraftKick Football</a> — public unsigned app, inspected 2026-09-01 under default settings.</li>
+        <li><a href="https://docs.sleeper.com/">Sleeper API</a> — player metadata and 24-hour add/drop trends, fetched 2026-09-01.</li>
+        <li><a href="https://www.fftoday.com/rankings/26-cheatsheet-non-ppr.html">FFToday 2026 Non-PPR Top 225</a> — updated 2026-08-30; 12-team/18-round baseline.</li>
+        <li><a href="https://s3-us-west-1.amazonaws.com/fftiers/out/weekly-ALL.csv">Boris Chen standard Top 200 CSV</a> — last modified 2026-08-28 06:00:59 GMT.</li>
+        <li><a href="https://www.nbcsports.com/fantasy/football/news/2026-fantasy-football-top-200-overall-rankings">NBC/Rotoworld Top 200</a> — published 2026-08-26; PPR-oriented overall ranks.</li>
+        <li><a href="https://www.reddit.com/r/fantasyfootball/">r/fantasyfootball</a> — scoped discovery searches only; no votes or comments treated as player value.</li>
+        <li><a href="https://www.detroitlions.com/news/camp-notes-stille-showing-versatility-in-competitive-dl-room-mccreary-wonnum">Detroit Lions LaPorta update</a> — returned to practice/team drills on 2026-08-25.</li>
+        <li><a href="https://www.baltimoreravens.com/news/ravens-53-man-roster-cuts-set-announced-2026-initial">Baltimore Ravens initial 53</a> — Flowers and Andrews on the active initial roster.</li>
+        <li><a href="https://www.baltimoreravens.com/news/zay-flowers-day-to-day-quad-contusion-training-camp-injury-2026">Baltimore Ravens Flowers injury note</a> — quad contusion described as day-to-day on 2026-08-08.</li>
+        <li><a href="https://www.giants.com/team/depth-chart-in-season">Giants unofficial depth chart</a> — Skattebo listed first at RB when crawled 2026-08-30.</li>
+        <li><a href="https://www.denverbroncos.com/team/depth-chart/">Broncos unofficial depth chart</a> — Waddle first at WR; Dobbins ahead of Harvey; updated 2026-08-25.</li>
+        <li>Local Draft Assistant source and README — present, but no live runtime or frozen current player board was found.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    This is a decision-support report, not a guarantee of player availability or performance. Ranks, injuries, depth charts, projections, and roster percentages are volatile. Recheck final official injury reports and the live Yahoo player pool before any add/drop or lineup change.
+  </footer>
+</main>
+</body>
+</html>
