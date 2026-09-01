@@ -1,0 +1,5 @@
+{
+  "chat.useAgentsMdFile": true,
+  "chat.useAgentSkills": true,
+  "chat.subagents.allowInvocationsFromSubagents": false
+}

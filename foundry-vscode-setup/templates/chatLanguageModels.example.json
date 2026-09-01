@@ -1,0 +1,76 @@
+[
+  {
+    "name": "Local GLM",
+    "vendor": "customendpoint",
+    "apiKey": "${input:localGlmApiKey}",
+    "apiType": "chat-completions",
+    "models": [
+      {
+        "id": "<APPROVED_GLM_TAG>",
+        "name": "GLM Orchestrator (Local)",
+        "url": "http://127.0.0.1:11434/v1/chat/completions",
+        "toolCalling": true,
+        "vision": false,
+        "maxInputTokens": 24000,
+        "maxOutputTokens": 8000,
+        "streaming": true
+      }
+    ]
+  },
+  {
+    "name": "Microsoft Foundry Workers",
+    "vendor": "customendpoint",
+    "apiKey": "${input:foundryApiKey}",
+    "apiType": "chat-completions",
+    "models": [
+      {
+        "id": "<PLANNER_DEPLOYMENT>",
+        "name": "Foundry Planner",
+        "url": "https://<RESOURCE>.openai.azure.com/openai/v1/chat/completions",
+        "toolCalling": true,
+        "vision": false,
+        "maxInputTokens": 24000,
+        "maxOutputTokens": 8000,
+        "requestHeaders": {
+          "api-key": "${apiKey}"
+        }
+      },
+      {
+        "id": "<RESEARCH_DEPLOYMENT>",
+        "name": "Foundry Researcher",
+        "url": "https://<RESOURCE>.openai.azure.com/openai/v1/chat/completions",
+        "toolCalling": true,
+        "vision": false,
+        "maxInputTokens": 24000,
+        "maxOutputTokens": 8000,
+        "requestHeaders": {
+          "api-key": "${apiKey}"
+        }
+      },
+      {
+        "id": "<IMPLEMENTER_DEPLOYMENT>",
+        "name": "Foundry Implementer",
+        "url": "https://<RESOURCE>.openai.azure.com/openai/v1/chat/completions",
+        "toolCalling": true,
+        "vision": false,
+        "maxInputTokens": 24000,
+        "maxOutputTokens": 8000,
+        "requestHeaders": {
+          "api-key": "${apiKey}"
+        }
+      },
+      {
+        "id": "<REVIEWER_DEPLOYMENT>",
+        "name": "Foundry Reviewer",
+        "url": "https://<RESOURCE>.openai.azure.com/openai/v1/chat/completions",
+        "toolCalling": true,
+        "vision": false,
+        "maxInputTokens": 24000,
+        "maxOutputTokens": 8000,
+        "requestHeaders": {
+          "api-key": "${apiKey}"
+        }
+      }
+    ]
+  }
+]

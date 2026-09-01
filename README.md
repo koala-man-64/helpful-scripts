@@ -1,5 +1,9 @@
 # helpful-scripts
 
+## VS Code GLM orchestrator with Microsoft Foundry workers
+
+`foundry-vscode-setup/` is an agent-ready handoff package for configuring VS Code's Local agent harness with a tool-capable local GLM coordinator and Microsoft Foundry-backed custom worker subagents. It includes model-provider templates, least-privilege custom-agent definitions, staged canaries, troubleshooting, and rollback guidance for a Copilot-disabled environment. See [foundry-vscode-setup/README.md](foundry-vscode-setup/README.md).
+
 ## GitHub activity scanner
 
 `github-activity-scanner/` holds a dependency-free, read-only Python tool
