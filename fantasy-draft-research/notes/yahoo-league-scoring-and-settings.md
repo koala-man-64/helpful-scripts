@@ -31,6 +31,8 @@ Do not hard-code or publish the observed league ID. Use the visible navigation p
 - There are no season or weekly acquisition limits and no season trade limit.
 - Six teams make the playoffs, played in Weeks 15-17 with reseeding enabled.
 
+For weekly add/drop decisions, refresh these values and then follow the [waiver-wire pickup evaluation workflow](waiver-wire-workflow.md).
+
 ## Complete league settings
 
 League ID, league name, and logo are deliberately omitted because they identify the private league. All other rows visible in the settings table are recorded below.
