@@ -93,9 +93,10 @@ def validate(
     errors = []
     # Explicit roots make validation portable; the historical Projects fallback
     # is retained only for local compatibility.
-    repository_roots = repository_roots or {
+    default_repository_roots = {
         name: PROJECTS_ROOT / name for name in REPOSITORIES
     }
+    repository_roots = {**default_repository_roots, **(repository_roots or {})}
     inventory = doc(root, "origin-inventory.yaml", errors)
     manifest = doc(root, "skills.yaml", errors)
     decisions = doc(root, "skill-decisions.yaml", errors)
@@ -251,7 +252,9 @@ def validate(
         (x for x in skills if isinstance(x, dict) and x.get("id") == "workflow-router"),
         {},
     )
-    path = root.parent / router.get("source", {}).get("path", "")
+    router_source = router.get("source") if isinstance(router, dict) else None
+    router_path = router_source.get("path", "") if isinstance(router_source, dict) else ""
+    path = root.parent / router_path
     if not path.is_dir():
         errors.append("workflow-router source path does not exist")
     else:
@@ -264,7 +267,11 @@ def validate(
                 str(root.parent),
                 "cat-file",
                 "-e",
-                router["source"]["commit"] + ":" + router["source"]["path"],
+                (
+                    str(router_source.get("commit", "")) + ":" + router_path
+                    if isinstance(router_source, dict)
+                    else ""
+                ),
             ],
             capture_output=True,
             check=False,
