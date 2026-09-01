@@ -40,6 +40,8 @@ Verdicts use the workflow's four usage classes:
 | Boris Chen standard Top 200 and positional tiers | Qualified with conditions | **Live — secondary, cached before room** | Compact consensus-value and tier-break detection | **Current:** public standard CSV reachable 2026-08-30; `Last-Modified` was 2026-08-28 06:00:59 GMT | Standard format matches non-PPR reception scoring, but not bonuses, roster depth, keeper cost, or availability | Direct artifact is quick/cacheable; mutable, unversioned, and has no schema/uptime guarantee | Fall back to prepared FFToday non-PPR ranks or Yahoo ranks. Exclude if timestamp/schema cannot be verified. |
 | NBC Sports/Rotoworld live Draft Central, rankings, articles, and player news | Qualified with conditions | **Fallback; targeted live lookup only** | Fresh injury/role/transaction context, analyst tiers, and ADP movement | **Current:** public Draft Central reachable 2026-08-30 and labeled published 2026-08-28; articles update independently | Overall ranks are PPR and cannot be copied into this non-PPR custom league | Targeted reads can be quick; pages are large, dynamic, ad-heavy, and sometimes empty | Yahoo and primary team/NFL reporting for state/facts; FFToday/Boris for structured value. Stop if the page needs broad extraction. |
 | NBC Sports/Rotoworld 98-page static Draft Kit PDF | Qualified with conditions | **Preparation only; offline fallback** | Player profiles, broad position coverage, cheat sheets, and narrative context | **Current + documented:** official public download resolved 2026-08-30; prior comparison found the static snapshot already differed from the mutable live table | Predominantly PPR/best-ball/dynasty and not keeper- or league-adjusted | Fast and reliable once cached; staleness grows immediately | Use live NBC pages for current news and structured sources for value. Never prefer the PDF over a newer contradiction. |
+| RotoBaller public NFL rankings, projections, ADP, cheat sheets, and player news | Qualified with conditions | **Fallback; targeted live lookup only** | Standard/non-PPR ranking opinion, market timing, and current injury/transaction/role context | **Current:** visible public pages and standard/non-PPR selector reviewed 2026-08-31; each page's update label must be re-read | The standard view matches no-reception scoring, but not custom Yahoo bonuses, eight-team depth, keepers, or availability | Large dynamic/ad-supported pages; rankings, projections, ADP, and editorial content may update independently | Use a prepared shortlist and corroborate material news with a primary team/NFL source. Stop if a page is slow, stale, unavailable, premium-gated, or would require broad extraction. |
+| RotoBaller mock drafts, live assistant, team sync, and premium NFL tools | Not qualified | **Excluded** | Potential rehearsal, customization, and live-room support | **Site-stated/unverified:** public entry points were visible 2026-08-31; no subscription, login, account link, configuration, persistence, permission, timer, or Yahoo synchronization test was performed | Unknown until tested against this league's exact scoring, eight active teams, keepers, and order | Unknown; account/sync mismatch or a premium dependency could distract from Yahoo during the live loop | Keep manual. A separate non-consequential rehearsal must verify configuration, visible pick parity, disconnect/recovery, permissions, and safe disablement. |
 | Reddit `r/fantasyfootball` interactive feed, search, Index, posts, and comments | Qualified with conditions | **Fallback; broad use is preparation only** | Breaking-signal discovery, counterarguments, sentiment, and discovery of primary sources/tools | **Current:** public feed and scoped search reachable 2026-08-30; current Index and timestamps visible | Mixed standard/PPR/superflex/dynasty/keeper/etc.; every claim needs league-context filtering | Targeted read can be quick, but content is noisy, volatile, removable, and subject to login/JS challenges | Open and verify the primary linked source. Fall back to classic Reddit for visible reading or omit the claim. Never rank by votes/comments. |
 
 ## Workflow dependencies and controls
@@ -59,7 +61,8 @@ Freeze this set when the Yahoo room opens:
 5. **FFToday — prepared cross-check.** Carry a cached non-PPR shortlist into the room. Avoid multi-page manual research during the live loop.
 6. **Sleeper — preparation only.** Its official API can support the pre-draft identity/trend pass, but its board remains degraded until a league-matched signed-in rehearsal succeeds.
 7. **DraftKick manual, Yahoo mocks, FFToday secondary tools, and the NBC PDF — preparation only.** Their useful outputs must be distilled into the board before room-open.
-8. **DraftKick Live sync — excluded.** Do not install, enable, or rely on it on draft day without a separate successful rehearsal.
+8. **RotoBaller public pages — fallback only.** Prepare the standard/non-PPR board before room-open; consult player news narrowly between opponent picks and corroborate material changes. Its mock, sync, and premium capabilities remain excluded.
+9. **DraftKick Live sync — excluded.** Do not install, enable, or rely on it on draft day without a separate successful rehearsal.
 
 No source discovered or merged after room-open is eligible for the live set during that draft.
 
@@ -71,6 +74,7 @@ No source discovered or merged after room-open is eligible for the live set duri
 - DraftKick's composite can include FFToday and other feeds. Do not count the composite and its included source as two votes.
 - Sleeper ADP or trend data can already appear in DraftKick, FFToday composites, or another comparison tool. Count the upstream Sleeper signal once.
 - Boris Chen is derived from FantasyPros expert consensus. Another FantasyPros presentation is the same upstream family unless proven otherwise.
+- RotoBaller's methodology and upstream dependencies are not yet documented. Treat it as a separate editorial view, not independent corroboration, until they are.
 - Reddit submissions and NBC/FFToday links count as one underlying source, not separate corroboration.
 - Do not average PPR ranks, non-PPR ranks, projected points, ADP, tiers, VORP, and community votes. Preserve their different semantics and use the workflow's candidate-ordering rules.
 - A current direct injury/transaction source can override an older ranking assumption, but it does not by itself determine player value.
@@ -86,6 +90,7 @@ No source discovered or merged after room-open is eligible for the live set duri
 | 5 | No consolidated player identity map | Build a minimal ephemeral map of Yahoo player identity to normalized name, NFL team, and position; reject ambiguous rows. Do not commit restricted ranking datasets. |
 | 6 | Current news authority not fixed | Choose the primary team/NFL news path used to verify NBC/Reddit discoveries and define the evidence recorded for a breaking change. |
 | 7 | Live latency not rehearsed with the full source set | Run an eight-team position-1 mock using the frozen manifest and measure whether Yahoo monitoring remains continuous. Demote any tool that delays the queue or pick. |
+| 8 | RotoBaller premium and live-assistant paths unverified | In a non-consequential owner-authorized rehearsal, verify account requirements, exact-league configuration, pick parity, persistence, disconnect recovery, permissions, and safe disablement. Do not enable it for the real draft without a passing test. |
 
 ## Per-surface evidence
 
@@ -95,6 +100,7 @@ No source discovered or merged after room-open is eligible for the live set duri
 - [FFToday Rankings & Projections](https://www.fftoday.com/rankings/) and the [merged guide](fftoday.md)
 - [Boris Chen Draft Sheets](https://www.borischen.co/p/draft-sheets.html) and the [merged tier guide](boris-chen-draft-tiers.md)
 - [Rotoworld Draft Central](https://www.nbcsports.com/fantasy/football/news/rotoworld-fantasy-football-draft-central-2026-rankings-strategy-sleepers-and-more) and the [merged NBC guide](nbc-sports-fantasy.md)
+- [RotoBaller NFL Fantasy Football](https://www.rotoballer.com/) and the [merged RotoBaller guide](rotoballer.md)
 - [Reddit r/fantasyfootball](https://www.reddit.com/r/fantasyfootball/) and the [merged Reddit guide](reddit-fantasyfootball.md)
 - [Source catalog](../sources.md) for access, methodology, terms, and support references
 
