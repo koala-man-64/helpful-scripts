@@ -74,7 +74,19 @@ def render(
         "central_denials": decisions["central_denials"],
         "record_authority": surface["record_authority"],
         "selected_routing_policy": surface["lanes"][lane]["primary_route"],
+        "lane_execution_plan": _lane_execution_plan(surface["lanes"][lane]),
     }
+
+
+def _lane_execution_plan(lane: dict[str, object]) -> dict[str, object]:
+    """Render the executable roster separately from available catalog pins."""
+    route = lane["primary_route"]
+    name = route["model"].lower()
+    if name == "luna":
+        return {"owner": route, "children": [], "minimum_children": 0, "maximum_children": 0, "orchestrator": False, "gate_owners": {}}
+    if name == "terra":
+        return {"owner": route, "children": [{"model": "Luna", "effort": "low", "role": "focused_qa", "required": True}, {"model": "Luna", "effort": "low", "role": "necessary_specialist", "required": False}], "minimum_children": 1, "maximum_children": 2, "orchestrator": False, "gate_owners": {}}
+    return {"owner": route, "children": [{"model": "Terra", "effort": "medium", "role": "bounded_specialist", "required": True}], "minimum_children": 1, "maximum_children": 3, "orchestrator": True, "gate_owners": lane["gate_owners"]}
 
 
 def main():

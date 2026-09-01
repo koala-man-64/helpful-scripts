@@ -13,7 +13,8 @@
     "unresolved_forks",
     "central_denials",
     "record_authority",
-    "selected_routing_policy"
+    "selected_routing_policy",
+    "lane_execution_plan"
   ],
   "properties": {
     "schema_version": {
@@ -80,6 +81,19 @@
       "additionalProperties": false,
       "required": ["model", "effort", "role"],
       "properties": {"model": {"enum": ["Luna", "Terra", "Sol"]}, "effort": {"enum": ["low", "medium", "high"]}, "role": {"type": "string"}}
+    },
+    "lane_execution_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "children", "minimum_children", "maximum_children", "orchestrator", "gate_owners"],
+      "properties": {
+        "owner": {"type": "object"},
+        "children": {"type": "array"},
+        "minimum_children": {"type": "integer", "minimum": 0},
+        "maximum_children": {"type": "integer", "minimum": 0},
+        "orchestrator": {"type": "boolean"},
+        "gate_owners": {"type": "object"}
+      }
     }
   }
 }
