@@ -12,6 +12,13 @@ Portable Windows PowerShell setup for the current Codex, Claude Code, and VS Cod
 
 VS Code installs the current ChatGPT and Claude Code extension versions from `profile/vscode/extensions.txt`, then adds GitHub Copilot and Copilot Chat at their current Marketplace versions.
 
+## Planned enterprise Cline and Kilo Code documentation
+
+The [enterprise Cline and Kilo Code documentation implementation plan](docs/cline-kilo-vscode-enterprise-implementation-plan.md)
+defines the administrator guidance, Windows and WSL walkthroughs, terminal/browser/MCP
+canaries, validation matrix, rollout, and rollback work. The plan is documentation-only;
+it does not add either extension to the portable installer.
+
 ## Refresh the profile
 
 Run from this directory after reviewing local configuration changes:
