@@ -15,6 +15,7 @@ Use this procedure to turn the live free-agent pool into either an ordered, expl
 - Yahoo's live league, team, Players, and transaction pages are authoritative for rules, roster state, availability, waiver timing, claim results, and priority or budget.
 - Treat the saved [league settings](yahoo-league-scoring-and-settings.md) as a reference snapshot, not current state. Reconfirm the active-team count, because `Maximum teams` is a capacity setting rather than proof of how many teams are active.
 - Use outside rankings, projections, news, and add/drop trends only as timestamped decision support. Record scoring or roster mismatches and do not count several presentations of the same upstream data as independent confirmation.
+- Use [RotoBaller](rotoballer.md) only as a targeted public fallback for a named standard/non-PPR ranking, projection, ADP, or player-news question among Yahoo-available candidates. Record its scoring view and freshness label; corroborate material injury, transaction, or role news with official NFL/team reporting. Premium products, team sync, live assistant, and extraction remain excluded.
 - Recommend by default. Submit an add, drop, bid, or priority claim only when the manager authorizes that exact transaction or an exact ordered claim set.
 - Treat **HOLD / NO TRANSACTION** as a successful, first-class outcome. The workflow has no move quota: if no add/drop pair clearly beats the no-move baseline after costs and uncertainty, finish with zero claims. Unlimited acquisitions do not make roster churn, waiver priority, or a dropped player's option value free.
 - Never store credentials, cookies, private league or team identifiers, transaction URLs, or other participants' identities in this repository.
@@ -90,7 +91,7 @@ Separate observed facts from forecasts and recommendations.
 | Yahoo state | Availability, roster percentage when visible, position, game status, lock state, and transaction type | Eligibility and live state authority, not proof of value. |
 | Role and opportunity | Snaps, routes, carries, targets, red-zone work, depth-chart position, and the event that changed the role | Establish whether usage is real, durable, and relevant in non-PPR scoring. |
 | Health and availability | Yahoo status plus current official team/NFL reporting when material | Override an older projection or rank when the facts conflict. |
-| Projections or tiers | Value, scoring format, update time, methodology or upstream family, and material cross-source disagreement | Estimate this-week and rest-of-season outcomes without false source independence. |
+| Projections or tiers | Value, scoring format, update time, methodology or upstream family, and material cross-source disagreement; for a targeted RotoBaller input, its standard/non-PPR view and freshness label | Estimate this-week and rest-of-season outcomes without false source independence. |
 | Schedule | Opponent, game environment, bye, and playoff schedule when relevant | Use mainly for streamers and close comparisons; role comes first. |
 | Market pressure | Add/drop trend, roster percentage, positional need across anonymous opponents, and remaining alternatives | Estimate claim risk, never player quality by itself. |
 
@@ -287,6 +288,7 @@ Process, model, or variance lesson:
 - [Canonical draft-day decision logic](draft-day-workflow.md)
 - [2026 real-draft execution lessons](real-draft-results/2026-08-30-yahoo-slot-1.md)
 - [Yahoo football navigation](yahoo-football-navigation.md)
+- [RotoBaller standard/non-PPR and player-news procedure](rotoballer.md)
 - [NBC Sports/Rotoworld news procedure](nbc-sports-fantasy.md)
 - [Reddit discovery and verification limits](reddit-fantasyfootball.md)
 - [Sleeper identity and trend-data limits](sleeper.md)
