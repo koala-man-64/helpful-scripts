@@ -1,0 +1,33 @@
+{
+  "servers": {
+    "MCP_DOCKER": {
+      "command": "docker",
+      "args": [
+        "mcp",
+        "gateway",
+        "run"
+      ],
+      "env": "__REVIEW_REQUIRED__",
+      "type": "stdio"
+    },
+    "com.microsoft/azure": {
+      "type": "stdio",
+      "command": "dnx",
+      "args": [
+        "Azure.Mcp@2.0.0-beta.6",
+        "--yes",
+        "--",
+        "server",
+        "start"
+      ],
+      "gallery": "https://api.mcp.github.com",
+      "version": "2.0.0-beta.6"
+    }
+  },
+  "inputs": {
+    "id": "Authorization",
+    "type": "promptString",
+    "description": "Authentication token (PAT or App token)",
+    "password": "__REVIEW_REQUIRED__"
+  }
+}

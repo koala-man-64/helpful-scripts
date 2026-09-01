@@ -1,0 +1,86 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:\\Python314\\python.exe\" -I -S -B \"C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\releases\\0.2.2\\hookctl.py\" --owner codex-workflow-hooks --manifest-digest 115b369019e45daf77b26be28fff3fe23e15c87c649bfb63daed82cc953b694e event SessionStart --data-dir \"C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\data\"",
+            "commandWindows": "C:\\Python314\\python.exe -I -S -B C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\releases\\0.2.2\\hookctl.py --owner codex-workflow-hooks --manifest-digest 115b369019e45daf77b26be28fff3fe23e15c87c649bfb63daed82cc953b694e event SessionStart --data-dir C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\data",
+            "timeout": 10,
+            "statusMessage": "Codex workflow: SessionStart"
+          }
+        ],
+        "matcher": "startup|resume|clear|compact"
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:\\Python314\\python.exe\" -I -S -B \"C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\releases\\0.2.2\\hookctl.py\" --owner codex-workflow-hooks --manifest-digest 115b369019e45daf77b26be28fff3fe23e15c87c649bfb63daed82cc953b694e event SubagentStart --data-dir \"C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\data\"",
+            "commandWindows": "C:\\Python314\\python.exe -I -S -B C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\releases\\0.2.2\\hookctl.py --owner codex-workflow-hooks --manifest-digest 115b369019e45daf77b26be28fff3fe23e15c87c649bfb63daed82cc953b694e event SubagentStart --data-dir C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\data",
+            "timeout": 10,
+            "statusMessage": "Codex workflow: SubagentStart"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:\\Python314\\python.exe\" -I -S -B \"C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\releases\\0.2.2\\hookctl.py\" --owner codex-workflow-hooks --manifest-digest 115b369019e45daf77b26be28fff3fe23e15c87c649bfb63daed82cc953b694e event PreToolUse --data-dir \"C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\data\"",
+            "commandWindows": "C:\\Python314\\python.exe -I -S -B C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\releases\\0.2.2\\hookctl.py --owner codex-workflow-hooks --manifest-digest 115b369019e45daf77b26be28fff3fe23e15c87c649bfb63daed82cc953b694e event PreToolUse --data-dir C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\data",
+            "timeout": 10,
+            "statusMessage": "Codex workflow: PreToolUse"
+          }
+        ],
+        "matcher": "Bash|apply_patch|Agent|spawn_agent|collaboration\\.spawn_agent"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:\\Python314\\python.exe\" -I -S -B \"C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\releases\\0.2.2\\hookctl.py\" --owner codex-workflow-hooks --manifest-digest 115b369019e45daf77b26be28fff3fe23e15c87c649bfb63daed82cc953b694e event PostToolUse --data-dir \"C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\data\"",
+            "commandWindows": "C:\\Python314\\python.exe -I -S -B C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\releases\\0.2.2\\hookctl.py --owner codex-workflow-hooks --manifest-digest 115b369019e45daf77b26be28fff3fe23e15c87c649bfb63daed82cc953b694e event PostToolUse --data-dir C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\data",
+            "timeout": 10,
+            "statusMessage": "Codex workflow: PostToolUse"
+          }
+        ],
+        "matcher": "Bash|apply_patch|Agent|spawn_agent|collaboration\\.spawn_agent"
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:\\Python314\\python.exe\" -I -S -B \"C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\releases\\0.2.2\\hookctl.py\" --owner codex-workflow-hooks --manifest-digest 115b369019e45daf77b26be28fff3fe23e15c87c649bfb63daed82cc953b694e event Stop --data-dir \"C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\data\"",
+            "commandWindows": "C:\\Python314\\python.exe -I -S -B C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\releases\\0.2.2\\hookctl.py --owner codex-workflow-hooks --manifest-digest 115b369019e45daf77b26be28fff3fe23e15c87c649bfb63daed82cc953b694e event Stop --data-dir C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\data",
+            "timeout": 10,
+            "statusMessage": "Codex workflow: Stop"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"C:\\Python314\\python.exe\" -I -S -B \"C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\releases\\0.2.2\\hookctl.py\" --owner codex-workflow-hooks --manifest-digest 115b369019e45daf77b26be28fff3fe23e15c87c649bfb63daed82cc953b694e event SessionEnd --data-dir \"C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\data\"",
+            "commandWindows": "C:\\Python314\\python.exe -I -S -B C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\releases\\0.2.2\\hookctl.py --owner codex-workflow-hooks --manifest-digest 115b369019e45daf77b26be28fff3fe23e15c87c649bfb63daed82cc953b694e event SessionEnd --data-dir C:\\Users\\rdpro\\AppData\\Local\\CodexWorkflowHooks\\data",
+            "timeout": 10,
+            "statusMessage": "Codex workflow: SessionEnd"
+          }
+        ],
+        "matcher": "other"
+      }
+    ]
+  }
+}

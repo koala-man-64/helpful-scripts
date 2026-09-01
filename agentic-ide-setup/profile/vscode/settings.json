@@ -1,0 +1,19 @@
+{
+  "chatgpt.cliExecutable": "",
+  "chatgpt.localeOverride": "",
+  "chatgpt.openOnStartup": true,
+  "chatgpt.runCodexInWindowsSubsystemForLinux": true,
+  "claudeCode.preferredLocation": "panel",
+  "chat.useAgentSkills": true,
+  "chat.viewSessions.orientation": "stacked",
+  "chat.hookFilesLocations": {
+    ".github/hooks": true,
+    ".claude/settings.local.json": true,
+    ".claude/settings.json": true,
+    "~/.copilot/hooks": true,
+    "~/.claude/settings.json": true,
+    "~/.agents/hooks": true
+  },
+  "chat.mcp.assisted.nuget.enabled": true,
+  "chat.mcp.gallery.enabled": true
+}
