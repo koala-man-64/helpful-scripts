@@ -13,37 +13,122 @@
     "unresolved_forks",
     "central_denials",
     "record_authority",
-    "selected_routing_policy"
+    "selected_routing_policy",
+    "lane_execution_plan"
   ],
   "properties": {
-    "schema_version": {
-      "const": "consumer-lock-v2"
-    },
+    "schema_version": {"const": "consumer-lock-v2"},
     "repository": {
-      "enum": ["asset-allocation-contracts", "asset-allocation-control-plane", "asset-allocation-jobs", "asset-allocation-runtime-common", "asset-allocation-ui"]
-    },
-    "lane": {
       "enum": [
-        "lite",
-        "standard",
-        "critical"
+        "asset-allocation-contracts",
+        "asset-allocation-control-plane",
+        "asset-allocation-jobs",
+        "asset-allocation-runtime-common",
+        "asset-allocation-ui"
       ]
     },
+    "lane": {"enum": ["lite", "standard", "critical"]},
     "active_surface_skill_pins": {
       "type": "array",
       "minItems": 10,
-      "maxItems": 15,
+      "maxItems": 10,
       "uniqueItems": true,
+      "allOf": [
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "workflow-router"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "delivery-engineer-agent"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "qa-release-gate-agent"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "forensic-debugger"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "azure-devops-cicd-expert"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "cloud-security-vulnerability-expert"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "db-steward"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "project-workflow-enforcer-agent"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "audit-workitem-for-spark"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "runtime-ownership-enforcer"}}},
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ],
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["id", "source", "content_hash", "content_hash_algorithm", "version"],
         "properties": {
-          "id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
-          "source": {"type": "object"},
-          "content_hash": {"type": "string"},
+          "id": {
+            "enum": [
+              "workflow-router",
+              "delivery-engineer-agent",
+              "qa-release-gate-agent",
+              "forensic-debugger",
+              "azure-devops-cicd-expert",
+              "cloud-security-vulnerability-expert",
+              "db-steward",
+              "project-workflow-enforcer-agent",
+              "audit-workitem-for-spark",
+              "runtime-ownership-enforcer"
+            ]
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["repository", "path", "commit"],
+            "properties": {
+              "repository": {
+                "enum": [
+                  "helpful-scripts",
+                  "asset-allocation-contracts",
+                  "asset-allocation-control-plane",
+                  "asset-allocation-jobs",
+                  "asset-allocation-runtime-common",
+                  "asset-allocation-ui"
+                ]
+              },
+              "path": {"type": "string", "minLength": 1},
+              "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+            }
+          },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^(git-tree-sha1:[0-9a-f]{40}|sha256:[0-9a-f]{64})$"
+          },
           "content_hash_algorithm": {"enum": ["git-tree-sha1", "sha256"]},
-          "version": {"type": "string"}
+          "version": {"type": "string", "minLength": 1}
         }
       }
     },
@@ -55,31 +140,163 @@
     },
     "task_participant_skill_ids": {
       "type": "array",
-      "items": {
-        "type": "string"
-      }
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z0-9-]+$"}
     },
     "unresolved_forks": {
       "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "allOf": [
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "code-drift-sentinel"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "data-engineer-data-architect-advisor"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "delivery-orchestrator-agent"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "git-hygiene-orchestrator"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "project-workflow-auditor-agent"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"type": "object", "required": ["id"], "properties": {"id": {"const": "provisioning-configuration-and-disaster-recovery-expert"}}},
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ],
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["id", "runnable", "selection_blocked"],
-        "properties": {"id": {"type": "string"}, "runnable": {"const": false}, "selection_blocked": {"const": true}}
+        "properties": {
+          "id": {
+            "enum": [
+              "code-drift-sentinel",
+              "data-engineer-data-architect-advisor",
+              "delivery-orchestrator-agent",
+              "git-hygiene-orchestrator",
+              "project-workflow-auditor-agent",
+              "provisioning-configuration-and-disaster-recovery-expert"
+            ]
+          },
+          "runnable": {"const": false},
+          "selection_blocked": {"const": true}
+        }
       }
     },
     "central_denials": {
       "type": "array",
-      "items": {
-        "type": "string"
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {"enum": ["force_push", "self_approval", "protected_approval_bypass"]}
+    },
+    "record_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mutation_evidence", "tracked_delivery", "coordination_ledger", "jsonl"],
+      "properties": {
+        "mutation_evidence": {"const": "central_hooks"},
+        "tracked_delivery": {"const": "azure_boards_when_applicable"},
+        "coordination_ledger": {"const": "none_by_default"},
+        "jsonl": {"const": "regulated_audit_only_when_explicitly_required"}
       }
     },
-    "record_authority": {"type": "object", "additionalProperties": false},
     "selected_routing_policy": {
       "type": "object",
       "additionalProperties": false,
       "required": ["model", "effort", "role"],
-      "properties": {"model": {"enum": ["Luna", "Terra", "Sol"]}, "effort": {"enum": ["low", "medium", "high"]}, "role": {"type": "string"}}
+      "properties": {
+        "model": {"enum": ["Luna", "Terra", "Sol"]},
+        "effort": {"enum": ["low", "medium", "high"]},
+        "role": {"type": "string", "pattern": "^[a-z0-9_]+$"}
+      }
+    },
+    "lane_execution_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "children", "minimum_children", "maximum_children", "orchestrator", "gate_owners"],
+      "properties": {
+        "owner": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model", "effort", "role"],
+          "properties": {
+            "model": {"enum": ["Luna", "Terra", "Sol"]},
+            "effort": {"enum": ["low", "medium", "high"]},
+            "role": {"type": "string", "pattern": "^[a-z0-9_]+$"}
+          }
+        },
+        "children": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["model", "effort", "role", "required"],
+            "properties": {
+              "model": {"enum": ["Luna", "Terra"]},
+              "effort": {"enum": ["low", "medium"]},
+              "role": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+              "required": {"type": "boolean"}
+            }
+          }
+        },
+        "minimum_children": {"type": "integer", "minimum": 0},
+        "maximum_children": {"type": "integer", "minimum": 0},
+        "orchestrator": {"type": "boolean"},
+        "gate_owners": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ownership": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["role", "human_protected"],
+              "properties": {
+                "role": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+                "human_protected": {"type": "boolean"}
+              }
+            },
+            "security": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["role", "human_protected"],
+              "properties": {
+                "role": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+                "human_protected": {"type": "boolean"}
+              }
+            },
+            "qa": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["role", "human_protected"],
+              "properties": {
+                "role": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+                "human_protected": {"type": "boolean"}
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

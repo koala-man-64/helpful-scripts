@@ -7,7 +7,11 @@ import re
 import subprocess
 from pathlib import Path
 
-from catalog_lib import canonical_hash, load_document
+from catalog_lib import (
+    canonical_git_hash,
+    load_document,
+    validate_schema,
+)
 
 ID = re.compile(r"^[a-z0-9-]+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -39,6 +43,29 @@ SCENARIOS = {
     "production/IaC change",
 }
 PROJECTS_ROOT = Path.home() / "Projects"
+
+
+def parse_repository_mappings(
+    values: list[str], *, require_complete: bool = False
+) -> dict[str, Path]:
+    roots: dict[str, Path] = {}
+    for item in values:
+        if "=" not in item:
+            raise ValueError(f"--repo must use ID=PATH: {item}")
+        name, value = item.split("=", 1)
+        if name not in REPOSITORIES or not value:
+            raise ValueError(f"--repo has unknown ID or empty path: {item}")
+        if name in roots:
+            raise ValueError(f"--repo mapping is duplicated: {name}")
+        roots[name] = Path(value)
+    if require_complete and set(roots) != REPOSITORIES:
+        missing = ", ".join(sorted(REPOSITORIES - set(roots))) or "none"
+        extra = ", ".join(sorted(set(roots) - REPOSITORIES)) or "none"
+        raise ValueError(
+            "--strict-origin requires exactly one mapping for every repository; "
+            f"missing: {missing}; unexpected: {extra}"
+        )
+    return roots
 
 
 def doc(root: Path, name: str, errors: list[str]):
@@ -93,12 +120,26 @@ def validate(
     errors = []
     # Explicit roots make validation portable; the historical Projects fallback
     # is retained only for local compatibility.
-    default_repository_roots = {
-        name: PROJECTS_ROOT / name for name in REPOSITORIES
-    }
-    repository_roots = {**default_repository_roots, **(repository_roots or {})}
+    default_repository_roots = {name: PROJECTS_ROOT / name for name in REPOSITORIES}
+    supplied_repository_roots = repository_roots or {}
+    if strict_origin and set(supplied_repository_roots) != REPOSITORIES:
+        errors.append(
+            "strict origin validation requires explicit mappings for exactly five repositories"
+        )
+        repository_roots = supplied_repository_roots
+    else:
+        repository_roots = (
+            supplied_repository_roots
+            if strict_origin
+            else {**default_repository_roots, **supplied_repository_roots}
+        )
     inventory = doc(root, "origin-inventory.yaml", errors)
     manifest = doc(root, "skills.yaml", errors)
+    try:
+        schema = load_document(root / "schemas" / "skill-manifest-v2.schema.json")
+        errors.extend(validate_schema(manifest, schema, "skills.yaml"))
+    except (OSError, ValueError) as error:
+        errors.append(f"manifest schema: {error}")
     decisions = doc(root, "skill-decisions.yaml", errors)
     surface = doc(root, "active-surface.yaml", errors)
     variants = doc(root, "observed-variants.yaml", errors)
@@ -140,14 +181,35 @@ def validate(
             continue
         if strict_origin:
             result = subprocess.run(
-                ["git", "-C", str(checkout), "merge-base", "--is-ancestor", item["origin_sha"], "origin/main"],
-                capture_output=True, check=False, text=True,
+                [
+                    "git",
+                    "-C",
+                    str(checkout),
+                    "merge-base",
+                    "--is-ancestor",
+                    item["origin_sha"],
+                    "origin/main",
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
             )
             if result.returncode:
-                errors.append(f"{item['id']}: inventory origin SHA is not reachable from fetched origin/main")
+                errors.append(
+                    f"{item['id']}: inventory origin SHA is not reachable from fetched origin/main"
+                )
         result = subprocess.run(
-            ["git", "-C", str(checkout), "cat-file", "-e", f"{item['origin_sha']}:{item['skill_root']}"],
-            capture_output=True, check=False, text=True,
+            [
+                "git",
+                "-C",
+                str(checkout),
+                "cat-file",
+                "-e",
+                f"{item['origin_sha']}:{item['skill_root']}",
+            ],
+            capture_output=True,
+            check=False,
+            text=True,
         )
         if result.returncode:
             errors.append(f"{item['id']}: inventory skill_root is absent at origin SHA")
@@ -227,23 +289,46 @@ def validate(
             )
         if item.get("canonical_state") == "unresolved_fork" and item.get("runnable"):
             errors.append(f"{item.get('id')}: unresolved fork is runnable")
-        if source.get("repository") in REPOSITORIES and isinstance(source.get("path"), str):
+        if source.get("repository") in REPOSITORIES and isinstance(
+            source.get("path"), str
+        ):
             source_repo = repository_roots.get(source["repository"])
             if source_repo is None or not source_repo.is_dir():
-                errors.append(f"{item.get('id')}: repository mapping is missing or invalid")
+                errors.append(
+                    f"{item.get('id')}: repository mapping is missing or invalid"
+                )
                 continue
             result = subprocess.run(
-                ["git", "-C", str(source_repo), "rev-parse", f"{source['commit']}:{source['path']}"],
+                [
+                    "git",
+                    "-C",
+                    str(source_repo),
+                    "rev-parse",
+                    f"{source['commit']}:{source['path']}",
+                ],
                 capture_output=True,
                 check=False,
                 text=True,
             )
             expected = f"git-tree-sha1:{result.stdout.strip()}"
             if result.returncode or item.get("content_hash") != expected:
-                errors.append(f"{item.get('id')}: origin source tree hash does not match")
-            inventory_row = next((x for x in repos if isinstance(x, dict) and x.get("id") == source["repository"]), None)
-            if inventory_row and source.get("commit") != inventory_row.get("origin_sha"):
-                errors.append(f"{item.get('id')}: source commit does not equal inventory SHA")
+                errors.append(
+                    f"{item.get('id')}: origin source tree hash does not match"
+                )
+            inventory_row = next(
+                (
+                    x
+                    for x in repos
+                    if isinstance(x, dict) and x.get("id") == source["repository"]
+                ),
+                None,
+            )
+            if inventory_row and source.get("commit") != inventory_row.get(
+                "origin_sha"
+            ):
+                errors.append(
+                    f"{item.get('id')}: source commit does not equal inventory SHA"
+                )
     if len(ids) != len(set(ids)) or set(ids) != set(shared) | {"workflow-router"}:
         errors.append(
             "manifest must cover the exact 52 inventory IDs plus workflow-router"
@@ -253,32 +338,46 @@ def validate(
         {},
     )
     router_source = router.get("source") if isinstance(router, dict) else None
-    router_path = router_source.get("path", "") if isinstance(router_source, dict) else ""
+    router_path = (
+        router_source.get("path", "") if isinstance(router_source, dict) else ""
+    )
     path = root.parent / router_path
     if not path.is_dir():
         errors.append("workflow-router source path does not exist")
     else:
-        if router.get("content_hash") != canonical_hash(path):
-            errors.append("workflow-router current source hash does not match")
-        result = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(root.parent),
-                "cat-file",
-                "-e",
-                (
-                    str(router_source.get("commit", "")) + ":" + router_path
-                    if isinstance(router_source, dict)
-                    else ""
-                ),
-            ],
-            capture_output=True,
-            check=False,
-            text=True,
+        router_commit = (
+            str(router_source.get("commit", ""))
+            if isinstance(router_source, dict)
+            else ""
         )
-        if result.returncode:
-            errors.append("workflow-router claimed commit does not contain source path")
+        try:
+            committed_hash = canonical_git_hash(root.parent, router_commit, router_path)
+        except ValueError as error:
+            errors.append(f"workflow-router claimed source is invalid: {error}")
+        else:
+            if router.get("content_hash") != committed_hash:
+                errors.append(
+                    "workflow-router claimed commit content hash does not match"
+                )
+        if strict_origin:
+            result = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root.parent),
+                    "merge-base",
+                    "--is-ancestor",
+                    router_commit,
+                    "origin/main",
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+            if result.returncode:
+                errors.append(
+                    "workflow-router claimed commit is not reachable from fetched origin/main"
+                )
     rows = decisions.get("decisions")
     decision_ids = []
     if not isinstance(rows, list):
@@ -302,16 +401,40 @@ def validate(
     if any(status.get(x) != "blocked" for x in FORKS):
         errors.append("unresolved forks must be blocked")
     if any(
-        next((x for x in skills if isinstance(x, dict) and x.get("id") == skill_id), {}).get("canonical_state") != "unresolved_fork"
-        or next((x for x in skills if isinstance(x, dict) and x.get("id") == skill_id), {}).get("runnable")
+        next(
+            (x for x in skills if isinstance(x, dict) and x.get("id") == skill_id), {}
+        ).get("canonical_state")
+        != "unresolved_fork"
+        or next(
+            (x for x in skills if isinstance(x, dict) and x.get("id") == skill_id), {}
+        ).get("runnable")
         for skill_id in FORKS
     ):
         errors.append("unresolved forks must remain non-runnable")
-    strict_skill = next((x for x in skills if isinstance(x, dict) and x.get("id") == "strict-branch-and-merge-discipline"), {})
-    if strict_skill.get("canonical_state") != "conflict_blocked" or strict_skill.get("runnable") or "force_with_lease_grant" not in strict_skill.get("conflicts", []):
+    strict_skill = next(
+        (
+            x
+            for x in skills
+            if isinstance(x, dict)
+            and x.get("id") == "strict-branch-and-merge-discipline"
+        ),
+        {},
+    )
+    if (
+        strict_skill.get("canonical_state") != "conflict_blocked"
+        or strict_skill.get("runnable")
+        or "force_with_lease_grant" not in strict_skill.get("conflicts", [])
+    ):
         errors.append("strict branch discipline must remain conflict blocked")
-    gateway = next((x for x in skills if isinstance(x, dict) and x.get("id") == "gateway-agent"), {})
-    if gateway.get("canonical_state") != "deprecated" or gateway.get("runnable") or status.get("gateway-agent") != "deprecated":
+    gateway = next(
+        (x for x in skills if isinstance(x, dict) and x.get("id") == "gateway-agent"),
+        {},
+    )
+    if (
+        gateway.get("canonical_state") != "deprecated"
+        or gateway.get("runnable")
+        or status.get("gateway-agent") != "deprecated"
+    ):
         errors.append("gateway-agent must remain deprecated and non-runnable")
     if decisions.get("record_authority") != {
         "mutation_evidence": "central_hooks",
@@ -451,14 +574,12 @@ def main():
     parser.add_argument("--repo", action="append", default=[], metavar="ID=PATH")
     parser.add_argument("--strict-origin", action="store_true")
     args = parser.parse_args()
-    roots = {}
-    for item in args.repo:
-        if "=" not in item:
-            parser.error(f"--repo must use ID=PATH: {item}")
-        name, value = item.split("=", 1)
-        if name not in REPOSITORIES or not value:
-            parser.error(f"--repo has unknown ID or empty path: {item}")
-        roots[name] = Path(value)
+    try:
+        roots = parse_repository_mappings(
+            args.repo, require_complete=args.strict_origin
+        )
+    except ValueError as error:
+        parser.error(str(error))
     errors = validate(args.root, roots or None, args.strict_origin)
     if errors:
         print("Catalog validation failed:\n" + "\n".join("- " + x for x in errors))
