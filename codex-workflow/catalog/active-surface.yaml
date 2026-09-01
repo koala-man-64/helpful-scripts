@@ -25,7 +25,7 @@
         "effort": "low",
         "role": "delivery_owner"
       },
-      "available_skill_pins": [
+      "lane_required_skill_ids": [
         "workflow-router",
         "delivery-engineer-agent"
       ],
@@ -43,7 +43,7 @@
         "effort": "medium",
         "role": "delivery_owner"
       },
-      "available_skill_pins": [
+      "lane_required_skill_ids": [
         "workflow-router",
         "delivery-engineer-agent",
         "qa-release-gate-agent"
@@ -63,7 +63,7 @@
         "effort": "high",
         "role": "orchestrator_owner"
       },
-      "available_skill_pins": [
+      "lane_required_skill_ids": [
         "workflow-router",
         "delivery-engineer-agent",
         "qa-release-gate-agent",

@@ -53,12 +53,15 @@
             ],
             "properties": {
               "repository": {
-                "type": "string"
+                "enum": ["helpful-scripts", "asset-allocation-contracts", "asset-allocation-control-plane", "asset-allocation-jobs", "asset-allocation-runtime-common", "asset-allocation-ui"]
               },
               "path": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^[^\\\\]+(?:/[^\\\\]+)*$",
+                "minLength": 1
               },
               "commit": {
+                "type": "string",
                 "pattern": "^[0-9a-f]{40}$"
               }
             }
@@ -77,6 +80,8 @@
           },
           "supported_repositories": {
             "type": "array",
+            "uniqueItems": true,
+            "minItems": 5,
             "items": {
               "type": "string"
             }
@@ -97,6 +102,7 @@
           },
           "conflicts": {
             "type": "array",
+            "uniqueItems": true,
             "items": {
               "type": "string"
             }
@@ -113,7 +119,9 @@
           "canonical_state": {
             "enum": [
               "verified_nondivergent",
-              "unresolved_fork"
+              "unresolved_fork",
+              "conflict_blocked",
+              "deprecated"
             ]
           },
           "runnable": {
@@ -124,4 +132,3 @@
     }
   }
 }
-

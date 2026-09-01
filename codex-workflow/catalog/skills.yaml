@@ -8,7 +8,7 @@
       "source": {
         "repository": "helpful-scripts",
         "path": "codex-workflow/skills/workflow-router",
-        "commit": "c3e5db56c9825d24d1dfe05a3ab522de407a498a"
+        "commit": "08ce4e66d48fdfebfcb5a01f676785176be9608b"
       },
       "content_hash": "sha256:19aab4cc83acda0efed4ecaab0560ec1d389b7d8365a0fa63d77ab14fe3aef44",
       "content_hash_algorithm": "sha256",
@@ -779,7 +779,7 @@
       "conflicts": ["default_coordination_ledger"],
       "supersession": "central-hooks-plus-azure-boards-authority",
       "review_date": "2026-11-30",
-      "canonical_state": "verified_nondivergent",
+      "canonical_state": "deprecated",
       "runnable": false
     },
     {
@@ -1247,7 +1247,7 @@
       "conflicts": ["force_with_lease_grant"],
       "supersession": "central-hooks-force-push-denial",
       "review_date": "2026-11-30",
-      "canonical_state": "verified_nondivergent",
+      "canonical_state": "conflict_blocked",
       "runnable": false
     },
     {

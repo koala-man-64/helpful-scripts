@@ -9,8 +9,14 @@ from catalog_lib import load_document, write_json
 from validate_catalog import validate
 
 
-def render(root: Path, repository: str, lane: str) -> dict[str, object]:
-    errors = validate(root)
+def render(
+    root: Path,
+    repository: str,
+    lane: str,
+    repository_roots: dict[str, Path] | None = None,
+    strict_origin: bool = False,
+) -> dict[str, object]:
+    errors = validate(root, repository_roots, strict_origin)
     if errors:
         raise ValueError("catalog is invalid: " + "; ".join(errors))
     manifest = load_document(root / "catalog" / "skills.yaml")
@@ -29,11 +35,7 @@ def render(root: Path, repository: str, lane: str) -> dict[str, object]:
         raise ValueError(f"unknown lane: {lane}")
     statuses = {x["id"]: x["status"] for x in decisions["decisions"]}
     entries = {x["id"]: x for x in manifest["skills"]}
-    pins = [
-        skill_id
-        for skill_id in surface["active_skill_ids"]
-        if skill_id in surface["lanes"][lane]["available_skill_pins"]
-    ]
+    pins = surface["active_skill_ids"]
     available = []
     for skill_id in pins:
         entry = entries.get(skill_id)
@@ -60,15 +62,18 @@ def render(root: Path, repository: str, lane: str) -> dict[str, object]:
         "schema_version": "consumer-lock-v2",
         "repository": repository,
         "lane": lane,
-        "available_skill_pins": available,
+        "active_surface_skill_pins": available,
+        "lane_required_skill_ids": surface["lanes"][lane]["lane_required_skill_ids"],
         "task_participant_skill_ids": surface["lanes"][lane][
             "task_participant_skill_ids"
         ],
         "unresolved_forks": [
-            {"id": x["skill_id"], "runnable": False, "blocking": True}
+            {"id": x["skill_id"], "runnable": False, "selection_blocked": True}
             for x in variants["variants"]
         ],
         "central_denials": decisions["central_denials"],
+        "record_authority": surface["record_authority"],
+        "selected_routing_policy": surface["lanes"][lane]["primary_route"],
     }
 
 
@@ -80,8 +85,16 @@ def main():
         "--lane", choices=("lite", "standard", "critical"), default="standard"
     )
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--repo", action="append", default=[], metavar="ID=PATH")
+    p.add_argument("--strict-origin", action="store_true")
     a = p.parse_args()
-    write_json(a.output, render(a.root, a.repository, a.lane))
+    mappings = {}
+    for value in a.repo:
+        if "=" not in value:
+            p.error("--repo must be ID=PATH")
+        name, path = value.split("=", 1)
+        mappings[name] = Path(path)
+    write_json(a.output, render(a.root, a.repository, a.lane, mappings or None, a.strict_origin))
     return 0
 
 

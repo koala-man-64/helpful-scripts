@@ -1,9 +1,10 @@
 {
   "schema_version": "skill-decisions-v2",
   "record_authority": {
-    "mutation_and_evidence": "central_hooks",
-    "tracked_delivery": "azure_boards",
-    "coordination_or_regulated_audit": "csv_jsonl_when_explicitly_required"
+    "mutation_evidence": "central_hooks",
+    "tracked_delivery": "azure_boards_when_applicable",
+    "coordination_ledger": "none_by_default",
+    "jsonl": "regulated_audit_only_when_explicitly_required"
   },
   "central_denials": [
     "force_push",
@@ -27,7 +28,7 @@
       "id": "application-project-analyst-technical-explainer",
       "status": "on_demand",
       "disposition": "keep",
-      "rationale": "Retained for specialized use."
+      "rationale": "Historical non-runnable legacy workflow; central authority has no default coordination ledger."
     },
     {
       "id": "architecture-review-agent",
@@ -183,7 +184,7 @@
       "id": "gateway-agent",
       "status": "deprecated",
       "disposition": "deprecate",
-      "rationale": "Retained for specialized use."
+      "rationale": "Historical non-runnable workflow; deprecated because central hooks and Azure Boards own the current record authorities."
     },
     {
       "id": "gateway-bookkeeper",
