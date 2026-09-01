@@ -16,7 +16,13 @@ def build_inventory(source: Path) -> dict[str, object]:
         if folder.name in ids:
             raise ValueError(f"inventory ID collision: {folder.name}")
         ids.add(folder.name)
-        skills.append({"id": folder.name, "source_path": folder.as_posix(), "content_hash": canonical_hash(folder)})
+        skills.append(
+            {
+                "id": folder.name,
+                "source_path": folder.as_posix(),
+                "content_hash": canonical_hash(folder),
+            }
+        )
     return {"inventory_version": 1, "source": source.as_posix(), "skills": skills}
 
 

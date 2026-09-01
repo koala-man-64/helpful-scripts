@@ -18,5 +18,21 @@ delegate. Do not require a cumulative lower-tier blocker ladder: route directly 
 the smallest permitted model that matches the work. Central hooks remain authoritative
 for mutations and evidence.
 
+`delivery-orchestrator-agent` is currently an unresolved fork. In critical work it
+is a coordination **role**, not a runnable canonical skill pin, until an owner
+resolves that fork. Keep available skill pins separate from the people or child
+routes selected for a task.
+
+For the catalog scenarios, record the parent route and every child route explicitly:
+
+- Narrow local fix: Terra/medium owner; no children.
+- Standard feature: Sol/high owner; Terra/medium QA child when needed.
+- Cross-repo contract change and CI incident: Sol/high owner; Terra/medium
+  investigation or QA children only.
+- Production or IaC change: Sol/high owner; Terra/medium security, QA, or
+  deployment-evidence children only.
+
+These examples are routing constraints, not an installation or permission grant.
+
 Read [references/evidence.md](references/evidence.md) only when a task depends on
 delivery or runtime proof.

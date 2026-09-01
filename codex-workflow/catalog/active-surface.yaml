@@ -1,1 +1,98 @@
-{"schema_version":"active-surface-v2","active_skill_ids":["delivery-orchestrator-agent","delivery-engineer-agent","qa-release-gate-agent","forensic-debugger","azure-devops-cicd-expert","cloud-security-vulnerability-expert","db-steward","data-engineer-data-architect-advisor","project-workflow-enforcer-agent","project-workflow-auditor-agent"],"lanes":{"lite":{"owner":"delivery-engineer-agent","selected_skill_ids":["delivery-engineer-agent"],"orchestrator_required":false,"boards_or_ledger":false,"subagents_permitted":false,"max_specialists":0,"human_protected_approval":true},"standard":{"owner":"delivery-engineer-agent","selected_skill_ids":["delivery-engineer-agent","qa-release-gate-agent"],"orchestrator_required":false,"focused_qa_required":true,"max_specialists":1,"human_protected_approval":true},"critical":{"owner":"delivery-orchestrator-agent","selected_skill_ids":["delivery-orchestrator-agent","delivery-engineer-agent","qa-release-gate-agent","project-workflow-enforcer-agent"],"orchestrator_required":true,"ownership_gate":true,"security_gate":true,"qa_gate":true,"max_specialists":3,"human_protected_approval":true,"independent_evidence_states":["source","ci","release","deployment","runtime","user_path"]}}}
+{
+  "schema_version": "active-surface-v3",
+  "active_skill_ids": [
+    "workflow-router",
+    "delivery-engineer-agent",
+    "qa-release-gate-agent",
+    "forensic-debugger",
+    "azure-devops-cicd-expert",
+    "cloud-security-vulnerability-expert",
+    "db-steward",
+    "project-workflow-enforcer-agent",
+    "audit-workitem-for-spark",
+    "runtime-ownership-enforcer"
+  ],
+  "lanes": {
+    "lite": {
+      "delivery_owner": {
+        "model": "Terra",
+        "effort": "medium",
+        "role": "delivery_owner"
+      },
+      "available_skill_pins": [
+        "delivery-engineer-agent"
+      ],
+      "task_participants": [
+        "delivery_owner"
+      ],
+      "orchestrator_role": false,
+      "boards": false,
+      "ledger": false,
+      "subagents_permitted": false,
+      "max_specialists": 0,
+      "human_protected_approval": true
+    },
+    "standard": {
+      "delivery_owner": {
+        "model": "Sol",
+        "effort": "high",
+        "role": "delivery_owner"
+      },
+      "available_skill_pins": [
+        "delivery-engineer-agent",
+        "qa-release-gate-agent"
+      ],
+      "task_participants": [
+        "delivery_owner",
+        "focused_qa"
+      ],
+      "orchestrator_role": false,
+      "focused_qa_required": true,
+      "max_specialists": 1,
+      "human_protected_approval": true
+    },
+    "critical": {
+      "delivery_owner": {
+        "model": "Sol",
+        "effort": "high",
+        "role": "delivery_owner"
+      },
+      "available_skill_pins": [
+        "workflow-router",
+        "delivery-engineer-agent",
+        "qa-release-gate-agent",
+        "forensic-debugger",
+        "azure-devops-cicd-expert",
+        "cloud-security-vulnerability-expert",
+        "db-steward",
+        "project-workflow-enforcer-agent",
+        "audit-workitem-for-spark",
+        "runtime-ownership-enforcer"
+      ],
+      "task_participants": [
+        "orchestrator_role",
+        "delivery_owner",
+        "ownership_gate_owner",
+        "security_gate_owner",
+        "qa_gate_owner"
+      ],
+      "orchestrator_role": true,
+      "gate_owners": [
+        "ownership",
+        "security",
+        "qa"
+      ],
+      "max_specialists": 3,
+      "human_protected_approval": true,
+      "evidence_required": [
+        "source",
+        "ci",
+        "release",
+        "deployment",
+        "runtime",
+        "user_path"
+      ],
+      "evidence_not_applicable": []
+    }
+  }
+}
