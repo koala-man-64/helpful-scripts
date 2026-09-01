@@ -37,6 +37,11 @@ py -3 .\codex_token_usage_audit.py `
   --since 2026-08-16 `
   --by model_effort,thread,agent,task,turn,day
 
+# Treat an explicitly approved Spark root-task pilot as an exception
+py -3 .\codex_token_usage_audit.py `
+  --since 2026-08-16 `
+  --routing-exception root:gpt-5.3-codex-spark@medium
+
 # One root task including all descendant subagents
 py -3 .\codex_token_usage_audit.py --root-session 01a02f60 --raw
 
@@ -71,6 +76,7 @@ models. Compare with the previous snapshot if one is available.
 | `--model SUBSTR` / `--effort VALUE` | filter a model id or exact reasoning effort |
 | `--agent SUBSTR` | filter agent path, nickname, or role |
 | `--thread-type root\|subagent` | root tasks or subagent threads only |
+| `--routing-exception TYPE:MODEL@EFFORT` | classify one exact root/subagent route as an explicit exception; repeatable |
 | `--by a,b,c` | `thread`, `model`, `effort`, `model_effort`, `model_thread`, `agent`, `task`, `session`, `turn`, `project`, `day`, `client`, `version`, or `all` |
 | `--top N` | rows per table; default `20` |
 | `--raw` | exact integers instead of abbreviated K/M/B values |
@@ -148,6 +154,30 @@ paths are blanked from turn records and the Codex home is redacted unless
 `--include-paths` is supplied. Warning paths use `<CODEX_HOME>`, `<STATE_DB>`,
 or `<ROLLOUT>` placeholders under the same default, including for explicit
 sources outside the Codex home. The derived project/repository name remains.
+
+## Routing adherence
+
+Every report includes a privacy-safe routing-adherence section using the dated
+`builtin-v1` policy snapshot:
+
+- root tasks are canonical at Luna/low, Terra/medium, or Sol/high;
+- subagents are canonical at Luna/low or Terra/medium;
+- Spark has no canonical route until the shared workflow policy formally adds
+  one;
+- missing or unrecognized models and efforts are `unknown`;
+- recognized but disallowed combinations are `noncanonical`.
+
+Use `--routing-exception TYPE:MODEL@EFFORT` only for a deliberately approved,
+exact exception such as a bounded Spark root-task pilot. Exceptions are shown
+separately rather than counted as canonical. The flag does not change task
+routing or authorize delegation; it only annotates the audit result.
+
+The JSON snapshot exposes `routing_adherence.by_status`,
+`routing_adherence.by_thread_status`, and aggregated `routing_adherence.issues`.
+CSV turn rows remain backward-compatible and do not gain policy-derived fields.
+Adherence shows whether an observed model/effort/thread-type combination matches
+the snapshot; it does not infer whether the task itself was assigned to the
+correct risk lane.
 
 ## Credit estimate
 
