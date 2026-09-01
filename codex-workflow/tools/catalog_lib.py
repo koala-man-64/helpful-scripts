@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
+
+SUPPORTED_SCHEMA_KEYS = {"$schema", "title", "type", "const", "enum", "additionalProperties", "required", "properties", "items", "minItems", "maxItems", "uniqueItems", "minLength", "pattern", "minimum"}
 
 
 def load_document(path: Path) -> Any:
@@ -44,6 +47,9 @@ def write_json(path: Path, value: Any) -> None:
 def validate_schema(value: Any, schema: dict[str, Any], path: str = "$") -> list[str]:
     """Small fail-closed JSON-schema subset used by the checked-in catalog."""
     errors: list[str] = []
+    if not isinstance(schema, dict):
+        return [f"{path}: schema must be an object"]
+    errors.extend(f"{path}: unsupported schema keyword {key}" for key in schema if key not in SUPPORTED_SCHEMA_KEYS)
     if "const" in schema and value != schema["const"]:
         errors.append(f"{path}: must equal {schema['const']!r}")
     if "enum" in schema and value not in schema["enum"]:
@@ -81,6 +87,8 @@ def validate_schema(value: Any, schema: dict[str, Any], path: str = "$") -> list
             for index, item in enumerate(value):
                 errors.extend(validate_schema(item, item_schema, f"{path}[{index}]"))
     if isinstance(value, str):
-        if len(value) < schema.get("minLength", 0): errors.append(f"{path}: too short")
-        if schema.get("pattern") and not __import__("re").fullmatch(schema["pattern"], value): errors.append(f"{path}: pattern mismatch")
+        if len(value) < schema.get("minLength", 0):
+            errors.append(f"{path}: too short")
+        if schema.get("pattern") and not re.fullmatch(schema["pattern"], value):
+            errors.append(f"{path}: pattern mismatch")
     return errors

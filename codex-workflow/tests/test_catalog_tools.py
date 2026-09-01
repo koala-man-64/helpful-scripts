@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 from build_inventory import build_inventory
-from catalog_lib import load_document
+from catalog_lib import load_document, validate_schema
 from render_consumer_lock import render
 from validate_catalog import validate
 
@@ -84,6 +84,12 @@ class CatalogTests(unittest.TestCase):
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             errors = validate(root)
             self.assertTrue(any("source must be an object" in error for error in errors))
+
+    def test_schema_checker_rejects_unsupported_keywords_and_wrong_nested_types(self) -> None:
+        schema = {"type": "object", "properties": {"child": {"type": "boolean"}}, "unsupported": True}
+        errors = validate_schema({"child": "no"}, schema)
+        self.assertTrue(any("unsupported schema keyword" in error for error in errors))
+        self.assertTrue(any("$.child: wrong type" in error for error in errors))
 
 
 if __name__ == "__main__":
