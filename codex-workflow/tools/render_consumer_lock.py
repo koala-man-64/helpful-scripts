@@ -29,7 +29,11 @@ def render(root: Path, repository: str, lane: str) -> dict[str, object]:
         raise ValueError(f"unknown lane: {lane}")
     statuses = {x["id"]: x["status"] for x in decisions["decisions"]}
     entries = {x["id"]: x for x in manifest["skills"]}
-    pins = surface["lanes"][lane]["available_skill_pins"]
+    pins = [
+        skill_id
+        for skill_id in surface["active_skill_ids"]
+        if skill_id in surface["lanes"][lane]["available_skill_pins"]
+    ]
     available = []
     for skill_id in pins:
         entry = entries.get(skill_id)
@@ -57,7 +61,9 @@ def render(root: Path, repository: str, lane: str) -> dict[str, object]:
         "repository": repository,
         "lane": lane,
         "available_skill_pins": available,
-        "task_participants": surface["lanes"][lane]["task_participants"],
+        "task_participant_skill_ids": surface["lanes"][lane][
+            "task_participant_skill_ids"
+        ],
         "unresolved_forks": [
             {"id": x["skill_id"], "runnable": False, "blocking": True}
             for x in variants["variants"]

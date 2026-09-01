@@ -1,22 +1,26 @@
 {
-  "schema_version": "routing-scenarios-v2",
+  "schema_version": "routing-scenarios-v3",
   "scenarios": [
     {
       "name": "narrow local fix",
       "lane": "lite",
       "minimum_agents": 1,
-      "protected_gates": "human",
       "primary_route": {
-        "model": "Terra",
-        "effort": "medium",
+        "model": "Luna",
+        "effort": "low",
         "role": "delivery_owner"
       },
       "child_routes": [],
-      "gate_owners": [],
-      "human_protected_approval": true,
-      "hooks_authority": "central_hooks",
-      "boards_authority": "not_applicable",
-      "ledger_authority": "none",
+      "task_participant_skill_ids": [
+        "delivery-engineer-agent"
+      ],
+      "gate_owners": {},
+      "record_authority": {
+        "mutation_evidence": "central_hooks",
+        "tracked_delivery": "azure_boards_when_applicable",
+        "coordination_ledger": "none_by_default",
+        "jsonl": "regulated_audit_only_when_explicitly_required"
+      },
       "evidence_required": [
         "source"
       ],
@@ -31,27 +35,35 @@
     {
       "name": "standard feature",
       "lane": "standard",
-      "minimum_agents": 1,
-      "protected_gates": "human",
+      "minimum_agents": 2,
       "primary_route": {
-        "model": "Sol",
-        "effort": "high",
+        "model": "Terra",
+        "effort": "medium",
         "role": "delivery_owner"
       },
       "child_routes": [
         {
-          "model": "Terra",
-          "effort": "medium",
+          "model": "Luna",
+          "effort": "low",
           "role": "focused_qa"
         }
       ],
-      "gate_owners": [
-        "qa"
+      "task_participant_skill_ids": [
+        "delivery-engineer-agent",
+        "qa-release-gate-agent"
       ],
-      "human_protected_approval": true,
-      "hooks_authority": "central_hooks",
-      "boards_authority": "azure_boards_when_tracked_delivery",
-      "ledger_authority": "single_authority_only",
+      "gate_owners": {
+        "qa": {
+          "role": "focused_qa",
+          "human_protected": false
+        }
+      },
+      "record_authority": {
+        "mutation_evidence": "central_hooks",
+        "tracked_delivery": "azure_boards_when_applicable",
+        "coordination_ledger": "none_by_default",
+        "jsonl": "regulated_audit_only_when_explicitly_required"
+      },
       "evidence_required": [
         "source",
         "ci",
@@ -67,28 +79,42 @@
       "name": "cross-repo contract change",
       "lane": "critical",
       "minimum_agents": 2,
-      "protected_gates": "human",
       "primary_route": {
         "model": "Sol",
         "effort": "high",
-        "role": "orchestrator_role"
+        "role": "orchestrator_owner"
       },
       "child_routes": [
         {
           "model": "Terra",
           "effort": "medium",
-          "role": "contract_or_qa_specialist"
+          "role": "contract_specialist"
         }
       ],
-      "gate_owners": [
-        "ownership",
-        "security",
-        "qa"
+      "task_participant_skill_ids": [
+        "delivery-engineer-agent",
+        "forensic-debugger"
       ],
-      "human_protected_approval": true,
-      "hooks_authority": "central_hooks",
-      "boards_authority": "azure_boards_when_tracked_delivery",
-      "ledger_authority": "single_authority_only",
+      "gate_owners": {
+        "ownership": {
+          "role": "orchestrator_owner",
+          "human_protected": false
+        },
+        "security": {
+          "role": "human_security_approval",
+          "human_protected": true
+        },
+        "qa": {
+          "role": "contract_specialist",
+          "human_protected": false
+        }
+      },
+      "record_authority": {
+        "mutation_evidence": "central_hooks",
+        "tracked_delivery": "azure_boards_when_applicable",
+        "coordination_ledger": "none_by_default",
+        "jsonl": "regulated_audit_only_when_explicitly_required"
+      },
       "evidence_required": [
         "source",
         "ci",
@@ -103,11 +129,10 @@
       "name": "CI incident",
       "lane": "critical",
       "minimum_agents": 2,
-      "protected_gates": "human",
       "primary_route": {
         "model": "Sol",
         "effort": "high",
-        "role": "orchestrator_role"
+        "role": "orchestrator_owner"
       },
       "child_routes": [
         {
@@ -116,15 +141,30 @@
           "role": "incident_investigator"
         }
       ],
-      "gate_owners": [
-        "ownership",
-        "security",
-        "qa"
+      "task_participant_skill_ids": [
+        "delivery-engineer-agent",
+        "forensic-debugger"
       ],
-      "human_protected_approval": true,
-      "hooks_authority": "central_hooks",
-      "boards_authority": "azure_boards_when_tracked_delivery",
-      "ledger_authority": "single_authority_only",
+      "gate_owners": {
+        "ownership": {
+          "role": "orchestrator_owner",
+          "human_protected": false
+        },
+        "security": {
+          "role": "human_security_approval",
+          "human_protected": true
+        },
+        "qa": {
+          "role": "incident_investigator",
+          "human_protected": false
+        }
+      },
+      "record_authority": {
+        "mutation_evidence": "central_hooks",
+        "tracked_delivery": "azure_boards_when_applicable",
+        "coordination_ledger": "none_by_default",
+        "jsonl": "regulated_audit_only_when_explicitly_required"
+      },
       "evidence_required": [
         "source",
         "ci"
@@ -140,11 +180,10 @@
       "name": "production/IaC change",
       "lane": "critical",
       "minimum_agents": 3,
-      "protected_gates": "human",
       "primary_route": {
         "model": "Sol",
         "effort": "high",
-        "role": "orchestrator_role"
+        "role": "orchestrator_owner"
       },
       "child_routes": [
         {
@@ -155,18 +194,34 @@
         {
           "model": "Terra",
           "effort": "medium",
-          "role": "qa_or_deployment_evidence"
+          "role": "qa_specialist"
         }
       ],
-      "gate_owners": [
-        "ownership",
-        "security",
-        "qa"
+      "task_participant_skill_ids": [
+        "delivery-engineer-agent",
+        "cloud-security-vulnerability-expert",
+        "qa-release-gate-agent"
       ],
-      "human_protected_approval": true,
-      "hooks_authority": "central_hooks",
-      "boards_authority": "azure_boards_when_tracked_delivery",
-      "ledger_authority": "single_authority_only",
+      "gate_owners": {
+        "ownership": {
+          "role": "orchestrator_owner",
+          "human_protected": false
+        },
+        "security": {
+          "role": "security_specialist",
+          "human_protected": true
+        },
+        "qa": {
+          "role": "qa_specialist",
+          "human_protected": false
+        }
+      },
+      "record_authority": {
+        "mutation_evidence": "central_hooks",
+        "tracked_delivery": "azure_boards_when_applicable",
+        "coordination_ledger": "none_by_default",
+        "jsonl": "regulated_audit_only_when_explicitly_required"
+      },
       "evidence_required": [
         "source",
         "ci",

@@ -1,6 +1,6 @@
 # Canonical Codex workflow catalog
 
-`codex-workflow` is the advisory, versioned catalog for global Codex instructions,
+`codex-workflow` is the advisory, versioned v2 catalog for global Codex instructions,
 skills, profiles, and distribution. It does not install configuration or mutate
 runtime state.
 
@@ -36,7 +36,8 @@ py -3 codex-workflow/tools/validate_catalog.py codex-workflow
 py -3 codex-workflow/tools/render_consumer_lock.py codex-workflow --repository asset-allocation-ui --output .\consumer-lock.json
 ```
 
-Inventory and rendered-lock output paths are user-directed and outside the committed
+The current schemas are `skill-manifest-v2.schema.json` and
+`consumer-lock-v2.schema.json`; v1 schemas are historical only. Inventory and rendered-lock output paths are user-directed and outside the committed
 catalog by default. The renderer always requires `--output`; it never installs a
 consumer lock. Observed unresolved forks are blocking metadata and are never emitted
 as runnable lock selections. The legacy strict-branch export is deprecated because it
@@ -46,4 +47,5 @@ that denial.
 ## Evidence boundary
 
 Source, CI, release, deployment, runtime health, and user-path proof are separate
-evidence states. A catalog entry or generated lock is source metadata only.
+evidence states. A catalog entry or generated lock validates catalog provenance only;
+it does not establish any delivery or runtime evidence.

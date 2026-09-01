@@ -7,7 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from catalog_lib import load_document
+from catalog_lib import canonical_hash, load_document
 
 ID = re.compile(r"^[a-z0-9-]+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -37,6 +37,7 @@ SCENARIOS = {
     "CI incident",
     "production/IaC change",
 }
+PROJECTS_ROOT = Path.home() / "Projects"
 
 
 def doc(root: Path, name: str, errors: list[str]):
@@ -196,6 +197,17 @@ def validate(root: Path) -> list[str]:
             )
         if item.get("canonical_state") == "unresolved_fork" and item.get("runnable"):
             errors.append(f"{item.get('id')}: unresolved fork is runnable")
+        if source.get("repository") in REPOSITORIES and isinstance(source.get("path"), str):
+            source_repo = PROJECTS_ROOT / source["repository"]
+            result = subprocess.run(
+                ["git", "-C", str(source_repo), "rev-parse", f"{source['commit']}:{source['path']}"],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+            expected = f"git-tree-sha1:{result.stdout.strip()}"
+            if result.returncode or item.get("content_hash") != expected:
+                errors.append(f"{item.get('id')}: origin source tree hash does not match")
     if len(ids) != len(set(ids)) or set(ids) != set(shared) | {"workflow-router"}:
         errors.append(
             "manifest must cover the exact 52 inventory IDs plus workflow-router"
@@ -208,6 +220,8 @@ def validate(root: Path) -> list[str]:
     if not path.is_dir():
         errors.append("workflow-router source path does not exist")
     else:
+        if router.get("content_hash") != canonical_hash(path):
+            errors.append("workflow-router current source hash does not match")
         result = subprocess.run(
             [
                 "git",
@@ -285,16 +299,18 @@ def validate(root: Path) -> list[str]:
         errors.append("lite lane invariant failed")
     if (
         standard.get("orchestrator_role")
-        or not standard.get("focused_qa_required")
+        or standard.get("primary_route", {}).get("model") != "Terra"
+        or standard.get("primary_route", {}).get("effort") != "medium"
+        or standard.get("minimum_agents") != 2
         or standard.get("max_specialists") != 1
     ):
         errors.append("standard lane invariant failed")
     if (
         not critical.get("orchestrator_role")
         or critical.get("max_specialists") != 3
-        or set(critical.get("gate_owners", [])) != {"ownership", "security", "qa"}
-        or set(critical.get("evidence_required", [])) != EVIDENCE
-        or critical.get("evidence_not_applicable") != []
+        or set(critical.get("gate_owners", {})) != {"ownership", "security", "qa"}
+        or critical.get("primary_route", {}).get("model") != "Sol"
+        or critical.get("primary_route", {}).get("effort") != "high"
     ):
         errors.append("critical lane invariant failed")
     if (

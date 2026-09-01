@@ -22,7 +22,11 @@ class CatalogTests(unittest.TestCase):
             "scenarios"
         ]
         self.assertEqual(len(scenarios), 5)
-        self.assertTrue(all(item["protected_gates"] == "human" for item in scenarios))
+        self.assertEqual(scenarios[0]["primary_route"]["model"], "Luna")
+        self.assertEqual(scenarios[1]["minimum_agents"], 2)
+        self.assertTrue(
+            all(item["minimum_agents"] == 1 + len(item["child_routes"]) for item in scenarios)
+        )
         self.assertTrue(
             all(
                 len(item["evidence_required"]) == len(set(item["evidence_required"]))

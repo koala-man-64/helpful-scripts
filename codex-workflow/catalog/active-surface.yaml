@@ -1,5 +1,5 @@
 {
-  "schema_version": "active-surface-v3",
+  "schema_version": "active-surface-v4",
   "active_skill_ids": [
     "workflow-router",
     "delivery-engineer-agent",
@@ -12,50 +12,56 @@
     "audit-workitem-for-spark",
     "runtime-ownership-enforcer"
   ],
+  "record_authority": {
+    "mutation_evidence": "central_hooks",
+    "tracked_delivery": "azure_boards_when_applicable",
+    "coordination_ledger": "none_by_default",
+    "jsonl": "regulated_audit_only_when_explicitly_required"
+  },
   "lanes": {
     "lite": {
-      "delivery_owner": {
+      "primary_route": {
+        "model": "Luna",
+        "effort": "low",
+        "role": "delivery_owner"
+      },
+      "available_skill_pins": [
+        "workflow-router",
+        "delivery-engineer-agent"
+      ],
+      "task_participant_skill_ids": [
+        "delivery-engineer-agent"
+      ],
+      "orchestrator_role": false,
+      "subagents_permitted": false,
+      "max_specialists": 0,
+      "minimum_agents": 1
+    },
+    "standard": {
+      "primary_route": {
         "model": "Terra",
         "effort": "medium",
         "role": "delivery_owner"
       },
       "available_skill_pins": [
-        "delivery-engineer-agent"
-      ],
-      "task_participants": [
-        "delivery_owner"
-      ],
-      "orchestrator_role": false,
-      "boards": false,
-      "ledger": false,
-      "subagents_permitted": false,
-      "max_specialists": 0,
-      "human_protected_approval": true
-    },
-    "standard": {
-      "delivery_owner": {
-        "model": "Sol",
-        "effort": "high",
-        "role": "delivery_owner"
-      },
-      "available_skill_pins": [
+        "workflow-router",
         "delivery-engineer-agent",
         "qa-release-gate-agent"
       ],
-      "task_participants": [
-        "delivery_owner",
-        "focused_qa"
+      "task_participant_skill_ids": [
+        "delivery-engineer-agent",
+        "qa-release-gate-agent"
       ],
       "orchestrator_role": false,
-      "focused_qa_required": true,
+      "subagents_permitted": true,
       "max_specialists": 1,
-      "human_protected_approval": true
+      "minimum_agents": 2
     },
     "critical": {
-      "delivery_owner": {
+      "primary_route": {
         "model": "Sol",
         "effort": "high",
-        "role": "delivery_owner"
+        "role": "orchestrator_owner"
       },
       "available_skill_pins": [
         "workflow-router",
@@ -69,30 +75,29 @@
         "audit-workitem-for-spark",
         "runtime-ownership-enforcer"
       ],
-      "task_participants": [
-        "orchestrator_role",
-        "delivery_owner",
-        "ownership_gate_owner",
-        "security_gate_owner",
-        "qa_gate_owner"
+      "task_participant_skill_ids": [
+        "delivery-engineer-agent",
+        "qa-release-gate-agent",
+        "forensic-debugger"
       ],
       "orchestrator_role": true,
-      "gate_owners": [
-        "ownership",
-        "security",
-        "qa"
-      ],
+      "subagents_permitted": true,
       "max_specialists": 3,
-      "human_protected_approval": true,
-      "evidence_required": [
-        "source",
-        "ci",
-        "release",
-        "deployment",
-        "runtime",
-        "user_path"
-      ],
-      "evidence_not_applicable": []
+      "minimum_agents": 2,
+      "gate_owners": {
+        "ownership": {
+          "role": "orchestrator_owner",
+          "human_protected": false
+        },
+        "security": {
+          "role": "security_specialist",
+          "human_protected": true
+        },
+        "qa": {
+          "role": "qa_specialist",
+          "human_protected": false
+        }
+      }
     }
   }
 }
