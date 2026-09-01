@@ -80,6 +80,7 @@ def render(
     schema_errors = validate_schema(lock, schema, "consumer-lock")
     if schema_errors:
         raise ValueError("rendered lock violates schema: " + "; ".join(schema_errors))
+    _validate_execution_plan(lock["lane_execution_plan"], lane)
     return lock
 
 
@@ -87,11 +88,25 @@ def _lane_execution_plan(lane: dict[str, object]) -> dict[str, object]:
     """Render the executable roster separately from available catalog pins."""
     route = lane["primary_route"]
     name = route["model"].lower()
-    if name == "luna":
-        return {"owner": route, "children": [], "minimum_children": 0, "maximum_children": 0, "orchestrator": False, "gate_owners": {}}
+    children, minimum, maximum, orchestrator, gates = [], 0, 0, False, {}
     if name == "terra":
-        return {"owner": route, "children": [{"model": "Luna", "effort": "low", "role": "focused_qa", "required": True}, {"model": "Luna", "effort": "low", "role": "necessary_specialist", "required": False}], "minimum_children": 1, "maximum_children": 2, "orchestrator": False, "gate_owners": {}}
-    return {"owner": route, "children": [{"model": "Terra", "effort": "medium", "role": "bounded_specialist", "required": True}], "minimum_children": 1, "maximum_children": 3, "orchestrator": True, "gate_owners": lane["gate_owners"]}
+        children = [{"model": "Luna", "effort": "low", "role": "focused_qa", "required": True}, {"model": "Luna", "effort": "low", "role": "necessary_specialist", "required": False}]
+        minimum, maximum = 1, 2
+    elif name == "sol":
+        children = [{"model": "Terra", "effort": "medium", "role": "bounded_specialist", "required": True}]
+        minimum, maximum, orchestrator, gates = 1, 3, True, lane["gate_owners"]
+    return {"owner": route, "children": children, "minimum_children": minimum, "maximum_children": maximum, "orchestrator": orchestrator, "gate_owners": gates}
+
+
+def _validate_execution_plan(plan: dict[str, object], lane: str) -> None:
+    owner, children = plan["owner"], plan["children"]
+    expected = {"lite": ("Luna", "low", 0, 0, False), "standard": ("Terra", "medium", 1, 2, False), "critical": ("Sol", "high", 1, 3, True)}[lane]
+    if (owner["model"], owner["effort"], plan["minimum_children"], plan["maximum_children"], plan["orchestrator"]) != expected:
+        raise ValueError(f"invalid {lane} execution plan")
+    if lane == "standard" and [(x["role"], x["required"]) for x in children] != [("focused_qa", True), ("necessary_specialist", False)]:
+        raise ValueError("standard execution plan requires focused QA then optional specialist")
+    if lane == "critical" and (set(plan["gate_owners"]) != {"ownership", "security", "qa"} or any((x["model"], x["effort"]) != ("Terra", "medium") for x in children)):
+        raise ValueError("critical execution plan requires Terra specialists and all gates")
 
 
 def main():
