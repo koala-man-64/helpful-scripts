@@ -50,3 +50,9 @@ code --list-extensions --show-versions
 ```
 
 For account sign-in, plugins, VS Code sync, and MCP review, follow [SIGN-IN-CHECKLIST.md](../SIGN-IN-CHECKLIST.md). Repository-specific `.claude`, `.codex`, and `.vscode` files remain with their repositories and are not part of this global setup.
+
+For the local Codex coordination pilot, follow
+[AGENTCOORD-CODEX-PILOT.md](AGENTCOORD-CODEX-PILOT.md). It covers the local bridge,
+OS-vault credential, isolated identity and SQLite state, MCP registration, lifecycle hooks,
+behavioral guidance, validation, and rollback. It does not authorize or claim an Azure
+production deployment.
