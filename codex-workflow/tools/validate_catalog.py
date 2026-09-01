@@ -218,6 +218,7 @@ def validate(root: Path) -> list[str]:
                 router["source"]["commit"] + ":" + router["source"]["path"],
             ],
             capture_output=True,
+            check=False,
             text=True,
         )
         if result.returncode:
