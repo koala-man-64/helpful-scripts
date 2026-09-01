@@ -40,6 +40,7 @@ Current procedures:
 - [`notes/boris-chen-draft-tiers.md`](notes/boris-chen-draft-tiers.md) — source-grounded guide to Boris Chen tiers, live data artifacts, draft-agent use, and constraints
 - [`notes/reddit-fantasyfootball.md`](notes/reddit-fantasyfootball.md) — read-only Reddit feed, search, daily-thread, evidence-quality, authentication, and draft-time operating guide
 - [`notes/nbc-sports-fantasy.md`](notes/nbc-sports-fantasy.md) — NBC Sports/Rotoworld site map, draft-kit data dictionary, freshness rules, and terms-compliant draft-time procedure
+- [`notes/rotoballer.md`](notes/rotoballer.md) — RotoBaller standard/non-PPR, projection, ADP, news, rehearsal, premium-boundary, and terms-aware draft-time procedure
 - [`notes/sleeper.md`](notes/sleeper.md) — Sleeper mock-draft, draftboard, official API, readiness, privacy, and draft-time operating guide
 - [`notes/sleeper-login.md`](notes/sleeper-login.md) — owner-completed Sleeper Chrome sign-in, Draftboard handoff, session-reuse, and safety procedure
 - [`notes/sleeper-mock-draft-runbook.md`](notes/sleeper-mock-draft-runbook.md) — owner-operated Sleeper Draftboard checklist, board verification, recovery, and results-recording procedure
