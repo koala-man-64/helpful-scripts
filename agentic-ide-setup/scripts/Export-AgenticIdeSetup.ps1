@@ -42,6 +42,7 @@ foreach ($file in @('AGENTS.md', 'keybindings.json', 'hooks.json')) {
 foreach ($skill in @('business-partner-agent', 'data-engineer-data-architect-advisor', 'git-hygiene-orchestrator', 'runtime-ownership-enforcer', 'strict-branch-and-merge-discipline')) {
     Copy-PortableTree -Source (Join-Path $codex "skills\\$skill") -Destination (Join-Path $DestinationRoot "codex\\skills\\$skill")
 }
+Copy-PortableTree -Source (Join-Path $roots.UserProfile '.agents\skills\agentcoord') -Destination (Join-Path $DestinationRoot 'codex\skills\agentcoord')
 Copy-PortableTree -Source (Join-Path $codex 'rules') -Destination (Join-Path $DestinationRoot 'codex\rules')
 $plugins = [regex]::Matches((Get-Content -LiteralPath (Join-Path $codex 'config.toml') -Raw), '(?m)^plugins\."([^"]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
 Set-Content -LiteralPath (Join-Path $DestinationRoot 'codex\plugins.txt') -Value ($plugins -join [Environment]::NewLine) -Encoding utf8NoBOM
