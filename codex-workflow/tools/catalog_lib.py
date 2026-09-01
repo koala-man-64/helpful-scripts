@@ -8,7 +8,27 @@ import re
 from pathlib import Path
 from typing import Any
 
-SUPPORTED_SCHEMA_KEYS = {"$schema", "title", "type", "const", "enum", "additionalProperties", "required", "properties", "items", "minItems", "maxItems", "uniqueItems", "minLength", "pattern", "minimum"}
+SUPPORTED_SCHEMA_KEYS = {
+    "$schema",
+    "title",
+    "type",
+    "const",
+    "enum",
+    "allOf",
+    "additionalProperties",
+    "required",
+    "properties",
+    "items",
+    "contains",
+    "minContains",
+    "maxContains",
+    "minItems",
+    "maxItems",
+    "uniqueItems",
+    "minLength",
+    "pattern",
+    "minimum",
+}
 
 
 def load_document(path: Path) -> Any:
@@ -44,12 +64,59 @@ def write_json(path: Path, value: Any) -> None:
     )
 
 
-def validate_schema(value: Any, schema: dict[str, Any], path: str = "$") -> list[str]:
-    """Small fail-closed JSON-schema subset used by the checked-in catalog."""
-    errors: list[str] = []
+def _schema_definition_errors(schema: Any, path: str = "$schema") -> list[str]:
     if not isinstance(schema, dict):
         return [f"{path}: schema must be an object"]
-    errors.extend(f"{path}: unsupported schema keyword {key}" for key in schema if key not in SUPPORTED_SCHEMA_KEYS)
+    errors = [
+        f"{path}: unsupported schema keyword {key}"
+        for key in schema
+        if key not in SUPPORTED_SCHEMA_KEYS
+    ]
+    properties = schema.get("properties")
+    if properties is not None:
+        if not isinstance(properties, dict):
+            errors.append(f"{path}.properties: must be an object")
+        else:
+            for key, child in properties.items():
+                errors.extend(
+                    _schema_definition_errors(child, f"{path}.properties.{key}")
+                )
+    if "items" in schema:
+        errors.extend(_schema_definition_errors(schema["items"], f"{path}.items"))
+    if "contains" in schema:
+        errors.extend(_schema_definition_errors(schema["contains"], f"{path}.contains"))
+    all_of = schema.get("allOf")
+    if all_of is not None:
+        if not isinstance(all_of, list) or not all_of:
+            errors.append(f"{path}.allOf: must be a non-empty array")
+        else:
+            for index, child in enumerate(all_of):
+                errors.extend(
+                    _schema_definition_errors(child, f"{path}.allOf[{index}]")
+                )
+    for key in ("minContains", "maxContains"):
+        if key in schema and (
+            not isinstance(schema[key], int)
+            or isinstance(schema[key], bool)
+            or schema[key] < 0
+        ):
+            errors.append(f"{path}.{key}: must be a non-negative integer")
+    return errors
+
+
+def validate_schema(
+    value: Any,
+    schema: dict[str, Any],
+    path: str = "$",
+    *,
+    _definition_checked: bool = False,
+) -> list[str]:
+    """Small fail-closed JSON-schema subset used by the checked-in catalog."""
+    errors = [] if _definition_checked else _schema_definition_errors(schema)
+    if not isinstance(schema, dict):
+        return errors or [f"{path}: schema must be an object"]
+    for child in schema.get("allOf", []):
+        errors.extend(validate_schema(value, child, path, _definition_checked=True))
     if "const" in schema and value != schema["const"]:
         errors.append(f"{path}: must equal {schema['const']!r}")
     if "enum" in schema and value not in schema["enum"]:
@@ -73,19 +140,55 @@ def validate_schema(value: Any, schema: dict[str, Any], path: str = "$") -> list
             if key not in value:
                 errors.append(f"{path}: missing {key}")
         if schema.get("additionalProperties") is False:
-            errors.extend(f"{path}: unknown field {key}" for key in value if key not in properties)
+            errors.extend(
+                f"{path}: unknown field {key}" for key in value if key not in properties
+            )
         for key, child in properties.items():
             if key in value and isinstance(child, dict):
-                errors.extend(validate_schema(value[key], child, f"{path}.{key}"))
+                errors.extend(
+                    validate_schema(
+                        value[key], child, f"{path}.{key}", _definition_checked=True
+                    )
+                )
     if isinstance(value, list):
-        if len(value) < schema.get("minItems", 0) or len(value) > schema.get("maxItems", len(value)):
+        if len(value) < schema.get("minItems", 0) or len(value) > schema.get(
+            "maxItems", len(value)
+        ):
             errors.append(f"{path}: invalid item count")
-        if schema.get("uniqueItems") and len({json.dumps(item, sort_keys=True) for item in value}) != len(value):
+        if schema.get("uniqueItems") and len(
+            {json.dumps(item, sort_keys=True) for item in value}
+        ) != len(value):
             errors.append(f"{path}: duplicate item")
         item_schema = schema.get("items")
         if isinstance(item_schema, dict):
             for index, item in enumerate(value):
-                errors.extend(validate_schema(item, item_schema, f"{path}[{index}]"))
+                errors.extend(
+                    validate_schema(
+                        item,
+                        item_schema,
+                        f"{path}[{index}]",
+                        _definition_checked=True,
+                    )
+                )
+        contains = schema.get("contains")
+        if isinstance(contains, dict):
+            matches = sum(
+                not validate_schema(
+                    item,
+                    contains,
+                    f"{path}[{index}]",
+                    _definition_checked=True,
+                )
+                for index, item in enumerate(value)
+            )
+            minimum = schema.get("minContains", 1)
+            maximum = schema.get("maxContains", len(value))
+            if (
+                isinstance(minimum, int)
+                and isinstance(maximum, int)
+                and not (minimum <= matches <= maximum)
+            ):
+                errors.append(f"{path}: invalid contains count")
     if isinstance(value, str):
         if len(value) < schema.get("minLength", 0):
             errors.append(f"{path}: too short")
