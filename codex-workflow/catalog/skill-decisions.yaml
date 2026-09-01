@@ -1,2 +1,333 @@
-{"schema_version":"skill-decisions-v1","central_denials":["force_push","self_approval","protected_approval_bypass"],"decisions":[
-{"id":"actionmedic","status":"on_demand","disposition":"keep","supersession":null},{"id":"agent-io-auditor","status":"on_demand","disposition":"keep","supersession":null},{"id":"application-project-analyst-technical-explainer","status":"on_demand","disposition":"keep","supersession":null},{"id":"architecture-review-agent","status":"on_demand","disposition":"keep","supersession":null},{"id":"azure-devops-cicd-expert","status":"active","disposition":"keep","supersession":null},{"id":"business-partner-agent","status":"on_demand","disposition":"merge","supersession":"repo-local"},{"id":"catalyst-calendar-monitor","status":"on_demand","disposition":"keep","supersession":null},{"id":"cleanup-change-debris-auditor","status":"on_demand","disposition":"keep","supersession":null},{"id":"cloud-cost-optimization-efficiency-architect","status":"on_demand","disposition":"keep","supersession":null},{"id":"cloud-infrastructure-expert","status":"on_demand","disposition":"keep","supersession":null},{"id":"cloud-networking-architect","status":"on_demand","disposition":"keep","supersession":null},{"id":"cloud-security-vulnerability-expert","status":"active","disposition":"keep","supersession":null},{"id":"code-drift-sentinel","status":"on_demand","disposition":"keep","supersession":null},{"id":"code-humanizer","status":"on_demand","disposition":"keep","supersession":null},{"id":"code-hygiene-agent","status":"on_demand","disposition":"keep","supersession":null},{"id":"codebase-transition-sleuth","status":"on_demand","disposition":"keep","supersession":null},{"id":"communication-facilitator","status":"on_demand","disposition":"keep","supersession":null},{"id":"critical-counterbalance-agent","status":"on_demand","disposition":"keep","supersession":null},{"id":"data-engineer-data-architect-advisor","status":"active","disposition":"keep","supersession":null},{"id":"db-steward","status":"active","disposition":"keep","supersession":null},{"id":"debate-facilitator","status":"on_demand","disposition":"keep","supersession":null},{"id":"delivery-engineer-agent","status":"active","disposition":"keep","supersession":null},{"id":"delivery-orchestrator-agent","status":"active","disposition":"keep","supersession":null},{"id":"execution-quality-tca-analyst","status":"on_demand","disposition":"keep","supersession":null},{"id":"fail-fast-enforcement-agent","status":"on_demand","disposition":"keep","supersession":null},{"id":"forensic-debugger","status":"active","disposition":"keep","supersession":null},{"id":"frontend-design","status":"on_demand","disposition":"keep","supersession":null},{"id":"gateway-agent","status":"on_demand","disposition":"keep","supersession":null},{"id":"gateway-bookkeeper","status":"on_demand","disposition":"keep","supersession":null},{"id":"git-hygiene-orchestrator","status":"on_demand","disposition":"merge","supersession":"repo-local"},{"id":"maintainability-steward","status":"on_demand","disposition":"keep","supersession":null},{"id":"market-data-integrity-corporate-actions-agent","status":"on_demand","disposition":"keep","supersession":null},{"id":"performance-attribution-return-decomposition-analyst","status":"on_demand","disposition":"keep","supersession":null},{"id":"performance-bottleneck-investigator","status":"on_demand","disposition":"keep","supersession":null},{"id":"portfolio-risk-exposure-controller","status":"on_demand","disposition":"keep","supersession":null},{"id":"project-workflow-auditor-agent","status":"active","disposition":"keep","supersession":null},{"id":"project-workflow-enforcer-agent","status":"active","disposition":"keep","supersession":null},{"id":"provisioning-configuration-and-disaster-recovery-expert","status":"on_demand","disposition":"keep","supersession":null},{"id":"qa-release-gate-agent","status":"active","disposition":"keep","supersession":null},{"id":"regime-scenario-analyst","status":"on_demand","disposition":"keep","supersession":null},{"id":"repoops-custodian","status":"on_demand","disposition":"keep","supersession":null},{"id":"research-librarian-evidence-packager","status":"on_demand","disposition":"keep","supersession":null},{"id":"software-testing-validation-architect","status":"on_demand","disposition":"keep","supersession":null},{"id":"strategy-validation-model-risk-reviewer","status":"on_demand","disposition":"keep","supersession":null},{"id":"strict-branch-and-merge-discipline","status":"on_demand","disposition":"deprecate","supersession":"central-hooks-force-push-denial"},{"id":"technical-writer-dev-advocate","status":"on_demand","disposition":"keep","supersession":null},{"id":"thesis-drift-what-changed-agent","status":"on_demand","disposition":"keep","supersession":null},{"id":"trader-behavior-process-reviewer","status":"on_demand","disposition":"keep","supersession":null},{"id":"trading-compliance-surveillance-agent","status":"on_demand","disposition":"keep","supersession":null},{"id":"ui-testing-expert","status":"on_demand","disposition":"keep","supersession":null}]}
+{
+  "schema_version": "skill-decisions-v2",
+  "record_authority": {
+    "mutation_and_evidence": "central_hooks",
+    "tracked_delivery": "azure_boards",
+    "coordination_or_regulated_audit": "csv_jsonl_when_explicitly_required"
+  },
+  "central_denials": [
+    "force_push",
+    "self_approval",
+    "protected_approval_bypass"
+  ],
+  "decisions": [
+    {
+      "id": "actionmedic",
+      "status": "active",
+      "disposition": "keep",
+      "rationale": "Resolvable nondivergent active pin."
+    },
+    {
+      "id": "agent-io-auditor",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Regulated audit only."
+    },
+    {
+      "id": "application-project-analyst-technical-explainer",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "architecture-review-agent",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "audit-workitem-for-spark",
+      "status": "active",
+      "disposition": "keep",
+      "rationale": "Resolvable nondivergent active pin."
+    },
+    {
+      "id": "azure-devops-cicd-expert",
+      "status": "active",
+      "disposition": "keep",
+      "rationale": "Resolvable nondivergent active pin."
+    },
+    {
+      "id": "business-partner-agent",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "catalyst-calendar-monitor",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "cleanup-change-debris-auditor",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "cloud-cost-optimization-efficiency-architect",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "cloud-infrastructure-expert",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "cloud-networking-architect",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "cloud-security-vulnerability-expert",
+      "status": "active",
+      "disposition": "keep",
+      "rationale": "Resolvable nondivergent active pin."
+    },
+    {
+      "id": "code-drift-sentinel",
+      "status": "blocked",
+      "disposition": "merge",
+      "rationale": "Merge candidate; no current winner."
+    },
+    {
+      "id": "code-humanizer",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "code-hygiene-agent",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "codebase-transition-sleuth",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "communication-facilitator",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "critical-counterbalance-agent",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "data-engineer-data-architect-advisor",
+      "status": "blocked",
+      "disposition": "merge",
+      "rationale": "Merge or remain blocked; no winner."
+    },
+    {
+      "id": "db-steward",
+      "status": "active",
+      "disposition": "keep",
+      "rationale": "Resolvable nondivergent active pin."
+    },
+    {
+      "id": "debate-facilitator",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "delivery-engineer-agent",
+      "status": "active",
+      "disposition": "keep",
+      "rationale": "Resolvable nondivergent active pin."
+    },
+    {
+      "id": "delivery-orchestrator-agent",
+      "status": "blocked",
+      "disposition": "merge",
+      "rationale": "Merge candidate across control-plane/jobs/runtime/UI; replace the cumulative ladder and default ledger only after canonical resolution."
+    },
+    {
+      "id": "execution-quality-tca-analyst",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "fail-fast-enforcement-agent",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "forensic-debugger",
+      "status": "active",
+      "disposition": "keep",
+      "rationale": "Resolvable nondivergent active pin."
+    },
+    {
+      "id": "frontend-design",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "gateway-agent",
+      "status": "deprecated",
+      "disposition": "deprecate",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "gateway-bookkeeper",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Azure Boards only."
+    },
+    {
+      "id": "git-hygiene-orchestrator",
+      "status": "blocked",
+      "disposition": "merge",
+      "rationale": "Merge candidate across contracts/runtime/UI; control-plane calls a nonexistent helper."
+    },
+    {
+      "id": "maintainability-steward",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "market-data-integrity-corporate-actions-agent",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "performance-attribution-return-decomposition-analyst",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "performance-bottleneck-investigator",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "portfolio-risk-exposure-controller",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "project-workflow-auditor-agent",
+      "status": "blocked",
+      "disposition": "merge",
+      "rationale": "Merge candidate; UI generic nested-pipeline change."
+    },
+    {
+      "id": "project-workflow-enforcer-agent",
+      "status": "active",
+      "disposition": "keep",
+      "rationale": "Resolvable nondivergent active pin."
+    },
+    {
+      "id": "provisioning-configuration-and-disaster-recovery-expert",
+      "status": "blocked",
+      "disposition": "merge",
+      "rationale": "Merge candidate; UI Azure DevOps candidate."
+    },
+    {
+      "id": "qa-release-gate-agent",
+      "status": "active",
+      "disposition": "keep",
+      "rationale": "Resolvable nondivergent active pin."
+    },
+    {
+      "id": "regime-scenario-analyst",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "repoops-custodian",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "research-librarian-evidence-packager",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "runtime-ownership-enforcer",
+      "status": "active",
+      "disposition": "keep",
+      "rationale": "Resolvable nondivergent active pin."
+    },
+    {
+      "id": "software-testing-validation-architect",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "strategy-validation-model-risk-reviewer",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "strict-branch-and-merge-discipline",
+      "status": "blocked",
+      "disposition": "merge",
+      "rationale": "Legacy grants force-with-lease; retain safe guidance but central hooks deny force push."
+    },
+    {
+      "id": "technical-writer-dev-advocate",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "thesis-drift-what-changed-agent",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "trader-behavior-process-reviewer",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "trading-compliance-surveillance-agent",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "ui-testing-expert",
+      "status": "on_demand",
+      "disposition": "keep",
+      "rationale": "Retained for specialized use."
+    },
+    {
+      "id": "workflow-router",
+      "status": "active",
+      "disposition": "keep",
+      "rationale": "Resolvable nondivergent active pin."
+    }
+  ]
+}

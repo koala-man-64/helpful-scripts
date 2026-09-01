@@ -19,7 +19,7 @@ class CatalogTests(unittest.TestCase):
         scenarios = load_document(ROOT / "catalog" / "routing-scenarios.yaml")["scenarios"]
         self.assertEqual(len(scenarios), 5)
         self.assertTrue(all(item["protected_gates"] == "human" for item in scenarios))
-        self.assertTrue(all(len(item["evidence"]) == len(set(item["evidence"])) for item in scenarios))
+        self.assertTrue(all(len(item["evidence_required"]) == len(set(item["evidence_required"])) for item in scenarios))
 
     def test_active_surface_and_central_force_push_denial(self) -> None:
         surface = load_document(ROOT / "catalog" / "active-surface.yaml")
@@ -53,7 +53,7 @@ class CatalogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown repository"):
             render(ROOT, "unknown", "standard")
         lock = render(ROOT, "asset-allocation-jobs", "critical")
-        self.assertEqual(lock["overlays"], [])
+        self.assertTrue(lock["unresolved_forks"])
         self.assertIn("force_push", lock["central_denials"])
 
 if __name__ == "__main__": unittest.main()

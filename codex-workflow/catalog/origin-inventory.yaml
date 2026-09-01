@@ -1,0 +1,96 @@
+{
+  "schema_version": "origin-inventory-v1",
+  "hash_algorithm": "git-tree-sha1",
+  "provenance": "Read-only origin/main snapshots. Local-only working-tree additions are Unknown and out of shared scope.",
+  "repositories": [
+    {
+      "id": "asset-allocation-contracts",
+      "origin_ref": "origin/main",
+      "origin_sha": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+      "skill_root": ".codex/skills"
+    },
+    {
+      "id": "asset-allocation-control-plane",
+      "origin_ref": "origin/main",
+      "origin_sha": "81c35e371864737309777e4b0561082efd23592d",
+      "skill_root": ".codex/skills"
+    },
+    {
+      "id": "asset-allocation-jobs",
+      "origin_ref": "origin/main",
+      "origin_sha": "e31e03e79ebe577a1fe1f78acaa946c8eb9470e7",
+      "skill_root": ".codex/skills"
+    },
+    {
+      "id": "asset-allocation-runtime-common",
+      "origin_ref": "origin/main",
+      "origin_sha": "114c2d10cf00e9b722d5363032389f0fc885f66f",
+      "skill_root": ".codex/skills"
+    },
+    {
+      "id": "asset-allocation-ui",
+      "origin_ref": "origin/main",
+      "origin_sha": "3e60369b7f818004faa7815074b1b391525dc4cf",
+      "skill_root": ".codex/skills"
+    }
+  ],
+  "shared_skill_ids": [
+    "actionmedic",
+    "agent-io-auditor",
+    "application-project-analyst-technical-explainer",
+    "architecture-review-agent",
+    "audit-workitem-for-spark",
+    "azure-devops-cicd-expert",
+    "business-partner-agent",
+    "catalyst-calendar-monitor",
+    "cleanup-change-debris-auditor",
+    "cloud-cost-optimization-efficiency-architect",
+    "cloud-infrastructure-expert",
+    "cloud-networking-architect",
+    "cloud-security-vulnerability-expert",
+    "code-drift-sentinel",
+    "code-humanizer",
+    "code-hygiene-agent",
+    "codebase-transition-sleuth",
+    "communication-facilitator",
+    "critical-counterbalance-agent",
+    "data-engineer-data-architect-advisor",
+    "db-steward",
+    "debate-facilitator",
+    "delivery-engineer-agent",
+    "delivery-orchestrator-agent",
+    "execution-quality-tca-analyst",
+    "fail-fast-enforcement-agent",
+    "forensic-debugger",
+    "frontend-design",
+    "gateway-agent",
+    "gateway-bookkeeper",
+    "git-hygiene-orchestrator",
+    "maintainability-steward",
+    "market-data-integrity-corporate-actions-agent",
+    "performance-attribution-return-decomposition-analyst",
+    "performance-bottleneck-investigator",
+    "portfolio-risk-exposure-controller",
+    "project-workflow-auditor-agent",
+    "project-workflow-enforcer-agent",
+    "provisioning-configuration-and-disaster-recovery-expert",
+    "qa-release-gate-agent",
+    "regime-scenario-analyst",
+    "repoops-custodian",
+    "research-librarian-evidence-packager",
+    "runtime-ownership-enforcer",
+    "software-testing-validation-architect",
+    "strategy-validation-model-risk-reviewer",
+    "strict-branch-and-merge-discipline",
+    "technical-writer-dev-advocate",
+    "thesis-drift-what-changed-agent",
+    "trader-behavior-process-reviewer",
+    "trading-compliance-surveillance-agent",
+    "ui-testing-expert"
+  ],
+  "local_only_working_tree_additions": {
+    "status": "Unknown",
+    "scope": "out_of_shared_scope"
+  }
+}
+

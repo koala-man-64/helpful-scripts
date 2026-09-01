@@ -1,7 +1,80 @@
-{"schema_version":"observed-variants-v2","origins":{"asset-allocation-contracts":"41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5","asset-allocation-control-plane":"81c35e371864737309777e4b0561082efd23592d","asset-allocation-jobs":"e31e03e79ebe577a1fe1f78acaa946c8eb9470e7","asset-allocation-runtime-common":"114c2d10cf00e9b722d5363032389f0fc885f66f","asset-allocation-ui":"3e60369b7f818004faa7815074b1b391525dc4cf"},"variants":[
-{"skill_id":"code-drift-sentinel","skill_path":".codex/skills/code-drift-sentinel","overlay_intent":"unresolved_fork","tree_hashes":{"asset-allocation-contracts":"d64296c3c1c3986cdbfb7cfd90971c502f78988d","asset-allocation-control-plane":"7096008aad8d4234b8f3619c5b1951ce34d4914e","asset-allocation-jobs":"4798652529edc4378be2dfb3e8bddd1205d84b50","asset-allocation-runtime-common":"3e1fa64a92c1970fb6316b45e01cd805f5d5d4f9","asset-allocation-ui":"ef2b7200c191a01e22349a99b68bb882b23df74c"}},
-{"skill_id":"data-engineer-data-architect-advisor","skill_path":".codex/skills/data-engineer-data-architect-advisor","overlay_intent":"unresolved_fork","tree_hashes":{"asset-allocation-contracts":"6b68de8f0a7b49ce5772c20511eefd58b2811d44","asset-allocation-control-plane":"69895e9ffb03dd0f3320694ffb82bf653cf9fef4","asset-allocation-jobs":"6b68de8f0a7b49ce5772c20511eefd58b2811d44","asset-allocation-runtime-common":"6b68de8f0a7b49ce5772c20511eefd58b2811d44","asset-allocation-ui":"6b68de8f0a7b49ce5772c20511eefd58b2811d44"}},
-{"skill_id":"delivery-orchestrator-agent","skill_path":".codex/skills/delivery-orchestrator-agent","overlay_intent":"unresolved_fork","tree_hashes":{"asset-allocation-contracts":"70d83d5f27e444ea86d8ea184427082bddac881b","asset-allocation-control-plane":"0a5faecc3408984872a92333b8e915a595f6b83e","asset-allocation-jobs":"0a5faecc3408984872a92333b8e915a595f6b83e","asset-allocation-runtime-common":"0a5faecc3408984872a92333b8e915a595f6b83e","asset-allocation-ui":"0a5faecc3408984872a92333b8e915a595f6b83e"}},
-{"skill_id":"git-hygiene-orchestrator","skill_path":".codex/skills/git-hygiene-orchestrator","overlay_intent":"unresolved_fork","tree_hashes":{"asset-allocation-contracts":"14408016c94c0d78399b46457a2c816b6d759d81","asset-allocation-control-plane":"8f4d6a81c39127642e3c348cc802b964d288a05b","asset-allocation-jobs":"8f4d6a81c39127642e3c348cc802b964d288a05b","asset-allocation-runtime-common":"14408016c94c0d78399b46457a2c816b6d759d81","asset-allocation-ui":"14408016c94c0d78399b46457a2c816b6d759d81"}},
-{"skill_id":"project-workflow-auditor-agent","skill_path":".codex/skills/project-workflow-auditor-agent","overlay_intent":"unresolved_fork","tree_hashes":{"asset-allocation-contracts":"d9157c454e26bd605b57e77df87d32388d84e186","asset-allocation-control-plane":"d9157c454e26bd605b57e77df87d32388d84e186","asset-allocation-jobs":"d9157c454e26bd605b57e77df87d32388d84e186","asset-allocation-runtime-common":"d9157c454e26bd605b57e77df87d32388d84e186","asset-allocation-ui":"c18dba37557395ed23e6367914548e6f145288dd"}},
-{"skill_id":"provisioning-configuration-and-disaster-recovery-expert","skill_path":".codex/skills/provisioning-configuration-and-disaster-recovery-expert","overlay_intent":"unresolved_fork","tree_hashes":{"asset-allocation-contracts":"d733a1469b1755003c3a12bb4a35ddbe50bb45df","asset-allocation-control-plane":"d733a1469b1755003c3a12bb4a35ddbe50bb45df","asset-allocation-jobs":"d733a1469b1755003c3a12bb4a35ddbe50bb45df","asset-allocation-runtime-common":"d733a1469b1755003c3a12bb4a35ddbe50bb45df","asset-allocation-ui":"83ac6dd887a60f7ff88dd89a8a3c29b302248211"}}]}
+{
+  "schema_version": "observed-variants-v3",
+  "hash_algorithm": "git-tree-sha1",
+  "provenance": "Read-only git tree objects at the origin snapshot commits; no owner-confirmed overlays exist.",
+  "owner_confirmed_overlays": [],
+  "variants": [
+    {
+      "skill_id": "code-drift-sentinel",
+      "skill_path": ".codex/skills/code-drift-sentinel",
+      "overlay_intent": "unresolved_fork",
+      "tree_hashes": {
+        "asset-allocation-contracts": "d64296c3c1c3986cdbfb7cfd90971c502f78988d",
+        "asset-allocation-control-plane": "7096008aad8d4234b8f3619c5b1951ce34d4914e",
+        "asset-allocation-jobs": "4798652529edc4378be2dfb3e8bddd1205d84b50",
+        "asset-allocation-runtime-common": "3e1fa64a92c1970fb6316b45e01cd805f5d5d4f9",
+        "asset-allocation-ui": "ef2b7200c191a01e22349a99b68bb882b23df74c"
+      }
+    },
+    {
+      "skill_id": "data-engineer-data-architect-advisor",
+      "skill_path": ".codex/skills/data-engineer-data-architect-advisor",
+      "overlay_intent": "unresolved_fork",
+      "tree_hashes": {
+        "asset-allocation-contracts": "6b68de8f0a7b49ce5772c20511eefd58b2811d44",
+        "asset-allocation-control-plane": "69895e9ffb03dd0f3320694ffb82bf653cf9fef4",
+        "asset-allocation-jobs": "6b68de8f0a7b49ce5772c20511eefd58b2811d44",
+        "asset-allocation-runtime-common": "6b68de8f0a7b49ce5772c20511eefd58b2811d44",
+        "asset-allocation-ui": "6b68de8f0a7b49ce5772c20511eefd58b2811d44"
+      }
+    },
+    {
+      "skill_id": "delivery-orchestrator-agent",
+      "skill_path": ".codex/skills/delivery-orchestrator-agent",
+      "overlay_intent": "unresolved_fork",
+      "tree_hashes": {
+        "asset-allocation-contracts": "70d83d5f27e444ea86d8ea184427082bddac881b",
+        "asset-allocation-control-plane": "0a5faecc3408984872a92333b8e915a595f6b83e",
+        "asset-allocation-jobs": "0a5faecc3408984872a92333b8e915a595f6b83e",
+        "asset-allocation-runtime-common": "0a5faecc3408984872a92333b8e915a595f6b83e",
+        "asset-allocation-ui": "0a5faecc3408984872a92333b8e915a595f6b83e"
+      }
+    },
+    {
+      "skill_id": "git-hygiene-orchestrator",
+      "skill_path": ".codex/skills/git-hygiene-orchestrator",
+      "overlay_intent": "unresolved_fork",
+      "tree_hashes": {
+        "asset-allocation-contracts": "14408016c94c0d78399b46457a2c816b6d759d81",
+        "asset-allocation-control-plane": "8f4d6a81c39127642e3c348cc802b964d288a05b",
+        "asset-allocation-jobs": "8f4d6a81c39127642e3c348cc802b964d288a05b",
+        "asset-allocation-runtime-common": "14408016c94c0d78399b46457a2c816b6d759d81",
+        "asset-allocation-ui": "14408016c94c0d78399b46457a2c816b6d759d81"
+      }
+    },
+    {
+      "skill_id": "project-workflow-auditor-agent",
+      "skill_path": ".codex/skills/project-workflow-auditor-agent",
+      "overlay_intent": "unresolved_fork",
+      "tree_hashes": {
+        "asset-allocation-contracts": "d9157c454e26bd605b57e77df87d32388d84e186",
+        "asset-allocation-control-plane": "d9157c454e26bd605b57e77df87d32388d84e186",
+        "asset-allocation-jobs": "d9157c454e26bd605b57e77df87d32388d84e186",
+        "asset-allocation-runtime-common": "d9157c454e26bd605b57e77df87d32388d84e186",
+        "asset-allocation-ui": "c18dba37557395ed23e6367914548e6f145288dd"
+      }
+    },
+    {
+      "skill_id": "provisioning-configuration-and-disaster-recovery-expert",
+      "skill_path": ".codex/skills/provisioning-configuration-and-disaster-recovery-expert",
+      "overlay_intent": "unresolved_fork",
+      "tree_hashes": {
+        "asset-allocation-contracts": "d733a1469b1755003c3a12bb4a35ddbe50bb45df",
+        "asset-allocation-control-plane": "d733a1469b1755003c3a12bb4a35ddbe50bb45df",
+        "asset-allocation-jobs": "d733a1469b1755003c3a12bb4a35ddbe50bb45df",
+        "asset-allocation-runtime-common": "d733a1469b1755003c3a12bb4a35ddbe50bb45df",
+        "asset-allocation-ui": "83ac6dd887a60f7ff88dd89a8a3c29b302248211"
+      }
+    }
+  ]
+}
