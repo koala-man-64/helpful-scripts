@@ -8,7 +8,7 @@ Last updated: 2026-08-31
 
 Next required review: before every waiver run and after any commissioner setting change
 
-Use this procedure to turn the live free-agent pool into an ordered, explicitly authorized claim plan. Keep player names, injuries, projections, and weekly recommendations in dated decision records; keep only durable process here.
+Use this procedure to turn the live free-agent pool into either an ordered, explicitly authorized claim plan or a documented **HOLD / NO TRANSACTION** decision. Keep player names, injuries, projections, and weekly recommendations in dated decision records; keep only durable process here.
 
 ## Operating contract
 
@@ -16,7 +16,7 @@ Use this procedure to turn the live free-agent pool into an ordered, explicitly 
 - Treat the saved [league settings](yahoo-league-scoring-and-settings.md) as a reference snapshot, not current state. Reconfirm the active-team count, because `Maximum teams` is a capacity setting rather than proof of how many teams are active.
 - Use outside rankings, projections, news, and add/drop trends only as timestamped decision support. Record scoring or roster mismatches and do not count several presentations of the same upstream data as independent confirmation.
 - Recommend by default. Submit an add, drop, bid, or priority claim only when the manager authorizes that exact transaction or an exact ordered claim set.
-- Treat **no move** as a valid outcome. Unlimited acquisitions do not make roster churn, waiver priority, or a dropped player's option value free.
+- Treat **HOLD / NO TRANSACTION** as a successful, first-class outcome. The workflow has no move quota: if no add/drop pair clearly beats the no-move baseline after costs and uncertainty, finish with zero claims. Unlimited acquisitions do not make roster churn, waiver priority, or a dropped player's option value free.
 - Never store credentials, cookies, private league or team identifiers, transaction URLs, or other participants' identities in this repository.
 
 ## 1. Freeze the live decision state
@@ -43,9 +43,12 @@ State one primary objective before searching:
 - stream a matchup-dependent position;
 - add a credible rest-of-season starter;
 - acquire contingent upside before a role change becomes fully priced; or
-- block a specific roster failure without sacrificing a more valuable bench option.
+- block a specific roster failure without sacrificing a more valuable bench option; or
+- confirm that the current roster is already the best available option and define when to reevaluate.
 
-Record the exact lineup or bench slot affected, the decision horizon, and what happens if no transaction is made. Name the likely drop candidate now. If no acceptable drop exists, the default decision is **pass** unless an open roster slot or legal IR move changes the comparison.
+Record the exact lineup or bench slot affected, the decision horizon, and what happens if no transaction is made. If evaluating an adjustment, name the likely drop candidate now. For a monitor-only or no-move objective, record `none` and why no drop is justified. If no acceptable drop exists, the default run-level outcome is **HOLD / NO TRANSACTION** unless an open roster slot or legal IR move changes the comparison.
+
+Every proposed transaction bears the burden of proof. A tie, an unclear edge, or a low-confidence marginal gain resolves to **HOLD / NO TRANSACTION**. Do not lower the evidence gates, invent a roster problem, or select the least-bad claim merely because an evaluation was run.
 
 Keep two baselines separate:
 
@@ -142,6 +145,13 @@ Place each add/drop pair in one decision tier:
 2. **Fallback or free-agent target** — useful but replaceable, uncertain, or not worth the current priority/bid.
 3. **Pass** — no clear net gain, illegal transaction, stale evidence, unacceptable drop, or avoidable uncertainty.
 
+After classifying every pair, choose one run-level outcome:
+
+- **CLAIM PLAN** — at least one legal add/drop pair has a material positive net edge and is worth its acquisition cost. A fallback may be included only if it is independently acceptable, not merely because it ranks behind the preferred claim.
+- **HOLD / NO TRANSACTION** — every pair is a pass, only watchlist-level or replaceable options remain, or no pair materially beats the no-move baseline. Zero submitted claims is a valid completed run.
+
+Never turn the highest-ranked candidate into a claim automatically. Ranking identifies the best relative option; it does not prove that the option is better than keeping the current roster.
+
 ## 6. Price the acquisition mechanism
 
 The saved league snapshot records a continual rolling list, a two-day waiver period, Game Time-Tuesday weekly waivers, and no acquisition limits. It does not show a separate FAAB field; use the rolling-priority branch only after live settings confirm that the mechanism has not changed.
@@ -157,13 +167,16 @@ For **FAAB**, only if live settings prove the league changed mechanisms:
 
 - record remaining budget, future-week reserve, candidate tier, replacement depth, likely demand, and the exact maximum acceptable bid;
 - size the cap from this team's net pickup value, tier-drop cost, pressure confidence, and alternatives, not a generic article percentage; and
-- submit a lower bid or pass when the same roster outcome is likely after waivers.
+- submit a lower bid or choose **HOLD / NO TRANSACTION** when the same roster outcome is likely after waivers.
 
 For an available **free agent**, compare the roster gain with drop and lock risk, then act only after the same identity, legality, and authorization checks. A zero-priority or zero-bid add can still destroy option value through the wrong drop.
 
-## 7. Build an ordered, independently safe claim plan
+## 7. Build an ordered, independently safe claim plan or record a hold
 
-Record the plan before submission:
+Choose the run-level outcome before creating any live claims:
+
+- For **HOLD / NO TRANSACTION**, do not create a placeholder claim. Record why no pair cleared the threshold, the evidence or event that would trigger reevaluation, and the next intended review time. Confirm that no stale pending claim would undermine the hold decision.
+- For **CLAIM PLAN**, record the plan before submission:
 
 | Order | Add | Drop | Classification | Maximum cost | Why this order | Cancel if |
 | ---: | --- | --- | --- | --- | --- | --- |
@@ -176,7 +189,11 @@ Record the plan before submission:
 - Keep K/DEF streams separate from core skill-position claims unless their roster and priority effects are explicitly compared.
 - Remove a claim when late news, a roster change, a successful earlier transaction, or a newly available free agent invalidates it.
 
+An empty claim plan is not a workflow failure. Do not add a marginal final candidate merely to make the plan non-empty.
+
 ## 8. Pass the pre-submission gate
+
+Apply this gate only when the run-level outcome is **CLAIM PLAN**. For **HOLD / NO TRANSACTION**, submit nothing, record that no live action was authorized or taken, and retain the reevaluation trigger from Step 7.
 
 Immediately before any live action, verify all of the following:
 
@@ -188,11 +205,11 @@ Immediately before any live action, verify all of the following:
 - the chosen add/drop still beats **no move**; and
 - manager authorization names the exact transaction or exact ordered claim set.
 
-If any check fails, stop and refresh the plan. Do not broaden a player approval into permission to drop a different player, raise a bid, or submit additional claims.
+If any check fails, stop and refresh the plan. If a clear edge cannot be restored, change the outcome to **HOLD / NO TRANSACTION**. Do not broaden a player approval into permission to drop a different player, raise a bid, or submit additional claims.
 
 After submission, treat the outcome as **unknown** until Yahoo's roster and transaction history agree. A button click, queued row, timeout, or success-looking message alone is not proof of a completed transaction.
 
-## 9. Verify processing and update the lineup
+## 9. Verify processing or close the hold decision
 
 After waivers process or a free-agent add completes:
 
@@ -202,9 +219,11 @@ After waivers process or a free-agent add completes:
 4. Rebuild later claims from the actual roster. Do not retry a failed transaction without refreshing live state.
 5. Record the result without private league, account, or participant identifiers.
 
+For **HOLD / NO TRANSACTION**, confirm that no new claim was submitted, preserve the roster and waiver priority or FAAB, and record the primary hold reason plus the reevaluation trigger. This is a fully completed outcome, not a deferred or failed evaluation.
+
 ## 10. Learn from the decision, not only the box score
 
-Review the pickup after one week and again after roughly three weeks. Compare the pre-claim hypothesis with snaps, routes, carries, targets, red-zone work, availability, fantasy output, role persistence, and the opportunity cost of the drop.
+Review a completed pickup after one week and again after roughly three weeks. For a hold decision, review when its recorded trigger occurs and assess whether preserving the roster, priority, budget, and option value remained justified. Compare the original hypothesis with snaps, routes, carries, targets, red-zone work, availability, fantasy output, role persistence, and the opportunity cost of acting or waiting.
 
 Classify misses correctly:
 
@@ -225,6 +244,8 @@ Active teams / scoring / roster shape confirmed:
 Team objective / horizon:
 No-move baseline:
 Waiver replacement baseline / next acceptable equivalent:
+Run outcome: CLAIM PLAN | HOLD / NO TRANSACTION
+Candidate fields: repeat for each serious pair | none - no legal candidate survived
 
 Candidate / exact Yahoo identity:
 Classification:
@@ -238,9 +259,10 @@ Material risks (role / availability / projection / correlation / opportunity):
 Roster-concentration justification (if material):
 Exact drop and drop cost:
 Acquisition cost / maximum acceptable cost:
-Decision: claim now | fallback/free agent | pass
+Candidate decision: claim now | fallback/free agent | pass
 Fallbacks and cancellation conditions:
-Manager authorization:
+Hold rationale / reevaluation trigger:
+Manager authorization: exact transaction/set | not applicable - no live action
 
 Result / Yahoo verification:
 One-week review:
@@ -254,7 +276,7 @@ Process, model, or variance lesson:
 - **IR:** the saved settings do not allow an injured waiver/free-agent player to be added directly to IR. Ensure an active roster slot exists before planning a later IR move.
 - **Non-PPR:** targets and receptions inform role but earn no direct points in the saved scoring. Adjust public PPR recommendations before using them.
 - **Lock and processing:** distinguish locked players, pending Game Time-Tuesday waivers, and post-processing free agents. A later fallback may become available in a different transaction state.
-- **Late news:** if decisive role or health news is unresolved near lock, reduce confidence, choose a safe fallback, or pass.
+- **Late news:** if decisive role or health news is unresolved near lock, reduce confidence, choose a safe fallback, or hold with no transaction.
 - **Playoff horizon:** weigh Weeks 15-17 only after establishing a durable role and a credible path to reaching the playoffs.
 - **Kicker and defense:** stream them with position-specific evidence and low acquisition cost; do not let a replaceable stream consume priority needed for a scarce skill player.
 
