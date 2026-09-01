@@ -4,6 +4,7 @@
 Tools:
   chat(...)                 - single-shot or persistent-conversation chat;
                               pass `collection` for retrieval-augmented answers
+  list_models()             - available, policy-allowed deployment IDs
   list_conversations()      - stored conversation summaries
   get_conversation(name)    - full stored record
   delete_conversation(name) - remove the local record
@@ -25,6 +26,7 @@ starts with zero configuration):
   FOUNDRY_API_KEY=...
   FOUNDRY_PROJECT_ENDPOINT=https://your-resource.services.ai.azure.com/api/projects/your-project
   FOUNDRY_DEFAULT_DEPLOYMENT=optional-deployment-name
+  FOUNDRY_ALLOWED_DEPLOYMENTS_JSON=optional-JSON-array-of-deployment-names
   FOUNDRY_EMBEDDING_DEPLOYMENT=embedding-deployment-name (document tools)
   FOUNDRY_TIMEOUT_SECONDS=optional
   MCP_CHATBOT_DATA_DIR=optional
@@ -33,6 +35,7 @@ starts with zero configuration):
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -90,6 +93,60 @@ def _azure_error(exc: APIStatusError) -> RuntimeError:
     return RuntimeError(f"Azure request failed ({exc.status_code}): {exc}")
 
 
+def _deployment_allowlist() -> dict[str, str] | None:
+    """Return case-folded deployment names mapped to their configured spelling.
+
+    The setting is optional so existing standalone mcp-chatbot installations
+    retain their resource-wide behavior. When supplied, malformed or empty
+    policy is a configuration error rather than an implicit allow-all.
+    """
+    raw = os.getenv("FOUNDRY_ALLOWED_DEPLOYMENTS_JSON")
+    if raw is None:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "FOUNDRY_ALLOWED_DEPLOYMENTS_JSON must be a nonempty JSON array "
+            "of deployment names."
+        ) from exc
+    if not isinstance(parsed, list) or not parsed:
+        raise RuntimeError(
+            "FOUNDRY_ALLOWED_DEPLOYMENTS_JSON must be a nonempty JSON array "
+            "of deployment names."
+        )
+
+    allowed: dict[str, str] = {}
+    for index, value in enumerate(parsed):
+        if not isinstance(value, str) or not value or value != value.strip():
+            raise RuntimeError(
+                "FOUNDRY_ALLOWED_DEPLOYMENTS_JSON entries must be nonempty "
+                f"trimmed strings; invalid entry at index {index}."
+            )
+        key = value.casefold()
+        if key in allowed:
+            raise RuntimeError(
+                "FOUNDRY_ALLOWED_DEPLOYMENTS_JSON contains duplicate deployment "
+                f"name {value!r}."
+            )
+        allowed[key] = value
+    return allowed
+
+
+def _require_allowed_deployment(model: str, context: str = "Model") -> str:
+    """Authorize a deployment and return its canonical configured spelling."""
+    allowed = _deployment_allowlist()
+    if allowed is None:
+        return model
+    canonical = allowed.get(model.casefold())
+    if canonical is None:
+        raise ValueError(
+            f"{context} deployment {model!r} is not allowed by "
+            "FOUNDRY_ALLOWED_DEPLOYMENTS_JSON."
+        )
+    return canonical
+
+
 def _resolved_embedding_model(model: str | None) -> str:
     resolved = model or os.getenv("FOUNDRY_EMBEDDING_DEPLOYMENT")
     if not resolved:
@@ -98,11 +155,12 @@ def _resolved_embedding_model(model: str | None) -> str:
             "pass `embedding_model` or set the environment variable to an embedding "
             "deployment name."
         )
-    return resolved
+    return _require_allowed_deployment(resolved, "Embedding model")
 
 
 def _embed_texts(texts: list[str], model: str) -> list[list[float]]:
     """Embed texts in bounded batches; vectors come back in input order."""
+    model = _require_allowed_deployment(model, "Embedding model")
     client = _openai_client()
     vectors: list[list[float]] = []
     for i in range(0, len(texts), EMBED_BATCH_SIZE):
@@ -289,6 +347,30 @@ def _run_agents(
 
 
 @mcp.tool()
+def list_models() -> dict[str, list[dict[str, Any]]]:
+    """List model/deployment IDs available through the configured Foundry endpoint.
+
+    When FOUNDRY_ALLOWED_DEPLOYMENTS_JSON is configured, results are filtered
+    to that policy. Returned ``id`` values can be passed directly to
+    ``chat(model=...)``. Results are sorted for stable display and contain no
+    endpoint or credential information.
+    """
+    allowed = _deployment_allowlist()
+    try:
+        page = _openai_client().models.list()
+    except APIStatusError as exc:
+        raise _azure_error(exc) from exc
+
+    models = [
+        {"id": model.id, "owned_by": getattr(model, "owned_by", None)}
+        for model in page
+        if allowed is None or model.id.casefold() in allowed
+    ]
+    models.sort(key=lambda model: model["id"].casefold())
+    return {"models": models}
+
+
+@mcp.tool()
 def chat(
     prompt: str,
     conversation: str | None = None,
@@ -312,7 +394,9 @@ def chat(
     sent as vision input. `reasoning_effort` (e.g. low/medium/high) applies to
     reasoning deployments only and is passed through verbatim. Pass
     `collection` to retrieve the most relevant stored document chunks (see
-    upload_documents) and inline them into the prompt.
+    upload_documents) and inline them into the prompt. When
+    FOUNDRY_ALLOWED_DEPLOYMENTS_JSON is set, every chat, agent, or embedding
+    deployment must be included in that allowlist.
     """
     if mode not in MODES:
         raise ValueError(f"Unknown mode {mode!r}; expected one of {MODES}.")
@@ -356,6 +440,7 @@ def chat(
                 # The agent's model is fixed at creation; keep reporting/storing
                 # it rather than letting a changed env default drift the record.
                 resolved_model = record["model"]
+    resolved_model = _require_allowed_deployment(resolved_model)
     effective_system = record["system"] if record is not None else system
 
     retrieved: list[dict[str, Any]] | None = None
@@ -471,6 +556,7 @@ def upload_documents(
         model = pinned
     else:
         model = _resolved_embedding_model(embedding_model)
+    model = _require_allowed_deployment(model, "Embedding model")
     # Fail fast on client misconfiguration: a missing FOUNDRY_OPENAI_BASE_URL or
     # FOUNDRY_API_KEY is an environment problem for the whole call and must not
     # be demoted to per-file "failed" statuses by the loop below.

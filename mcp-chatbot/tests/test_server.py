@@ -12,6 +12,85 @@ from mcp_chatbot import documents, server, store
 PNG_BYTES = b"\x89PNG\r\n\x1a\nfakepngdata"
 
 
+def test_list_models_returns_stable_available_deployments(env, fake_openai) -> None:
+    fake_openai.model_entries = [
+        SimpleNamespace(id="zeta", owned_by=None),
+        SimpleNamespace(id="Alpha", owned_by="foundry"),
+    ]
+
+    assert server.list_models() == {
+        "models": [
+            {"id": "Alpha", "owned_by": "foundry"},
+            {"id": "zeta", "owned_by": None},
+        ]
+    }
+    assert fake_openai.models_list_calls == 1
+
+
+def test_list_models_allows_empty_inventory(env, fake_openai) -> None:
+    fake_openai.model_entries = []
+    assert server.list_models() == {"models": []}
+
+
+def test_list_models_surfaces_azure_error(env, fake_openai) -> None:
+    fake_openai.models_failures.append(make_api_error(403, "forbidden"))
+    with pytest.raises(RuntimeError, match=r"Azure request failed \(403\)"):
+        server.list_models()
+
+
+def test_list_models_filters_to_case_insensitive_allowlist(
+    env, fake_openai, monkeypatch
+) -> None:
+    monkeypatch.setenv(
+        "FOUNDRY_ALLOWED_DEPLOYMENTS_JSON", json.dumps(["alpha", "not-present"])
+    )
+    fake_openai.model_entries = [
+        SimpleNamespace(id="zeta", owned_by=None),
+        SimpleNamespace(id="Alpha", owned_by="foundry"),
+    ]
+
+    assert server.list_models() == {
+        "models": [{"id": "Alpha", "owned_by": "foundry"}]
+    }
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["not-json", "[]", '["alpha", "ALPHA"]', '["alpha", ""]'],
+)
+def test_invalid_deployment_allowlist_fails_closed_before_inventory(
+    env, fake_openai, monkeypatch, raw
+) -> None:
+    monkeypatch.setenv("FOUNDRY_ALLOWED_DEPLOYMENTS_JSON", raw)
+
+    with pytest.raises(RuntimeError, match="FOUNDRY_ALLOWED_DEPLOYMENTS_JSON"):
+        server.list_models()
+    assert fake_openai.models_list_calls == 0
+
+
+def test_chat_rejects_disallowed_deployment_before_model_call(
+    env, fake_openai, monkeypatch
+) -> None:
+    monkeypatch.setenv(
+        "FOUNDRY_ALLOWED_DEPLOYMENTS_JSON", json.dumps(["test-deployment"])
+    )
+
+    with pytest.raises(ValueError, match="not allowed"):
+        server.chat(prompt="hi", model="other-deployment")
+    assert fake_openai.responses_calls == []
+
+
+def test_chat_uses_canonical_case_from_allowlist(env, fake_openai, monkeypatch) -> None:
+    monkeypatch.setenv(
+        "FOUNDRY_ALLOWED_DEPLOYMENTS_JSON", json.dumps(["My-Deployment"])
+    )
+
+    result = server.chat(prompt="hi", model="my-deployment")
+
+    assert result["model"] == "My-Deployment"
+    assert fake_openai.responses_calls[0]["model"] == "My-Deployment"
+
+
 def test_single_shot_responses_is_default_and_persists_nothing(env, fake_openai) -> None:
     result = server.chat(prompt="hi")
     assert result == {
@@ -328,6 +407,18 @@ def test_upload_documents_creates_persistent_collection(env, fake_openai, tmp_pa
     assert result["files"][0]["status"] == "indexed"
     assert result["files"][0]["chunks"] == 1
     assert (env / "collections" / "default.npz").is_file()
+
+
+def test_upload_documents_rejects_disallowed_embedding_before_model_call(
+    env, fake_openai, tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv(
+        "FOUNDRY_ALLOWED_DEPLOYMENTS_JSON", json.dumps(["test-deployment"])
+    )
+
+    with pytest.raises(ValueError, match="Embedding model deployment.*not allowed"):
+        server.upload_documents([_write_doc(tmp_path)])
+    assert fake_openai.embeddings_calls == []
 
 
 def test_upload_batches_embedding_calls(env, fake_openai, tmp_path: Path, monkeypatch) -> None:

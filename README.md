@@ -4,6 +4,14 @@
 
 `foundry-vscode-setup/` is an agent-ready handoff package for configuring VS Code's Local agent harness with a tool-capable local GLM coordinator and Microsoft Foundry-backed custom worker subagents. It includes model-provider templates, least-privilege custom-agent definitions, staged canaries, troubleshooting, and rollback guidance for a Copilot-disabled environment. See [foundry-vscode-setup/README.md](foundry-vscode-setup/README.md).
 
+## Claude Code + Microsoft Foundry hybrid kit
+
+`claude-foundry-hybrid/` provides a Windows/PowerShell launcher that keeps
+Claude Code on native Microsoft Foundry Claude deployments while exposing
+other Foundry deployments through an explicit MCP model bench. It also
+contains an isolated, opt-in LiteLLM compatibility lab. See
+[claude-foundry-hybrid/README.md](claude-foundry-hybrid/README.md).
+
 ## GitHub activity scanner
 
 `github-activity-scanner/` holds a dependency-free, read-only Python tool

@@ -17,8 +17,8 @@ cd mcp-chatbot
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
-python -m pytest     # 132 mocked tests, no network needed
-python smoke.py      # spawns the real server over stdio -> "SMOKE OK: 10 tools"
+python -m pytest     # mocked tests, no network needed
+python smoke.py      # proves full=11 tools and least-privilege bench=2 tools
 ```
 
 Then register the server with your MCP client (see
@@ -37,6 +37,7 @@ chat(prompt="Summarize the vacation policy", collection="default")
 
 | Tool | Purpose |
 |---|---|
+| `list_models()` | List the Foundry model/deployment IDs available through the configured OpenAI-compatible endpoint. IDs can be passed to `chat(model=...)`. |
 | `chat(prompt, conversation?, mode?, model?, system?, reasoning_effort?, temperature?, max_output_tokens?, attachments?, collection?)` | Send a prompt. Omit `conversation` for single-shot (nothing persisted); pass a name to create/continue a persistent conversation. Pass `collection` to inline the 5 most relevant stored document chunks. |
 | `list_conversations()` | Summaries of stored conversations, newest first. |
 | `get_conversation(name)` | Full stored record (transcript keeps attachment paths, never base64). |
@@ -47,6 +48,16 @@ chat(prompt="Summarize the vacation policy", collection="default")
 | `get_collection(name)` | Collection metadata and per-document details (chunk texts omitted). |
 | `delete_document(document, collection?)` | Remove one document's chunks and vectors (by stored name, or path if ambiguous). |
 | `delete_collection(name)` | Delete a whole collection, including its embedding-model pin. |
+
+### Least-privilege model bench
+
+`python -m mcp_chatbot.bench` is a separate stateless entry point for clients
+that need model consultation rather than the full chatbot. It registers
+exactly two tools: filtered `list_models()` and bounded `chat()`. Bench chat
+supports only `responses` and `chat` modes, caps prompt/system/output sizes,
+and exposes no conversations, agents, attachments, local-file ingestion,
+document persistence, retrieval, or deletion tools. The Claude Foundry hybrid
+kit registers this entry point.
 
 ### Modes
 
@@ -149,6 +160,7 @@ chatting in agents mode.
 | `FOUNDRY_API_KEY` | responses/chat modes and all document tools | Foundry resource API key. |
 | `FOUNDRY_PROJECT_ENDPOINT` | agents mode | Project endpoint: `https://<resource>.services.ai.azure.com/api/projects/<project>`. |
 | `FOUNDRY_DEFAULT_DEPLOYMENT` | optional | Deployment used when `model` is omitted. |
+| `FOUNDRY_ALLOWED_DEPLOYMENTS_JSON` | optional | Nonempty JSON array of allowed chat, agent, and embedding deployment names. When set, malformed policy fails closed, `list_models()` is filtered, and model calls outside the list are rejected. Omit only for intentional resource-wide standalone access. |
 | `FOUNDRY_EMBEDDING_DEPLOYMENT` | document tools | Embedding deployment used when a collection is created and `embedding_model` is omitted. Existing collections always use their pinned deployment. |
 | `FOUNDRY_TIMEOUT_SECONDS` | optional | OpenAI client timeout override (SDK default 600 s). |
 | `MCP_CHATBOT_DATA_DIR` | optional | Data dir: conversations at its root, document collections under `collections/` (default `~/.mcp-chatbot/conversations` and `~/.mcp-chatbot/collections`). |
@@ -183,14 +195,14 @@ point.
 ```json
 {
   "mcpServers": {
-    "mcp-chatbot": {
+    "foundry-model-consult": {
       "command": "C:\\Users\\rdpro\\Projects\\helpful-scripts\\mcp-chatbot\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "mcp_chatbot.server"],
+      "args": ["-m", "mcp_chatbot.bench"],
       "env": {
-        "FOUNDRY_OPENAI_BASE_URL": "https://your-resource.services.ai.azure.com/openai/v1/",
-        "FOUNDRY_API_KEY": "your-key",
-        "FOUNDRY_DEFAULT_DEPLOYMENT": "your-deployment",
-        "FOUNDRY_EMBEDDING_DEPLOYMENT": "your-embedding-deployment"
+        "FOUNDRY_OPENAI_BASE_URL": "${CFH_FOUNDRY_OPENAI_BASE_URL}",
+        "FOUNDRY_API_KEY": "${CFH_MCP_API_KEY}",
+        "FOUNDRY_DEFAULT_DEPLOYMENT": "${CFH_DEFAULT_DEPLOYMENT}",
+        "FOUNDRY_ALLOWED_DEPLOYMENTS_JSON": "${CFH_ALLOWED_DEPLOYMENTS_JSON}"
       }
     }
   }
@@ -200,8 +212,8 @@ point.
 ## Validate (offline — no deployment needed)
 
 ```powershell
-python -m pytest    # 132 mocked tests, no network
-python smoke.py     # spawns the real server over stdio -> "SMOKE OK: 10 tools"
+python -m pytest    # 151 mocked tests, no network
+python smoke.py     # exact stdio inventories -> full=11 tools, bench=2 tools
 ```
 
 ## Live smoke test (once a model deployment exists)
@@ -228,7 +240,7 @@ python smoke.py     # spawns the real server over stdio -> "SMOKE OK: 10 tools"
 
 | Module | Role |
 |---|---|
-| `mcp_chatbot/server.py` | FastMCP server: all 10 tools, the three mode runners, and every Azure call (chat + embeddings). |
+| `mcp_chatbot/server.py` | FastMCP server: all 11 tools, the three mode runners, and every Azure call (model inventory, chat, and embeddings). |
 | `mcp_chatbot/store.py` | Conversation persistence: one JSON file per conversation, atomic writes, name validation (names double as filenames). |
 | `mcp_chatbot/docstore.py` | Collection persistence and search: `.npz` round-trip, integrity checks on load, model/dimension pinning, cosine top-k. The only module that touches numpy. |
 | `mcp_chatbot/documents.py` | Text extraction (UTF-8 / pypdf / python-docx) and boundary-aware character chunking. Pure and offline. |

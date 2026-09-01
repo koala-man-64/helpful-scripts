@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "foundry": {
+    "claude": {
+      "baseUrl": "https://your-claude-resource.services.ai.azure.com/anthropic",
+      "deployments": {
+        "opus": "your-opus-deployment",
+        "sonnet": "your-sonnet-deployment",
+        "haiku": "your-haiku-deployment"
+      }
+    },
+    "openai": {
+      "baseUrl": "https://your-model-resource.services.ai.azure.com/openai/v1/",
+      "defaultDeployment": "your-default-nonclaude-deployment",
+      "allowedDeployments": [
+        "your-default-nonclaude-deployment",
+        "your-gateway-lab-deployment"
+      ]
+    }
+  },
+  "gatewayLab": {
+    "modelAlias": "foundry-nonclaude",
+    "deployment": "your-gateway-lab-deployment",
+    "timeoutSeconds": 120,
+    "requestsPerMinute": 6,
+    "pythonVersion": "3.11"
+  }
+}

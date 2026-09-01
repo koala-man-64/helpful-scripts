@@ -33,10 +33,16 @@ class FakeOpenAI:
         self.embeddings_failures: list[Exception] = []
         self.embedding_map: dict[str, list[float]] = {}
         self.embedding_dimensions = 8
+        self.model_entries = [
+            SimpleNamespace(id="test-deployment", owned_by="unit-test")
+        ]
+        self.models_failures: list[Exception] = []
+        self.models_list_calls = 0
         self.responses = SimpleNamespace(create=self._responses_create)
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._chat_create))
         self.conversations = SimpleNamespace(create=self._conversations_create)
         self.embeddings = SimpleNamespace(create=self._embeddings_create)
+        self.models = SimpleNamespace(list=self._models_list)
 
     def _responses_create(self, **kwargs: Any) -> SimpleNamespace:
         self.responses_calls.append(kwargs)
@@ -75,6 +81,12 @@ class FakeOpenAI:
         # contract. Returning reversed data keeps the server's sort load-bearing.
         data.reverse()
         return SimpleNamespace(data=data)
+
+    def _models_list(self) -> list[SimpleNamespace]:
+        self.models_list_calls += 1
+        if self.models_failures:
+            raise self.models_failures.pop(0)
+        return self.model_entries
 
     def vector_for(self, text: str) -> list[float]:
         """Deterministic unit vector per text: identical text always embeds to the
@@ -116,6 +128,7 @@ def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Any):
     monkeypatch.setenv("FOUNDRY_DEFAULT_DEPLOYMENT", "test-deployment")
     monkeypatch.setenv("FOUNDRY_EMBEDDING_DEPLOYMENT", "test-embedding")
     monkeypatch.setenv("MCP_CHATBOT_DATA_DIR", str(data_dir))
+    monkeypatch.delenv("FOUNDRY_ALLOWED_DEPLOYMENTS_JSON", raising=False)
     monkeypatch.delenv("FOUNDRY_TIMEOUT_SECONDS", raising=False)
     # Clearing at setup is what isolates tests; at teardown the factories may
     # still be monkeypatched fakes without a cache_clear attribute.

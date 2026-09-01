@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+claude-foundry-hybrid/config.local.json
 .vscode/**
 !.vscode/tasks.json
 # Build outputs

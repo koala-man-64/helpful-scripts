@@ -1,0 +1,3 @@
+# LiteLLM 1.99.0 imports typing.NotRequired at startup and therefore requires
+# Python 3.11+ in practice even though its package metadata permits 3.10.
+litellm[proxy]==1.99.0
