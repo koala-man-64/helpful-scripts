@@ -1,29 +1,26 @@
 # Example only. Installers own live permissions; this catalog does not apply them.
-[profiles.read_only]
-description = "Inspection and planning; installer/canary ownership applies live permissions."
+[profiles.advisory_non_installed_read_only]
+description = "Advisory or non-installed inspection only."
 writable_root = "none"
 network = "read-only when platform permits"
-external_mutation = false
+hook_authorized_in_scope_external_mutation = false
 escalation = "none"
-hook_authorization = false
 human_approval = "not applicable"
 
 [profiles.workspace_delivery]
-description = "Task-owned workspace edits only; installer/canary owns any live grant."
+description = "Task-owned workspace edits; external delivery is hook-authorized only when in scope."
 writable_root = "task-owned worktree"
 network = "only task-required reads"
-external_mutation = false
+hook_authorized_in_scope_external_mutation = true
 escalation = "central hooks"
-hook_authorization = true
 human_approval = "protected actions remain human-owned"
 
 [profiles.critical_limited_scope]
-description = "Bounded critical work; no self-approval or protected mutation."
+description = "Bounded critical work; in-scope external mutation is hook-authorized, never self-approved."
 writable_root = "task-owned worktree"
 network = "explicit task scope only"
-external_mutation = false
+hook_authorized_in_scope_external_mutation = true
 escalation = "central hooks and named human owner"
-hook_authorization = true
 human_approval = "required for protected approvals"
 
 # Permission profiles are deliberately separate from legacy sandbox settings.
