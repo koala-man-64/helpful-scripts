@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 from catalog_lib import load_document, validate_schema, write_json
-from validate_catalog import validate
+from validate_catalog import parse_repository_mappings, validate
 
 
 def render(
@@ -186,12 +186,10 @@ def main():
     p.add_argument("--repo", action="append", default=[], metavar="ID=PATH")
     p.add_argument("--strict-origin", action="store_true")
     a = p.parse_args()
-    mappings = {}
-    for value in a.repo:
-        if "=" not in value:
-            p.error("--repo must be ID=PATH")
-        name, path = value.split("=", 1)
-        mappings[name] = Path(path)
+    try:
+        mappings = parse_repository_mappings(a.repo, require_complete=a.strict_origin)
+    except ValueError as error:
+        p.error(str(error))
     write_json(
         a.output,
         render(a.root, a.repository, a.lane, mappings or None, a.strict_origin),

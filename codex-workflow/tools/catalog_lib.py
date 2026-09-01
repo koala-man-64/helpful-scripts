@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from pathlib import Path
+import subprocess
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 SUPPORTED_SCHEMA_KEYS = {
@@ -50,6 +51,60 @@ def canonical_hash(path: Path) -> str:
         content = item.read_bytes()
         digest.update(len(content).to_bytes(8, "big"))
         digest.update(content)
+    return f"sha256:{digest.hexdigest()}"
+
+
+def canonical_git_hash(repository: Path, commit: str, source_path: str) -> str:
+    """Hash a directory exactly as committed, without checking it out."""
+    source = PurePosixPath(source_path)
+    if (
+        not source_path
+        or source.is_absolute()
+        or any(part in {"", ".", ".."} for part in source.parts)
+        or "\\" in source_path
+        or ":" in source_path
+    ):
+        raise ValueError("source path must be a safe repository-relative POSIX path")
+    listing = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "ls-tree",
+            "-r",
+            "-z",
+            "--name-only",
+            commit,
+            "--",
+            source_path,
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if listing.returncode:
+        raise ValueError("claimed commit or source path cannot be read")
+    prefix = source_path.rstrip("/") + "/"
+    names = sorted(
+        raw.decode("utf-8")
+        for raw in listing.stdout.split(b"\0")
+        if raw and raw.decode("utf-8").startswith(prefix)
+    )
+    if not names:
+        raise ValueError("claimed source directory contains no files")
+    digest = hashlib.sha256()
+    for name in names:
+        relative = name[len(prefix) :].encode("utf-8")
+        content = subprocess.run(
+            ["git", "-C", str(repository), "show", f"{commit}:{name}"],
+            capture_output=True,
+            check=False,
+        )
+        if content.returncode:
+            raise ValueError(f"claimed source file cannot be read: {name}")
+        digest.update(len(relative).to_bytes(4, "big"))
+        digest.update(relative)
+        digest.update(len(content.stdout).to_bytes(8, "big"))
+        digest.update(content.stdout)
     return f"sha256:{digest.hexdigest()}"
 
 

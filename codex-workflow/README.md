@@ -28,7 +28,8 @@ snapshots. Catalog entries may cite them but tooling must never rewrite them.
 
 The `.yaml` catalog files intentionally use JSON-compatible YAML so the included
 tools can stay standard-library-only. Source hashes cover every file beneath the
-declared skill directory, in sorted relative-path order. Use:
+declared skill directory, in sorted relative-path order. Shared pins are computed
+from immutable Git objects, not platform-specific working-tree bytes. Use:
 
 ```powershell
 py -3 codex-workflow/tools/build_inventory.py exports/codex-skills/repo-local --output $env:TEMP\codex-workflow-inventory.json
@@ -39,8 +40,10 @@ py -3 codex-workflow/tools/render_consumer_lock.py codex-workflow --repository a
 The current schemas are `skill-manifest-v2.schema.json` and
 `consumer-lock-v2.schema.json`; v1 schemas are historical only. Inventory and rendered-lock output paths are user-directed and outside the committed
 catalog by default. The renderer always requires `--output`; it never installs a
-consumer lock. Pass explicit `--repo ID=PATH` mappings for portable provenance;
-the historical `%USERPROFILE%\Projects` lookup is only a compatibility fallback.
+consumer lock. Strict provenance requires exactly one explicit `--repo ID=PATH`
+mapping for each of the five consumer repositories and rejects duplicate or missing
+mappings. The historical `%USERPROFILE%\Projects` lookup is only a non-strict
+compatibility fallback.
 Observed unresolved forks are selection-blocked metadata and are never emitted as
 runnable lock selections. A branch-local workflow-router source is a candidate only:
 publish that source to `origin/main` first, then publish a catalog pin pointing at the

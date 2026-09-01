@@ -10,7 +10,7 @@
         "path": "codex-workflow/skills/workflow-router",
         "commit": "08ce4e66d48fdfebfcb5a01f676785176be9608b"
       },
-      "content_hash": "sha256:19aab4cc83acda0efed4ecaab0560ec1d389b7d8365a0fa63d77ab14fe3aef44",
+      "content_hash": "sha256:d728cdcaf3f7c2b80f951addeac6d89988a8c52c5aeead4d79601096f5d42ba9",
       "content_hash_algorithm": "sha256",
       "version": "1.0.0",
       "supported_repositories": [

@@ -11,9 +11,9 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 from build_inventory import build_inventory  # noqa: E402
-from catalog_lib import load_document, validate_schema  # noqa: E402
+from catalog_lib import canonical_git_hash, load_document, validate_schema  # noqa: E402
 from render_consumer_lock import render  # noqa: E402
-from validate_catalog import validate  # noqa: E402
+from validate_catalog import parse_repository_mappings, validate  # noqa: E402
 
 
 REPOSITORIES = (
@@ -141,6 +141,38 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(
             any("unsupported schema keyword" in error for error in nested_errors)
         )
+
+    def test_router_commit_hash_and_repository_mapping_contract(self) -> None:
+        manifest = load_document(ROOT / "catalog" / "skills.yaml")
+        router = next(
+            item for item in manifest["skills"] if item["id"] == "workflow-router"
+        )
+        self.assertEqual(
+            canonical_git_hash(
+                ROOT.parent,
+                router["source"]["commit"],
+                router["source"]["path"],
+            ),
+            router["content_hash"],
+        )
+        with self.assertRaisesRegex(ValueError, "claimed commit"):
+            canonical_git_hash(ROOT.parent, "f" * 40, router["source"]["path"])
+        with self.assertRaisesRegex(ValueError, "duplicated"):
+            parse_repository_mappings(
+                [
+                    "asset-allocation-contracts=C:\\one",
+                    "asset-allocation-contracts=C:\\two",
+                ]
+            )
+        with self.assertRaisesRegex(ValueError, "exactly one mapping"):
+            parse_repository_mappings(
+                ["asset-allocation-contracts=C:\\one"], require_complete=True
+            )
+        complete = parse_repository_mappings(
+            [f"{repository}=C:\\{repository}" for repository in REPOSITORIES],
+            require_complete=True,
+        )
+        self.assertEqual(set(complete), set(REPOSITORIES))
 
     def test_all_consumer_locks_have_exact_operating_contract(self) -> None:
         schema = load_document(ROOT / "schemas" / "consumer-lock-v2.schema.json")
