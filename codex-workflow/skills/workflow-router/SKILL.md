@@ -25,8 +25,8 @@ routes selected for a task.
 
 For the catalog scenarios, record the parent route and every child route explicitly:
 
-- Narrow local fix: Terra/medium owner; no children.
-- Standard feature: Sol/high owner; Terra/medium QA child when needed.
+- Narrow local fix: Luna/low owner; no children.
+- Standard feature: Terra/medium owner plus a Luna/low focused-QA child.
 - Cross-repo contract change and CI incident: Sol/high owner; Terra/medium
   investigation or QA children only.
 - Production or IaC change: Sol/high owner; Terra/medium security, QA, or
