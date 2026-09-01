@@ -1,0 +1,22 @@
+---
+name: workflow-router
+description: Route Codex work directly by task shape and risk to the smallest suitable model and effort; use for delegating implementation, investigation, review, or high-risk production work.
+---
+
+# Workflow router
+
+Choose the route from the task itself, not from a fixed escalation ladder.
+
+- Mechanical inventory, formatting, or bounded transformations: Luna at low effort.
+- Investigation, debugging, test execution, and code review: Terra at medium effort.
+- Architecture, security, incidents, migrations, data integrity, or production risk:
+  Sol at high effort when the parent permits it.
+
+A child is never Ultra and must be strictly lower than its parent in both orders:
+`Sol > Terra > Luna` and `ultra > high > medium > low`. A Luna/low parent cannot
+delegate. Do not require a cumulative lower-tier blocker ladder: route directly to
+the smallest permitted model that matches the work. Central hooks remain authoritative
+for mutations and evidence.
+
+Read [references/evidence.md](references/evidence.md) only when a task depends on
+delivery or runtime proof.

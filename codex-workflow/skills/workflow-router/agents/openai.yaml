@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workflow Router"
+  short_description: "Direct task-shaped Codex routing"
+  default_prompt: "Use $workflow-router to select the smallest suitable model and effort for this task."
