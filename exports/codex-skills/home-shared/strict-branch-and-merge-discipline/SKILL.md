@@ -11,8 +11,8 @@ description: Mandatory git safety workflow for any task that changes code in one
 - Treat this skill as mandatory even when the user does not mention it.
 - Prefer isolation over convenience.
 - Prefer blocking over guessing.
-- Stop on any policy violation and return `BLOCKED` with the exact reason and required remediation.
-- Refuse to continue silently after a violation, overlap warning, ownership ambiguity, or stale-branch risk.
+- Block only the unsafe action on a policy violation and return `BLOCKED` with the exact reason and required remediation.
+- Do not continue silently after a violation, overlap warning, ownership ambiguity, or stale-branch risk. Complete independent, authorized safe work where doing so does not widen the risk.
 
 ## Require or Infer Inputs
 
@@ -36,7 +36,7 @@ Treat a user instruction of `finish it` as explicit authorization to complete th
 7. Open a pull request targeting the repo default branch.
 8. Merge the pull request only after the merge gate below is satisfied.
 
-`finish it` does not authorize direct commits to protected branches, force pushes, skipping failed checks, bypassing required review, deleting unrelated work, or merging when branch protection rejects the PR. If a step is blocked, stop at the first unsafe action, report the blocker, and state the exact next action needed.
+`finish it` does not authorize direct commits to protected branches, force pushes, skipping failed checks, bypassing required review, deleting unrelated work, or merging when branch protection rejects the PR. If a step is blocked, halt that unsafe action, complete independent authorized work, and report the exact blocker and next action. When a user decision or human-owned approval is genuinely required, use Need Input when available; otherwise ask one explicit blocking question. Never self-approve or bypass protected gates.
 
 ## Treat These Branches as Protected or Shared
 
@@ -47,6 +47,7 @@ Treat a user instruction of `finish it` as explicit authorization to complete th
 ## Run Preflight Before Any File Edit
 
 1. Confirm the repo root, current branch, current worktree, and `origin` remote.
+   - Resolve the repository from the mutating tool's actual working directory, shell location, `git -C`, or mutation path. Never borrow branch, HEAD, registration, or ownership state from the caller repository.
 2. Run `git status --porcelain`.
 3. Stop if the working tree is dirty unless the uncommitted changes clearly belong to the same `AGENT_ID` and `TASK_ID` branch you are resuming.
 4. Resolve `BASE_BRANCH` from `origin/HEAD` unless explicitly provided.
@@ -59,6 +60,7 @@ Treat a user instruction of `finish it` as explicit authorization to complete th
    - Reuse the branch only when it clearly belongs to the same ongoing task.
    - Add a unique suffix such as `/v2` or `/YYYYMMDD-HHMMSS` when the original name already exists for different work.
 10. Refuse to continue if the only available path would reuse another agent's branch or a shared integration branch.
+11. If the current Codex worktree is detached, treat it as a recoverable bootstrap state: preserve task-owned changes, create or attach the private task branch, verify the resulting branch and HEAD, and continue. Never commit while detached.
 
 ## Use One Active Branch per Working Directory
 
@@ -78,6 +80,7 @@ Treat a user instruction of `finish it` as explicit authorization to complete th
 ## Follow These Rules While Working
 
 - Keep commits small, atomic, and task-scoped.
+- When a required branch, review, or deployment action is blocked, continue only independent work that is already authorized and cannot affect the blocked action; surface the exact remaining user decision or approval through Need Input when available.
 - Include `TASK_ID` in every commit message.
 - Avoid scope creep. Create a new task branch or explicitly record a scope expansion when the task changes materially.
 - Avoid mixing unrelated fixes or features in the same branch.
@@ -94,6 +97,8 @@ Treat a user instruction of `finish it` as explicit authorization to complete th
 ## Coordinate Multi-Repo Work Explicitly
 
 - Create one private branch per repo using the same `TASK_ID`.
+- Establish and verify one Git context per repository before editing. Keep every mutating tool call scoped to exactly one repository so enforcement and evidence remain repository-bound.
+- Use the product's task/worktree mechanism to create external Codex worktrees. Do not bypass repository scope with an arbitrary `git -C` destination or reuse the caller repository's context.
 - Keep a coordination record of `repo -> branch -> head SHA`.
 - Link related branches or PRs clearly when repos must land together.
 - Avoid calling a downstream repo complete when it depends on unmerged changes in an upstream repo unless the dependency is explicitly handled.
