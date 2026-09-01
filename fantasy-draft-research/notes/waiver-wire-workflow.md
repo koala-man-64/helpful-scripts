@@ -47,6 +47,13 @@ State one primary objective before searching:
 
 Record the exact lineup or bench slot affected, the decision horizon, and what happens if no transaction is made. Name the likely drop candidate now. If no acceptable drop exists, the default decision is **pass** unless an open roster slot or legal IR move changes the comparison.
 
+Keep two baselines separate:
+
+- **No-move baseline:** the best legal lineup and roster outcome if no transaction is made. Use it to measure the immediate weekly gain from acting.
+- **Waiver replacement baseline:** the next viable player or role expected to remain obtainable for the affected starter, flex, or bench use after the current claim window. Build it from the live free-agent pool, active-team demand, lineup and flex requirements, pending claims, and remaining same-role alternatives. Use it to measure sustainable rest-of-season gain and scarcity.
+
+Recompute the waiver replacement baseline from the current league. Do not import a public 10- or 12-team replacement rank unchanged, and do not treat the no-move baseline as proof that the candidate has durable value above replacement.
+
 Preserve optionality deliberately. Do not drop the only backup to a fragile starter, a justified IR stash, or a high-leverage contingent player for an interchangeable one-week projection gain without recording why the immediate gain is worth the lost upside.
 
 ## 3. Build a small, legal candidate set
@@ -84,6 +91,15 @@ Separate observed facts from forecasts and recommendations.
 | Schedule | Opponent, game environment, bye, and playoff schedule when relevant | Use mainly for streamers and close comparisons; role comes first. |
 | Market pressure | Add/drop trend, roster percentage, positional need across anonymous opponents, and remaining alternatives | Estimate claim risk, never player quality by itself. |
 
+Classify claim pressure as `low`, `medium`, `high`, or `unknown`, and record confidence separately:
+
+- **Low:** ample same-tier alternatives remain or few managers ahead have a plausible positional need.
+- **Medium:** at least one manager ahead has a plausible need and same-tier depth is limited.
+- **High:** several managers ahead can use the role, few same-tier alternatives remain, and acquisition timing makes a loss likely.
+- **Unknown:** priority, opponent need, timing, or alternative depth is stale, incomplete, or contradictory.
+
+Base pressure only on mechanism-appropriate live state: the current waiver order or remaining FAAB, Yahoo-visible roster percentage and add/drop trends, anonymous roster needs, remaining same-tier alternatives, and acquisition timing. Treat trend signals as attention rather than proof of hidden claim intent. Pressure changes the chance a comparable player survives; it never creates player value or overrides a clear net add/drop edge. Reduce confidence when any input is stale or inferred.
+
 If sources disagree, preserve the disagreement and determine whether it comes from freshness, scoring, role assumptions, or shared upstream data. Do not average incompatible inputs into artificial precision.
 
 ## 5. Compare the pickup with the exact drop
@@ -105,9 +121,20 @@ Do not invent numeric precision. Compare candidates categorically and record the
 | Scarcity | How many acceptable alternatives remain at the position, given the live active-team count and lineup requirements? |
 | Drop cost | What current production, future role, bye coverage, handcuff value, or trade value is surrendered? |
 | Acquisition cost | Is the transaction spending scarce priority, budget, roster flexibility, or a free-agent opportunity? |
-| Downside | What happens if the role, health, matchup, or source assumption is wrong? |
+| Risk exposure | What happens if the role, availability, projection, correlation, or opportunity-cost assumption is wrong? |
 
 Require a clearer advantage for speculative churn in a shallow active league, where replacement-level starters are more likely to remain available. Yardage bonuses may break a close non-PPR tie, but they should not erase a material role or tier gap.
+
+Label each material risk separately: `role` for usage or workload, `availability` for health or suspension, `projection` for range or source uncertainty, `correlation` for assumptions that can fail together, or `opportunity` for consuming roster or claim capital that blocks a higher-value path. Correlation includes several roster decisions depending on the same fragile offense, quarterback, game script, or workload assumption. Treat avoidable concentration as a tie-breaker or uncertainty adjustment, not a blanket diversification rule and not a reason to reject a clear net gain.
+
+For each candidate, name the current option tier and the next acceptable same-role alternative. Translate the draft's tier-drop timing rule into waiver terms:
+
+```text
+claim urgency = loss to the next acceptable tier
+                × chance no acceptable equivalent remains when needed
+```
+
+This is a qualitative decision aid, not a forecast. Increase urgency only when the tier loss is material and current priority, claim pressure and confidence, acquisition timing, and remaining alternatives support a real no-return risk. A popular player with an interchangeable fallback can still be a low-urgency claim.
 
 Place each add/drop pair in one decision tier:
 
@@ -121,15 +148,15 @@ The saved league snapshot records a continual rolling list, a two-day waiver per
 
 For **rolling priority**:
 
-- spend a high claim only for a credible rest-of-season starter, a durable role change, or an immediate lineup gain large enough to justify moving to the back of the list;
+- spend a high claim only for a credible rest-of-season starter, a durable role change, or an immediate lineup gain whose tier drop and no-return risk justify moving to the back of the list;
 - preserve priority for streamers, marginal upgrades, and uncertain committee players when comparable free-agent alternatives are likely to remain;
 - account for the chance that managers ahead in the order need the same position, but do not pretend to know their exact claim; and
-- record why waiting for free agency is or is not acceptable.
+- record the next acceptable equivalent, claim pressure and confidence, and why waiting for free agency is or is not acceptable.
 
 For **FAAB**, only if live settings prove the league changed mechanisms:
 
 - record remaining budget, future-week reserve, candidate tier, replacement depth, likely demand, and the exact maximum acceptable bid;
-- size the cap from this team's net pickup value and alternatives, not a generic article percentage; and
+- size the cap from this team's net pickup value, tier-drop cost, pressure confidence, and alternatives, not a generic article percentage; and
 - submit a lower bid or pass when the same roster outcome is likely after waivers.
 
 For an available **free agent**, compare the roster gain with drop and lock risk, then act only after the same identity, legality, and authorization checks. A zero-priority or zero-bid add can still destroy option value through the wrong drop.
@@ -197,13 +224,18 @@ Priority or FAAB remaining:
 Active teams / scoring / roster shape confirmed:
 Team objective / horizon:
 No-move baseline:
+Waiver replacement baseline / next acceptable equivalent:
 
 Candidate / exact Yahoo identity:
 Classification:
 Opportunity trigger and role evidence:
 This-week gain:
 Rest-of-season gain:
-Material risks / source disagreement:
+Current tier / loss to next acceptable tier:
+Claim pressure / confidence:
+Claim urgency / why now or wait:
+Material risks (role / availability / projection / correlation / opportunity):
+Roster-concentration justification (if material):
 Exact drop and drop cost:
 Acquisition cost / maximum acceptable cost:
 Decision: claim now | fallback/free agent | pass
@@ -230,6 +262,8 @@ Process, model, or variance lesson:
 
 - [Yahoo league scoring and settings](yahoo-league-scoring-and-settings.md)
 - [Draft strategy foundations](draft-strategy-foundations.md)
+- [Canonical draft-day decision logic](draft-day-workflow.md)
+- [2026 real-draft execution lessons](real-draft-results/2026-08-30-yahoo-slot-1.md)
 - [Yahoo football navigation](yahoo-football-navigation.md)
 - [NBC Sports/Rotoworld news procedure](nbc-sports-fantasy.md)
 - [Reddit discovery and verification limits](reddit-fantasyfootball.md)
