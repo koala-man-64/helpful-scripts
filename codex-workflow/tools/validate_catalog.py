@@ -30,6 +30,7 @@ FORKS = {
 EVIDENCE = {"source", "ci", "release", "deployment", "runtime", "user_path"}
 MODEL = {"Luna": 0, "Terra": 1, "Sol": 2}
 EFFORT = {"low": 0, "medium": 1, "high": 2, "ultra": 3}
+STATES = {"verified_nondivergent", "unresolved_fork", "conflict_blocked", "deprecated"}
 SCENARIOS = {
     "narrow local fix",
     "standard feature",
@@ -84,8 +85,17 @@ def route(value, label, errors):
     return value
 
 
-def validate(root: Path) -> list[str]:
+def validate(
+    root: Path,
+    repository_roots: dict[str, Path] | None = None,
+    strict_origin: bool = False,
+) -> list[str]:
     errors = []
+    # Explicit roots make validation portable; the historical Projects fallback
+    # is retained only for local compatibility.
+    repository_roots = repository_roots or {
+        name: PROJECTS_ROOT / name for name in REPOSITORIES
+    }
     inventory = doc(root, "origin-inventory.yaml", errors)
     manifest = doc(root, "skills.yaml", errors)
     decisions = doc(root, "skill-decisions.yaml", errors)
@@ -122,6 +132,24 @@ def validate(root: Path) -> list[str]:
             or item.get("skill_root") != ".codex/skills"
         ):
             errors.append("origin repository provenance is invalid")
+            continue
+        checkout = repository_roots.get(item["id"])
+        if checkout is None or not checkout.is_dir():
+            errors.append(f"{item['id']}: repository mapping is missing or invalid")
+            continue
+        if strict_origin:
+            result = subprocess.run(
+                ["git", "-C", str(checkout), "rev-parse", "origin/main"],
+                capture_output=True, check=False, text=True,
+            )
+            if result.returncode or result.stdout.strip() != item["origin_sha"]:
+                errors.append(f"{item['id']}: fetched origin/main does not match inventory")
+        result = subprocess.run(
+            ["git", "-C", str(checkout), "cat-file", "-e", f"{item['origin_sha']}:{item['skill_root']}"],
+            capture_output=True, check=False, text=True,
+        )
+        if result.returncode:
+            errors.append(f"{item['id']}: inventory skill_root is absent at origin SHA")
     if (
         manifest.get("schema_version") != "skill-manifest-v2"
         or manifest.get("inventory") != "origin-inventory.yaml"
@@ -172,8 +200,7 @@ def validate(root: Path) -> list[str]:
             or item.get("content_hash_algorithm") not in {"git-tree-sha1", "sha256"}
             or not isinstance(item.get("content_hash"), str)
             or not item["content_hash"].startswith(item["content_hash_algorithm"] + ":")
-            or item.get("canonical_state")
-            not in {"verified_nondivergent", "unresolved_fork"}
+            or item.get("canonical_state") not in STATES
             or not isinstance(item.get("runnable"), bool)
             or not isinstance(item.get("owner"), str)
             or not isinstance(item.get("version"), str)
@@ -198,7 +225,10 @@ def validate(root: Path) -> list[str]:
         if item.get("canonical_state") == "unresolved_fork" and item.get("runnable"):
             errors.append(f"{item.get('id')}: unresolved fork is runnable")
         if source.get("repository") in REPOSITORIES and isinstance(source.get("path"), str):
-            source_repo = PROJECTS_ROOT / source["repository"]
+            source_repo = repository_roots.get(source["repository"])
+            if source_repo is None or not source_repo.is_dir():
+                errors.append(f"{item.get('id')}: repository mapping is missing or invalid")
+                continue
             result = subprocess.run(
                 ["git", "-C", str(source_repo), "rev-parse", f"{source['commit']}:{source['path']}"],
                 capture_output=True,
@@ -208,6 +238,9 @@ def validate(root: Path) -> list[str]:
             expected = f"git-tree-sha1:{result.stdout.strip()}"
             if result.returncode or item.get("content_hash") != expected:
                 errors.append(f"{item.get('id')}: origin source tree hash does not match")
+            inventory_row = next((x for x in repos if isinstance(x, dict) and x.get("id") == source["repository"]), None)
+            if inventory_row and source.get("commit") != inventory_row.get("origin_sha"):
+                errors.append(f"{item.get('id')}: source commit does not equal inventory SHA")
     if len(ids) != len(set(ids)) or set(ids) != set(shared) | {"workflow-router"}:
         errors.append(
             "manifest must cover the exact 52 inventory IDs plus workflow-router"
@@ -259,10 +292,23 @@ def validate(root: Path) -> list[str]:
     status = {x["id"]: x["status"] for x in rows if isinstance(x, dict) and "id" in x}
     if any(status.get(x) != "blocked" for x in FORKS):
         errors.append("unresolved forks must be blocked")
+    if any(
+        next((x for x in skills if isinstance(x, dict) and x.get("id") == skill_id), {}).get("canonical_state") != "unresolved_fork"
+        or next((x for x in skills if isinstance(x, dict) and x.get("id") == skill_id), {}).get("runnable")
+        for skill_id in FORKS
+    ):
+        errors.append("unresolved forks must remain non-runnable")
+    strict_skill = next((x for x in skills if isinstance(x, dict) and x.get("id") == "strict-branch-and-merge-discipline"), {})
+    if strict_skill.get("canonical_state") != "conflict_blocked" or strict_skill.get("runnable") or "force_with_lease_grant" not in strict_skill.get("conflicts", []):
+        errors.append("strict branch discipline must remain conflict blocked")
+    gateway = next((x for x in skills if isinstance(x, dict) and x.get("id") == "gateway-agent"), {})
+    if gateway.get("canonical_state") != "deprecated" or gateway.get("runnable") or status.get("gateway-agent") != "deprecated":
+        errors.append("gateway-agent must remain deprecated and non-runnable")
     if decisions.get("record_authority") != {
-        "mutation_and_evidence": "central_hooks",
-        "tracked_delivery": "azure_boards",
-        "coordination_or_regulated_audit": "csv_jsonl_when_explicitly_required",
+        "mutation_evidence": "central_hooks",
+        "tracked_delivery": "azure_boards_when_applicable",
+        "coordination_ledger": "none_by_default",
+        "jsonl": "regulated_audit_only_when_explicitly_required",
     }:
         errors.append("record authority is invalid")
     active = string_list(surface.get("active_skill_ids"), "active surface", errors)
@@ -283,7 +329,7 @@ def validate(root: Path) -> list[str]:
         if not isinstance(lane, dict):
             errors.append(f"{name}: invalid lane")
             continue
-        pins = string_list(lane.get("available_skill_pins"), f"{name} pins", errors)
+        pins = string_list(lane.get("lane_required_skill_ids"), f"{name} pins", errors)
         if any(x not in active for x in pins):
             errors.append(f"{name}: unavailable pin")
     lite = lanes.get("lite", {})

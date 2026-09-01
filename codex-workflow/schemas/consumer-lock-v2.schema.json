@@ -7,17 +7,20 @@
     "schema_version",
     "repository",
     "lane",
-    "available_skill_pins",
+    "active_surface_skill_pins",
+    "lane_required_skill_ids",
     "task_participant_skill_ids",
     "unresolved_forks",
-    "central_denials"
+    "central_denials",
+    "record_authority",
+    "selected_routing_policy"
   ],
   "properties": {
     "schema_version": {
       "const": "consumer-lock-v2"
     },
     "repository": {
-      "type": "string"
+      "enum": ["asset-allocation-contracts", "asset-allocation-control-plane", "asset-allocation-jobs", "asset-allocation-runtime-common", "asset-allocation-ui"]
     },
     "lane": {
       "enum": [
@@ -26,8 +29,29 @@
         "critical"
       ]
     },
-    "available_skill_pins": {
-      "type": "array"
+    "active_surface_skill_pins": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 15,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "source", "content_hash", "content_hash_algorithm", "version"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+          "source": {"type": "object"},
+          "content_hash": {"type": "string"},
+          "content_hash_algorithm": {"enum": ["git-tree-sha1", "sha256"]},
+          "version": {"type": "string"}
+        }
+      }
+    },
+    "lane_required_skill_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z0-9-]+$"}
     },
     "task_participant_skill_ids": {
       "type": "array",
@@ -36,14 +60,26 @@
       }
     },
     "unresolved_forks": {
-      "type": "array"
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "runnable", "selection_blocked"],
+        "properties": {"id": {"type": "string"}, "runnable": {"const": false}, "selection_blocked": {"const": true}}
+      }
     },
     "central_denials": {
       "type": "array",
       "items": {
         "type": "string"
       }
+    },
+    "record_authority": {"type": "object", "additionalProperties": false},
+    "selected_routing_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model", "effort", "role"],
+      "properties": {"model": {"enum": ["Luna", "Terra", "Sol"]}, "effort": {"enum": ["low", "medium", "high"]}, "role": {"type": "string"}}
     }
   }
 }
-
