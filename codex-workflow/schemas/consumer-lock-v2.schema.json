@@ -75,7 +75,7 @@
         "type": "string"
       }
     },
-    "record_authority": {"type": "object", "additionalProperties": false},
+    "record_authority": {"type": "object", "additionalProperties": false, "required": ["mutation_evidence", "tracked_delivery", "coordination_ledger", "jsonl"], "properties": {"mutation_evidence": {"const": "central_hooks"}, "tracked_delivery": {"const": "azure_boards_when_applicable"}, "coordination_ledger": {"const": "none_by_default"}, "jsonl": {"const": "regulated_audit_only_when_explicitly_required"}}},
     "selected_routing_policy": {
       "type": "object",
       "additionalProperties": false,

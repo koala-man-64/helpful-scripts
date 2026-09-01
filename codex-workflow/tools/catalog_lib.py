@@ -39,3 +39,48 @@ def write_json(path: Path, value: Any) -> None:
     path.write_text(
         json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
+
+
+def validate_schema(value: Any, schema: dict[str, Any], path: str = "$") -> list[str]:
+    """Small fail-closed JSON-schema subset used by the checked-in catalog."""
+    errors: list[str] = []
+    if "const" in schema and value != schema["const"]:
+        errors.append(f"{path}: must equal {schema['const']!r}")
+    if "enum" in schema and value not in schema["enum"]:
+        errors.append(f"{path}: invalid enum")
+    expected = schema.get("type")
+    types = expected if isinstance(expected, list) else [expected]
+    type_ok = {
+        "object": isinstance(value, dict),
+        "array": isinstance(value, list),
+        "string": isinstance(value, str),
+        "boolean": isinstance(value, bool),
+        "integer": isinstance(value, int) and not isinstance(value, bool),
+        "null": value is None,
+    }
+    if expected and not any(type_ok.get(item, False) for item in types):
+        return [f"{path}: wrong type"]
+    if isinstance(value, dict):
+        properties = schema.get("properties", {})
+        required = schema.get("required", [])
+        for key in required:
+            if key not in value:
+                errors.append(f"{path}: missing {key}")
+        if schema.get("additionalProperties") is False:
+            errors.extend(f"{path}: unknown field {key}" for key in value if key not in properties)
+        for key, child in properties.items():
+            if key in value and isinstance(child, dict):
+                errors.extend(validate_schema(value[key], child, f"{path}.{key}"))
+    if isinstance(value, list):
+        if len(value) < schema.get("minItems", 0) or len(value) > schema.get("maxItems", len(value)):
+            errors.append(f"{path}: invalid item count")
+        if schema.get("uniqueItems") and len({json.dumps(item, sort_keys=True) for item in value}) != len(value):
+            errors.append(f"{path}: duplicate item")
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict):
+            for index, item in enumerate(value):
+                errors.extend(validate_schema(item, item_schema, f"{path}[{index}]"))
+    if isinstance(value, str):
+        if len(value) < schema.get("minLength", 0): errors.append(f"{path}: too short")
+        if schema.get("pattern") and not __import__("re").fullmatch(schema["pattern"], value): errors.append(f"{path}: pattern mismatch")
+    return errors

@@ -7,7 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from catalog_lib import canonical_hash, load_document
+from catalog_lib import canonical_hash, load_document, validate_schema
 
 ID = re.compile(r"^[a-z0-9-]+$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -99,6 +99,11 @@ def validate(
     repository_roots = {**default_repository_roots, **(repository_roots or {})}
     inventory = doc(root, "origin-inventory.yaml", errors)
     manifest = doc(root, "skills.yaml", errors)
+    try:
+        schema = load_document(root / "schemas" / "skill-manifest-v2.schema.json")
+        errors.extend(validate_schema(manifest, schema, "skills.yaml"))
+    except (OSError, ValueError) as error:
+        errors.append(f"manifest schema: {error}")
     decisions = doc(root, "skill-decisions.yaml", errors)
     surface = doc(root, "active-surface.yaml", errors)
     variants = doc(root, "observed-variants.yaml", errors)

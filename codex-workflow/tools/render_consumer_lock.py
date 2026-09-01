@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from catalog_lib import load_document, write_json
+from catalog_lib import load_document, validate_schema, write_json
 from validate_catalog import validate
 
 
@@ -58,7 +58,7 @@ def render(
                 )
             }
         )
-    return {
+    lock = {
         "schema_version": "consumer-lock-v2",
         "repository": repository,
         "lane": lane,
@@ -76,6 +76,11 @@ def render(
         "selected_routing_policy": surface["lanes"][lane]["primary_route"],
         "lane_execution_plan": _lane_execution_plan(surface["lanes"][lane]),
     }
+    schema = load_document(root / "schemas" / "consumer-lock-v2.schema.json")
+    schema_errors = validate_schema(lock, schema, "consumer-lock")
+    if schema_errors:
+        raise ValueError("rendered lock violates schema: " + "; ".join(schema_errors))
+    return lock
 
 
 def _lane_execution_plan(lane: dict[str, object]) -> dict[str, object]:
