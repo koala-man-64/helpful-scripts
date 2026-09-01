@@ -1,0 +1,38 @@
+[
+  {
+    "command": "composer.cycleReasoningEffort",
+    "key": "Ctrl+Shift+W"
+  },
+  {
+    "command": "composer.decreaseReasoningEffort",
+    "key": "Ctrl+Shift+X"
+  },
+  {
+    "command": "composer.increaseReasoningEffort",
+    "key": "Ctrl+Shift+S"
+  },
+  {
+    "command": "composer.openModelPicker",
+    "key": "Ctrl+Shift+Q"
+  },
+  {
+    "command": "composer.togglePlanMode",
+    "key": "Ctrl+Shift+Tab"
+  },
+  {
+    "command": "previousRecentThread",
+    "key": null
+  },
+  {
+    "command": "previousTab",
+    "key": "Ctrl+Shift+["
+  },
+  {
+    "command": "previousTab",
+    "key": "Ctrl+PageUp"
+  },
+  {
+    "command": "toggleTraceRecording",
+    "key": null
+  }
+]

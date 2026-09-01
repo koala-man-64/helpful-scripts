@@ -1,0 +1,124 @@
+{
+  "model": "opus",
+  "effortLevel": "xhigh",
+  "autoUpdatesChannel": "stable",
+  "theme": "dark",
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "Deleting Azure Container Apps and Container Apps Jobs via `az containerapp delete` or `az containerapp job delete` when --resource-group is AssetAllocationRG. These are recreated by the deployment pipelines and are part of the approved private-environment migration (legacy app retirement and moving jobs between managed environments, which Azure cannot do in place)."
+    ]
+  },
+  "skipWorkflowUsageWarning": true,
+  "hooks": {
+    "SessionStart": {
+      "matcher": "startup|resume|compact",
+      "hooks": {
+        "type": "command",
+        "command": "py",
+        "timeout": 10,
+        "statusMessage": "Loading team workflow context"
+      }
+    },
+    "UserPromptSubmit": {
+      "hooks": {
+        "type": "command",
+        "command": "py",
+        "timeout": 10,
+        "statusMessage": "Routing request through team workflow"
+      }
+    },
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": {
+          "type": "command",
+          "command": "py",
+          "timeout": 10,
+          "statusMessage": "Checking shell safety"
+        }
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": {
+          "type": "command",
+          "command": "py",
+          "timeout": 10,
+          "statusMessage": "Checking subagent model ladder"
+        }
+      }
+    ],
+    "Stop": {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "py",
+          "timeout": 10,
+          "statusMessage": "Checking team closeout"
+        },
+        {
+          "type": "command",
+          "command": "py",
+          "timeout": 10,
+          "statusMessage": "Checking gateway bookkeeper recap"
+        }
+      ]
+    }
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(cd *)",
+      "Bash(gh *)",
+      "Bash(node *)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(pnpm *)",
+      "Bash(python *)",
+      "Bash(pip *)",
+      "Bash(.venv/*)",
+      "Bash(./node_modules/*)",
+      "Bash(az *)",
+      "Bash(curl *)",
+      "Bash(grep *)",
+      "Bash(awk *)",
+      "Bash(sed *)",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(echo *)",
+      "Bash(printf *)",
+      "Bash(xargs *)",
+      "Bash(cp *)",
+      "Bash(mkdir *)",
+      "Bash(diff *)",
+      "Bash(comm *)",
+      "Bash(sort *)",
+      "Bash(uniq *)",
+      "Bash(tr *)",
+      "Bash(wc *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(find *)",
+      "Bash(basename *)",
+      "Bash(dirname *)",
+      "Bash(py *)",
+      "Bash(cd *)",
+      "Bash(set *)",
+      "Bash(for *)",
+      "Bash(test *)",
+      "Bash(Select-String *)",
+      "Bash(Select-Object *)",
+      "Bash(Head *)",
+      "Bash(DISABLE_DOTENV=1 *)",
+      "PowerShell(*)",
+      "Read(//c/Users/rdpro/**)",
+      "Read(//tmp/**)",
+      "Edit(//c/Users/rdpro/.claude/**)",
+      "Edit(//c/Users/rdpro/Projects/**)",
+      "Write(//c/Users/rdpro/AppData/Local/Temp/**)",
+      "Write(//tmp/**)",
+      "Skill(update-config)",
+      "Skill(update-config:*)"
+    ]
+  }
+}
