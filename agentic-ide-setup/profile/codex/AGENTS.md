@@ -45,6 +45,9 @@ Prefer completing the task over asking for permission at every step. Ask for app
 - For waits expected to exceed 60 seconds, create or reuse a current-task heartbeat that rechecks the pending work and continues when actionable progress arrives. Do not create duplicate monitors for the same operation.
 - Request user input only for a materially necessary decision, credential, human-owned approval, or unavailable authority. Use the product's Need Input action or tool when it is available; state the exact choice, its impact, and the available options, then continue non-dependent safe work.
 - When Need Input is unavailable, ask one explicit blocking question as the fallback. Do not seek confirmation for actions already in scope, self-approve, or bypass protected gates.
+- Before mutating a repository, resolve the repository actually targeted by the tool working directory, shell location, `git -C`, or mutation path. Apply that target repository's branch, registration, ownership, and validation rules; never reuse the caller repository's Git context as evidence for another repository.
+- A detached Codex worktree is a recoverable bootstrap state, not a terminal blocker. Perform only already-authorized safe recovery work, attach the worktree to a private task branch before committing, and continue the task.
+- For cross-repository work, establish one independently verified branch and worktree context per repository and keep each mutating tool call scoped to one repository. Use the product's task/worktree mechanism for external Codex worktrees; do not bypass hook scope with an arbitrary `git -C` target.
 
 ## Subagent Delegation
 
