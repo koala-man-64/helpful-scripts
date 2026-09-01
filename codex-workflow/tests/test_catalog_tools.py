@@ -11,7 +11,12 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 from build_inventory import build_inventory  # noqa: E402
-from catalog_lib import canonical_git_hash, load_document, validate_schema  # noqa: E402
+from catalog_lib import (  # noqa: E402
+    canonical_git_hash,
+    canonical_hash,
+    load_document,
+    validate_schema,
+)
 from render_consumer_lock import render  # noqa: E402
 from validate_catalog import parse_repository_mappings, validate  # noqa: E402
 
@@ -153,6 +158,10 @@ class CatalogTests(unittest.TestCase):
                 router["source"]["commit"],
                 router["source"]["path"],
             ),
+            router["content_hash"],
+        )
+        self.assertEqual(
+            canonical_hash(ROOT.parent / router["source"]["path"]),
             router["content_hash"],
         )
         with self.assertRaisesRegex(ValueError, "claimed commit"):

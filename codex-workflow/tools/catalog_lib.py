@@ -43,9 +43,13 @@ def canonical_hash(path: Path) -> str:
     if not path.is_dir():
         raise ValueError(f"source directory does not exist: {path}")
     digest = hashlib.sha256()
-    files = sorted(item for item in path.rglob("*") if item.is_file())
-    for item in files:
-        relative = item.relative_to(path).as_posix().encode("utf-8")
+    files = sorted(
+        (item.relative_to(path).as_posix(), item)
+        for item in path.rglob("*")
+        if item.is_file()
+    )
+    for relative_path, item in files:
+        relative = relative_path.encode("utf-8")
         digest.update(len(relative).to_bytes(4, "big"))
         digest.update(relative)
         content = item.read_bytes()
