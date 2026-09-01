@@ -74,6 +74,17 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(lock["unresolved_forks"])
         self.assertIn("force_push", lock["central_denials"])
 
+    def test_malformed_manifest_source_fails_closed_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "codex-workflow"
+            shutil.copytree(ROOT, root)
+            manifest_path = root / "catalog" / "skills.yaml"
+            manifest = load_document(manifest_path)
+            manifest["skills"][0]["source"] = "not-an-object"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            errors = validate(root)
+            self.assertTrue(any("source must be an object" in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()
