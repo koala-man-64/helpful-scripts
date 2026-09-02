@@ -122,7 +122,15 @@ available to VS Code.
   `.copilot/instructions` directory.
 - A UTF-8-capable editor that preserves all five terms exactly, including the
   four non-ASCII terms.
-- An authenticated client when performing the optional fresh-session check.
+- An editor or API that controls the byte order mark independently of encoding.
+  The instruction files must keep whatever BOM state they already have, while
+  the verification script must be saved *with* a BOM — Windows PowerShell 5.1
+  parses a BOM-less `.ps1` as ANSI and corrupts the non-ASCII literal it
+  compares against. See [Installation](#installation) step 5 and
+  [Static verification on Windows](#static-verification-on-windows).
+- An authenticated client when performing the optional fresh-session check. The
+  headless `claude -p` path uses its own stored credentials, which can be
+  expired while an interactive session still works.
 
 ## Installation
 
@@ -458,6 +466,14 @@ sessions. If the native `.copilot` option was installed, remove that instruction
 file; when VS Code reuses `~/.claude/CLAUDE.md`, there is no separate Copilot
 artifact to roll back. No hook, cache, repository, or application rollback is
 required.
+
+Then clear the install's backups. Restore from `~/.canon-backups/<timestamp>/`
+first if a merge went wrong, and delete the directory once the rollback is
+confirmed — it holds full copies of the user's instruction files, so leaving it
+behind leaves that content on disk indefinitely. Re-run the verification script
+afterwards: it fails when a target no longer holds exactly one canon body, which
+is the expected result after a deliberate rollback and is the quickest proof
+that the removal was complete.
 
 ## Official references
 

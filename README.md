@@ -163,3 +163,20 @@ gateway-rewritten (urldefense/safelinks) hyperlinks; `build_resume_docx.py`
 layout table and content controls, with a `--check` mode proving a plain
 parser gets every line back. See
 [resume-docx-tools/README.md](resume-docx-tools/README.md).
+
+## Global load-bearing canon
+
+`global-load-bearing-canon/` installs one short block of engineering-judgment
+guidance into the *user-level* instruction files that Codex and Claude Code
+load for every repository, and documents how VS Code/GitHub Copilot Chat
+discovers the same text without creating a duplicate source. It contains the
+canonical body, a reproduction guide with a self-checking verification script,
+and a handoff prompt for Claude Code. See
+[global-load-bearing-canon/README.md](global-load-bearing-canon/README.md).
+
+**Do not edit `load-bearing-canon.md` casually.** Its normalized SHA-256 is
+pinned in three places, and the installed copies in `~/.codex/AGENTS.md` and
+`~/.claude/CLAUDE.md` are compared against it byte-for-byte. Changing the body
+— even adding a comment — breaks every pin and puts both global files out of
+sync until they are reinstalled. Update the body, all three pins, and both
+installed files together, or not at all.
