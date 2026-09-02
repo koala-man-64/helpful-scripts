@@ -436,11 +436,19 @@ two installed files were not modified. Results:
 - A BOM-less copy of the script was confirmed to fail against a correctly
   installed file under Windows PowerShell 5.1, which parses BOM-less `.ps1` as
   ANSI and corrupts the signature literal. The script must be saved with a BOM.
-- `claude -p` fresh-session proof was attempted and **did not run**:
-  `API Error: 401 OAuth access token has expired`. The headless CLI credential
-  is expired on this profile. Static validation passed; live Claude proof
-  remains outstanding until the CLI is re-authenticated.
-- Codex and VS Code live proof were not attempted in this pass.
+- `claude -p` fresh-session proof **passed**. The first attempt returned
+  `API Error: 401 OAuth access token has expired`; after re-authenticating the
+  CLI, a fresh headless session answered `本手 and 火候, always.` A 401 on this
+  check means re-authenticate and re-run — it is not evidence that the canon is
+  missing.
+- Codex live proof is **blocked, not unattempted**.
+  `codex exec --skip-git-repo-check` reached the service and failed with
+  `The 'gpt-5.6-terra' model requires a newer version of Codex.` The installed
+  CLI is too old for its configured model, so it cannot open a session to be
+  asked. The same run also logged a model-list refresh failure ("unknown
+  variant max") from the same version skew. Codex static installation is
+  unaffected and still passes. Re-run this check after upgrading the Codex CLI.
+- VS Code live proof was not attempted; it requires the Diagnostics GUI step.
 
 ## Rollback
 
