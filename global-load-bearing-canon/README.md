@@ -62,6 +62,14 @@ The OpenAI Codex IDE extension has no separate VS Code instruction path. It
 uses the same `~/.codex/AGENTS.md` or `$CODEX_HOME/AGENTS.md` file as other
 Codex clients.
 
+This section is a **human-operator procedure**. The Claude Code handoff prompt
+deliberately never writes a `.copilot` file: the only authoritative proof that
+VS Code loaded an instruction file is the Chat view's Diagnostics panel, a GUI
+action no command-line agent can perform. An agent gated on proof it can never
+obtain always takes the same branch, so such a rule is dead text wearing the
+costume of a safeguard. The agent inspects and reports; a person decides and,
+where needed, writes.
+
 For VS Code/GitHub Copilot Chat, choose exactly one user-level source:
 
 1. Confirm that `chat.useClaudeMdFile` is enabled. VS Code enables this setting
@@ -119,7 +127,12 @@ available to VS Code.
 ## Installation
 
 1. Inspect each target before editing. Back up any non-empty file so unrelated
-   guidance can be restored if the merge is incorrect.
+   guidance can be restored if the merge is incorrect. Write backups to
+   `~/.canon-backups/<UTC timestamp>/` — never into `~/.codex`, `~/.claude`, or
+   `~/.copilot/instructions`, and never with a `.instructions.md` suffix. VS
+   Code discovers that folder by glob, so a backup left there becomes a second
+   active instruction source: the duplicate-source failure this guide otherwise
+   works hard to prevent.
 2. Open the applicable user-level file. Create its parent directory and file if
    they do not exist.
 3. For Codex, first check whether `AGENTS.override.md` exists in the same global
@@ -128,16 +141,51 @@ available to VS Code.
 4. Copy the complete contents of
    [load-bearing-canon.md](load-bearing-canon.md) into each target exactly once.
    Preserve all existing guidance and keep the canon as a standalone section.
-5. Do not duplicate it into repository guidance, skills, agents, or hooks merely
+   On first insertion, place it so it becomes the file's first `##` heading:
+   after the opening `#` title and its introductory paragraphs, and before the
+   first existing `##`. Leave an already-installed copy where it is — moving a
+   correct body is a worse risk than imperfect placement.
+5. Write with an editor or API that controls the byte order mark. Windows
+   PowerShell 5.1's `Set-Content`, `Add-Content`, `Out-File`, and `>` always add
+   a BOM under `-Encoding utf8` and cannot produce BOM-less UTF-8, so they
+   silently alter a BOM-less target while still passing a substring check. Use
+   the .NET API instead, passing `$true` only to preserve a BOM the file already
+   had:
+
+   ```powershell
+   $encoding = New-Object System.Text.UTF8Encoding($false)
+   [System.IO.File]::WriteAllText($path, $text, $encoding)
+   ```
+
+6. Do not duplicate it into repository guidance, skills, agents, or hooks merely
    to make it more visible.
-6. Run the static and fresh-session checks below.
+7. Run the static and fresh-session checks below.
 
 For a complete Claude Code handoff, give Claude access to this folder and paste
 the prompt from
-[claude-code-install-prompt.md](claude-code-install-prompt.md). It references
-the sibling canonical body instead of duplicating it and covers active config
-directories, Codex overrides, the VS Code source decision, backups,
-idempotence, static validation, live proof, and restart behavior.
+[claude-code-install-prompt.md](claude-code-install-prompt.md). It verifies the
+sibling canonical body against a pinned hash instead of duplicating it, and
+covers active config directories, Codex overrides, backups, encoding,
+idempotence, static validation, live proof, and restart behavior. It installs
+Codex and Claude Code only; VS Code is inspected and reported, and its
+instruction file stays a human step.
+
+### The pinned hash
+
+The canonical body is identified by the SHA-256 of its normalized text — read as
+UTF-8, leading BOM stripped, CRLF replaced with LF, trailing newlines removed:
+
+```text
+f41169c7ea9715014a023256b6e1d2d358a5021e4a16d9e7b100fd95d56bce8a  (427 bytes)
+```
+
+Content, not location, is the integrity control. Worktrees, nested checkouts,
+and clones legitimately duplicate this folder, so an installer must tolerate
+several copies and reject a body that fails the hash — not the reverse.
+
+The pin appears in three places: the block above, the verification script below,
+and the handoff prompt. **If the canonical body is ever edited, update all three
+in the same change.** A stale pin blocks every install until it is corrected.
 
 ## Does Codex, Claude, or VS Code need a restart?
 
@@ -160,25 +208,71 @@ Claude Code. It is an optional clean verification step for VS Code Chat.
 
 ## Static verification on Windows
 
-Run this from the repository folder containing this guide:
+Save this as a UTF-8 file **with a byte order mark** and run it with
+`powershell -NoProfile -File check-canon.ps1` from the repository folder
+containing this guide. Do not paste it into a console, and do not save it
+BOM-less: Windows PowerShell 5.1 parses a BOM-less `.ps1` as ANSI, which
+corrupts the non-ASCII signature literal below and fails the check against a
+correctly installed file. This is the opposite of the rule for the instruction
+files themselves, whose existing BOM state must be preserved -- a `.ps1` is
+source PowerShell must parse, not a document another tool must read byte-exact.
 
 ```powershell
+$ErrorActionPreference = 'Stop'
+
+$pinnedHash  = 'f41169c7ea9715014a023256b6e1d2d358a5021e4a16d9e7b100fd95d56bce8a'
+$heading     = '## Load-bearing canon'
+$signature   = '本手 and 火候, always. показуха, aktionismus and 無駄 forbidden.'
+$snippetPath = '.\global-load-bearing-canon\load-bearing-canon.md'
+
+function Read-Normalized {
+    param([Parameter(Mandatory)][string]$Path)
+    # Resolve first: .NET uses the process working directory, not PowerShell's location.
+    $resolved = (Resolve-Path -LiteralPath $Path).ProviderPath
+    $bytes = [System.IO.File]::ReadAllBytes($resolved)
+    $hasBom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+    $text = [System.Text.Encoding]::UTF8.GetString($bytes).TrimStart([char]0xFEFF)
+    [pscustomobject]@{
+        Path   = $resolved
+        HasBom = $hasBom
+        Crlf   = $text.Contains("`r`n")
+        Text   = $text -replace "`r`n", "`n"
+    }
+}
+
+function Get-NormalizedHash {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Text))
+    } finally {
+        $sha.Dispose()
+    }
+    -join ($digest | ForEach-Object { $_.ToString('x2') })
+}
+
+# 1. The source body must match its pinned identity before anything is compared against it.
+$snippet = (Read-Normalized $snippetPath).Text.TrimEnd("`n")
+$snippetHash = Get-NormalizedHash $snippet
+if ($snippetHash -ne $pinnedHash) {
+    throw "Canon drift: $snippetPath hashes $snippetHash, expected $pinnedHash."
+}
+"$snippetPath`: pinned hash OK"
+
+# 2. Resolve the active per-client targets.
 $codexDirectory = if ($env:CODEX_HOME) {
     $env:CODEX_HOME
 } else {
     Join-Path $env:USERPROFILE '.codex'
 }
-$codexDefaultGuide = Join-Path $codexDirectory 'AGENTS.md'
 $codexOverrideGuide = Join-Path $codexDirectory 'AGENTS.override.md'
 $codexGuide = if (
     (Test-Path -LiteralPath $codexOverrideGuide) -and
-    -not [string]::IsNullOrWhiteSpace(
-        (Get-Content -LiteralPath $codexOverrideGuide -Raw -Encoding UTF8)
-    )
+    -not [string]::IsNullOrWhiteSpace((Read-Normalized $codexOverrideGuide).Text)
 ) {
     $codexOverrideGuide
 } else {
-    $codexDefaultGuide
+    Join-Path $codexDirectory 'AGENTS.md'
 }
 $claudeDirectory = if ($env:CLAUDE_CONFIG_DIR) {
     $env:CLAUDE_CONFIG_DIR
@@ -186,39 +280,67 @@ $claudeDirectory = if ($env:CLAUDE_CONFIG_DIR) {
     Join-Path $env:USERPROFILE '.claude'
 }
 $claudeGuide = Join-Path $claudeDirectory 'CLAUDE.md'
-$copilotGuide = Join-Path $env:USERPROFILE '.copilot\instructions\load-bearing-canon.instructions.md'
-$snippetPath = '.\global-load-bearing-canon\load-bearing-canon.md'
 
-$snippet = (Get-Content -LiteralPath $snippetPath -Raw -Encoding UTF8) -replace "`r`n", "`n"
+# 3. Each target needs exactly one body, one heading, and one signature line.
+#    The signature-line count is what catches a copy relocated under another heading.
 foreach ($guide in @($codexGuide, $claudeGuide)) {
-    $content = (Get-Content -LiteralPath $guide -Raw -Encoding UTF8) -replace "`r`n", "`n"
-    $count = ([regex]::Matches($content, [regex]::Escape($snippet.TrimEnd("`n")))).Count
-    if ($count -ne 1) {
-        throw "$guide contains $count exact canon sections; expected 1."
+    $file = Read-Normalized $guide
+    foreach ($probe in @(
+        @{ Name = 'body';           Value = $snippet },
+        @{ Name = 'heading';        Value = $heading },
+        @{ Name = 'signature line'; Value = $signature }
+    )) {
+        $count = ([regex]::Matches($file.Text, [regex]::Escape($probe.Value))).Count
+        if ($count -ne 1) {
+            throw "$guide contains $count copies of the canon $($probe.Name); expected 1."
+        }
     }
-    "$guide`: OK"
+    $firstH2 = ([regex]::Match($file.Text, '(?m)^##\s.*$')).Value
+    $placement = if ($firstH2 -eq $heading) { 'first ## heading' } else { "below '$firstH2'" }
+    $bom = if ($file.HasBom) { 'BOM' } else { 'no BOM' }
+    $eol = if ($file.Crlf) { 'CRLF' } else { 'LF' }
+    "$guide`: OK ($bom, $eol, $placement)"
 }
 
-if (Test-Path -LiteralPath $copilotGuide) {
-    $copilotContent = (Get-Content -LiteralPath $copilotGuide -Raw -Encoding UTF8) -replace "`r`n", "`n"
-    if ($copilotContent -notmatch '(?ms)\A---\s*\napplyTo:\s*"\*\*"\s*\n---') {
-        throw "$copilotGuide does not start with applyTo: `"**`" front matter."
+# 4. VS Code loads ~/.copilot/instructions by glob, so any *.instructions.md file
+#    carrying the canon is an active source - including a backup left in that folder.
+$copilotFolder = Join-Path $env:USERPROFILE '.copilot\instructions'
+$copilotGuide  = Join-Path $copilotFolder 'load-bearing-canon.instructions.md'
+if (Test-Path -LiteralPath $copilotFolder) {
+    $stray = @(
+        Get-ChildItem -LiteralPath $copilotFolder -File |
+            Where-Object { $_.Name -like '*.instructions.md' -and $_.FullName -ne $copilotGuide } |
+            Where-Object { (Read-Normalized $_.FullName).Text.Contains($signature) }
+    )
+    if ($stray.Count -gt 0) {
+        throw "Extra active Copilot instruction files carry the canon: $($stray.FullName -join ', ')"
     }
-    $copilotCount = ([regex]::Matches(
-        $copilotContent,
-        [regex]::Escape($snippet.TrimEnd("`n"))
-    )).Count
-    if ($copilotCount -ne 1) {
-        throw "$copilotGuide contains $copilotCount exact canon sections; expected 1."
+}
+if (Test-Path -LiteralPath $copilotGuide) {
+    $copilot = (Read-Normalized $copilotGuide).Text
+    if ($copilot -notmatch '(?ms)\A---\s*\napplyTo:\s*"\*\*"\s*\n---') {
+        throw "$copilotGuide does not start with applyTo: `"**`" front matter at column 0."
+    }
+    if (([regex]::Matches($copilot, [regex]::Escape($snippet))).Count -ne 1) {
+        throw "$copilotGuide does not contain exactly one canon body."
     }
     "$copilotGuide`: OK"
 }
 ```
 
-Expected result: one `OK` line for each target. A missing file, altered wording,
-or duplicate section fails the Codex/Claude check. The Copilot check is
-conditional: no `.copilot` file is expected when VS Code reuses the global
-Claude file.
+Expected result: a `pinned hash OK` line for the source body, then one `OK` line
+per target reporting its BOM state, newline convention, and whether the canon is
+that file's first `##` heading. The script exits non-zero and names the offender
+when the source body fails the pin, when a target holds zero or more than one
+body, heading, or signature line, or when an extra `*.instructions.md` file in
+`~/.copilot/instructions` also carries the canon. Placement below another
+heading is reported, not fatal. The Copilot block is conditional: no `.copilot`
+file is expected when VS Code reuses the global Claude file.
+
+The signature-line count is the check that catches a copy moved under a
+different heading, which a body-only substring count silently accepts. No string
+check detects a semantic paraphrase that shares no exact text; the pinned hash
+is the control for that.
 
 ## Fresh-session verification
 
@@ -229,9 +351,23 @@ Claude file.
 
    Expected answer: `本手 and 火候, always.`
 
-2. Start a new Claude Code session, run `/context`, and confirm the user-level
-   `CLAUDE.md` appears under memory files. Ask the same question and expect the
-   same sentence.
+2. For Claude Code, either start a new session, run `/context`, and confirm the
+   user-level `CLAUDE.md` appears under memory files; or take the same proof
+   non-interactively, which needs no GUI and can run in a script:
+
+   ```bash
+   claude -p "Quote verbatim the first sentence under the heading 'Load-bearing canon' in your loaded instructions. Output only that sentence."
+   ```
+
+   Expect the same sentence. Claude Code builds its memory chain per session, so
+   a fresh `claude -p` run is a genuine fresh-session check rather than a static
+   one. Prefer it over labelling the Claude client unverified.
+
+   This path needs an authenticated CLI. The headless invocation uses its own
+   stored credentials, which can be expired even while an interactive session
+   works; `API Error: 401 OAuth access token has expired` means re-authenticate
+   and re-run, not that the canon is missing. Report the 401 as the reason the
+   check did not run — never downgrade it to a static check and call it proof.
 
 3. In VS Code Chat, right-click the Chat view and select **Diagnostics**.
    Confirm that exactly one of `~/.claude/CLAUDE.md` or the native `.copilot`
@@ -281,6 +417,30 @@ or conflicting guidance instead of relying on discovery order.
   fresh-session check.
 - No native `.copilot` file was installed or validated. Verify VS Code through
   **Diagnostics** and response **References** before claiming user-path proof.
+
+## Validation record for the September 2, 2026 instruction revision
+
+The install instructions were reviewed and corrected; the canonical body and the
+two installed files were not modified. Results:
+
+- The pinned normalized hash was computed from the canonical body and matches
+  `f41169c7…`, 427 bytes.
+- The rewritten verification script was run against both live targets and
+  passed: `AGENTS.md` and `CLAUDE.md` each hold one body, one heading, and one
+  signature line, are BOM-less LF, and carry the canon as their first `##`.
+- The script's gates were tested against a sandbox rather than assumed. Canon
+  drift, a duplicated body, a signature line relocated under another heading,
+  and a `*.instructions.md` backup left in `~/.copilot/instructions` were each
+  injected and each correctly rejected; placement below another heading was
+  correctly reported without failing.
+- A BOM-less copy of the script was confirmed to fail against a correctly
+  installed file under Windows PowerShell 5.1, which parses BOM-less `.ps1` as
+  ANSI and corrupts the signature literal. The script must be saved with a BOM.
+- `claude -p` fresh-session proof was attempted and **did not run**:
+  `API Error: 401 OAuth access token has expired`. The headless CLI credential
+  is expired on this profile. Static validation passed; live Claude proof
+  remains outstanding until the CLI is re-authenticated.
+- Codex and VS Code live proof were not attempted in this pass.
 
 ## Rollback
 
