@@ -219,6 +219,14 @@ LANES = (
     ),
 )
 
+ROUTING_CONTRACT = {
+    "version": "14.1.0",
+    "lite": ("root_task", "gpt-5.6-luna", "low", "prohibited", False),
+    "standard": ("root_task", "gpt-5.6-terra", "medium", "required", True),
+    "critical": ("root_task", "gpt-5.6-sol", "high", "required", True),
+    "spark": ("root_task", "gpt-5.6-luna", "low", "prohibited", False),
+}
+
 
 def classify(prompt: str) -> tuple[str, str]:
     normalized = f" {prompt.lower()} "
@@ -248,11 +256,21 @@ def main() -> int:
         tracking_required=tracking_required,
         finish_required=finish_required,
     )
+    profile = "spark" if "spark" in prompt.lower() else (
+        "critical" if work_kind in {"production", "incident"} else "standard"
+    )
+    operating_lane, model, effort, delegation, recommended = ROUTING_CONTRACT[profile]
     context = "\n".join(
         [
             "Codex compact routing:",
             f"- Lane: {lane}",
             f"- Work kind: {work_kind}",
+            f"- Routing contract: asset-allocation-contracts=={ROUTING_CONTRACT['version']}",
+            f"- Work lane: {'lite' if profile == 'spark' else profile}",
+            f"- Operating lane: {operating_lane}",
+            f"- Owner route: {model}/{effort}; reason: governed {profile} profile; confidence: high",
+            f"- Delegation authorization: {delegation}; recommended: {'yes' if recommended else 'no'}",
+            *(["- Spark profile is root-only; child eligibility is false."] if profile == "spark" else []),
             f"- Required agents: {required_agents}",
             f"- Optional agents: {optional_agents}",
             f"- Tracking required: {'yes' if tracking_required else 'no'}",
