@@ -8,6 +8,7 @@ from hook_utils import (
     read_hook_input,
     requires_finish_workflow,
     requires_tracking,
+    workflow_scope_enabled,
 )
 
 
@@ -240,6 +241,8 @@ def contract_hint(prompt: str) -> str:
 
 
 def main() -> int:
+    if not workflow_scope_enabled():
+        return emit_json(None)
     payload = read_hook_input()
     prompt = extract_prompt(payload)
     lane, sequence = classify(prompt)

@@ -451,6 +451,36 @@ def agent_status(root: Path | None = None) -> tuple[list[str], list[str]]:
     return present, missing
 
 
+WORKFLOW_SCOPE_MARKERS = (
+    ".codex/hooks.json",
+    ".claude/workflow-hooks",
+)
+
+
+def workflow_scope_enabled(root: Path | None = None) -> bool:
+    """True when the team-workflow hooks should engage for this repository.
+
+    Mirrors the Codex opt-in. Those hooks are registered per repository through
+    .codex/hooks.json, so they never fire in scratch directories. Claude
+    registers the same hooks once, globally, which would apply team routing and
+    closeout enforcement to work that has no team, no board, and no branch
+    policy. A repository opts in by carrying the Codex hook manifest, by
+    dropping a .claude/workflow-hooks marker, or by being one of the managed
+    Azure DevOps origins the ladder already recognizes.
+    """
+    base = root or repo_root()
+    code, _ = run_git(["rev-parse", "--is-inside-work-tree"], base)
+    if code != 0:
+        return False
+    if any((base / marker).exists() for marker in WORKFLOW_SCOPE_MARKERS):
+        return True
+    try:
+        from agent_ladder import is_managed
+    except ImportError:
+        return False
+    return is_managed(base, run_git)
+
+
 def extract_command(payload: dict[str, Any]) -> str:
     tool_input = payload.get("tool_input")
     if isinstance(tool_input, dict):

@@ -40,7 +40,7 @@ function Install-Tree {
             if (Test-Path -LiteralPath $target) {
                 Copy-Item -LiteralPath $target -Destination "$target.agentic-ide-setup-backup-$(Get-Date -Format yyyyMMddHHmmss)" -Force
             }
-            $text = ConvertFrom-PortableText (Get-Content -LiteralPath $_.FullName -Raw)
+            $text = ConvertFrom-PortableText -Text (Get-Content -LiteralPath $_.FullName -Raw) -Json:($_.Extension -eq '.json')
             Set-Content -LiteralPath $target -Value $text -Encoding utf8NoBOM -NoNewline
         }
     }
