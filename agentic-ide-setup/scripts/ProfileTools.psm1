@@ -26,11 +26,18 @@ function Get-ExcludedArtifactNames {
 }
 
 function ConvertTo-PortableText {
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    # JSON string values carry doubled separators, so a path inside settings.json
+    # never matches the raw profile root. Without -Json a hook command path is
+    # exported verbatim and pins the profile to this machine.
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text, [switch]$Json)
     $result = $Text
     foreach ($entry in (Get-ProfileRoots).GetEnumerator()) {
         if ($entry.Value) {
             $key = $entry.Key.ToUpperInvariant()
+            if ($Json) {
+                $escaped = $entry.Value.Replace('\', '\\')
+                $result = $result -replace [regex]::Escape($escaped), "__${key}__"
+            }
             $result = $result -replace [regex]::Escape($entry.Value), "__${key}__"
         }
     }
@@ -38,11 +45,12 @@ function ConvertTo-PortableText {
 }
 
 function ConvertFrom-PortableText {
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text, [switch]$Json)
     $result = $Text
     foreach ($entry in (Get-ProfileRoots).GetEnumerator()) {
         $key = $entry.Key.ToUpperInvariant()
-        $result = $result.Replace("__${key}__", $entry.Value)
+        $value = if ($Json) { $entry.Value.Replace('\', '\\') } else { $entry.Value }
+        $result = $result.Replace("__${key}__", $value)
     }
     $result
 }
@@ -65,7 +73,7 @@ function Test-SafeProfileContent {
 function Copy-PortableFile {
     param([Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Destination)
     if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) { throw "Missing source: $Source" }
-    $text = ConvertTo-PortableText (Get-Content -LiteralPath $Source -Raw)
+    $text = ConvertTo-PortableText -Text (Get-Content -LiteralPath $Source -Raw) -Json:([IO.Path]::GetExtension($Source) -eq '.json')
     Test-SafeProfileContent -Path $Destination -Text $text
     New-Item -ItemType Directory -Path (Split-Path -Parent $Destination) -Force | Out-Null
     Set-Content -LiteralPath $Destination -Value $text -Encoding utf8NoBOM -NoNewline
@@ -87,7 +95,15 @@ function ConvertTo-SafeObject {
     if ($PropertyName -eq 'env') { return '__REVIEW_REQUIRED__' }
     if (Test-RestrictedName $PropertyName) { return '__REVIEW_REQUIRED__' }
     if ($null -eq $Value -or $Value -is [string] -or $Value -is [ValueType]) { return $Value }
-    if ($Value -is [Collections.IEnumerable]) { return @($Value | ForEach-Object { ConvertTo-SafeObject $_ }) }
+    if ($Value -is [Collections.IEnumerable]) {
+        # Build the list explicitly and return it comma-wrapped. Emitting an array
+        # through the pipeline unrolls it, so a one-element array (every hooks
+        # entry) collapsed into a bare object and the exported settings no longer
+        # matched the shape Claude Code reads.
+        $items = [Collections.Generic.List[object]]::new()
+        foreach ($item in $Value) { [void]$items.Add((ConvertTo-SafeObject $item)) }
+        return , $items.ToArray()
+    }
     $result = [ordered]@{}
     foreach ($property in $Value.PSObject.Properties) { $result[$property.Name] = ConvertTo-SafeObject $property.Value $property.Name }
     $result
@@ -95,7 +111,7 @@ function ConvertTo-SafeObject {
 
 function Write-PortableJson {
     param([Parameter(Mandatory)]$Value, [Parameter(Mandatory)][string]$Destination)
-    $text = ConvertTo-PortableText (($Value | ConvertTo-Json -Depth 48) + [Environment]::NewLine)
+    $text = ConvertTo-PortableText -Text (($Value | ConvertTo-Json -Depth 48) + [Environment]::NewLine) -Json
     Test-SafeProfileContent -Path $Destination -Text $text
     New-Item -ItemType Directory -Path (Split-Path -Parent $Destination) -Force | Out-Null
     Set-Content -LiteralPath $Destination -Value $text -Encoding utf8NoBOM -NoNewline

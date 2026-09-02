@@ -5,6 +5,7 @@ from hook_utils import (
     read_hook_input,
     requires_bookkeeper_recap,
     turn_did_work,
+    workflow_scope_enabled,
 )
 
 
@@ -90,6 +91,8 @@ def contains_any(text: str, markers: tuple[str, ...]) -> bool:
 def main() -> int:
     payload = read_hook_input()
     if payload.get("stop_hook_active"):
+        return 0
+    if not workflow_scope_enabled():
         return 0
     if not turn_did_work(payload):
         return 0

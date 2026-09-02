@@ -21,6 +21,8 @@ it does not add either extension to the portable installer.
 
 ## Refresh the profile
 
+All three scripts require PowerShell 7 (`pwsh`). They write with `-Encoding utf8NoBOM`, which Windows PowerShell 5.1 rejects with a parameter-binding error partway through the export, after the exporter has already cleared `profile/`. Install PowerShell 7 before running them; recover an interrupted export with `git restore --source=HEAD --worktree -- agentic-ide-setup/profile`.
+
 Run from this directory after reviewing local configuration changes:
 
 ```powershell

@@ -9,11 +9,14 @@ from hook_utils import (
     repo_name,
     repo_root,
     run_git,
+    workflow_scope_enabled,
 )
 
 
 def main() -> int:
     root = repo_root()
+    if not workflow_scope_enabled(root):
+        return emit_json(None)
     _present, missing = agent_status(root)
     missing_text = ", ".join(missing) if missing else "none"
     header = branch_header(root) or current_branch(root)
