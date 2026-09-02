@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Dirty form</title>
+</head>
+<body>
+  <h1>Dirty form</h1>
+  <label for="note">Note</label>
+  <input id="note" type="text">
+  <a href="home.html">Leave</a>
+  <p id="state">clean</p>
+  <script>
+    document.getElementById('note').addEventListener('input', function () {
+      document.getElementById('state').textContent = 'dirty';
+      window.onbeforeunload = function (e) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      };
+    });
+  </script>
+</body>
+</html>

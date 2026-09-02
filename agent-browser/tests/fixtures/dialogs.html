@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Dialogs fixture</title>
+</head>
+<body>
+  <h1>Dialogs</h1>
+  <button id="confirm">Confirm</button>
+  <button id="alert">Alert</button>
+  <button id="prompt">Prompt</button>
+  <button id="timer">Timer confirm</button>
+  <p id="result"></p>
+  <p id="timer-result"></p>
+  <script>
+    document.getElementById('confirm').addEventListener('click', function () {
+      document.getElementById('result').textContent = 'confirm:' + confirm('Proceed?');
+    });
+    document.getElementById('alert').addEventListener('click', function () {
+      alert('Hi');
+      document.getElementById('result').textContent = 'alert:done';
+    });
+    document.getElementById('prompt').addEventListener('click', function () {
+      document.getElementById('result').textContent = 'prompt:' + prompt('Name?');
+    });
+    document.getElementById('timer').addEventListener('click', function () {
+      setTimeout(function () {
+        document.getElementById('timer-result').textContent = 'timer:' + confirm('Later?');
+      }, 300);
+    });
+  </script>
+</body>
+</html>

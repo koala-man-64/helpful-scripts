@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-browser"
+version = "0.1.0"
+description = "Drive a real, visible Edge/Chrome window from a shell: a Playwright CLI with JSON output built for small AI models."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # The engine. aria_snapshot(mode="ai") and the aria-ref selector engine appeared in 1.5x and are
+    # what Playwright MCP uses; TESTED_PLAYWRIGHT in agent_browser.py names the verified line.
+    "playwright>=1.61,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9"]
+
+[project.scripts]
+agent-browser = "agent_browser:main"
+
+[tool.setuptools]
+py-modules = ["agent_browser"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: needs a real Edge/Chrome and Playwright; run with AGENT_BROWSER_LIVE=1 python -m pytest -m live"]
+addopts = "-m 'not live'"

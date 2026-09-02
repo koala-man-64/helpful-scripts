@@ -48,6 +48,15 @@ Apply selected components only after the preview is correct:
 
 Existing files are preserved by default. Use `-Overwrite` only when replacing an existing profile file is intentional; the installer creates a timestamped sibling backup before replacement. Use `-DestinationRoot C:\Temp\agentic-home` to validate a complete install without changing the active profile.
 
+The Claude profile ships the `agent-browser` skill (`profile/claude/skills/agent-browser/`), which expects the CLI from this repository's `agent-browser/` folder on `PATH`. After the profile install:
+
+```powershell
+$env:PIP_INDEX_URL = "https://pypi.org/simple"; $env:PIP_EXTRA_INDEX_URL = ""; $env:PIP_NO_INPUT = "1"
+python -m pip install --user "playwright>=1.61,<2"
+python -m pip install --user -e ..\agent-browser
+agent-browser doctor
+```
+
 ## Verify and recover
 
 ```powershell

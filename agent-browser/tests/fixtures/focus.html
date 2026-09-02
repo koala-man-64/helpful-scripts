@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Focus</title>
+</head>
+<body>
+  <h1>Focus</h1>
+  <label for="i">Focus me</label>
+  <input id="i" type="text">
+  <script>
+    document.getElementById('i').addEventListener('focus', function () {
+      window.f = (window.f || 0) + 1;
+    });
+  </script>
+</body>
+</html>

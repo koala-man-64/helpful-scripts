@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Rows</title>
+</head>
+<body>
+  <h1>Rows</h1>
+  <p id="count">10</p>
+  <table id="t"><tbody></tbody></table>
+  <script>
+    var tbody = document.querySelector('#t tbody');
+    for (var i = 1; i <= 10; i++) {
+      var tr = document.createElement('tr');
+      tr.setAttribute('data-row', i);
+      var td1 = document.createElement('td');
+      td1.textContent = 'Row ' + i;
+      tr.appendChild(td1);
+      var td2 = document.createElement('td');
+      var btn = document.createElement('button');
+      btn.setAttribute('data-row', i);
+      btn.textContent = 'Remove';
+      td2.appendChild(btn);
+      tr.appendChild(td2);
+      tbody.appendChild(tr);
+    }
+    tbody.addEventListener('click', function (e) {
+      if (e.target.tagName === 'BUTTON') {
+        var tr = e.target.closest('tr');
+        tr.remove();
+        var count = document.querySelectorAll('#t tbody tr').length;
+        document.getElementById('count').textContent = count;
+      }
+    });
+  </script>
+</body>
+</html>

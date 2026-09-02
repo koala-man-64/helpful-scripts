@@ -242,6 +242,29 @@ no runtime dependencies, works fully offline from a vendored `vendor/` folder.
 - Live checks need Edge >= 137 on the machine; the offline suite never launches it.
 - Same pip note as mcp-chatbot for the optional dev venv.
 
+## Project: agent-browser
+
+Single-file Playwright CLI (`agent-browser/agent_browser.py`, console script
+`agent-browser`) that gives an AI agent a visible Edge/Chrome window through a
+per-profile background daemon: JSON in and out, elements addressed by refs
+from accessibility snapshots, sign-ins kept per profile.
+
+- Install: `python -m pip install --user "playwright>=1.61,<2"` then
+  `python -m pip install --user -e agent-browser` (same pip-index prefix as mcp-chatbot;
+  no `playwright install`, the installed Edge/Chrome is used).
+- Test: `cd agent-browser; python -m pytest` (offline; no browser, Playwright never imported).
+- Live: `$env:AGENT_BROWSER_LIVE = "1"; python -m pytest -m live` (headless Edge against
+  `tests/fixtures`, ~50 s) and `agent-browser doctor --live`.
+- Run: `agent-browser goto URL`, `click e12`, `fill f2e5 "text"`, `wait --signed-in HOST`,
+  `text`, `screenshot`, `stop`; config via `AGENT_BROWSER_*` env vars read lazily (no .env
+  loading), policy via the human-written `%LOCALAPPDATA%\agent-browser\config.json`.
+- Skill: the Claude Code skill lives in `agentic-ide-setup/profile/claude/skills/agent-browser/`
+  and reaches `~/.claude/skills` through `Install-AgenticIdeSetup.ps1 -Components Claude`;
+  `tests/test_skill.py` keeps it consistent with the parser. Do not add a copy under `.claude/skills`.
+- Agent rules: one `agent-browser` command per Bash call (the shell guard denies chained
+  print commands with secret words), never type credentials (the tool refuses those
+  fields), refs only from the newest output.
+
 ## Final Principle
 
 Act like a strong senior engineer who respects Rudy's time: investigate first, reason clearly, make focused changes, validate them, and surface the important tradeoffs.

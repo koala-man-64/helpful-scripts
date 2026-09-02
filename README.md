@@ -71,6 +71,20 @@ stdout/stderr streaming, real exit codes, numpy/pandas from the bundled
 distribution, local folders mounted into the sandbox. See
 [edge-pyodide/README.md](edge-pyodide/README.md).
 
+## agent-browser - a visible Edge/Chrome window for AI agents
+
+`agent-browser/` holds a single-file Playwright CLI (`agent_browser.py`,
+console script `agent-browser`) that lets a Claude Code session on a model
+without built-in browser tools drive a real, visible Edge or Chrome window
+through the Bash tool: `goto URL` returns the page as element refs, `click e12`
+/ `fill f2e5 "text"` / `select` / `press` act on them, and every result is JSON
+with a structured error and exit code the model can branch on. A per-profile
+background daemon keeps the window, its cookies, and the refs alive between
+commands, so a human signs in once (SSO/MFA in the window) and the agent
+continues. Password fields are refused in code, only `http(s)` opens, page text
+never reaches a hint. The Claude Code skill ships in the `agentic-ide-setup`
+profile. See [agent-browser/README.md](agent-browser/README.md).
+
 ## ServiceNow client
 
 `servicenow-client/` holds a single-file ServiceNow REST client

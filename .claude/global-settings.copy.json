@@ -36,6 +36,7 @@
       "Bash(basename *)",
       "Bash(dirname *)",
       "Bash(py *)",
+      "Bash(agent-browser *)",
       "Bash(cd *)",
       "Bash(set *)",
       "Bash(for *)",
