@@ -227,6 +227,21 @@ class CatalogTests(unittest.TestCase):
                         },
                     )
                     plan = lock["lane_execution_plan"]
+                    routing = lock["routing_contract"]
+                    self.assertEqual(routing["package_version"], "14.1.0")
+                    self.assertEqual(routing["contract_version"], "1.0.0")
+                    self.assertEqual(
+                        routing["profiles"]["spark-root"],
+                        {
+                            "work_lane": "lite",
+                            "operating_lane": "root_task",
+                            "owner": {"model": "gpt-5.6-luna", "effort": "low"},
+                            "delegation_authorization": "prohibited",
+                            "delegation_recommended": False,
+                            "execution_profile": "spark",
+                            "child_eligible": False,
+                        },
+                    )
                     if lane == "lite":
                         self.assertEqual(
                             (plan["owner"]["model"], plan["owner"]["effort"]),
@@ -295,6 +310,9 @@ class CatalogTests(unittest.TestCase):
         base = render(ROOT, "asset-allocation-contracts", "critical")
 
         mutations = []
+        value = copy.deepcopy(base)
+        value["routing_contract"]["package_version"] = "latest"
+        mutations.append(value)
         value = copy.deepcopy(base)
         value["active_surface_skill_pins"][0]["source"] = "not-an-object"
         mutations.append(value)

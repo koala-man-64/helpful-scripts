@@ -14,7 +14,8 @@
     "central_denials",
     "record_authority",
     "selected_routing_policy",
-    "lane_execution_plan"
+    "lane_execution_plan",
+    "routing_contract"
   ],
   "properties": {
     "schema_version": {"const": "consumer-lock-v2"},
@@ -227,6 +228,18 @@
         "model": {"enum": ["Luna", "Terra", "Sol"]},
         "effort": {"enum": ["low", "medium", "high"]},
         "role": {"type": "string", "pattern": "^[a-z0-9_]+$"}
+      }
+    },
+    "routing_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package_version", "contract_version", "source_commit", "artifacts", "profiles"],
+      "properties": {
+        "package_version": {"const": "14.1.0"},
+        "contract_version": {"const": "1.0.0"},
+        "source_commit": {"const": "756268a39d6eb2a4f7a3153f8bd6e55a0eaf9e81"},
+        "artifacts": {"type": "array", "minItems": 3, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "profiles": {"type": "object", "minLength": 1}
       }
     },
     "lane_execution_plan": {

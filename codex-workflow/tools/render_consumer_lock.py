@@ -74,6 +74,7 @@ def render(
         "central_denials": decisions["central_denials"],
         "record_authority": surface["record_authority"],
         "selected_routing_policy": surface["lanes"][lane]["primary_route"],
+        "routing_contract": surface["codex_routing_contract"],
         "lane_execution_plan": _lane_execution_plan(surface["lanes"][lane]),
     }
     schema = load_document(root / "schemas" / "consumer-lock-v2.schema.json")

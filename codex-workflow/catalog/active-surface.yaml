@@ -18,6 +18,18 @@
     "coordination_ledger": "none_by_default",
     "jsonl": "regulated_audit_only_when_explicitly_required"
   },
+  "codex_routing_contract": {
+    "package_version": "14.1.0",
+    "contract_version": "1.0.0",
+    "source_commit": "756268a39d6eb2a4f7a3153f8bd6e55a0eaf9e81",
+    "artifacts": ["asset-allocation-contracts==14.1.0", "@asset-allocation/contracts@14.1.0", "dist/codexRouting.*"],
+    "profiles": {
+      "lite-root": {"work_lane": "lite", "operating_lane": "root_task", "owner": {"model": "gpt-5.6-luna", "effort": "low"}, "delegation_authorization": "prohibited", "delegation_recommended": false, "execution_profile": "default"},
+      "standard-root": {"work_lane": "standard", "operating_lane": "root_task", "owner": {"model": "gpt-5.6-terra", "effort": "medium"}, "delegation_authorization": "required", "delegation_recommended": true, "child": {"operating_lane": "delegated_child", "model": "gpt-5.6-luna", "effort": "low"}, "execution_profile": "default"},
+      "critical-root": {"work_lane": "critical", "operating_lane": "root_task", "owner": {"model": "gpt-5.6-sol", "effort": "high"}, "delegation_authorization": "required", "delegation_recommended": true, "child": {"operating_lane": "delegated_child", "model": "gpt-5.6-terra", "effort": "medium"}, "execution_profile": "default"},
+      "spark-root": {"work_lane": "lite", "operating_lane": "root_task", "owner": {"model": "gpt-5.6-luna", "effort": "low"}, "delegation_authorization": "prohibited", "delegation_recommended": false, "execution_profile": "spark", "child_eligible": false}
+    }
+  },
   "lanes": {
     "lite": {
       "primary_route": {
