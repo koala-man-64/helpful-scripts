@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Form fixture</title>
+</head>
+<body>
+  <h1>Incident form</h1>
+  <form id="incident" action="form.html" method="get">
+    <label for="short">Short description</label>
+    <input id="short" name="short" type="text" value="">
+
+    <label for="notes">Work notes</label>
+    <textarea id="notes" name="notes"></textarea>
+
+    <label for="priority">Priority</label>
+    <select id="priority" name="priority">
+      <option value="1">1 - Critical</option>
+      <option value="2">2 - High</option>
+      <option value="3" selected>3 - Moderate</option>
+    </select>
+
+    <label><input id="active" name="active" type="checkbox" checked> Active</label>
+
+    <fieldset>
+      <legend>Impact</legend>
+      <label><input type="radio" name="impact" value="high"> High</label>
+      <label><input type="radio" name="impact" value="low" checked> Low</label>
+    </fieldset>
+
+    <button type="button" id="update">Update</button>
+    <button type="submit" id="submit">Submit</button>
+  </form>
+  <pre id="result"></pre>
+  <a href="home.html">Next page</a>
+  <script>
+    document.getElementById('update').addEventListener('click', function () {
+      var f = document.getElementById('incident');
+      document.getElementById('result').textContent =
+        'short=' + f.short.value + '|notes=' + f.notes.value + '|priority=' + f.priority.value +
+        '|active=' + f.active.checked + '|impact=' + f.impact.value;
+    });
+  </script>
+</body>
+</html>

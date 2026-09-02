@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Outer late</title>
+</head>
+<body>
+  <h1>Outer late</h1>
+  <a href="home.html">Home</a>
+  <div id="host"></div>
+  <script>
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        var iframe = document.createElement('iframe');
+        iframe.name = 'gsft_main';
+        iframe.title = 'Main Content';
+        iframe.src = 'inner.html';
+        iframe.width = '600';
+        iframe.height = '300';
+        document.getElementById('host').appendChild(iframe);
+      }, 1500);
+    });
+  </script>
+</body>
+</html>

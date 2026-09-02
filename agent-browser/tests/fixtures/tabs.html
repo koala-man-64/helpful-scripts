@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tabs</title>
+</head>
+<body>
+  <h1>Tabs</h1>
+  <div role="tablist">
+    <button role="tab" id="tab-notes" aria-selected="false" aria-controls="panel-notes">Notes</button>
+    <button role="tab" id="tab-related" aria-selected="true" aria-controls="panel-related">Related</button>
+  </div>
+  <div role="tabpanel" id="panel-notes" style="display:none">
+    <label for="notes">Work notes</label>
+    <textarea id="notes"></textarea>
+  </div>
+  <div role="tabpanel" id="panel-related">
+    <p>Related records list</p>
+  </div>
+  <script>
+    var tabs = document.querySelectorAll('[role="tab"]');
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        var panelId = tab.getAttribute('aria-controls');
+        var panels = document.querySelectorAll('[role="tabpanel"]');
+        panels.forEach(function (panel) {
+          panel.style.display = 'none';
+        });
+        document.getElementById(panelId).style.display = 'block';
+        tabs.forEach(function (t) {
+          t.setAttribute('aria-selected', 'false');
+        });
+        tab.setAttribute('aria-selected', 'true');
+      });
+    });
+  </script>
+</body>
+</html>

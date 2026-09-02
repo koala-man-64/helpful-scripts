@@ -1,0 +1,14 @@
+- generic [active] [ref=e1]:
+  - heading "Outer page" [level=1] [ref=e2]
+  - link "Home" [ref=e3] [cursor=pointer]:
+    - /url: home.html
+  - button "Outer button" [ref=e4]
+  - iframe [ref=e5]:
+    - generic [active] [ref=f1e1]:
+      - heading "Inner form" [level=2] [ref=f1e2]
+      - text: Caller
+      - textbox "Caller" [ref=f1e3]
+      - button "Save" [ref=f1e4]
+      - button "Reload frame" [ref=f1e5]
+      - button "Navigate frame" [ref=f1e6]
+      - paragraph

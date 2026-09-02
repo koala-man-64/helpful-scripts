@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Big page</title>
+</head>
+<body>
+  <h1>Big page</h1>
+  <div id="root"></div>
+  <script>
+    var root = document.getElementById('root');
+    var buttonCount = 1;
+    for (var i = 0; i < 200; i++) {
+      var card = document.createElement('div');
+      card.className = 'card';
+      card.style.cursor = 'pointer';
+      card.onclick = function () { void 0; };
+      for (var j = 0; j < 10; j++) {
+        var btn = document.createElement('button');
+        btn.textContent = 'Item ' + buttonCount;
+        card.appendChild(btn);
+        buttonCount++;
+      }
+      root.appendChild(card);
+    }
+  </script>
+</body>
+</html>

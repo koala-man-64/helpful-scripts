@@ -14,6 +14,7 @@ Run this after installing the profile files. None of these account details are s
 1. Install Claude Code and complete its sign-in flow.
 2. Restart Claude Code after copying `CLAUDE.md`, settings, agents, skills, and hooks.
 3. Review hook command paths and permission rules before first use in a new environment.
+4. Browser automation: install the tool (`python -m pip install --user "playwright>=1.61,<2"` and `python -m pip install --user -e agent-browser`), run `agent-browser doctor`, and sign in once per named profile in the Edge window when a task first opens it. Cookies stay under `%LOCALAPPDATA%\agent-browser\profiles\<name>`.
 
 ## VS Code, ChatGPT, and Copilot Chat
 

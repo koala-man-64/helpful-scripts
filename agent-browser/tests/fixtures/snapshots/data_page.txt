@@ -1,0 +1,11 @@
+- generic [active] [ref=e1]:
+  - heading "Title" [level=1] [ref=e2]
+  - paragraph [ref=e3]: para text
+  - button "ok" [ref=e6]
+  - generic [ref=e7] [cursor=pointer]: clickable div
+  - generic [ref=e8]:
+    - text: Pick
+    - combobox "Pick" [ref=e9]:
+      - option "a" [selected]
+      - option "b"
+  - textbox "Name" [ref=e10]: v
