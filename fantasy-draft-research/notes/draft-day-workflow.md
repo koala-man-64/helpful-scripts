@@ -62,6 +62,8 @@ Authoritative details:
 | FFToday rankings, projections, outlooks, tiers, and ADP | Independent non-PPR value, market timing, and risk context | Preparation cross-check. Its Yahoo preset and 12-team ADP do not encode the configured league's bonuses, team count, or keeper state. |
 | FFToday stats, consistency, strength of schedule, matchup history, Draft Buddy, and MFL integration | Historical or matchup context and optional external integrations | Preparation only and omit by default. Use a sub-tool only for a named question; authenticated/integrated paths remain unqualified until tested. |
 | RotoBaller public standard/non-PPR rankings, projections, ADP, cheat sheets, and NFL player news | Secondary standard-scoring opinion, market timing, and targeted injury/role context | Targeted fallback only. Select and record the standard/non-PPR view and visible freshness label; corroborate material news with official NFL/team reporting. Premium products, team sync, live assistant, and extraction are excluded. |
+| FantasyPros public standard rankings, ECR/ADP metadata, projections, and news | Preparation consensus context and targeted fallback research | Use only for a named freshness, rank-dispersion, ADP, or news question. ECR is the same upstream family as Boris Chen, so it is not an independent vote; paid Draft Assistant, My Playbook, sync, extension, API, and automated paths are excluded. |
+| Unabated NFL product, props, pricing, API-documentation, and terms pages | Documented future market-context surface | Excluded. Public pages do not prove a permitted usable odds or API path, and market objects are not fantasy ranks. Do not log in, subscribe, upload, call an API, export, automate, or transact without separately authorized qualification. |
 | NBC Sports/Rotoworld live Draft Central, articles, and player news | Current injury/role news and analyst context | Targeted fallback only. Overall ranks are PPR; visible personal-use reading must follow NBC's no-extraction terms. |
 | NBC Sports/Rotoworld static Draft Kit PDF | Offline profiles and broad cheat-sheet context | Preparation/offline fallback only. It can lag live pages and includes PPR, dynasty, best-ball, and DraftKings views that do not match this league. |
 | Reddit `r/fantasyfootball` | Breaking-signal, counterargument, and primary-source discovery | Read-only fallback. Votes/comments are attention signals; verify material claims at the underlying primary source. |
@@ -79,7 +81,7 @@ The minimum viable set is:
 
 1. **Every live draft:** Yahoo room state, queue, Picks/Board, and roster.
 2. **Every final board refresh:** one league-adjusted value source plus one standard-scoring tier or projection source confirmed independent after checking DraftKick's configured upstreams. The current default is DraftKick manual plus cached Boris Chen tiers; FFToday may replace or challenge either when freshness, league fit, or upstream independence is better.
-3. **Only when a current availability or role question exists:** use Yahoo-visible player status/news first. RotoBaller, NBC, or Reddit may discover or contextualize a claim; verify it against linked official NFL/team reporting when available. If the official basis cannot be verified, mark the claim unresolved rather than treating discussion or analyst repetition as confirmation.
+3. **Only when a current availability or role question exists:** use Yahoo-visible player status/news first. RotoBaller, NBC, Reddit, or a narrowly targeted FantasyPros public page may discover or contextualize a claim; verify it against linked official NFL/team reporting when available. If the official basis cannot be verified, mark the claim unresolved rather than treating discussion or analyst repetition as confirmation.
 4. **Only when a rehearsal or recovery question exists:** one of Yahoo mocks, Sleeper draftboard, or DraftKick simulation. Use more than one only when comparing a named mechanic such as keeper placement, timer behavior, or saved-state recovery.
 
 Select optional tools by trigger:
@@ -88,8 +90,10 @@ Select optional tools by trigger:
 | --- | --- | --- |
 | Baseline board build or major refresh | DraftKick manual plus Boris Chen or FFToday | Reddit, NBC PDF, historical matchup tools, or multiple ADP presentations |
 | Tier disagreement or unexpected value gap | The unused independent Boris/FFToday source; inspect timestamps, scoring, and shared upstreams | Another presentation of FantasyPros ECR or a source already included in DraftKick's composite |
-| Injury, suspension, depth-chart, or role uncertainty | Yahoo-visible status/news; linked official NFL/team reporting when available; targeted RotoBaller or NBC lookup; Reddit only for discovery | Broad article/feed browsing, old PDF profiles, or an unverified claim |
+| Fresh public standard-rank, expert-update, or ADP metadata needed before room-open | Targeted FantasyPros standard page only when it supplies a clearly named freshness or timing detail; record the visible date and semantics | Treating FantasyPros ECR as an independent Boris Chen vote, or activating Draft Assistant/My Playbook/paid sync |
+| Injury, suspension, depth-chart, or role uncertainty | Yahoo-visible status/news; linked official NFL/team reporting when available; targeted RotoBaller, NBC, or FantasyPros lookup; Reddit only for discovery | Broad article/feed browsing, old PDF profiles, an unverified claim, or paid/account tool activation |
 | Standard/non-PPR value or market-timing tie-break | The unused independent Boris/FFToday source; targeted RotoBaller standard rankings, projections, or ADP when freshness or league fit is better | Premium RotoBaller products, team sync, live assistant, or a second presentation of the same upstream family |
+| Market-context question or a claimed prop/futures movement | No current add: leave Unabated excluded until its separately authorized qualification proves a permitted manual read path and Yahoo-safe latency | Unabated login, subscription, upload, API call, export, background monitoring, raw-odds capture, betting action, or treating a market object as a fantasy ranking |
 | Identity ambiguity or trend question | Sleeper API plus Yahoo-visible name, team, and position | Treating add/drop counts as rank or Yahoo availability |
 | Keeper, order, timer, queue, or recovery rehearsal | One league-matched Yahoo or Sleeper mock; DraftKick simulation for board logic | Carrying mock availability or grade into the real room as fact |
 | Need historical durability or matchup context | One relevant FFToday stats/consistency/SOS/matchup surface | Loading the full FFToday tool suite |
@@ -105,6 +109,8 @@ Detailed source procedures:
 - [Boris Chen tier guide](boris-chen-draft-tiers.md)
 - [FFToday source guide](fftoday.md)
 - [RotoBaller source guide](rotoballer.md)
+- [FantasyPros source guide](fantasypros.md)
+- [Unabated market-context guide](unabated.md)
 - [NBC Sports/Rotoworld guide](nbc-sports-fantasy.md)
 - [Reddit `r/fantasyfootball` guide](reddit-fantasyfootball.md)
 - [Sleeper tool guide](sleeper.md)
@@ -172,7 +178,7 @@ When a new site guide merges:
 6. Add it to the next source manifest with an explicit usage class and fallback.
 7. Promote durable mechanics into this playbook; keep volatile player values and site-specific examples in dated notes.
 
-If sources disagree, first compare timestamps, scoring format, units, injury assumptions, and whether they share an upstream feed. Yahoo remains authoritative for room state and availability. For player value, preserve the disagreement and choose using the candidate-ordering rules; do not average incompatible fields or count several presentations of the same source as independent confirmation.
+If sources disagree, first compare timestamps, scoring format, units, injury assumptions, and whether they share an upstream feed. Yahoo remains authoritative for room state and availability. FantasyPros ECR and Boris Chen are one consensus family; do not count them separately. Unabated odds, implied probabilities, props, futures, and simulations are market objects, not fantasy ranks or projections, and remain excluded until separately qualified. For player value, preserve the disagreement and choose using the candidate-ordering rules; do not average incompatible fields or count several presentations of the same source as independent confirmation.
 
 ## Draft-day phases
 
@@ -184,8 +190,8 @@ Complete this before entering the room:
 2. Build the source manifest for every inventoried surface, then choose the minimum selected set for this run. Recheck selected tools and any standby tool whose trigger is plausible; preserve prior qualification evidence for the rest. Demote or exclude a source that fails access, freshness, league-fit, semantics, latency, reliability, or safety checks.
 3. Reopen **League → Settings** and record the actual team count, roster makeup, scoring, clock, draft format, and draft time for this run.
 4. Reopen **League → Managers** and **Draft Results**. Confirm the assigned slot, active teams, visible round slots, round count, direction, traded picks, and all keepers.
-5. Refresh injuries, depth charts, suspensions, and material role news through the selected news path. Add RotoBaller, NBC, or Reddit only when a targeted question or conflicting claim triggers them; corroborate any material RotoBaller report with official NFL/team reporting. Remove unavailable players and every keeper from candidate data.
-6. Refresh standard-scoring tiers and non-PPR projections through the selected board sources. Refresh ADP only when market timing affects a decision. RotoBaller is a fallback only when its standard/non-PPR view and freshness label are recorded; flag stale or conflicting data rather than hiding it.
+5. Refresh injuries, depth charts, suspensions, and material role news through the selected news path. Add RotoBaller, NBC, Reddit, or FantasyPros only when a targeted question or conflicting claim triggers them; corroborate any material report with official NFL/team reporting. Remove unavailable players and every keeper from candidate data.
+6. Refresh standard-scoring tiers and non-PPR projections through the selected board sources. Refresh ADP only when market timing affects a decision. RotoBaller and FantasyPros are fallbacks only when their standard/non-PPR view and freshness labels are recorded; FantasyPros ECR must not become a second Boris Chen vote. Flag stale or conflicting data rather than hiding it.
 7. If DraftKick is selected, configure it with the actual scoring, starters, bench, order, keepers, and intentional source weights. Verify Board and Rosters. If it says `Not saved`, keep the tab open and maintain the independent state record below. Otherwise build the board from the selected fallback sources.
 8. Build an initial value board and position-specific fallbacks. For each candidate, retain the league-adjusted value or replacement baseline, tier, ADP/expected availability, next equivalent, role or availability risk, and source timestamp. Mark players as target, neutral, or avoid; an avoid requires a concrete reason such as injury, role, price, or keeper status.
 9. Initialize the opponent ledger from confirmed keepers and draft order. Index it by draft slot or anonymous team label, never a manager identity. Record confirmed picks and starter coverage; calculate open starter/flex paths and the teams that pick before each of our turns. Treat unfilled positions as a probability signal, not proof of an opponent's next pick.
@@ -534,6 +540,8 @@ Completed real draft:
 - Set the final news-source refresh cutoff and the maximum acceptable age for tier/projection data.
 - Refresh the [current source readiness matrix](research-tool-readiness-2026-08-30.md) and confirm which qualified tools remain Live, preparation-only, or fallback.
 - Decide whether DraftKick will be unsigned/manual, authenticated, or Live-enabled; do not assume unverified sync.
+- Keep FantasyPros Draft Assistant, My Playbook, paid tiers, league sync, browser extensions, API access, and automated actions excluded unless a separately authorized league-matched rehearsal passes.
+- Keep Unabated excluded unless a separately authorized audit verifies a permitted manual market-data path, semantics, latency, legal availability, and a no-transaction fallback.
 - Build the final assigned-slot strategy using current tiers, observed board shape, and keeper-adjusted availability.
 - Define manager-specific avoid/target overrides and whether any player is an automatic selection at pick 1.
 
@@ -541,6 +549,7 @@ Completed real draft:
 
 | Date | Change | Evidence |
 | --- | --- | --- |
+| 2026-09-02 | Added terms-safe FantasyPros public research guidance and documented Unabated as an excluded future market-context source pending an authorized read-path rehearsal. | [FantasyPros guide](fantasypros.md), [Unabated guide](unabated.md) |
 | 2026-08-31 | Replaced fixed draft assumptions with a Yahoo-observed draft-time configuration and per-round pacing ledger. | AB#3374 |
 | 2026-08-31 | Added RotoBaller as a targeted public standard/non-PPR and corroborated-news fallback; premium, sync, and live-assistant paths remain excluded. | AB#3396 |
 | 2026-08-30 | Recorded the completed Yahoo real draft and hardened queue races, pick authorization, timeout reconciliation, turn-pair resets, endgame ordering, and selection provenance. | AB#3367 |
