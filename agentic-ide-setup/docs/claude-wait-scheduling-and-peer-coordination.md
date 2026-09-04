@@ -21,6 +21,33 @@ state. Keep it that way. Do not port the `DeliveryState` ladder.
 
 ---
 
+## Implementation status
+
+Steps 1-5 of the build order are implemented and live in `~/.claude/hooks`, mirrored into
+`profile/claude/hooks` for the portable installer.
+
+| Component | File | State |
+| --- | --- | --- |
+| Durable wait registry + timeouts + liveness `doctor` | `wait_registry.py` | done |
+| `PostToolUse` detector | `post_tool_use_wait_detector.py` | done, registered on `Bash\|PowerShell` |
+| `SessionStart` surfacing of outstanding waits | `session_start_team_context.py` | done |
+| Read-back polling with binding verification | `wait_poll.py` | done, Azure DevOps PR + pipeline, GitHub PR |
+| Tests | `test_wait_registry.py` | 33 tests |
+
+Verified against the live GitHub API, not only in unit tests: a wait whose recorded branch and
+commit no longer match resolved to `failed: binding_mismatch:source_branch,source_commit` even
+though the pull request really was merged, and a correctly bound wait for the same PR resolved to
+`succeeded: pr_merged`. Refusing to confirm a merged PR that is not the one the wait was
+registered for is the safety property the whole read-back design exists for, and it is the
+validation the Codex implementation never obtained.
+
+Remaining from the build order: step 5 arming via scheduled tasks is documented but not wired into
+a helper, step 6 `gh pr` support is present in the poller and detector but only PR create is
+detected, and step 7 agentcoord lifecycle hooks for Claude are not installed.
+
+Registry format is `~/.claude/waits/registry.json`; override with `CLAUDE_WAITS_PATH`.
+Check liveness with `py "%USERPROFILE%\.claude\hooks\wait_poll.py" doctor`.
+
 ## What Claude already has (verified)
 
 | Facility | Kind | Durability | What it is for |
