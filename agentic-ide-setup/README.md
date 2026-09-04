@@ -19,6 +19,20 @@ defines the administrator guidance, Windows and WSL walkthroughs, terminal/brows
 canaries, validation matrix, rollout, and rollback work. The plan is documentation-only;
 it does not add either extension to the portable installer.
 
+## Agent wait-scheduling and peer coordination
+
+The [Codex wait-scheduling repair brief](docs/codex-wait-scheduling-repair.md) records a
+`codex-workflow-hooks` audit: the asynchronous wait/follow-up feature has never executed, because
+its trigger requires a `pushed` delivery artifact that the recorder never writes. It lists the
+defects in fix order with reproduction queries and a validation plan.
+
+The [Claude wait-scheduling and peer coordination plan](docs/claude-wait-scheduling-and-peer-coordination.md)
+maps the same capability onto Claude Code, which already has the scheduling and peer-visibility
+primitives. It covers what exists, the one missing hook and registry, and the design rule that
+keeps the Claude implementation from repeating the Codex failure.
+
+Both documents are analysis and planning only; neither changes installed hooks or profiles.
+
 ## Refresh the profile
 
 All three scripts require PowerShell 7 (`pwsh`). They write with `-Encoding utf8NoBOM`, which Windows PowerShell 5.1 rejects with a parameter-binding error partway through the export, after the exporter has already cleared `profile/`. Install PowerShell 7 before running them; recover an interrupted export with `git restore --source=HEAD --worktree -- agentic-ide-setup/profile`.
