@@ -33,6 +33,54 @@ GH_REPO = re.compile(r"--repo[= ]+(\S+)", re.IGNORECASE)
 
 DRY_RUN = re.compile(r"--(?:dry-run|what-if|help)\b|\s-h\b", re.IGNORECASE)
 
+STATEMENT_SPLIT = re.compile(r"\|\||&&|[;\n|]")
+ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\S*$")
+
+
+HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def strip_heredocs(command: str) -> str:
+    """Remove heredoc bodies, which are data rather than commands.
+
+    A body line beginning with `az` is indistinguishable from an invocation
+    once the command is split on newlines.
+    """
+    lines = command.splitlines()
+    kept: list[str] = []
+    terminator: str | None = None
+    for line in lines:
+        if terminator is not None:
+            if line.strip() == terminator:
+                terminator = None
+            continue
+        kept.append(line)
+        match = HEREDOC_START.search(line)
+        if match:
+            terminator = match.group(2)
+    return "\n".join(kept)
+
+
+def invocations(command: str) -> list[str]:
+    """Segments whose first token is the program being run.
+
+    Matching the pattern anywhere in the command text is wrong: it fires on
+    `grep "az repos pr create" file.py`, on a heredoc, and on any quoted string
+    that merely mentions the command. Live diagnostics caught exactly that.
+    Only a segment that actually invokes az or gh can have created a resource.
+    """
+    segments = []
+    for segment in STATEMENT_SPLIT.split(strip_heredocs(command)):
+        tokens = segment.strip().split()
+        while tokens and ENV_ASSIGNMENT.match(tokens[0]):
+            tokens = tokens[1:]
+        if not tokens:
+            continue
+        program = tokens[0].strip("'\"").rsplit("/", 1)[-1].rsplit("\\", 1)[-1].casefold()
+        if program in {"az", "az.cmd", "gh", "gh.exe"}:
+            segments.append(" ".join(tokens))
+    return segments
+
 
 def observed_failure(response: Any) -> bool:
     """True only for a failure the provider actually reported.
@@ -163,6 +211,10 @@ def capture(pattern: re.Pattern[str], command: str) -> str:
 
 def detect(command: str, text: str) -> dict[str, str] | None:
     """Classify the command, or return None when nothing is monitorable."""
+    invoked = invocations(command)
+    if not invoked:
+        return None
+    command = " ; ".join(invoked)
     if AZ_PR_CREATE.search(command):
         return {
             "provider": "azure_devops",
