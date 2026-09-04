@@ -3,13 +3,21 @@
 > Read-only. The script only ever calls `gh api` with GET endpoints — it never
 > writes to GitHub, and it never handles a token itself.
 
-Searches one or more GitHub organizations/repositories for keywords in file
-contents (via GitHub's code-search API) and writes a single self-contained
-**HTML report** — no CSVs, no external CSS/JS, nothing to host. For every
+Walks a GitHub organization's commit history for keywords and writes a single
+self-contained **HTML report** — no CSVs, no external CSS/JS, nothing to
+host. There are **no command-line arguments**: everything is configured by
+editing constants at the top of the script, then running it.
+
+For each repo in the org (optionally narrowed by a repo-name filter), every
+commit in an optional date window — on that repo's default branch — has its
+**commit message** and the **added/removed lines of every file it touched**
+checked for each keyword. This finds keywords even if they were later
+removed or rewritten, not just what's present in the code today. For every
 match it logs:
 
-repo · file URL · branch · commit SHA · commit message · committer · commit
-date · matched keyword · a highlighted snippet of the match
+repo · commit URL · branch · commit SHA · commit message · committer ·
+commit date · matched keyword · where it matched (commit message or a file)
+· a snippet
 
 The report has a live filter box (plain JS, no libraries) and per-keyword /
 per-repo summary counts.
@@ -22,87 +30,103 @@ no `.env`, and zero Python dependencies (stdlib only, Python 3.10+).
 
 ```powershell
 gh auth login   # once, if you haven't already
-
-# One keyword, one org:
-py -3 .\github_keyword_search.py "AWS_SECRET" --org my-org
-
-# Several keywords from a file, across an org and one extra repo:
-py -3 .\github_keyword_search.py --keywords-file .\keywords.txt --org my-org --repo other-org/some-repo
-
-# Custom output location:
-py -3 .\github_keyword_search.py "password" --org my-org --out-dir .\out --out-file secrets_scan.html
 ```
 
-`keywords.txt` is one keyword per line; blank lines and `#` comments are
-ignored. Each keyword is searched as an **exact phrase** (quoted internally),
-so `TODO(security)` matches that literal string, not each word separately.
-Keywords containing a literal `"` are rejected — there's no way to express
-that in an exact-phrase query.
+Open `github_keyword_search.py` and edit the **CONFIGURATION** block near the
+top:
 
-## Flags
+```python
+GITHUB_ORG = "my-org"
 
-| Flag | Meaning |
+# Only scan repos whose name contains one of these (case-insensitive).
+# Empty = every non-fork repo in the org.
+REPO_NAME_KEYWORDS: tuple[str, ...] = ("payments", "infra")
+
+# Inclusive date window, "YYYY-MM-DD". None = unbounded on that side.
+SINCE = "2025-01-01"
+UNTIL = None  # through today
+
+KEYWORDS: tuple[str, ...] = ("AWS_SECRET", "TODO(security)")
+```
+
+Then just run it — no flags, no arguments:
+
+```powershell
+py -3 .\github_keyword_search.py
+```
+
+That's it. `keyword_search_report.html` lands in the current directory.
+
+## Configuration reference
+
+| Constant | Meaning |
 | --- | --- |
-| `KEYWORD ...` | keywords to search for (positional, any number) |
-| `--keywords-file PATH` | file of keywords, merged and deduped with positionals |
-| `--org NAME` | GitHub organization to search; repeatable, scopes are unioned |
-| `--repo OWNER/NAME` | repository to search; repeatable, combines with `--org` |
-| `--out-dir PATH` | directory for the report (default: current dir) |
-| `--out-file NAME` | report filename (default: `keyword_search_report.html`) |
-| `--max-files N` | cap on distinct files enriched with commit details (default 500) |
-| `--strict` | exit 2 if any warnings were emitted |
+| `GITHUB_ORG` | GitHub organization to scan. Required. |
+| `REPO_NAME_KEYWORDS` | Tuple of substrings; a repo is scanned if its name contains any of them (case-insensitive). Empty tuple = every repo. |
+| `SINCE` / `UNTIL` | Inclusive commit-date window, `"YYYY-MM-DD"`. Either can be `None`. |
+| `KEYWORDS` | Tuple of strings to search for (case-insensitive substring match). Required — at least one. |
+| `MAX_COMMITS_PER_REPO` | Safety valve per repo (default 500); a warning is recorded if a repo's history in the window exceeds it. |
+| `INCLUDE_FORKS` | Default `False` — forked repos duplicate the upstream repo's commit history, so scanning them just produces duplicate rows. |
+| `STRICT` | Default `False`. When `True`, the script exits with code 2 if any warnings were recorded (useful for unattended/CI-style runs). |
+| `OUT_DIR` / `OUT_FILE` | Where the report is written. |
 
-At least one `--org` or `--repo` is required — GitHub's code-search API has
-no scope-limited "search everything" mode worth using here, and an unscoped
-query would be slow, noisy, and hit the 4,000-repository search-scope limit
-long before it found anything you actually wanted.
-
-Exit codes: `0` success, `1` gh/API failure, `2` bad arguments or
-(`--strict`) warnings.
+Exit codes: `0` success, `1` gh/API failure, `2` bad configuration or
+(when `STRICT = True`) warnings.
 
 ## How it works
 
-1. `search/code?q="KEYWORD" SCOPE` (one query per keyword × scope) finds
-   matching files, requesting the `text-match` media type so GitHub returns
-   highlighted fragments.
-2. `repos/{repo}` resolves each repo's default branch (cached per repo).
-3. `repos/{repo}/commits?path=FILE&sha=BRANCH&per_page=1` resolves the most
-   recent commit that touched each matched file (cached per repo+path, so a
-   file matching multiple keywords costs one lookup, not one per keyword).
+1. `orgs/{org}/repos` lists every repo in the org (paginated), then
+   `REPO_NAME_KEYWORDS` and `INCLUDE_FORKS` filter it down.
+2. `repos/{repo}/commits?sha=BRANCH&since=...&until=...` lists that repo's
+   commits on its default branch within the date window (paginated, capped
+   at `MAX_COMMITS_PER_REPO`).
+3. Each commit's message is checked for every keyword first — free, no
+   extra API call. Only if a keyword *isn't* in the message does the script
+   fetch `repos/{repo}/commits/{sha}` (once per commit, shared across all
+   remaining keywords) and grep the added/removed lines of every changed
+   file's diff.
 4. Everything is written into one HTML file — no template files, no CDN
    assets, nothing else to ship alongside it.
 
-Search calls are throttled to stay under GitHub's **10 requests/minute**
-limit for the code-search endpoint specifically (other search endpoints get
-30/minute; code search does not — see
-[GitHub's rate-limit docs](https://docs.github.com/en/rest/search/search#rate-limit)).
-Rate-limit responses (429, or 403s that mention rate limits) get a fixed
-60-second backoff with two retries; permission 403s fail immediately.
+Every `gh api` call is paced by a small fixed delay (courteous pacing, not a
+documented GitHub requirement — see
+[GitHub's REST API best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)
+on avoiding secondary rate limits). This uses the *general* REST API rate
+limit (5,000 requests/hour, authenticated), not the much tighter code-search
+limit, because this tool walks commit history via plain REST endpoints
+rather than GitHub's code-search index. Rate-limit responses (429, or 403s
+that mention rate limits) get a fixed 60-second backoff with two retries;
+permission 403s fail immediately.
+
+A full history walk makes roughly 1–2 API calls per commit in the window,
+per repo — an active repo with thousands of commits in range will take a
+while. Narrow `REPO_NAME_KEYWORDS` and the date window, or lower
+`MAX_COMMITS_PER_REPO`, to control runtime.
 
 ## Caveats
 
-- **Only the default branch is searched.** This is a hard limit of GitHub's
-  code-search API, not a flag this tool could add — "In most cases, this
-  will be the master branch," per GitHub's docs. The `branch` column always
-  reports that default branch.
-- **Only files smaller than 384 KB are searchable** (GitHub's limit).
-- Code search covers **indexed** content; a very recent push can take a
-  short while to appear in results.
-- More than 1,000 matches for one keyword+scope cannot be paged past (a
-  GitHub-wide search API limit); the first 1,000 are kept and a warning is
-  emitted. Narrow with `--repo` or more specific keywords if you hit this.
-- The commit logged for a match is the file's **last-touching commit**, not
-  necessarily the commit that introduced the exact matched line — GitHub's
-  code-search index doesn't expose per-line blame.
+- **Only the default branch is walked.** Other branches' unique commits
+  aren't scanned.
+- A commit only gets its diff checked when the keyword **isn't already in
+  the commit message** — this is an optimization (fewer API calls), not a
+  gap: if the message matches, that's already a hit.
+- Large commits: GitHub caps the `files` list per commit at 300 entries, and
+  omits `patch` text for binary files and very large diffs — a keyword
+  inside one of those is not found. Same limitation the sibling
+  [github-activity-scanner](../github-activity-scanner/README.md) documents
+  for its own per-commit stats fetch.
+- `commit_message` in the report is the first line only. `committer` is the
+  git-level committer name (`commit.committer.name`), not a resolved GitHub
+  login.
 - You only see repositories the `gh` account can see; private-repo results
   require a token/account with access to those repos.
-- `commit_message` is the first line only; `committer` is the git-level
-  committer name (`commit.committer.name`), not a resolved GitHub login.
+- No dedup across keywords within one commit beyond what's described above:
+  a commit matching three keywords produces three rows, one per keyword.
 
 ## Tests
 
-Fully offline — the gh subprocess seam is faked; no network, no gh binary
-needed:
+Fully offline — the gh subprocess seam is faked; no network, no gh binary,
+and no real `GITHUB_ORG` needed:
 
 ```powershell
 py -3 -m unittest discover -s .\tests -v

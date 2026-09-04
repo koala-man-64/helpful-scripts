@@ -27,12 +27,14 @@ scoping, otherwise it searches all of public GitHub. See
 ## GitHub keyword search
 
 `github-keyword-search/` holds a dependency-free, read-only Python tool
-(`github_keyword_search.py`) that searches one or more GitHub orgs/repos for
-keywords in file contents and writes a single self-contained HTML report:
-repo, file URL, branch, commit SHA, commit message, committer, commit date,
-matched keyword, and a highlighted snippet, with a live filter box. All API
-access goes through the GitHub CLI (`gh api`); `--org`/`--repo` scoping is
-required (code search has no useful unscoped mode). See
+(`github_keyword_search.py`) that walks a GitHub org's commit history —
+messages and diffs, on each repo's default branch, in an optional date
+window — for keywords and writes a single self-contained HTML report: repo,
+commit URL, branch, commit SHA, commit message, committer, commit date,
+matched keyword, and a highlighted snippet, with a live filter box. No
+command-line arguments: org, repo-name filter, date range, and keywords are
+all set by editing constants at the top of the script, then running it.
+All API access goes through the GitHub CLI (`gh api`). See
 [github-keyword-search/README.md](github-keyword-search/README.md).
 
 ## Codex token usage audit (Codex local clients only)
