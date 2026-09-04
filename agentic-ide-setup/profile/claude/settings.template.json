@@ -60,6 +60,19 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"__USERPROFILE__\\.claude\\hooks\\post_tool_use_wait_detector.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking for delivery waits"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
