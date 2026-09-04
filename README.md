@@ -24,6 +24,17 @@ additions/deletions) and every pull-request review by the matching account
 scoping, otherwise it searches all of public GitHub. See
 [github-activity-scanner/README.md](github-activity-scanner/README.md).
 
+## GitHub keyword search
+
+`github-keyword-search/` holds a dependency-free, read-only Python tool
+(`github_keyword_search.py`) that searches one or more GitHub orgs/repos for
+keywords in file contents and writes a single self-contained HTML report:
+repo, file URL, branch, commit SHA, commit message, committer, commit date,
+matched keyword, and a highlighted snippet, with a live filter box. All API
+access goes through the GitHub CLI (`gh api`); `--org`/`--repo` scoping is
+required (code search has no useful unscoped mode). See
+[github-keyword-search/README.md](github-keyword-search/README.md).
+
 ## Codex token usage audit (Codex local clients only)
 
 `codex-token-usage-audit/` holds a dependency-free, read-only Python tool
