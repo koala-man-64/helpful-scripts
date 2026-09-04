@@ -614,6 +614,30 @@ class AuditRegressionTests(unittest.TestCase):
         self.assertEqual(len(active), 1)
         self.assertEqual(active[0]["wait_id"], first["wait_id"])
 
+    def test_pattern_inside_another_program_is_not_an_invocation(self):
+        """Caught in production by doctor: two false WAIT_TRIGGER_UNBOUND rows.
+
+        The command text merely mentioned the pattern; nothing was created.
+        """
+        for command in (
+            'grep -n "az repos pr create" detector.py',
+            "echo 'run az repos pr create next'",
+            'python -c "print(\'gh pr create\')"',
+            "cat <<EOF\naz repos pr create\nEOF",
+        ):
+            self.run_hook(payload(command, {"stdout": AZ_PR_JSON}))
+        self.assertEqual(wait_registry.active(self.path), [])
+        self.assertEqual(self.diagnostics(), [])
+
+    def test_real_invocation_still_detected_in_a_chain(self):
+        self.run_hook(
+            payload(
+                "git push && AZURE_DEVOPS_EXT_PAT=x az repos pr create --title t",
+                {"stdout": AZ_PR_JSON},
+            )
+        )
+        self.assertEqual([r["resource_id"] for r in wait_registry.active(self.path)], ["4242"])
+
     def test_git_helpers_are_bounded(self):
         """A hung git call would block the turn, not just the hook."""
         import hook_utils
