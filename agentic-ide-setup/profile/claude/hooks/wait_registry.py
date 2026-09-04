@@ -115,24 +115,99 @@ def _prune(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def save(data: dict[str, Any], path: Path | None = None) -> None:
-    _write_atomic(_prune(data), path or registry_path())
+def save(data: dict[str, Any], path: Path | None = None) -> bool:
+    """Persist the registry. Never raises.
+
+    Durable state is evidence, not a gate. A read-only disk, a full volume, or a
+    transient Windows file lock must not crash the PostToolUse hook and take the
+    observed tool call down with it. This mirrors record() in
+    pre_tool_use_agent_ladder.py, and matches load(), which already refuses to
+    let a corrupt registry break the hook.
+    """
+    try:
+        _write_atomic(_prune(data), path or registry_path())
+    except Exception:
+        return False
+    return True
 
 
 def _merge_rows(
     existing: list[dict[str, Any]], incoming: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Union by wait_id, preferring the incoming row.
+    """Union by wait_id, keeping whichever row was updated most recently.
 
     Several Claude sessions share one registry file. Read-modify-write without
     this merge would let a concurrent session's newly registered wait be
     clobbered by whichever process wrote last.
+
+    Recency, not caller preference, decides a collision on one wait_id. A
+    poller that has just proved binding_mismatch must not be reverted to a
+    stale succeeded by a slower concurrent writer, because poll_one refuses to
+    re-examine a terminal status and the wrong answer would then be permanent.
     """
-    merged = {str(row.get("wait_id")): row for row in existing if isinstance(row, dict)}
-    for row in incoming:
-        if isinstance(row, dict) and row.get("wait_id"):
-            merged[str(row["wait_id"])] = row
-    return list(merged.values())
+    merged: dict[str, dict[str, Any]] = {}
+    for row in [*existing, *incoming]:
+        if not isinstance(row, dict) or not row.get("wait_id"):
+            continue
+        key = str(row["wait_id"])
+        current = merged.get(key)
+        if current is None or _wins(row, current):
+            merged[key] = row
+    return _dedupe_resources(list(merged.values()))
+
+
+def _wins(candidate: dict[str, Any], incumbent: dict[str, Any]) -> bool:
+    """Whether candidate should replace incumbent for the same wait_id.
+
+    Recency decides, with one override: a merge never silently upgrades a wait
+    to `succeeded`. When two terminal statuses disagree, the non-succeeded one
+    wins, because `succeeded` is the permissive verdict and poll_one refuses to
+    re-examine a terminal wait, so a wrong `succeeded` would be permanent. A
+    legitimate success cannot be lost this way: it can only be reached from an
+    active status, which never suppresses it here.
+    """
+    a, b = str(candidate.get("status", "")), str(incumbent.get("status", ""))
+    if a != b and a in TERMINAL_STATUSES and b in TERMINAL_STATUSES:
+        if a == "succeeded":
+            return False
+        if b == "succeeded":
+            return True
+    return _revision(candidate) >= _revision(incumbent)
+
+
+def _revision(row: dict[str, Any]) -> datetime:
+    stamp = parse_time(row.get("updated_at")) or parse_time(row.get("created_at"))
+    return stamp or datetime.min.replace(tzinfo=UTC)
+
+
+def _dedupe_resources(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse active rows that describe the same provider resource.
+
+    register() checks for an existing active row before appending, but two
+    processes can both read "no active row" before either writes. Collapsing on
+    merge makes the idempotency guarantee hold under that interleaving; the
+    earliest row wins so the wait_id already reported to a session stays valid.
+    """
+    seen: dict[tuple[str, str, str], dict[str, Any]] = {}
+    kept: list[dict[str, Any]] = []
+    for row in rows:
+        if row.get("status") not in ACTIVE_STATUSES:
+            kept.append(row)
+            continue
+        key = (
+            str(row.get("provider", "")),
+            str(row.get("operation_kind", "")),
+            str(row.get("resource_id", "")),
+        )
+        winner = seen.get(key)
+        if winner is None:
+            seen[key] = row
+            kept.append(row)
+            continue
+        if str(row.get("created_at", "")) < str(winner.get("created_at", "")):
+            kept[kept.index(winner)] = row
+            seen[key] = row
+    return kept
 
 
 def _mutate(mutator, path: Path | None = None) -> Any:

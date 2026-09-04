@@ -351,6 +351,12 @@ def compact_agent_summary(
     return required_text, optional_text
 
 
+# Every hook shells out to git. A locked index, a credential prompt, or a slow
+# network share must not hang the turn; hooks have their own settings timeout,
+# but that kills the process without the caller learning anything.
+GIT_TIMEOUT_SECONDS = 10
+
+
 def read_hook_input() -> dict[str, Any]:
     raw = sys.stdin.read()
     if not raw.strip():
@@ -368,6 +374,7 @@ def repo_root() -> Path:
             ["git", "rev-parse", "--show-toplevel"],
             text=True,
             stderr=subprocess.DEVNULL,
+            timeout=GIT_TIMEOUT_SECONDS,
         ).strip()
         if output:
             return Path(output)
@@ -385,6 +392,7 @@ def run_git(args: list[str], cwd: Path | None = None) -> tuple[int, str]:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             check=False,
+            timeout=GIT_TIMEOUT_SECONDS,
         )
         return result.returncode, result.stdout.strip()
     except Exception:
