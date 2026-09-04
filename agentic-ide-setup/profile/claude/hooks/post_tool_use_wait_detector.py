@@ -40,16 +40,33 @@ def observed_failure(response: Any) -> bool:
     An absent exit code means unknown, never failure. Codex conflated the two
     and dropped every single one of its 581 provider-write events before they
     reached detection.
+
+    A stringified exit code still counts. Shells and wrappers marshal
+    $LASTEXITCODE as text, and reading "1" as success would be the same
+    type-brittle exit-code handling in the opposite direction.
     """
     if not isinstance(response, dict):
         return False
     if response.get("isError") is True or response.get("is_error") is True:
         return True
     for key in ("exit_code", "exitCode", "returncode", "status"):
-        value = response.get(key)
-        if isinstance(value, int) and not isinstance(value, bool) and value != 0:
+        code = exit_code_value(response.get(key))
+        if code is not None and code != 0:
             return True
     return False
+
+
+def exit_code_value(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
 
 
 def response_text(response: Any) -> str:
@@ -75,16 +92,28 @@ def response_text(response: Any) -> str:
 
 
 def json_payloads(text: str) -> list[Any]:
-    """Every JSON object or array embedded in the command output."""
+    """Every top-level JSON object or array embedded in the command output.
+
+    Scanning advances past each decoded value so nested objects are not
+    returned as payloads in their own right. Without that, `definition.id`
+    inside a pipeline run looks like a separate document and can be selected
+    ahead of the run's own id.
+    """
     found: list[Any] = []
-    for match in re.finditer(r"[{\[]", text):
-        chunk = text[match.start() :]
-        decoder = json.JSONDecoder()
+    decoder = json.JSONDecoder()
+    index = 0
+    while index < len(text):
+        match = re.search(r"[{\[]", text[index:])
+        if not match:
+            break
+        start = index + match.start()
         try:
-            value, _ = decoder.raw_decode(chunk)
+            value, consumed = decoder.raw_decode(text[start:])
         except ValueError:
+            index = start + 1
             continue
         found.append(value)
+        index = start + consumed
     return found
 
 
@@ -106,8 +135,16 @@ def find_identifier(payload: Any, *keys: str) -> str:
     return ""
 
 
-def first_identifier(text: str, *keys: str) -> str:
-    for payload in json_payloads(text):
+def last_identifier(text: str, *keys: str) -> str:
+    """Identifier from the LAST matching JSON payload in the output.
+
+    Commands are routinely chained, and the create we care about is the final
+    segment. Taking the first match binds the wait to whatever earlier segment
+    happened to emit a same-shaped key, which is worse than not registering:
+    the wait tracks the wrong resource and the real one never gets registered
+    at all, because dedupe is keyed on resource_id.
+    """
+    for payload in reversed(json_payloads(text)):
         found = find_identifier(payload, *keys)
         if found:
             return found
@@ -131,14 +168,14 @@ def detect(command: str, text: str) -> dict[str, str] | None:
             "provider": "azure_devops",
             "operation_kind": "pull_request",
             "target_state": "merged",
-            "resource_id": first_identifier(text, "pullRequestId", "pull_request_id"),
+            "resource_id": last_identifier(text, "pullRequestId", "pull_request_id"),
         }
     if AZ_PIPELINE_RUN.search(command):
         return {
             "provider": "azure_devops",
             "operation_kind": "pipeline",
             "target_state": "succeeded",
-            "resource_id": first_identifier(text, "id", "buildId", "runId"),
+            "resource_id": last_identifier(text, "id", "buildId", "runId"),
         }
     if GH_PR_CREATE.search(command):
         match = GH_PR_URL.search(text)
@@ -153,6 +190,16 @@ def detect(command: str, text: str) -> dict[str, str] | None:
 
 
 def main() -> int:
+    try:
+        return _detect_and_register()
+    except Exception:
+        # This hook observes every Bash and PowerShell call. It must never take
+        # down the tool call it is watching, whatever the registry, the
+        # filesystem, or a malformed payload does.
+        return emit_json(None)
+
+
+def _detect_and_register() -> int:
     payload = read_hook_input()
     if payload.get("tool_name") not in {"Bash", "PowerShell"}:
         return emit_json(None)
@@ -162,9 +209,6 @@ def main() -> int:
         return emit_json(None)
 
     response = payload.get("tool_response")
-    if observed_failure(response):
-        return emit_json(None)
-
     text = response_text(response)
     detected = detect(command, text)
     if detected is None:
@@ -172,6 +216,27 @@ def main() -> int:
 
     resource_id = detected.get("resource_id", "")
     kind = detected["operation_kind"]
+
+    if observed_failure(response):
+        if not resource_id:
+            return emit_json(None)
+        # The command reported failure, yet a resource id came back: the
+        # provider-side create probably succeeded and a later step failed.
+        # Registering on a reported failure would be presumptuous, but going
+        # silent is the defect class that hid the Codex outage for two weeks.
+        wait_registry.record_diagnostic(
+            "WAIT_OPERATION_FAILED_WITH_RESOURCE",
+            f"{detected['provider']} {kind} {resource_id}: command reported failure",
+        )
+        return emit_json(
+            additional_context(
+                "PostToolUse",
+                f"The command reported failure but returned {kind} id {resource_id}, so the "
+                "resource may exist. No wait was registered. Verify the resource and register "
+                "a wait manually if it needs follow-up.",
+            )
+        )
+
     if not resource_id:
         # The operation ran but no resource id could be read back. Codex
         # returned None here silently; record it so the outage is visible.

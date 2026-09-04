@@ -77,6 +77,19 @@ def same(left: Any, right: Any) -> bool:
     return str(left or "").casefold() == str(right or "").casefold()
 
 
+def commit_matches(wait: dict[str, Any], actual: Any) -> bool:
+    """Whether the resource still points at the commit the wait was bound to.
+
+    A missing recorded commit is unverifiable, not acceptable. Treating it as a
+    pass makes the binding check vacuous, and an empty commit is reachable
+    whenever `git rev-parse HEAD` failed at registration. That combination
+    produces a provable false success: a force-pushed or retargeted resource
+    resolving to `succeeded`. Failing closed loses nothing that mattered, since
+    an unverifiable wait was never real evidence.
+    """
+    return bool(wait.get("commit")) and same(actual, wait.get("commit"))
+
+
 def is_protected(ref: str) -> bool:
     name = str(ref or "").removeprefix("refs/heads/")
     return name in wait_registry.PROTECTED_BRANCHES
@@ -100,11 +113,8 @@ def poll_azure_pull_request(wait: dict[str, Any]) -> dict[str, str]:
             ),
             (
                 "source_commit",
-                not wait.get("commit")
-                or (
-                    isinstance(source, dict)
-                    and same(source.get("commitId"), wait.get("commit"))
-                ),
+                isinstance(source, dict)
+                and commit_matches(wait, source.get("commitId")),
             ),
             ("protected_target", is_protected(str(payload.get("targetRefName", "")))),
         ]
@@ -146,7 +156,7 @@ def poll_azure_pipeline(wait: dict[str, Any]) -> dict[str, str]:
     if not isinstance(payload, dict):
         return {"status": "pending", "detail_code": "provider_unreadable"}
 
-    if wait.get("commit") and not same(payload.get("sourceVersion"), wait.get("commit")):
+    if not commit_matches(wait, payload.get("sourceVersion")):
         return {"status": "failed", "detail_code": "binding_mismatch:source_commit"}
 
     status = str(payload.get("status", "")).casefold()
@@ -220,7 +230,7 @@ def poll_github_pull_request(wait: dict[str, Any]) -> dict[str, str]:
             ("source_branch", same(payload.get("headRefName"), wait.get("branch"))),
             (
                 "source_commit",
-                not wait.get("commit") or same(payload.get("headRefOid"), wait.get("commit")),
+                commit_matches(wait, payload.get("headRefOid")),
             ),
             ("protected_target", is_protected(str(payload.get("baseRefName", "")))),
         ]

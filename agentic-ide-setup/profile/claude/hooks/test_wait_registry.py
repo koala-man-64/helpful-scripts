@@ -421,5 +421,218 @@ class PollLifecycleTests(unittest.TestCase):
         )
 
 
+class AuditRegressionTests(unittest.TestCase):
+    """One test per defect confirmed by the code-drift and test-adequacy gates.
+
+    Every assertion below failed against the first implementation.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(prefix="waits-audit-")
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "registry.json"
+        os.environ["CLAUDE_WAITS_PATH"] = str(self.path)
+        self.addCleanup(os.environ.pop, "CLAUDE_WAITS_PATH", None)
+        for name, replacement in {
+            "repo_root": lambda: Path(self.tmp.name),
+            "repo_name": lambda root=None: "repo",
+            "current_branch": lambda root=None: "claude/topic",
+            "head_commit": lambda root: "c" * 40,
+        }.items():
+            original = getattr(detector, name)
+            setattr(detector, name, replacement)
+            self.addCleanup(setattr, detector, name, original)
+
+    def run_hook(self, event: dict) -> str:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            original = sys.stdin
+            sys.stdin = io.StringIO(json.dumps(event))
+            try:
+                detector.main()
+            finally:
+                sys.stdin = original
+        return stdout.getvalue()
+
+    def diagnostics(self) -> list[dict]:
+        return wait_registry.load(self.path)["diagnostics"]
+
+    def test_failed_command_that_returned_a_resource_id_is_not_silent(self):
+        """A reported failure can still have created the resource."""
+        out = self.run_hook(
+            payload("az repos pr create --title x", {"exit_code": 1, "stdout": AZ_PR_JSON})
+        )
+        self.assertEqual(wait_registry.active(self.path), [])
+        self.assertEqual(len(self.diagnostics()), 1)
+        self.assertEqual(self.diagnostics()[0]["code"], "WAIT_OPERATION_FAILED_WITH_RESOURCE")
+        self.assertIn("4242", out)
+
+    def test_failed_command_with_no_resource_id_stays_quiet(self):
+        self.run_hook(payload("az repos pr create", {"exit_code": 1, "stdout": "denied"}))
+        self.assertEqual(wait_registry.active(self.path), [])
+        self.assertEqual(self.diagnostics(), [])
+
+    def test_stringified_exit_code_counts_as_failure(self):
+        self.assertTrue(detector.observed_failure({"exit_code": "1"}))
+        self.assertFalse(detector.observed_failure({"exit_code": "0"}))
+        self.assertFalse(detector.observed_failure({"exit_code": "not-a-number"}))
+
+    def test_identifier_comes_from_the_last_payload_not_the_first(self):
+        """An earlier chained segment must not capture the wait."""
+        noise = json.dumps({"pullRequestId": 111})
+        self.run_hook(
+            payload(
+                "echo decoy && az repos pr create --title x",
+                {"stdout": f"{noise}\n{AZ_PR_JSON}"},
+            )
+        )
+        rows = wait_registry.active(self.path)
+        self.assertEqual([r["resource_id"] for r in rows], ["4242"])
+
+    def test_unverifiable_commit_never_resolves_to_succeeded(self):
+        """The reproduced false success: empty commit made the check vacuous."""
+        wait = {
+            "resource_id": "200",
+            "branch": "claude/topic",
+            "commit": "",
+            "repo_slug": "o/r",
+            "project": "P",
+        }
+        original = wait_poll.run_json
+        self.addCleanup(setattr, wait_poll, "run_json", original)
+
+        wait_poll.run_json = lambda args: {
+            "state": "MERGED",
+            "headRefName": "claude/topic",
+            "headRefOid": "d" * 40,
+            "baseRefName": "main",
+        }
+        github = wait_poll.poll_github_pull_request(wait)
+        self.assertNotEqual(github["status"], "succeeded")
+        self.assertIn("source_commit", github["detail_code"])
+
+        wait_poll.run_json = lambda args: {
+            "status": "completed",
+            "sourceVersion": "d" * 40,
+            "repository": {"id": "x"},
+        }
+        pipeline = wait_poll.poll_azure_pipeline(wait)
+        self.assertNotEqual(pipeline["status"], "succeeded")
+
+        wait_poll.run_json = lambda args: {
+            "status": "completed",
+            "sourceRefName": "refs/heads/claude/topic",
+            "targetRefName": "refs/heads/main",
+            "lastMergeSourceCommit": {"commitId": "d" * 40},
+            "repository": {"id": "x"},
+        }
+        azure = wait_poll.poll_azure_pull_request(wait)
+        self.assertNotEqual(azure["status"], "succeeded")
+
+    def test_registry_write_failure_does_not_crash_the_hook(self):
+        """The hook observes every shell call; it must not take one down."""
+        original = wait_registry._write_atomic
+        wait_registry._write_atomic = lambda *a, **k: (_ for _ in ()).throw(
+            OSError(28, "No space left on device")
+        )
+        self.addCleanup(setattr, wait_registry, "_write_atomic", original)
+
+        self.assertFalse(wait_registry.save({"waits": [], "diagnostics": []}, self.path))
+        registered = wait_registry.register(
+            provider="github",
+            operation_kind="pull_request",
+            resource_id="1",
+            repository="r",
+            branch="b",
+            commit="c" * 40,
+            target_state="merged",
+            path=self.path,
+        )
+        self.assertTrue(registered["wait_id"])
+        # And the hook itself survives, emitting rather than raising.
+        self.run_hook(payload("gh pr create --fill", {"stdout": GH_PR_URL}))
+
+    def test_malformed_payload_does_not_crash_the_hook(self):
+        for broken in ({"tool_name": "Bash"}, {"tool_name": "Bash", "tool_input": "oops"}):
+            self.run_hook(broken)
+
+    def test_stale_concurrent_write_cannot_revert_a_terminal_failure(self):
+        """A proved binding_mismatch must not be overwritten by a stale success.
+
+        poll_one refuses to re-examine a terminal status, so a lost update here
+        would be permanent.
+        """
+        wait = wait_registry.register(
+            provider="github",
+            operation_kind="pull_request",
+            resource_id="7",
+            repository="r",
+            branch="b",
+            commit="c" * 40,
+            target_state="merged",
+            path=self.path,
+        )
+        wait_registry.update_status(
+            wait["wait_id"],
+            status="failed",
+            detail_code="binding_mismatch:source_commit",
+            path=self.path,
+        )
+        proved = wait_registry.get(wait["wait_id"], self.path)
+        self.assertEqual(proved["status"], "failed")
+
+        # A second process holding a pre-failure snapshot writes succeeded.
+        # Give it the newer timestamp, the case recency alone cannot catch.
+        stale_success = dict(proved)
+        stale_success["status"] = "succeeded"
+        stale_success["detail_code"] = "pr_merged"
+        stale_success["updated_at"] = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
+
+        for left, right in ((stale_success, proved), (proved, stale_success)):
+            merged = wait_registry._merge_rows([left], [right])
+            winner = next(r for r in merged if r["wait_id"] == wait["wait_id"])
+            self.assertEqual(winner["status"], "failed", "merge must never upgrade to succeeded")
+
+    def test_interleaved_registration_collapses_to_one_active_wait(self):
+        common = dict(
+            provider="github",
+            operation_kind="pull_request",
+            resource_id="9",
+            repository="r",
+            branch="b",
+            commit="c" * 40,
+            target_state="merged",
+        )
+        first = wait_registry.register(**common, path=self.path)
+        # A second process that read before the first write committed.
+        snapshot = wait_registry.load(self.path)
+        snapshot["waits"] = []
+        wait_registry.save(snapshot, self.path)
+        second = wait_registry.register(**common, path=self.path)
+        merged = wait_registry._merge_rows([first], [second])
+        active = [r for r in merged if r["status"] in wait_registry.ACTIVE_STATUSES]
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0]["wait_id"], first["wait_id"])
+
+    def test_git_helpers_are_bounded(self):
+        """A hung git call would block the turn, not just the hook."""
+        import hook_utils
+
+        self.assertIsInstance(hook_utils.GIT_TIMEOUT_SECONDS, int)
+        self.assertGreater(hook_utils.GIT_TIMEOUT_SECONDS, 0)
+
+        captured = {}
+        original = hook_utils.subprocess.run
+
+        def spy(*args, **kwargs):
+            captured.update(kwargs)
+            return original(*args, **kwargs)
+
+        hook_utils.subprocess.run = spy
+        self.addCleanup(setattr, hook_utils.subprocess, "run", original)
+        hook_utils.run_git(["rev-parse", "HEAD"], Path(self.tmp.name))
+        self.assertEqual(captured.get("timeout"), hook_utils.GIT_TIMEOUT_SECONDS)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
