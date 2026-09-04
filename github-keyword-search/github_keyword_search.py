@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Scan GitHub organizations/repositories for keywords in file contents.
+"""Scan a GitHub org's commit history for keywords, no arguments required.
 
-Given one or more keywords, the script searches indexed source code (via
-GitHub's code-search API) for each keyword within one or more orgs/repos, and
-for every match resolves the last commit that touched the matching file. It
-writes a single self-contained HTML report: repo, file, branch, commit SHA,
-commit message, committer, commit date, matched keyword, and a highlighted
-snippet.
+Edit the CONFIGURATION block below (org, optional repo-name filter, optional
+date range, keywords), then run:
+
+    py -3 github_keyword_search.py
+
+For every repo in the org whose name matches the filter, every commit in the
+date window (on the repo's default branch) has its message and its diff
+(added/removed lines) checked for each keyword. A match logs: repo, URL,
+branch, commit SHA, commit message, committer, commit date, the keyword
+found, where it was found (commit message or a file), and a snippet. Results
+are written to a single self-contained HTML report.
 
 The script is read-only and dependency-free: all GitHub access goes through
 the GitHub CLI (``gh api``), so authentication comes from ``gh auth login``
@@ -15,7 +20,6 @@ and no token ever touches this file.
 
 from __future__ import annotations
 
-import argparse
 import html
 import json
 import subprocess
@@ -24,9 +28,9 @@ import time
 import urllib.parse
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 
 try:
@@ -36,36 +40,126 @@ except (AttributeError, ValueError):
     pass
 
 
-SEARCH_PAGE_SIZE = 100
-MAX_SEARCH_RESULTS = 1000  # GitHub returns at most 1000 results per search query
-MAX_SEARCH_PAGES = 10
-# Code search has its own, much tighter rate limit than other search
-# endpoints: 10 requests/minute (authenticated), vs. 30/minute elsewhere.
-# https://docs.github.com/en/rest/search/search#rate-limit
-SEARCH_CODE_SLEEP_SECONDS = 6.5
+# ============================================================================
+# CONFIGURATION — edit these, then run:  py -3 github_keyword_search.py
+# No command-line arguments are needed or supported; everything lives here.
+# ============================================================================
+
+# GitHub organization to scan. Required.
+GITHUB_ORG = "your-org"
+
+# Only scan repos whose name contains one of these substrings
+# (case-insensitive). Empty = scan every non-fork repo in the org.
+REPO_NAME_KEYWORDS: tuple[str, ...] = ()
+
+# Inclusive commit-date window, "YYYY-MM-DD". None = no bound on that side
+# (SINCE=None scans from the repo's first commit; UNTIL=None scans through
+# today).
+SINCE: str | None = None
+UNTIL: str | None = None
+
+# Keywords to search for (case-insensitive substring match) in each commit's
+# message and in the added/removed lines of every file it touched.
+KEYWORDS: tuple[str, ...] = ("TODO(security)", "API_KEY")
+
+# Safety valve: stop walking a repo's history after this many commits in the
+# window, so one huge/ancient repo can't turn an unattended run into an
+# unbounded one. A warning is recorded when this is hit.
+MAX_COMMITS_PER_REPO = 500
+
+# Skip forked repos — their history duplicates the upstream repo's commits,
+# so scanning them just produces duplicate rows.
+INCLUDE_FORKS = False
+
+# Exit with code 2 (instead of 0) if any warnings were recorded. Useful when
+# this runs unattended and you want a non-zero exit to be noticed.
+STRICT = False
+
+# Where the report is written.
+OUT_DIR = Path(".")
+OUT_FILE = "keyword_search_report.html"
+
+# ============================================================================
+# End of configuration.
+# ============================================================================
+
+
+SNIPPET_MAX_LEN = 240
+SNIPPET_CONTEXT_CHARS = 60
+# GitHub's general REST API allows far more throughput than the search API
+# (5000 req/hr authenticated), but a full history walk can still make
+# thousands of sequential calls; this is a courteous pace to stay well clear
+# of secondary rate limits, not a documented per-request GitHub requirement.
+# https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api
+GENERAL_API_SLEEP_SECONDS = 0.25
 RATE_LIMIT_SLEEP_SECONDS = 60.0
 MAX_RATE_LIMIT_RETRIES = 2
-DEFAULT_MAX_FILES = 500
 MAX_PRINTED_WARNINGS = 10
-SNIPPET_MAX_LEN = 240
-TEXT_MATCH_ACCEPT_HEADER = "Accept: application/vnd.github.text-match+json"
 
 
 class GhError(RuntimeError):
     """A gh invocation failed in a way the scan cannot recover from."""
 
 
+@dataclass(frozen=True)
+class Config:
+    org: str
+    repo_name_keywords: tuple[str, ...] = ()
+    since: str | None = None
+    until: str | None = None
+    keywords: tuple[str, ...] = ()
+    max_commits_per_repo: int = MAX_COMMITS_PER_REPO
+    include_forks: bool = False
+    strict: bool = False
+    out_dir: Path = Path(".")
+    out_file: str = "keyword_search_report.html"
+
+    def validate(self) -> list[str]:
+        errors = []
+        if not self.org.strip():
+            errors.append("GITHUB_ORG is empty; set it to your GitHub organization login")
+        if not self.keywords:
+            errors.append("KEYWORDS is empty; add at least one keyword to search for")
+        for value, name in ((self.since, "SINCE"), (self.until, "UNTIL")):
+            if value:
+                try:
+                    date.fromisoformat(value)
+                except ValueError:
+                    errors.append(f"{name} = {value!r} is not a valid YYYY-MM-DD date")
+        if self.since and self.until and self.since > self.until:
+            errors.append(f"SINCE ({self.since}) is after UNTIL ({self.until})")
+        if self.max_commits_per_repo <= 0:
+            errors.append("MAX_COMMITS_PER_REPO must be positive")
+        return errors
+
+
+def default_config() -> Config:
+    """Build a Config from the module-level constants above."""
+    return Config(
+        org=GITHUB_ORG,
+        repo_name_keywords=tuple(REPO_NAME_KEYWORDS),
+        since=SINCE,
+        until=UNTIL,
+        keywords=tuple(KEYWORDS),
+        max_commits_per_repo=MAX_COMMITS_PER_REPO,
+        include_forks=INCLUDE_FORKS,
+        strict=STRICT,
+        out_dir=OUT_DIR,
+        out_file=OUT_FILE,
+    )
+
+
 @dataclass
 class MatchRow:
     keyword: str
     repo: str
-    path: str
     url: str
     branch: str
     commit_sha: str
     commit_message: str
     committer: str
     commit_date: str
+    matched_in: str
     snippet: str
 
 
@@ -90,22 +184,17 @@ def _run_gh(argv: list[str]) -> tuple[int, str, str]:
     return proc.returncode, proc.stdout, proc.stderr
 
 
-def gh_api(path: str, headers: Sequence[str] = ()) -> Any:
-    """Call ``gh api PATH`` (optionally with extra headers) and return parsed JSON.
+def gh_api(path: str) -> Any:
+    """Call ``gh api PATH`` and return the parsed JSON response.
 
-    Search endpoints are throttled below GitHub's rate limits. 403/429
-    responses get a fixed sleep-and-retry; 401 becomes a clear "run gh auth
-    login" error.
+    Every call is paced (see GENERAL_API_SLEEP_SECONDS). 403/429 responses
+    get a fixed sleep-and-retry; 401 becomes a clear "run gh auth login"
+    error.
     """
-    if path.startswith("search/"):
-        _sleep(SEARCH_CODE_SLEEP_SECONDS)
-    argv = ["api"]
-    for header in headers:
-        argv += ["-H", header]
-    argv.append(path)
+    _sleep(GENERAL_API_SLEEP_SECONDS)
     retries = 0
     while True:
-        code, stdout, stderr = _run_gh(argv)
+        code, stdout, stderr = _run_gh(["api", path])
         if code == 0:
             try:
                 return json.loads(stdout)
@@ -128,143 +217,215 @@ def gh_api(path: str, headers: Sequence[str] = ()) -> Any:
         raise GhError(f"gh api {path} failed (exit {code}): {snippet}")
 
 
-def build_scopes(orgs: Sequence[str], repos: Sequence[str]) -> list[str]:
-    """One scope qualifier per query: code search ANDs repeated qualifiers."""
-    return [f"org:{org}" for org in orgs] + [f"repo:{repo}" for repo in repos]
-
-
-def search_keyword(keyword: str, scope: str, warnings: list[str]) -> list[dict]:
-    """Find files whose content matches ``keyword`` (exact phrase) within ``scope``."""
-    query = f'"{keyword}" {scope}'
-    encoded = urllib.parse.quote(query, safe="")
-    items: list[dict] = []
-    total = 0
-    for page in range(1, MAX_SEARCH_PAGES + 1):
-        path = f"search/code?q={encoded}&per_page={SEARCH_PAGE_SIZE}&page={page}"
-        payload = gh_api(path, headers=(TEXT_MATCH_ACCEPT_HEADER,))
-        total = int(payload.get("total_count") or 0)
-        batch = payload.get("items") or []
-        items.extend(batch)
-        if payload.get("incomplete_results"):
-            warnings.append(
-                f'"{keyword}" {scope}: GitHub reported incomplete results '
-                f"(search timed out); matches may be missing"
-            )
-        if len(batch) < SEARCH_PAGE_SIZE or len(items) >= min(total, MAX_SEARCH_RESULTS):
+def list_org_repos(org: str) -> list[dict]:
+    """Every repo in ``org`` visible to the authenticated gh account."""
+    repos: list[dict] = []
+    page = 1
+    while True:
+        batch = gh_api(f"orgs/{org}/repos?per_page=100&page={page}&type=all")
+        if not isinstance(batch, list) or not batch:
             break
-    if total > MAX_SEARCH_RESULTS:
-        warnings.append(
-            f'"{keyword}" {scope}: {total} matches exceeds GitHub\'s '
-            f"{MAX_SEARCH_RESULTS}-result search cap; only the first "
-            f"{len(items)} are included"
-        )
-    return items
+        repos.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+    return repos
 
 
-def extract_snippet(item: dict, max_len: int = SNIPPET_MAX_LEN) -> str:
-    """Join the highlighted text-match fragments into one readable snippet."""
-    matches = item.get("text_matches") or []
-    fragments = [match.get("fragment", "") for match in matches if match.get("fragment")]
-    text = " … ".join(fragments)
-    text = " ".join(text.split())  # collapse newlines/repeated whitespace
-    if len(text) > max_len:
-        text = text[: max_len - 1].rstrip() + "…"
+def filter_repos(repos: list[dict], name_keywords: tuple[str, ...], include_forks: bool) -> list[dict]:
+    lowered_keywords = [kw.lower() for kw in name_keywords]
+    result = []
+    for repo in repos:
+        if not include_forks and repo.get("fork"):
+            continue
+        name = repo.get("name") or ""
+        if lowered_keywords and not any(kw in name.lower() for kw in lowered_keywords):
+            continue
+        result.append(repo)
+    return result
+
+
+def list_commits(
+    repo_full_name: str,
+    branch: str,
+    since: str | None,
+    until: str | None,
+    max_commits: int,
+    warnings: list[str],
+) -> list[dict]:
+    """Commits on ``branch`` within the inclusive [since, until] day window."""
+    params: dict[str, str] = {"sha": branch, "per_page": "100"}
+    if since:
+        params["since"] = f"{since}T00:00:00Z"
+    if until:
+        params["until"] = f"{until}T23:59:59Z"
+    commits: list[dict] = []
+    page = 1
+    while True:
+        params["page"] = str(page)
+        query = urllib.parse.urlencode(params)
+        batch = gh_api(f"repos/{repo_full_name}/commits?{query}")
+        if not isinstance(batch, list) or not batch:
+            break
+        commits.extend(batch)
+        if len(commits) >= max_commits:
+            warnings.append(
+                f"{repo_full_name}: MAX_COMMITS_PER_REPO={max_commits} reached; "
+                f"older commits in the window were not scanned"
+            )
+            del commits[max_commits:]
+            break
+        if len(batch) < 100:
+            break
+        page += 1
+    return commits
+
+
+def fetch_commit_detail(repo_full_name: str, sha: str, warnings: list[str]) -> dict | None:
+    try:
+        return gh_api(f"repos/{repo_full_name}/commits/{sha}")
+    except GhError as exc:
+        warnings.append(f"{repo_full_name}@{sha[:7]}: could not fetch commit detail: {exc}")
+        return None
+
+
+def extract_message_snippet(message: str, keyword: str) -> str:
+    lower = message.lower()
+    idx = lower.find(keyword.lower())
+    if idx == -1:
+        text = message
+        prefix = suffix = ""
+    else:
+        start = max(0, idx - SNIPPET_CONTEXT_CHARS)
+        end = min(len(message), idx + len(keyword) + SNIPPET_CONTEXT_CHARS)
+        text = message[start:end]
+        prefix = "…" if start > 0 else ""
+        suffix = "…" if end < len(message) else ""
+    collapsed = " ".join(text.split())
+    if len(collapsed) > SNIPPET_MAX_LEN:
+        collapsed = collapsed[: SNIPPET_MAX_LEN - 1].rstrip() + "…"
+    return prefix + collapsed + suffix
+
+
+def clean_diff_line(line: str) -> str:
+    marker = "+ " if line[:1] == "+" else ("- " if line[:1] == "-" else "")
+    text = marker + line[1:].strip()
+    if len(text) > SNIPPET_MAX_LEN:
+        text = text[: SNIPPET_MAX_LEN - 1].rstrip() + "…"
     return text
 
 
-def repo_default_branch(repo: str, cache: dict[str, str], warnings: list[str]) -> str:
-    """The repository's default branch (code search only ever matches this branch)."""
-    if repo in cache:
-        return cache[repo]
-    try:
-        info = gh_api(f"repos/{repo}")
-        branch = info.get("default_branch") or ""
-    except GhError as exc:
-        warnings.append(f"{repo}: could not fetch default branch: {exc}")
-        branch = ""
-    cache[repo] = branch
-    return branch
+def find_diff_match(keyword: str, commit_detail: dict | None) -> tuple[str, str] | None:
+    """The first file (and diff line) in ``commit_detail`` whose patch contains ``keyword``."""
+    if not commit_detail:
+        return None
+    needle = keyword.lower()
+    matched_files: list[tuple[str, str]] = []
+    for file_entry in commit_detail.get("files") or []:
+        patch = file_entry.get("patch")
+        if not patch:
+            continue  # binary files and very large diffs have no patch text
+        for line in patch.splitlines():
+            if line.startswith("+++") or line.startswith("---"):
+                continue
+            if line[:1] in "+-" and needle in line.lower():
+                matched_files.append((file_entry.get("filename") or "(unknown file)", clean_diff_line(line)))
+                break
+    if not matched_files:
+        return None
+    filename, snippet = matched_files[0]
+    if len(matched_files) > 1:
+        filename = f"{filename} (+{len(matched_files) - 1} more file(s))"
+    return filename, snippet
 
 
-def latest_commit_for_path(
-    repo: str,
-    path: str,
-    branch: str,
-    cache: dict[tuple[str, str], dict | None],
-    warnings: list[str],
-) -> dict | None:
-    """The most recent commit that touched ``path`` on ``branch`` (None on failure)."""
-    key = (repo, path)
-    if key in cache:
-        return cache[key]
-    params = {"path": path, "per_page": "1"}
-    if branch:
-        params["sha"] = branch
-    query = urllib.parse.urlencode(params)
-    try:
-        commits = gh_api(f"repos/{repo}/commits?{query}")
-        commit = commits[0] if isinstance(commits, list) and commits else None
-    except GhError as exc:
-        warnings.append(f"{repo}/{path}: could not fetch commit history: {exc}")
-        commit = None
-    cache[key] = commit
-    return commit
-
-
-def build_row(keyword: str, repo: str, path: str, branch: str, commit: dict | None, item: dict) -> MatchRow:
-    if commit:
-        sha = commit.get("sha") or ""
-        commit_info = commit.get("commit") or {}
-        message_lines = (commit_info.get("message") or "").splitlines()
-        message = message_lines[0] if message_lines else ""
-        committer_info = commit_info.get("committer") or {}
-        committer = committer_info.get("name") or ""
-        commit_date = committer_info.get("date") or ""
-    else:
-        sha = message = committer = commit_date = ""
-    url = item.get("html_url") or (
-        f"https://github.com/{repo}/blob/{sha or branch or 'HEAD'}/{path}"
-    )
+def build_row(keyword: str, repo_full_name: str, branch: str, commit_summary: dict, matched_in: str, snippet: str) -> MatchRow:
+    commit_info = commit_summary.get("commit") or {}
+    message_lines = (commit_info.get("message") or "").splitlines()
+    committer_info = commit_info.get("committer") or {}
     return MatchRow(
         keyword=keyword,
-        repo=repo,
-        path=path,
-        url=url,
+        repo=repo_full_name,
+        url=commit_summary.get("html_url") or f"https://github.com/{repo_full_name}/commit/{commit_summary.get('sha', '')}",
         branch=branch,
-        commit_sha=sha,
-        commit_message=message,
-        committer=committer,
-        commit_date=commit_date,
-        snippet=extract_snippet(item),
+        commit_sha=commit_summary.get("sha") or "",
+        commit_message=message_lines[0] if message_lines else "",
+        committer=committer_info.get("name") or "",
+        commit_date=committer_info.get("date") or "",
+        matched_in=matched_in,
+        snippet=snippet,
     )
 
 
-def read_lines_file(path: Path) -> list[str]:
-    values: list[str] = []
-    # utf-8-sig eats the BOM that Windows editors and older PowerShell
-    # redirects prepend, which would otherwise glue itself to the first entry.
-    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
-        line = raw_line.strip()
-        if line and not line.startswith("#"):
-            values.append(line)
-    return values
+def scan_repo(repo: dict, config: Config, warnings: list[str]) -> tuple[list[MatchRow], int]:
+    """Walk one repo's commit history and return (matches, commits scanned)."""
+    full_name = repo.get("full_name") or ""
+    branch = repo.get("default_branch") or ""
+    if not full_name or not branch:
+        warnings.append(f"{full_name or '(unnamed repo)'}: missing name or default branch; skipped")
+        return [], 0
+    try:
+        commits = list_commits(full_name, branch, config.since, config.until, config.max_commits_per_repo, warnings)
+    except GhError as exc:
+        warnings.append(f"{full_name}: could not list commits: {exc}")
+        return [], 0
+
+    rows: list[MatchRow] = []
+    for commit_summary in commits:
+        sha = commit_summary.get("sha") or ""
+        message = ((commit_summary.get("commit") or {}).get("message")) or ""
+        message_lower = message.lower()
+        message_hits = {kw for kw in config.keywords if kw.lower() in message_lower}
+        remaining = [kw for kw in config.keywords if kw not in message_hits]
+
+        commit_detail = None
+        if remaining and sha:
+            commit_detail = fetch_commit_detail(full_name, sha, warnings)
+
+        for keyword in config.keywords:
+            if keyword in message_hits:
+                matched_in = "commit message"
+                snippet = extract_message_snippet(message, keyword)
+            else:
+                result = find_diff_match(keyword, commit_detail)
+                if result is None:
+                    continue
+                matched_in, snippet = result
+            rows.append(build_row(keyword, full_name, branch, commit_summary, matched_in, snippet))
+    return rows, len(commits)
 
 
-def parse_repo(value: str) -> str:
-    if value.count("/") != 1 or value.startswith("/") or value.endswith("/"):
-        raise argparse.ArgumentTypeError(f"expected OWNER/NAME, got {value!r}")
-    return value
+def scan(config: Config) -> tuple[list[MatchRow], list[str], int, int]:
+    """Run the full scan; returns (rows, warnings, repos_scanned, commits_scanned)."""
+    warnings: list[str] = []
+    gh_api("rate_limit")  # fail fast when gh is missing or unauthenticated
+    all_repos = list_org_repos(config.org)
+    repos = filter_repos(all_repos, config.repo_name_keywords, config.include_forks)
+    if not repos:
+        warnings.append(
+            f"no repos matched org={config.org!r} name-keywords={config.repo_name_keywords!r} "
+            f"include_forks={config.include_forks} ({len(all_repos)} repo(s) in the org before filtering)"
+        )
+
+    rows: list[MatchRow] = []
+    commits_scanned = 0
+    for repo in repos:
+        repo_rows, repo_commit_count = scan_repo(repo, config, warnings)
+        rows.extend(repo_rows)
+        commits_scanned += repo_commit_count
+        print(f"{repo.get('full_name', '?')}: {repo_commit_count} commit(s) scanned, {len(repo_rows)} match(es)")
+    return rows, warnings, len(repos), commits_scanned
 
 
 ROW_TEMPLATE = """      <tr>
         <td>{keyword}</td>
         <td><a href="https://github.com/{repo}">{repo}</a></td>
-        <td class="mono">{path}</td>
         <td>{branch}</td>
         <td class="mono"><a href="{url}">{short_sha}</a></td>
         <td>{message}</td>
         <td>{committer}</td>
         <td>{commit_date}</td>
+        <td class="mono">{matched_in}</td>
         <td class="mono snippet">{snippet}</td>
       </tr>"""
 
@@ -319,10 +480,11 @@ SCRIPT = """  <script>
 
 
 def render_report(
-    keywords: Sequence[str],
-    scopes: Sequence[str],
-    rows: Sequence[MatchRow],
-    warnings: Sequence[str],
+    config: Config,
+    rows: list[MatchRow],
+    warnings: list[str],
+    repos_scanned: int,
+    commits_scanned: int,
     generated_at: str,
 ) -> str:
     esc = html.escape
@@ -342,13 +504,13 @@ def render_report(
         ROW_TEMPLATE.format(
             keyword=esc(row.keyword),
             repo=esc(row.repo),
-            path=esc(row.path),
             branch=esc(row.branch) or "&mdash;",
             url=esc(row.url),
             short_sha=esc(row.commit_sha[:7]) if row.commit_sha else "(unknown)",
             message=esc(row.commit_message) or "&mdash;",
             committer=esc(row.committer) or "&mdash;",
             commit_date=esc(row.commit_date) or "&mdash;",
+            matched_in=esc(row.matched_in),
             snippet=esc(row.snippet),
         )
         for row in rows
@@ -365,6 +527,9 @@ def render_report(
   </div>
 """
 
+    window = f"{config.since or 'repo start'} .. {config.until or 'now'}"
+    repo_filter = ", ".join(config.repo_name_keywords) if config.repo_name_keywords else "(all repos)"
+
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -375,9 +540,10 @@ def render_report(
 </head>
 <body>
   <h1>GitHub keyword search report</h1>
-  <p class="meta">Generated {esc(generated_at)} &middot;
-    keywords: {" ".join(f'<span class="chip">{esc(k)}</span>' for k in keywords)} &middot;
-    scopes: {", ".join(esc(s) for s in scopes)} &middot;
+  <p class="meta">Generated {esc(generated_at)} &middot; org: <strong>{esc(config.org)}</strong> &middot;
+    repo filter: {esc(repo_filter)} &middot; date window: {esc(window)} &middot;
+    keywords: {" ".join(f'<span class="chip">{esc(k)}</span>' for k in config.keywords)}<br>
+    scanned {repos_scanned} repo(s), {commits_scanned} commit(s) &middot;
     {len(rows)} match(es) across {len(repo_counts)} repo(s)</p>
 {warnings_block}  <div class="summary">
     <table>
@@ -393,12 +559,12 @@ def render_report(
       </tbody>
     </table>
   </div>
-  <input id="filter" type="search" placeholder="Filter matches (repo, path, keyword, message...)" oninput="filterRows()">
+  <input id="filter" type="search" placeholder="Filter matches (repo, message, keyword...)" oninput="filterRows()">
   <table class="matches">
     <thead>
       <tr>
-        <th>Keyword</th><th>Repo</th><th>Path</th><th>Branch</th><th>Commit</th>
-        <th>Message</th><th>Committer</th><th>Commit date</th><th>Snippet</th>
+        <th>Keyword</th><th>Repo</th><th>Branch</th><th>Commit</th>
+        <th>Message</th><th>Committer</th><th>Commit date</th><th>Matched in</th><th>Snippet</th>
       </tr>
     </thead>
     <tbody>
@@ -417,135 +583,30 @@ def write_report(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Search GitHub organizations/repositories for keywords in file "
-            "contents, via the gh CLI, and write a single self-contained "
-            "HTML report."
-        )
-    )
-    parser.add_argument("keywords", nargs="*", help="keywords to search for (exact phrase each)")
-    parser.add_argument(
-        "--keywords-file",
-        type=Path,
-        help="file with one keyword per line; blank lines and # comments ignored",
-    )
-    parser.add_argument(
-        "--org",
-        action="append",
-        default=[],
-        metavar="NAME",
-        help="GitHub organization to search (repeatable; scopes are unioned)",
-    )
-    parser.add_argument(
-        "--repo",
-        action="append",
-        default=[],
-        type=parse_repo,
-        metavar="OWNER/NAME",
-        help="repository to search (repeatable; combines with --org as a union)",
-    )
-    parser.add_argument(
-        "--out-dir",
-        type=Path,
-        default=Path("."),
-        help="directory for the HTML report (default: current directory)",
-    )
-    parser.add_argument(
-        "--out-file",
-        type=Path,
-        default=Path("keyword_search_report.html"),
-        help="report filename, relative to --out-dir (default: keyword_search_report.html)",
-    )
-    parser.add_argument(
-        "--max-files",
-        type=int,
-        default=DEFAULT_MAX_FILES,
-        help=f"cap on distinct files enriched with commit details (default {DEFAULT_MAX_FILES})",
-    )
-    parser.add_argument("--strict", action="store_true", help="exit 2 if any warnings were emitted")
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
-    file_keywords: list[str] = []
-    if args.keywords_file:
-        try:
-            file_keywords = read_lines_file(args.keywords_file)
-        except (OSError, ValueError) as exc:  # ValueError covers bad encodings
-            parser.error(f"cannot read --keywords-file: {exc}")
-    keywords: list[str] = []
-    for keyword in [*args.keywords, *file_keywords]:
-        if keyword not in keywords:
-            keywords.append(keyword)
-    if not keywords:
-        parser.error("no keywords given; pass them as arguments or via --keywords-file")
-    for keyword in keywords:
-        if '"' in keyword:
-            parser.error(
-                f'keyword {keyword!r} contains a double quote; exact-phrase '
-                f"search cannot express that (rephrase without the quote)"
-            )
-
-    if not args.org and not args.repo:
-        parser.error(
-            "at least one --org or --repo is required (code search has no "
-            "useful unscoped/global mode for this tool)"
-        )
+def main(config: Config | None = None) -> int:
+    cfg = config or default_config()
+    errors = cfg.validate()
+    if errors:
+        for error in errors:
+            print(f"config error: {error}", file=sys.stderr)
+        return 2
 
     try:
-        # Validate up front: a scan can run for minutes, and a bad --out-dir
-        # must not surface only when the report is finally written.
-        args.out_dir.mkdir(parents=True, exist_ok=True)
+        cfg.out_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        parser.error(f"cannot create --out-dir: {exc}")
+        print(f"error: cannot create OUT_DIR: {exc}", file=sys.stderr)
+        return 2
 
-    scopes = build_scopes(args.org, args.repo)
-
-    warnings: list[str] = []
-    rows: list[MatchRow] = []
-    branch_cache: dict[str, str] = {}
-    commit_cache: dict[tuple[str, str], dict | None] = {}
-    enriched = 0
-    max_files_warned = False
     try:
-        gh_api("rate_limit")  # fail fast when gh is missing or unauthenticated
-        for keyword in keywords:
-            for scope in scopes:
-                items = search_keyword(keyword, scope, warnings)
-                for item in items:
-                    repo = ((item.get("repository") or {}).get("full_name")) or ""
-                    path = item.get("path") or ""
-                    if not repo or not path:
-                        continue
-                    branch = repo_default_branch(repo, branch_cache, warnings)
-                    key = (repo, path)
-                    if key not in commit_cache and enriched >= args.max_files:
-                        if not max_files_warned:
-                            max_files_warned = True
-                            warnings.append(
-                                f"--max-files={args.max_files} reached; some "
-                                f"matches are left without commit details"
-                            )
-                        commit = None
-                    else:
-                        if key not in commit_cache:
-                            enriched += 1
-                        commit = latest_commit_for_path(repo, path, branch, commit_cache, warnings)
-                    rows.append(build_row(keyword, repo, path, branch, commit, item))
-                print(f'"{keyword}" {scope}: {len(items)} match(es)')
+        rows, warnings, repos_scanned, commits_scanned = scan(cfg)
     except GhError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    rows.sort(key=lambda row: (row.keyword, row.repo, row.path))
+    rows.sort(key=lambda row: (row.repo, row.commit_date, row.keyword))
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    report_html = render_report(keywords, scopes, rows, warnings, generated_at)
-    report_path = args.out_dir / args.out_file
+    report_html = render_report(cfg, rows, warnings, repos_scanned, commits_scanned, generated_at)
+    report_path = cfg.out_dir / cfg.out_file
     try:
         write_report(report_path, report_html)
     except OSError as exc:
@@ -553,6 +614,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     repo_count = len({row.repo for row in rows})
+    print(f"scanned {repos_scanned} repo(s), {commits_scanned} commit(s)")
     print(f"found {len(rows)} match(es) across {repo_count} repo(s)")
     print(f"wrote report -> {report_path}")
 
@@ -562,7 +624,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  - {warning}", file=sys.stderr)
         if len(warnings) > MAX_PRINTED_WARNINGS:
             print(f"  ... and {len(warnings) - MAX_PRINTED_WARNINGS} more", file=sys.stderr)
-        if args.strict:
+        if cfg.strict:
             return 2
     return 0
 
