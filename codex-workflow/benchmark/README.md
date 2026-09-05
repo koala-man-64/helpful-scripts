@@ -63,11 +63,14 @@ The [host census contract proposal](CENSUS_CONTRACT_PROPOSAL_V1.md) records the
 required joins, host observations, partial states and separate verifier work.
 The whole 72-run study is not ready for dispatch or promotion.
 
-The candidate bundle retains its historical c540 installed-policy observation.
-It does not attest the currently installed release. The coordinating owner will
-freeze a new bundle after the final producer/verifier contract and installed
-trust evidence are ready; intermediate installation changes do not rewrite the
-fifteen preserved consumer locks.
+The candidate bundle binds the independently hashed final installed manifest
+`sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e`.
+Its exact-release user reload, review, and trust remain pending; this disabled
+preparation establishes no runtime admission, accounting, or study acceptance.
+Historical c540 observations remain preserved. The release refresh updates
+observation and bundle receipts; unchanged policy and catalog selections preserve
+the fifteen consumer-lock payloads. Consumer owners validate those actual files
+against the refreshed bundle without making empty changes.
 
 ## Runnable preparation and collection
 

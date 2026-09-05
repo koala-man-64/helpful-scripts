@@ -16,11 +16,21 @@ consumer update is still required before those pins establish promotion authorit
 
 The outputs bind the installed manifest named by the central policy observation.
 That observation records read-only bytes from installed v4 release
-`0.6.3+sha.c540d2c99fe31220ea91c9d2ce8618c47b686403`; they distinguish those
-installed CRLF bytes from the historical source/parser LF snapshot; canonical JSON
-and normalized policy bytes agree. The hooks owner confirmed user reload, review,
-and trust for this identity. Neither byte observation nor user validation establishes candidate routing
-admission: per-route admission evidence and actual spawn proof remain absent.
+`0.6.3+sha.76e85adf338bddc4ac51f1bf2d4ef67e6f245120`, manifest
+`sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e`.
+The installed manifest and policy bytes were independently read and hashed.
+Its provenance is a clean-tag local installation with `source_kind=git` and
+`build_id=local-install-21211-76e85ad`; successful release 21211 is separate evidence
+and does not make this installation a downloaded pipeline artifact.
+User reload, review, and trust for this exact manifest remain pending. Per-route
+admission evidence and actual spawn proof remain absent; readiness stays false.
+
+The byte-for-byte prior installed observation is retained in
+`central-policy-observation-c540d2c.historical.json`. The historical
+source/parser observation and its c540 release-byte test remain unchanged.
+Policy bytes are unchanged across these installed identities; their CRLF bytes
+remain distinct from the normalized LF source snapshot. Historical user trust
+confirmation does not transfer to the new manifest.
 `canonical_origins` records catalog origin snapshot SHAs, not current consumer
 validation receipts.
 
