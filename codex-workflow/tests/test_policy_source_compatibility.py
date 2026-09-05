@@ -14,10 +14,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OBSERVATION = ROOT / "candidates" / "central-policy-source-observation.json"
+TOOLS = ROOT / "tools"
+sys.path.insert(0, str(TOOLS))
+from render_consumer_lock import render  # noqa: E402
+from validate_catalog import REPOSITORIES  # noqa: E402
 SOURCE_COMMIT = "08a2073c0651699454f9e1f793e9c3c438f0195a"
 RAW_POLICY_SHA256 = "fec04455a30971ebebb963aa7028623c4c93c2355df604e6680a44ba5e65aaf3"
 CANONICAL_POLICY_SHA256 = "c5184cc0b5ca087d7d384f48690c705679316237ccf9b9fa9287c3cd2c08b392"
-INSTALLED_MANIFEST_SHA256 = "77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79"
+INSTALLED_MANIFEST_SHA256 = "3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451"
+INSTALLED_POLICY_SHA256 = "c8370b86982c00b0292b6bb1f1b61ba4d0dad7b4f6034f6ed5ab423b94075961"
 MODEL_NAMES = {
     "Luna": "gpt-5.6-luna",
     "Terra": "gpt-5.6-terra",
@@ -68,22 +73,16 @@ base_contract = {
     "decomposition_attempted": True,
     "delegation": {"owner_tier": "leaf", "role": "bounded_leaf", "child_count": 1, "child_index": 1},
 }
-def evaluate(tier, explicit_effort=None):
-    delegation = base_contract["delegation"]
-    if tier == "standard":
-        delegation = {"owner_tier": "critical", "role": "bounded_specialist", "child_count": 1, "child_index": 1}
-    contract = {**base_contract, "tier": tier, "delegation": delegation}
+def evaluate(parent_model, parent_effort, tier, owner_tier, role, child_count=1, child_index=1):
+    contract = {**base_contract, "tier": tier, "delegation": {"owner_tier": owner_tier, "role": role, "child_count": child_count, "child_index": child_index}}
     tool_input = {"fork_turns": "none", "message": "<codex_subagent_task_v2>" + json.dumps(contract) + "</codex_subagent_task_v2>"}
-    if explicit_effort:
-        tool_input["model"] = "gpt-5.6-terra"
-        tool_input["reasoning_effort"] = explicit_effort
-    event = EventEnvelope("source-test", Path("."), "PreToolUse", model="gpt-5.6-sol", reasoning_effort="high", tool_input=tool_input)
+    event = EventEnvelope("source-test", Path("."), "PreToolUse", model=parent_model, reasoning_effort=parent_effort, tool_input=tool_input)
     decision, rewritten = evaluate_subagent_route(event, policy, mode="enforce", require_contract=True)
     return {"reason_code": decision.reason_code, "deny": decision.deny, "rewritten": rewritten}
 print(json.dumps({
-    "terra": evaluate("terra"),
-    "legacy_standard": evaluate("standard"),
-    "legacy_medium": evaluate("standard", "medium"),
+    "standard_child": evaluate("gpt-5.6-terra", "medium", "lite", "standard", "focused_qa"),
+    "standard_optional_child": evaluate("gpt-5.6-terra", "medium", "lite", "standard", "necessary_specialist", 2, 2),
+    "critical_child": evaluate("gpt-5.6-sol", "high", "standard", "critical", "bounded_specialist"),
 }))
 '''
         result = subprocess.run(
@@ -109,31 +108,52 @@ class PolicySourceCompatibilityTests(unittest.TestCase):
         self.assertEqual(self.observation["source"]["commit"], SOURCE_COMMIT)
         self.assertEqual(self.observation["source"]["status"], "historical_source_snapshot_not_install_identity")
         self.assertEqual(self.observation["observed_release"]["manifest_sha256"], "sha256:" + INSTALLED_MANIFEST_SHA256)
-        self.assertEqual(self.observation["observed_release"]["policy_raw_bytes_sha256"], "sha256:" + RAW_POLICY_SHA256)
+        self.assertEqual(self.observation["observed_release"]["policy_raw_bytes_sha256"], "sha256:" + INSTALLED_POLICY_SHA256)
         self.assertEqual(
-            self.observation["owner_confirmed_user_validation"]["status"],
+            self.observation["user_validation"]["status"],
             "owner_confirmed_not_independently_rechecked",
         )
         self.assertIn("per-route admission", self.observation["readiness"]["reason"])
 
     def test_observation_describes_all_actual_legacy_lock_pairs(self) -> None:
         actual: set[tuple[str, str, str, str]] = set()
-        for lock_path in (ROOT / "candidates" / "outputs" / "locks").rglob("*.json"):
-            lock = json.loads(lock_path.read_text(encoding="utf-8"))
-            plan = lock["lane_execution_plan"]
-            actual.add((lock["lane"], "owner", MODEL_NAMES[plan["owner"]["model"]], plan["owner"]["effort"]))
-            for child in plan["children"]:
-                actual.add((lock["lane"], "child", MODEL_NAMES[child["model"]], child["effort"]))
+        for repository in REPOSITORIES:
+            for lane in ("lite", "standard", "critical"):
+                lock = render(ROOT, repository, lane, validate_catalog=False)
+                plan = lock["lane_execution_plan"]
+                actual.add((lock["lane"], "owner", MODEL_NAMES[plan["owner"]["model"]], plan["owner"]["effort"]))
+                for child in plan["children"]:
+                    actual.add((lock["lane"], "child", MODEL_NAMES[child["model"]], child["effort"]))
         observed = {
             (item["lane"], item["participant"], item["model"], item["reasoning_effort"])
             for item in self.observation["legacy_lane_pair_observations"]
         }
         self.assertEqual(observed, actual)
-        conflicts = [
+        children = [
             item for item in self.observation["legacy_lane_pair_observations"]
-            if item["compatibility"] == "conflicts_approved_pair"
+            if item["participant"] == "child"
         ]
-        self.assertEqual(len(conflicts), 4)
+        self.assertEqual(len(children), 2)
+        self.assertTrue(all("source_evaluator_accepts" in item["compatibility"] for item in children))
+
+    def test_all_fifteen_rendered_lane_plans_use_v4_child_pairs(self) -> None:
+        expected = {
+            "lite": [],
+            "standard": [
+                {"model": "Luna", "effort": "max", "role": "focused_qa", "required": True},
+                {"model": "Luna", "effort": "max", "role": "necessary_specialist", "required": False},
+            ],
+            "critical": [
+                {"model": "Terra", "effort": "high", "role": "bounded_specialist", "required": True}
+            ],
+        }
+        count = 0
+        for repository in sorted(REPOSITORIES):
+            for lane, children in expected.items():
+                lock = render(ROOT, repository, lane, validate_catalog=False)
+                self.assertEqual(lock["lane_execution_plan"]["children"], children)
+                count += 1
+        self.assertEqual(count, 15)
 
     @unittest.skipUnless(os.environ.get("CODEX_WORKFLOW_HOOKS_SOURCE"), "set hooks source worktree")
     def test_immutable_source_policy_hashes_and_v2_compatibility(self) -> None:
@@ -149,13 +169,14 @@ class PolicySourceCompatibilityTests(unittest.TestCase):
         canonical = json.dumps(policy, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
         self.assertEqual(hashlib.sha256(canonical).hexdigest(), CANONICAL_POLICY_SHA256)
         results = source_results(source)
-        self.assertEqual(results["terra"]["reason_code"], "SUBAGENT_ROUTE_SELECTED")
-        self.assertEqual(results["terra"]["rewritten"]["model"], "gpt-5.6-terra")
-        self.assertEqual(results["terra"]["rewritten"]["reasoning_effort"], "high")
-        self.assertEqual(results["legacy_standard"]["reason_code"], "SUBAGENT_ROUTE_SELECTED")
-        self.assertEqual(results["legacy_standard"]["rewritten"]["reasoning_effort"], "high")
-        self.assertTrue(results["legacy_medium"]["deny"])
-        self.assertEqual(results["legacy_medium"]["reason_code"], "SUBAGENT_TASK_MODEL_MISMATCH")
+        self.assertEqual(results["standard_child"]["reason_code"], "SUBAGENT_ROUTE_SELECTED")
+        self.assertEqual(results["standard_child"]["rewritten"]["model"], "gpt-5.6-luna")
+        self.assertEqual(results["standard_child"]["rewritten"]["reasoning_effort"], "max")
+        self.assertEqual(results["standard_optional_child"]["reason_code"], "SUBAGENT_ROUTE_SELECTED")
+        self.assertEqual(results["standard_optional_child"]["rewritten"]["reasoning_effort"], "max")
+        self.assertEqual(results["critical_child"]["reason_code"], "SUBAGENT_ROUTE_SELECTED")
+        self.assertEqual(results["critical_child"]["rewritten"]["model"], "gpt-5.6-terra")
+        self.assertEqual(results["critical_child"]["rewritten"]["reasoning_effort"], "high")
 
     @unittest.skipUnless(os.environ.get("CODEX_WORKFLOW_HOOKS_RELEASE"), "set installed hooks release")
     def test_observed_installed_release_bytes_match_without_importing_modules(self) -> None:
@@ -163,7 +184,8 @@ class PolicySourceCompatibilityTests(unittest.TestCase):
         manifest = (release / "manifest.json").read_bytes()
         policy = (release / "policies" / "global.json").read_bytes()
         self.assertEqual(hashlib.sha256(manifest).hexdigest(), INSTALLED_MANIFEST_SHA256)
-        self.assertEqual(hashlib.sha256(policy).hexdigest(), RAW_POLICY_SHA256)
+        self.assertEqual(hashlib.sha256(policy).hexdigest(), INSTALLED_POLICY_SHA256)
+        self.assertEqual(hashlib.sha256(policy.replace(b"\r\n", b"\n")).hexdigest(), RAW_POLICY_SHA256)
         self.assertEqual(
             json.loads(policy)["subagent_routing"]["task_contract"]["message_tag"],
             "codex_subagent_task_v2",

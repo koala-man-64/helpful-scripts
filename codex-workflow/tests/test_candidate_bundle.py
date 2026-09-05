@@ -24,6 +24,7 @@ from validate_catalog import (  # noqa: E402
     parse_repository_mappings,
     validate_candidate_sources,
 )
+from validate_consumer_candidate import validate_consumer  # noqa: E402
 
 
 def parse_installed_contract(release: Path, contract: dict) -> dict:
@@ -86,6 +87,25 @@ class CandidateBundleTests(unittest.TestCase):
         forged["readiness"] = True
         with self.assertRaisesRegex(ValueError, "activation contract"):
             validate_candidate_bundle(ROOT, self.output, forged)
+
+    def test_shared_consumer_validation_checks_three_exact_locks(self) -> None:
+        for repository in sorted(REPOSITORIES):
+            with self.subTest(repository=repository):
+                result = validate_consumer(ROOT, self.output, repository, self.output / "locks" / repository)
+                self.assertEqual(set(result["locks"]), {"lite", "standard", "critical"})
+                self.assertFalse(result["readiness"])
+                self.assertEqual(result["runtime_consumption"], "unverified")
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            repository = sorted(REPOSITORIES)[0]
+            for lane in ("lite", "standard", "critical"):
+                (directory / f"{lane}.json").write_bytes((self.output / "locks" / repository / f"{lane}.json").read_bytes())
+            lock = directory / "standard.json"
+            altered = json.loads(lock.read_bytes())
+            altered["lane_execution_plan"]["children"][0]["effort"] = "low"
+            lock.write_text(json.dumps(altered), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "differs from pinned standard"):
+                validate_consumer(ROOT, self.output, repository, directory)
 
     def test_release_binding_must_match_policy_observation(self) -> None:
         forged = copy.deepcopy(self.bundle)

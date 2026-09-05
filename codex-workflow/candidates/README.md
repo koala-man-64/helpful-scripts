@@ -10,17 +10,42 @@ SHAs, the exact helpful-scripts catalog-base tested commit, and content-free rec
 verifier owned by `codex-workflow-hooks` supplies and verifies receipts; neither a
 render nor a boolean field enables anything.
 
-The checked-in generated outputs are a historical v3 snapshot at release
-`0.6.3+sha.3a7c21839d428f2240a21c238b85947bb62b1b17`. The separate central
-policy observations record read-only bytes from installed v4 release
-`0.6.3+sha.836bd53dacd62776b242e2f78e6f0140b7f9fd6e`; they distinguish an
-installed policy-byte match from the historical source/parser check. Rudy's
-completed reload, review, and trust are owner-confirmed user validation, recorded
-separately from the direct byte observations. Neither establishes candidate routing
+The outputs bind the installed manifest named by the central policy observation.
+That observation records read-only bytes from installed v4 release
+`0.6.3+sha.c540d2c99fe31220ea91c9d2ce8618c47b686403`; they distinguish those
+installed CRLF bytes from the historical source/parser LF snapshot; canonical JSON
+and normalized policy bytes agree. The hooks owner confirmed user reload, review,
+and trust for this identity. Neither byte observation nor user validation establishes candidate routing
 admission: per-route admission evidence and actual spawn proof remain absent.
-Regenerate the outputs against the new observation before validating their binding.
 `canonical_origins` records catalog origin snapshot SHAs, not current consumer
 validation receipts.
+
+The v4 evaluator accepts the observed Standard parent (`Terra`/`medium`) to
+child (`Luna`/`max`) and Critical parent (`Sol`/`high`) to child
+(`Terra`/`high`) requests. This is source-evaluator compatibility only. Root
+owner lanes are not evaluated as child pairs, and no observation asserts actual
+spawn or route admission.
+
+The v2 schema additively accepts child efforts `high` and `max`. The immutable
+Contracts 14.1.0 `routing_contract` remains a truthful publisher reference to its
+historical profiles. Current child execution-plan selections follow the separately
+bound central policy; publisher metadata is not an override of that policy.
+No schema field or published Contracts artifact is repinned. Consumer owners must
+run the shared pinned renderer/schema validation for all three locks plus their
+applicable repository checks. Local application/runtime consumption is unverified.
+
+From the immutable helpful-scripts source checkout, validate all three copied
+locks using the same implementation for each consumer (substitute its name and
+the directory containing `lite.json`, `standard.json`, and `critical.json`):
+
+```powershell
+py -3 -B codex-workflow/tools/validate_consumer_candidate.py codex-workflow --bundle codex-workflow/candidates/outputs --repository asset-allocation-ui --locks C:\consumer-evidence\asset-allocation-ui
+```
+
+The command is read-only. It verifies the whole pinned bundle, each selected
+lock's exact bytes, schema, and route plan. Its result explicitly leaves the
+owner's repository checks and runtime consumption unverified; it is not a hook
+readiness receipt or installation instruction.
 
 Digest recipe: `catalog_digest` uses the catalog tool's canonical directory hash.
 `bundle_digest` is the candidate-source digest and uses the same recipe over every

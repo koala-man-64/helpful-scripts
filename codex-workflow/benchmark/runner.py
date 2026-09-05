@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -15,6 +15,8 @@ from .harness import (
 )
 from .manifest import FIXED_MANIFEST, manifest_payload, task_identity
 from .validators import capability_report
+from .semantic_evidence import capture_workspace
+from .semantic_validation import fixture_record, semantic_observations, semantic_preparation_pins, semantic_proofs, validator_digest
 
 
 def read_json(path: Path) -> Any:
@@ -53,13 +55,14 @@ def study_capabilities() -> dict[str, Any]:
         "schema_version": "benchmark-capabilities-v1",
         "dispatch_ready": False,
         "tasks": {task.id: capability_report(task.id) for task in FIXED_MANIFEST},
+        "semantic_preparation_pins": semantic_preparation_pins(Path(__file__).with_name("task_inputs")),
         "blocked_requirements": [
-            "trusted deterministic semantic acceptance evaluators",
             "independent complete root/child/retry/review/recovery/clarification census",
             "supported host compaction, wait, peer-message and child-review event producers",
-            "immutable API-equivalent USD rate basis; current audit export keeps it null",
+            "immutable published Codex-equivalent USD rate basis; current audit export keeps it null",
+            "authority-bound expected semantic validator pins and exact observation join verification",
         ],
-        "implemented": ["fixed preparation", "explicit CodexExecAdapter API", "raw execution receipt collection", "artifact verification"],
+        "implemented": ["fixed preparation", "explicit CodexExecAdapter API", "raw execution receipt collection", "artifact verification", "eight deterministic semantic evaluators"],
     }
 
 
@@ -88,6 +91,41 @@ def execution_identity(events: Path) -> tuple[str, str]:
     return sessions[0], "failed" if failed else "completed" if completed else "incomplete"
 
 
+def dispatch_observed(adapter, run, prepared, *, workspace: Path, raw_dir: Path,
+                      repository_id: str, observed_skill_pins: Mapping[str, str]) -> dict:
+    """Explicit one-run API; retain independent before/after workspace evidence."""
+    workspace, raw_dir = workspace.resolve(strict=True), raw_dir.resolve()
+    if raw_dir == workspace or raw_dir.is_relative_to(workspace):
+        raise ValueError("retained raw evidence must be outside the model workspace")
+    if prepared.pins.skill_pins.get("semantic-validators") != validator_digest():
+        raise ValueError("semantic validator implementation is not pinned")
+    task_inputs = Path(__file__).with_name("task_inputs")
+    if any(prepared.pins.skill_pins.get(key) != value for key, value in semantic_preparation_pins(task_inputs)["skill_pins"].items()):
+        raise ValueError("hook-compatible semantic validator source reference is not pinned")
+    if prepared.pins.external_fixtures.get(run.task_id) != fixture_record(task_inputs, run.task_id)["input_digest"]:
+        raise ValueError("concrete fixture is not pinned for this run")
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    before_path, after_path = raw_dir / "semantic-before.json", raw_dir / "semantic-after.json"
+    write_new(before_path, capture_workspace(workspace))
+    dispatch = dict(adapter.dispatch(run, prepared, workspace=workspace, raw_dir=raw_dir,
+                                    repository_id=repository_id, observed_skill_pins=observed_skill_pins))
+    write_new(after_path, capture_workspace(workspace))
+    # Each dispatch uses a unique last-message filename. Identify it through the
+    # actual invocation rather than guessing a prepared task/session identity.
+    messages = list(raw_dir.glob("last-message-*.txt"))
+    if len(messages) != 1:
+        raise ValueError("observed attempt requires one retained last-message artifact")
+    refs = dict(dispatch["raw_artifact_refs"])
+    refs.update({"semantic_before": reference(before_path), "semantic_after": reference(after_path),
+                 "last_message": reference(messages[0])})
+    for key, relative in {"comparison": "comparison.json", "failure": "failed-validation.json", "build_log": "logs/build.log"}.items():
+        if (workspace / relative).is_file():
+            refs[key] = reference(workspace / relative)
+    dispatch.update(raw_artifact_refs=refs, raw_artifact_digests={name: ref["digest"] for name, ref in refs.items()})
+    write_new(raw_dir / "dispatch.json", dispatch)
+    return dispatch
+
+
 def collect_receipt(
     prepared: PreparedRunSet, run_id: str, evidence: Mapping[str, Any],
 ) -> Receipt:
@@ -105,6 +143,11 @@ def collect_receipt(
             or dispatch.get("run_set_digest") != prepared.run_set_digest
             or dispatch.get("raw_artifact_refs", {}).get("events") != raw["events"]):
         raise ValueError("dispatch artifact does not bind the exact request, preparation and event bytes")
+    for name, retained in dispatch.get("raw_artifact_refs", {}).items():
+        actual = reference(Path(retained["path"]))
+        if actual != retained or (name in raw and raw[name] != retained):
+            raise ValueError("retained dispatch artifact bytes or supplied reference changed")
+        raw[name] = retained
     session_id, status = execution_identity(Path(raw["events"]["path"]))
     task_id = identity_hash("task", session_id)
     measures = read_json(Path(raw["measurements"]["path"]))
@@ -152,6 +195,7 @@ def main() -> int:
     collect.add_argument("--run-id", required=True)
     collect.add_argument("--evidence", type=Path, required=True)
     collect.add_argument("--output", type=Path, required=True)
+    collect.add_argument("--semantic", action="store_true", help="run pinned deterministic checks against retained produced artifacts")
     args = parser.parse_args()
     try:
         if args.command == "capabilities":
@@ -170,9 +214,24 @@ def main() -> int:
             return 0
         prepared = restore_prepared(read_json(args.run_set))
         receipt = collect_receipt(prepared, args.run_id, read_json(args.evidence))
+        semantic_errors = []
+        if args.semantic:
+            if prepared.pins.skill_pins.get("semantic-validators") != validator_digest():
+                raise ValueError("semantic evaluator differs from the preparation pin")
+            request = next(run for run in prepared.runs if run.id == args.run_id)
+            if receipt.completion_status == "completed":
+                try:
+                    receipt = replace(receipt, invariant_evidence=semantic_proofs(
+                        request.task_id, receipt, Path(__file__).with_name("task_inputs")))
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    semantic_errors.append(str(error))
+            else:
+                semantic_errors.append("execution did not complete; semantic acceptance remains absent")
         errors = validate_receipt(receipt, prepared)
         write_new(args.output, {"schema_version": "collected-benchmark-receipt-v1",
                                "receipt": asdict(receipt), "structural_errors": errors,
+                               "semantic_errors": semantic_errors,
+                               "semantic_observations": semantic_observations(receipt) if receipt.invariant_evidence else None,
                                "acceptance_verified": False})
         print(json.dumps({"collected": True, "acceptance_verified": False, "structural_errors": errors}))
         return 0

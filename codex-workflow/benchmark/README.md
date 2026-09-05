@@ -46,12 +46,17 @@ insufficient. Missing validators, null accounting, unconsumed claimed features o
 unfrozen configuration block promotion. Actual usage parsing and authoritative
 accounting remain owned by `codex-workflow-hooks`; no second usage parser exists here.
 
-The checked-in `validators.py` is **diagnostic only**: it checks supplied usage
-totals through the hook-owned parser and can inspect check-file bindings. It has
-no complete-attempt census validator and no trusted semantic evaluator for the
-twelve tasks. Its callbacks reject semantic acceptance. `runner capabilities`
-reports these gaps and the four missing host-event producers explicitly. The
-whole 72-run study is not ready for dispatch or promotion.
+The checked-in registry recomputes eight deterministic semantic evaluations from
+the actual produced files and runner-retained evidence. Local checks execute
+fixed behavior assertions and nonempty regression suites in temporary copies;
+Git checks verify real HEADs, recovery order and preserved review boundaries;
+research checks recompute the structured answers required by the fixed prompts.
+Supplied pass flags cannot override these results. See [SEMANTIC_CHECKS.md](SEMANTIC_CHECKS.md).
+The accounting diagnostic checks supplied totals through the hook-owned parser;
+an independent complete-attempt census remains absent. Four host-event scenarios
+are unimplemented in the CLI adapter. App-server interfaces are being assessed
+separately; this is an adapter limitation, not proof the platform lacks them.
+The whole 72-run study is not ready for dispatch or promotion.
 
 ## Runnable preparation and collection
 
@@ -74,6 +79,15 @@ object as the dispatch artifact. It binds the complete request, preparation, and
 raw event bytes. The supported CLI lifecycle events are documented in
 [OpenAI's non-interactive mode guide](https://developers.openai.com/codex/noninteractive).
 
+For semantic evidence use `runner.dispatch_observed(adapter, run, prepared, ...)`.
+It requires an explicit `semantic-validators` implementation hash in `skill_pins`
+and the task's `fixed-inputs.json` digest in `external_fixtures`. It captures before
+and after workspace observations, final response and raw references outside the
+model workspace. Each attempt requires its own empty raw directory. `collect
+--semantic` runs the evaluators and records failures without discarding the raw
+attempt. The supplied dispatch artifact discovers the retained reference set;
+replaced bytes or conflicting supplied paths fail verification.
+
 `attempt-inputs.json` supplies `raw_artifacts` paths named `dispatch`, `events`,
 `usage_observations`, and `measurements`, plus optional `invariant_evidence`,
 `accounting_totals`, `failure_artifacts` (raw artifact names), `defects`, and
@@ -82,7 +96,7 @@ the prepared run and the hook-owned `benchmark-measurements-v1` task scope. It
 preserves failed executions, null accounting, and absent acceptance as such;
 `structural_errors` and `acceptance_verified:false` accompany the collected
 receipt. A collected receipt does not establish complete accounting. Root/child
-and failed-attempt census, semantic checks, compaction/wait/peer/review producers,
+and failed-attempt census, compaction/wait/peer/review producers,
 and monetary rate provenance still need their authoritative implementations.
 
 The gate applies all declared acceptance/safety/continuation/compaction checks,

@@ -1,4 +1,4 @@
-"""Accounting-format diagnostics; semantic acceptance remains unavailable."""
+"""Pinned semantic registry and separate accounting-format diagnostics."""
 from __future__ import annotations
 
 import hashlib
@@ -8,6 +8,7 @@ from types import ModuleType
 from typing import Any, Callable, Mapping
 
 from .manifest import FIXED_MANIFEST
+from .semantic_validation import build_semantic_validators
 
 HOST_ONLY = {
     "research-compaction-retention",
@@ -37,7 +38,7 @@ def load_hook_usage(source_root: Path, *, expected_digest: str | None = None):
 def capability_report(task_id: str) -> dict[str, str]:
     if task_id in HOST_ONLY:
         return {"status": "unsupported", "reason": "no supported CLI host-event receipt"}
-    return {"status": "format_only", "reason": "no deterministic semantic validator is implemented"}
+    return {"status": "semantic_evaluator", "reason": "requires pinned produced files, runner observations and a fully recognized CLI trace"}
 
 
 def validate_accounting(receipt: Any, evidence: Mapping[str, Any], usage_api: Any) -> bool:
@@ -80,43 +81,12 @@ def validate_accounting(receipt: Any, evidence: Mapping[str, Any], usage_api: An
     return receipt.metrics.get("cost_usd") == cost and receipt.metrics.get("uncached_input_tokens") == uncached
 
 
-def build_validators(task_inputs: Path, hook_source: Path) -> dict[str, Callable[..., bool]]:
-    """Return diagnostic callbacks that block acceptance, never a production gate.
-
-    Accounting's complete attempt census and semantic acceptance evaluators are
-    outstanding. Checking a supplied pass artifact cannot provide either proof.
-    """
-    fixed = json.loads((task_inputs / "fixed-inputs.json").read_text(encoding="utf-8"))
+def build_validators(task_inputs: Path, hook_source: Path, *, expected_validator_digest: str) -> dict[str, Callable[..., bool]]:
+    """Recompute semantic results; complete-attempt accounting remains separate."""
     load_hook_usage(hook_source)
-
-    def validator(run: Any, receipt: Any, evidence: Mapping[str, Any], expected: str) -> bool:
-        task = fixed.get(run.task_id)
-        if not isinstance(task, Mapping) or not isinstance(task.get("input_digest"), str):
-            return False
-        reference = evidence.get("artifact_ref")
-        if not isinstance(reference, Mapping):
-            return False
-        check_path = Path(str(reference.get("path", "")))
-        if not check_path.is_file() or _digest(check_path) != reference.get("digest"):
-            return False
-        try:
-            check = json.loads(check_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, json.JSONDecodeError):
-            return False
-        if check.get("schema_version") != "benchmark-check-v1" or check.get("run_id") != run.id or check.get("task_id") != receipt.task_id or check.get("invariant_id") != expected or check.get("outcome") != "satisfied":
-            return False
-        # Check files establish format/provenance only. No deterministic semantic
-        # evaluator exists yet for the task outcome, so fail closed.
-        return False
-
-    registry = {
-        invariant: (lambda run, receipt, evidence, expected=invariant: validator(run, receipt, evidence, expected))
-        for task in FIXED_MANIFEST
-        for invariant in task.acceptance_invariants
-    }
     # Omit the gate's 'accounting' callback until it can verify completeness;
     # validate_accounting above proves only totals over caller-supplied scope.
-    return registry
+    return build_semantic_validators(task_inputs, expected_validator_digest=expected_validator_digest)
 
 
 FIXED_INVARIANTS = {task.id: set(task.acceptance_invariants) for task in FIXED_MANIFEST}

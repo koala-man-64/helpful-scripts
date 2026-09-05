@@ -65,7 +65,7 @@ def receipt_for(run, run_set, *, variant_cost: float = 80.0) -> Receipt:
         invariant_evidence={
             invariant: {
                 "artifact_digest": "sha256:" + "a" * 64,
-                "validator": invariant,
+                "validator_id": invariant,
                 "manifest_task_id": task_identity(task),
                 "task_id": identity_hash("task", f"session-{run.id}"),
                 "observation_ids": ["d" * 64],

@@ -269,8 +269,8 @@ class CatalogTests(unittest.TestCase):
                                 for item in plan["children"]
                             ],
                             [
-                                ("Luna", "low", "focused_qa", True),
-                                ("Luna", "low", "necessary_specialist", False),
+                                ("Luna", "max", "focused_qa", True),
+                                ("Luna", "max", "necessary_specialist", False),
                             ],
                         )
                         self.assertEqual(
@@ -292,7 +292,7 @@ class CatalogTests(unittest.TestCase):
                                 )
                                 for item in plan["children"]
                             ],
-                            [("Terra", "medium", "bounded_specialist", True)],
+                            [("Terra", "high", "bounded_specialist", True)],
                         )
                         self.assertEqual(
                             (plan["minimum_children"], plan["maximum_children"]), (1, 3)

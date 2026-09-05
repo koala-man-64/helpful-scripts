@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -45,6 +45,51 @@ class LoadedArtifacts:
     metadata: Mapping[str, Any]
 
 
+def stage_receipt(output_dir: Path, receipt: Receipt) -> Receipt:
+    """Copy verified raw inputs and check sources inside the verifier artifact root.
+
+    Original raw bytes, including dispatch references, remain untouched. Check
+    envelopes receive local references and new hashes; acceptance is recomputed
+    from the resulting receipt before publication.
+    """
+    from .semantic_evidence import verified_reference
+
+    root = output_dir.resolve()
+    directory = root / "retained"
+    directory.mkdir(exist_ok=True)
+
+    def retain(raw: bytes) -> dict[str, str]:
+        digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+        path = directory / digest.removeprefix("sha256:")
+        if path.exists():
+            if path.read_bytes() != raw:
+                raise ValueError("retained artifact content changed")
+        else:
+            with path.open("xb") as stream:
+                stream.write(raw)
+        return {"path": str(path), "digest": digest}
+
+    def copy_ref(reference: Mapping[str, Any]) -> dict[str, str]:
+        return retain(verified_reference(reference).read_bytes())
+
+    raw_refs = {name: copy_ref(reference) for name, reference in receipt.raw_artifact_refs.items()}
+    evidence = {}
+    for name, value in receipt.invariant_evidence.items():
+        staged = dict(value)
+        reference = value.get("artifact_ref")
+        if reference:
+            raw = verified_reference(reference).read_bytes()
+            proof = json.loads(raw)
+            if isinstance(proof, dict) and proof.get("schema_version") == "benchmark-check-v1":
+                proof["validator_ref"] = copy_ref(proof["validator_ref"])
+                proof["evidence_refs"] = [copy_ref(item) for item in proof["evidence_refs"]]
+                raw = _bytes(proof)
+            staged_ref = retain(raw)
+            staged.update(artifact_ref=staged_ref, artifact_digest=staged_ref["digest"])
+        evidence[name] = staged
+    return replace(receipt, raw_artifact_refs=raw_refs, invariant_evidence=evidence)
+
+
 def emit_artifacts(
     output_dir: Path,
     *,
@@ -59,6 +104,7 @@ def emit_artifacts(
     if set(receipts) != {run.id for run in prepared.runs}:
         raise ValueError("artifact emission requires the exact complete 72-run result set")
     output_dir.mkdir(parents=True, exist_ok=True)
+    receipts = {run_id: stage_receipt(output_dir, receipt) for run_id, receipt in receipts.items()}
     gate = evaluate_gate(prepared, receipts, validators)
     definition = {"schema_version": "benchmark-definition-v1", "manifest": manifest_payload(), "thresholds": THRESHOLDS}
     run_set = prepared.payload() | {"run_set_digest": prepared.run_set_digest}
@@ -69,6 +115,7 @@ def emit_artifacts(
         "results_digest": gate.results_digest,
         "receipts": [asdict(receipts[run.id]) for run in prepared.runs],
         "gate_evaluation": gate_results_payload(prepared, receipts, validators),
+        "gate": {"eligible": gate.eligible, "reasons": list(gate.reasons), "ratios": dict(gate.ratios)},
     }
     results["results_payload"] = {key: results["gate_evaluation"][key] for key in ("run_set_digest", "receipt_digests", "acceptance")}
     # Construct the public projection here to prove the emission uses the same

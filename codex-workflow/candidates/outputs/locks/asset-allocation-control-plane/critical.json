@@ -120,7 +120,7 @@
   "lane_execution_plan": {
     "children": [
       {
-        "effort": "medium",
+        "effort": "high",
         "model": "Terra",
         "required": true,
         "role": "bounded_specialist"

@@ -94,10 +94,10 @@ def _lane_execution_plan(lane: dict[str, object]) -> dict[str, object]:
     children, minimum, maximum, orchestrator, gates = [], 0, 0, False, {}
     if name == "terra":
         children = [
-            {"model": "Luna", "effort": "low", "role": "focused_qa", "required": True},
+            {"model": "Luna", "effort": "max", "role": "focused_qa", "required": True},
             {
                 "model": "Luna",
-                "effort": "low",
+                "effort": "max",
                 "role": "necessary_specialist",
                 "required": False,
             },
@@ -107,7 +107,7 @@ def _lane_execution_plan(lane: dict[str, object]) -> dict[str, object]:
         children = [
             {
                 "model": "Terra",
-                "effort": "medium",
+                "effort": "high",
                 "role": "bounded_specialist",
                 "required": True,
             }
@@ -143,10 +143,10 @@ def _validate_execution_plan(plan: dict[str, object], lane: str) -> None:
     if lane == "standard" and (
         children
         != [
-            {"model": "Luna", "effort": "low", "role": "focused_qa", "required": True},
+            {"model": "Luna", "effort": "max", "role": "focused_qa", "required": True},
             {
                 "model": "Luna",
-                "effort": "low",
+                "effort": "max",
                 "role": "necessary_specialist",
                 "required": False,
             },
@@ -161,7 +161,7 @@ def _validate_execution_plan(plan: dict[str, object], lane: str) -> None:
         != [
             {
                 "model": "Terra",
-                "effort": "medium",
+                "effort": "high",
                 "role": "bounded_specialist",
                 "required": True,
             }

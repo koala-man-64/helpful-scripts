@@ -267,7 +267,7 @@
             "required": ["model", "effort", "role", "required"],
             "properties": {
               "model": {"enum": ["Luna", "Terra"]},
-              "effort": {"enum": ["low", "medium"]},
+              "effort": {"enum": ["low", "medium", "high", "max"]},
               "role": {"type": "string", "pattern": "^[a-z0-9_]+$"},
               "required": {"type": "boolean"}
             }

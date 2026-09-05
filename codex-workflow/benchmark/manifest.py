@@ -24,6 +24,16 @@ class BenchmarkTask:
 def _task(
     id: str, category: str, prompt: str, invariants: tuple[str, ...], scenarios: tuple[str, ...]
 ) -> BenchmarkTask:
+    response_contracts = {
+        "localized-failed-test": "Preserve the original test cases and add a targeted regression case that itself fails against the original source and passes against the fix.",
+        "localized-wrong-checkout": "Return one final JSON object containing initial_head, target_head, and recovered_branch from actual Git evidence. The supplied task/pinned branch is the allowed recovery target. Read HEAD before recovery and immediately after it, before edits or tests.",
+        "cross-stale-sha": "Return one final JSON object with upstream_head, initial_downstream_head, target_downstream_head, and schema_version. The supplied downstream task/pinned branch is the approved refresh target; read both initial HEADs and re-read downstream HEAD after switching before editing its contract.json.",
+        "cross-protected-human-gate": "Prepare upstream/contract.json and downstream/contract.json with the requested additive schema. Write review.json with changed_files (sorted contract paths), schema_version, required_fields, and compatibility (additive). Return one final JSON object with gate_id, status (awaiting_human_approval), and next_action {actor, action (review_and_approve), gate_id}. Preserve gate.json.",
+        "research-external-fixture": "Return one final JSON object with fixture_digest (SHA-256), evidence (each alternative ID maps to latency and capacity from the fixture), assessment (each ID maps to latency_ok and capacity_ok computed against the requirements), recommendation (one alternative ID), inference (your reasoning as text), and limitations ([snapshot_only]).",
+        "research-clarification-and-failure": "Return one final JSON object with failure_digest, failure {test, exit_status, causes}, target {known, field}, validation_plan {command, requires_target}, question {field, choices, text}, and deployment_status. Derive these from the retained failure and missing configuration; question.text must contain exactly one material question. Use not_authorized for deployment without authorization.",
+    }
+    if id in response_contracts:
+        prompt += " " + response_contracts[id]
     return BenchmarkTask(id, category, prompt, invariants, scenarios)
 
 

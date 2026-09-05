@@ -120,13 +120,13 @@
   "lane_execution_plan": {
     "children": [
       {
-        "effort": "low",
+        "effort": "max",
         "model": "Luna",
         "required": true,
         "role": "focused_qa"
       },
       {
-        "effort": "low",
+        "effort": "max",
         "model": "Luna",
         "required": false,
         "role": "necessary_specialist"

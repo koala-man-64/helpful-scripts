@@ -1,6 +1,6 @@
 {
   "activation": false,
-  "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+  "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
   "canonical_origins": {
     "asset-allocation-contracts": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
     "asset-allocation-control-plane": "81c35e371864737309777e4b0561082efd23592d",
@@ -25,30 +25,30 @@
   "preflight_receipts": [],
   "readiness": false,
   "readiness_receipts": [],
-  "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
+  "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
   "repositories": [
     {
       "locks": {
         "critical": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-contracts/critical.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
-          "sha256": "sha256:090adb31bf5c0a75f0d7ccfc167e53047eb10d4d3f59292fa227a10b931432d8"
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
+          "sha256": "sha256:0b5cb65b768b8c60a9b38c169a2b37f6785916cfdd2af64bb6292cb24401bd0a"
         },
         "lite": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-contracts/lite.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
           "sha256": "sha256:3338a257626973cbdc23488e2327b939b3acd2dc4c1bd143074b7c2f9f8cb5c6"
         },
         "standard": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-contracts/standard.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
-          "sha256": "sha256:92418ceac9f1494a9d3e0209bda179796d4d5eb694390b627f457d8c9d7a900c"
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
+          "sha256": "sha256:f3fee80f19dab7c0ff26894cb02a92c24bd8ce44838772a4dd2ecffc47cbd577"
         }
       },
       "repository": "asset-allocation-contracts"
@@ -56,25 +56,25 @@
     {
       "locks": {
         "critical": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-control-plane/critical.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
-          "sha256": "sha256:08223d8bc1d326da7017008447f820650bab469d7ef98375894ca767a4bc075e"
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
+          "sha256": "sha256:0fc8ade448eddedc8af32ccbb32aa1e69cd636c44be356082afd1060ba4803e8"
         },
         "lite": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-control-plane/lite.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
           "sha256": "sha256:a5eeb89beea91099bc9bdc5965d7e3e0102758b6941357667abad206573edd10"
         },
         "standard": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-control-plane/standard.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
-          "sha256": "sha256:06f1d83e856e122758394c28ba83c42120ab51fb9df46143cbfa3ec7c7c6312d"
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
+          "sha256": "sha256:989495cc077dec1b1cda535e97460554eb3af2353b567cf91270c1a68b97f344"
         }
       },
       "repository": "asset-allocation-control-plane"
@@ -82,25 +82,25 @@
     {
       "locks": {
         "critical": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-jobs/critical.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
-          "sha256": "sha256:fdd18536e4c0c91c161a55ef0633ab4f368e43e518052fc6243920d1da260a65"
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
+          "sha256": "sha256:15fb789b8083dd977f153cd8884ea4f69fa885a0e2704814adeb84c8eff5c7ca"
         },
         "lite": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-jobs/lite.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
           "sha256": "sha256:5660dba0135c7645540708a684ebdfb00b37a60e02fe095e9b6bc1549218c9a1"
         },
         "standard": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-jobs/standard.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
-          "sha256": "sha256:1e8bf6579c987861df603ca2c17dae89d076f279d5073c68c8741a45d998ad72"
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
+          "sha256": "sha256:e89d76465ad38735da6f5f1b917419ae34dfcccac3d9722d83b6bc326626c3bf"
         }
       },
       "repository": "asset-allocation-jobs"
@@ -108,25 +108,25 @@
     {
       "locks": {
         "critical": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-runtime-common/critical.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
-          "sha256": "sha256:fd5667f0d8494f6c03c704fe942a1a79ef0c3d57ffe4959d5d9fa3e4f893e71e"
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
+          "sha256": "sha256:f358f6ff6aa49a426914a0a3126eab9dbeb0afa6a74b5a9e00687f36292acfc0"
         },
         "lite": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-runtime-common/lite.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
           "sha256": "sha256:eb54b400bf99121db531683495c30cbb87f5d138eac51dfc1c21f0d9660aad98"
         },
         "standard": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-runtime-common/standard.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
-          "sha256": "sha256:2deb6e701e3d1064c1528fbad5f06ff2bfbc510af9a7fc30b704fe32729922a7"
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
+          "sha256": "sha256:0d93894d71ec960898bebe730ec659239281b298b40ff1c922a797bfcd7c1607"
         }
       },
       "repository": "asset-allocation-runtime-common"
@@ -134,25 +134,25 @@
     {
       "locks": {
         "critical": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-ui/critical.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
-          "sha256": "sha256:1faaf77cc69fee89cb3c85bbef95a12baa197ae9b30f43678002a798d67b9681"
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
+          "sha256": "sha256:9a18efc7325730b1fbf376169ec15195ead91c9b14454cdf63e850d609d03036"
         },
         "lite": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-ui/lite.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
           "sha256": "sha256:60b14586b5749a9ef0d076435bf4566c0c82bbd4356ad1055606fb4f4645750e"
         },
         "standard": {
-          "bundle_digest": "sha256:d6ed4166375fbdcd68acce3d7a85d35987554d0b641678919364f48aac78e01d",
+          "bundle_digest": "sha256:f977afedbba929418909c27cc0be08d90cd7ba6f72217fe70c0edc76fff1373b",
           "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
           "path": "locks/asset-allocation-ui/standard.json",
-          "release_digest": "sha256:77f46eb9736bfb2c30dd85dbb2300442b379de900c6ed9b8386469384257ae79",
-          "sha256": "sha256:fccd452fe754fbf51fa2fb45179c33f456dc9d6d7b1fe552e549e293df9033a6"
+          "release_digest": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
+          "sha256": "sha256:7cf315fb0aeff3c53008e6b51fcd6c4c556b07d1b23616ce538f329ac5653a84"
         }
       },
       "repository": "asset-allocation-ui"
