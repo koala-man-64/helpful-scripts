@@ -787,6 +787,101 @@ class StateAndCliTests(unittest.TestCase):
         self.assertIn("wrote 2 turn rows", stderr.getvalue())
         self.assertNotIn("wrote", stdout.getvalue())
 
+    def test_observations_export_keeps_request_and_cumulative_evidence_separate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary)
+            write_rollout(codex_home, ROOT_ID, root_entries())
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                exit_code = audit.main(
+                    ["--root", str(codex_home), "--no-state-db", "--observations", "-"]
+                )
+
+        export = json.loads(stdout.getvalue())
+        observations = export["observations"]
+        self.assertEqual(0, exit_code)
+        self.assertEqual(1, export["schema_version"])
+        self.assertEqual(8, len(observations))
+        self.assertEqual({"request", "cumulative"}, {row["kind"] for row in observations})
+        self.assertEqual(4, len({row["event_id"] for row in observations}))
+        self.assertTrue(all(isinstance(row["source_event_index"], int) for row in observations))
+        self.assertTrue(all(row["attribution"] == "root" for row in observations))
+        self.assertTrue(all(row["estimated_cost_usd"] is None for row in observations))
+        self.assertTrue(all(row["rate_card_id"] is None for row in observations))
+        self.assertTrue(all(row["cost_basis"] is None for row in observations))
+        self.assertTrue(all("must-not-be-exported" not in json.dumps(row) for row in observations))
+        first_cumulative = next(row for row in observations if row["kind"] == "cumulative")
+        self.assertFalse(first_cumulative["baseline_complete"])
+        self.assertEqual(
+            audit._observation_identifier("task", ROOT_ID), first_cumulative["task_id"]
+        )
+        self.assertEqual("", stderr.getvalue())
+
+    def test_observations_export_marks_reset_and_uses_a_new_segment(self) -> None:
+        entries = [
+            session_entry(ROOT_ID),
+            turn_entry("2026-08-23T10:01:00Z", "turn-1", "gpt-5.6-sol", "high"),
+            token_entry("2026-08-23T10:01:10Z", usage(100, 80, 10, 5)),
+            token_entry("2026-08-23T10:01:20Z", usage(45, 35, 5, 2)),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary)
+            write_rollout(codex_home, ROOT_ID, entries)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                exit_code = audit.main(
+                    ["--root", str(codex_home), "--no-state-db", "--observations", "-"]
+                )
+
+        rows = json.loads(stdout.getvalue())["observations"]
+        cumulative = [row for row in rows if row["kind"] == "cumulative"]
+        self.assertEqual(0, exit_code)
+        self.assertEqual(2, len(cumulative))
+        self.assertFalse(cumulative[0]["reset"])
+        self.assertTrue(cumulative[1]["reset"])
+        self.assertFalse(cumulative[1]["baseline_complete"])
+        self.assertNotEqual(cumulative[0]["segment_id"], cumulative[1]["segment_id"])
+
+    def test_observations_export_uses_null_for_provider_fields_not_present(self) -> None:
+        partial = {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120}
+        entries = [
+            session_entry(ROOT_ID),
+            turn_entry("2026-08-23T10:01:00Z", "turn-1", "gpt-5.6-sol", "high"),
+            token_entry("2026-08-23T10:01:10Z", partial),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary)
+            write_rollout(codex_home, ROOT_ID, entries)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                exit_code = audit.main(
+                    ["--root", str(codex_home), "--no-state-db", "--observations", "-"]
+                )
+
+        request = next(
+            row for row in json.loads(stdout.getvalue())["observations"] if row["kind"] == "request"
+        )
+        self.assertEqual(0, exit_code)
+        self.assertEqual(100, request["input_tokens"])
+        self.assertEqual(20, request["output_tokens"])
+        self.assertIsNone(request["cached_input_tokens"])
+        self.assertIsNone(request["reasoning_tokens"])
+        self.assertIsNone(request["cache_write_tokens"])
+        self.assertEqual("unknown", request["cache_write_semantics"])
+
+    def test_observations_preserve_request_when_cumulative_is_malformed(self) -> None:
+        entries = [session_entry(ROOT_ID), turn_entry("2026-08-23T10:01:00Z", "turn-1", "gpt-5.6-sol", "high"), token_entry("2026-08-23T10:01:10Z", usage(100, 80, 10, 5))]
+        entries[-1]["payload"]["info"]["total_token_usage"] = {"input_tokens": None}  # type: ignore[index]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_rollout(root, ROOT_ID, entries)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                self.assertEqual(0, audit.main(["--root", str(root), "--no-state-db", "--observations", "-"]))
+        rows = json.loads(stdout.getvalue())["observations"]
+        self.assertEqual(["request"], [row["kind"] for row in rows])
+
     def test_output_destinations_cannot_overwrite_inputs_or_each_other(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home = Path(temporary)

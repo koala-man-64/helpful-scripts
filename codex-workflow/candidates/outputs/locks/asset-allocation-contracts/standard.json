@@ -1,0 +1,266 @@
+{
+  "active_surface_skill_pins": [
+    {
+      "content_hash": "sha256:d728cdcaf3f7c2b80f951addeac6d89988a8c52c5aeead4d79601096f5d42ba9",
+      "content_hash_algorithm": "sha256",
+      "id": "workflow-router",
+      "source": {
+        "commit": "08ce4e66d48fdfebfcb5a01f676785176be9608b",
+        "path": "codex-workflow/skills/workflow-router",
+        "repository": "helpful-scripts"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "content_hash": "git-tree-sha1:c67ce6d3e929390147a3e87a8e4fd063a429f27b",
+      "content_hash_algorithm": "git-tree-sha1",
+      "id": "delivery-engineer-agent",
+      "source": {
+        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "path": ".codex/skills/delivery-engineer-agent",
+        "repository": "asset-allocation-contracts"
+      },
+      "version": "origin-snapshot"
+    },
+    {
+      "content_hash": "git-tree-sha1:1c27e4828defb212509b50ebbde60da9584bfbf5",
+      "content_hash_algorithm": "git-tree-sha1",
+      "id": "qa-release-gate-agent",
+      "source": {
+        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "path": ".codex/skills/qa-release-gate-agent",
+        "repository": "asset-allocation-contracts"
+      },
+      "version": "origin-snapshot"
+    },
+    {
+      "content_hash": "git-tree-sha1:26c4982ed6a92eed70933f5f73aeec5a0a9f57a3",
+      "content_hash_algorithm": "git-tree-sha1",
+      "id": "forensic-debugger",
+      "source": {
+        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "path": ".codex/skills/forensic-debugger",
+        "repository": "asset-allocation-contracts"
+      },
+      "version": "origin-snapshot"
+    },
+    {
+      "content_hash": "git-tree-sha1:d3f281266cb34e245e369ab1c8e544d073deec88",
+      "content_hash_algorithm": "git-tree-sha1",
+      "id": "azure-devops-cicd-expert",
+      "source": {
+        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "path": ".codex/skills/azure-devops-cicd-expert",
+        "repository": "asset-allocation-contracts"
+      },
+      "version": "origin-snapshot"
+    },
+    {
+      "content_hash": "git-tree-sha1:be83efcb9f8ecf41c2ca20cf2729a49dc737d553",
+      "content_hash_algorithm": "git-tree-sha1",
+      "id": "cloud-security-vulnerability-expert",
+      "source": {
+        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "path": ".codex/skills/cloud-security-vulnerability-expert",
+        "repository": "asset-allocation-contracts"
+      },
+      "version": "origin-snapshot"
+    },
+    {
+      "content_hash": "git-tree-sha1:00c18f54e18150227c83b635215a09f2674120e9",
+      "content_hash_algorithm": "git-tree-sha1",
+      "id": "db-steward",
+      "source": {
+        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "path": ".codex/skills/db-steward",
+        "repository": "asset-allocation-contracts"
+      },
+      "version": "origin-snapshot"
+    },
+    {
+      "content_hash": "git-tree-sha1:843b407f9638524148b4e01a78a25e0c8719565a",
+      "content_hash_algorithm": "git-tree-sha1",
+      "id": "project-workflow-enforcer-agent",
+      "source": {
+        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "path": ".codex/skills/project-workflow-enforcer-agent",
+        "repository": "asset-allocation-contracts"
+      },
+      "version": "origin-snapshot"
+    },
+    {
+      "content_hash": "git-tree-sha1:5c357bd326ce28e6f6a55e3aa389f840eeb5062b",
+      "content_hash_algorithm": "git-tree-sha1",
+      "id": "audit-workitem-for-spark",
+      "source": {
+        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "path": ".codex/skills/audit-workitem-for-spark",
+        "repository": "asset-allocation-contracts"
+      },
+      "version": "origin-snapshot"
+    },
+    {
+      "content_hash": "git-tree-sha1:f91324e539599d3ee954f7e789881572a1e41ad7",
+      "content_hash_algorithm": "git-tree-sha1",
+      "id": "runtime-ownership-enforcer",
+      "source": {
+        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "path": ".codex/skills/runtime-ownership-enforcer",
+        "repository": "asset-allocation-contracts"
+      },
+      "version": "origin-snapshot"
+    }
+  ],
+  "central_denials": [
+    "force_push",
+    "self_approval",
+    "protected_approval_bypass"
+  ],
+  "lane": "standard",
+  "lane_execution_plan": {
+    "children": [
+      {
+        "effort": "low",
+        "model": "Luna",
+        "required": true,
+        "role": "focused_qa"
+      },
+      {
+        "effort": "low",
+        "model": "Luna",
+        "required": false,
+        "role": "necessary_specialist"
+      }
+    ],
+    "gate_owners": {},
+    "maximum_children": 2,
+    "minimum_children": 1,
+    "orchestrator": false,
+    "owner": {
+      "effort": "medium",
+      "model": "Terra",
+      "role": "delivery_owner"
+    }
+  },
+  "lane_required_skill_ids": [
+    "workflow-router",
+    "delivery-engineer-agent",
+    "qa-release-gate-agent"
+  ],
+  "record_authority": {
+    "coordination_ledger": "none_by_default",
+    "jsonl": "regulated_audit_only_when_explicitly_required",
+    "mutation_evidence": "central_hooks",
+    "tracked_delivery": "azure_boards_when_applicable"
+  },
+  "repository": "asset-allocation-contracts",
+  "routing_contract": {
+    "artifacts": [
+      "asset-allocation-contracts==14.1.0",
+      "@asset-allocation/contracts@14.1.0",
+      "dist/codexRouting.*"
+    ],
+    "contract_version": "1.0.0",
+    "package_version": "14.1.0",
+    "profiles": {
+      "critical-root": {
+        "child": {
+          "effort": "medium",
+          "model": "gpt-5.6-terra",
+          "operating_lane": "delegated_child"
+        },
+        "delegation_authorization": "required",
+        "delegation_recommended": true,
+        "execution_profile": "default",
+        "operating_lane": "root_task",
+        "owner": {
+          "effort": "high",
+          "model": "gpt-5.6-sol"
+        },
+        "work_lane": "critical"
+      },
+      "lite-root": {
+        "delegation_authorization": "prohibited",
+        "delegation_recommended": false,
+        "execution_profile": "default",
+        "operating_lane": "root_task",
+        "owner": {
+          "effort": "low",
+          "model": "gpt-5.6-luna"
+        },
+        "work_lane": "lite"
+      },
+      "spark-root": {
+        "child_eligible": false,
+        "delegation_authorization": "prohibited",
+        "delegation_recommended": false,
+        "execution_profile": "spark",
+        "operating_lane": "root_task",
+        "owner": {
+          "effort": "low",
+          "model": "gpt-5.6-luna"
+        },
+        "work_lane": "lite"
+      },
+      "standard-root": {
+        "child": {
+          "effort": "low",
+          "model": "gpt-5.6-luna",
+          "operating_lane": "delegated_child"
+        },
+        "delegation_authorization": "required",
+        "delegation_recommended": true,
+        "execution_profile": "default",
+        "operating_lane": "root_task",
+        "owner": {
+          "effort": "medium",
+          "model": "gpt-5.6-terra"
+        },
+        "work_lane": "standard"
+      }
+    },
+    "source_commit": "756268a39d6eb2a4f7a3153f8bd6e55a0eaf9e81"
+  },
+  "schema_version": "consumer-lock-v2",
+  "selected_routing_policy": {
+    "effort": "medium",
+    "model": "Terra",
+    "role": "delivery_owner"
+  },
+  "task_participant_skill_ids": [
+    "delivery-engineer-agent",
+    "qa-release-gate-agent"
+  ],
+  "unresolved_forks": [
+    {
+      "id": "code-drift-sentinel",
+      "runnable": false,
+      "selection_blocked": true
+    },
+    {
+      "id": "data-engineer-data-architect-advisor",
+      "runnable": false,
+      "selection_blocked": true
+    },
+    {
+      "id": "delivery-orchestrator-agent",
+      "runnable": false,
+      "selection_blocked": true
+    },
+    {
+      "id": "git-hygiene-orchestrator",
+      "runnable": false,
+      "selection_blocked": true
+    },
+    {
+      "id": "project-workflow-auditor-agent",
+      "runnable": false,
+      "selection_blocked": true
+    },
+    {
+      "id": "provisioning-configuration-and-disaster-recovery-expert",
+      "runnable": false,
+      "selection_blocked": true
+    }
+  ]
+}

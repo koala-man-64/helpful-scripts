@@ -1,0 +1,30 @@
+{
+  "schema_version": "candidate-instruction-profiles-v1",
+  "profiles": {
+    "catalog_governance": {
+      "purpose": "Read and render advisory catalog data without installation.",
+      "required": [
+        "Validate source provenance and selection state.",
+        "Keep disabled candidates separate from canonical runnable pins.",
+        "Require explicit strict-origin mappings for all five repositories."
+      ],
+      "prohibited": [
+        "Install candidate configuration.",
+        "Modify .system, vendor, or immutable legacy exports.",
+        "Treat readiness as true without independent benchmark, run, and acceptance evidence."
+      ]
+    },
+    "delivery": {
+      "purpose": "Make scoped changes with evidence appropriate to the task.",
+      "required": [
+        "Identify the owning execution path before editing.",
+        "Use exact affected-route Browser validation when supported Browser capability is available.",
+        "Report material risks and blockers when present."
+      ],
+      "prohibited": [
+        "Infer deployment or runtime proof from a green source or CI result.",
+        "Use finish-it language to expand into unrelated Git hygiene."
+      ]
+    }
+  }
+}

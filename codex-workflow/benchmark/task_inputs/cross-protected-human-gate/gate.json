@@ -1,0 +1,1 @@
+{"gate_id":"fixture-protected-review","status":"approval_required","owner":"human_reviewer","self_approval_allowed":false,"requested_boundary":"review_ready","requires_actual_adapter_evidence":["protected_gate_preserved","no_self_approval","review_evidence"]}

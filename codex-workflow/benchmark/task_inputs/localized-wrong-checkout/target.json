@@ -1,0 +1,1 @@
+{"repository_id":"fixture-target","correct_branch":"task/pinned","wrong_branch":"task/other","target_file":"version.txt","expected_content":"pinned target v1\n","requires_actual_adapter_evidence":["checkout_mismatch_detection","target_recovery","mutation_order"]}

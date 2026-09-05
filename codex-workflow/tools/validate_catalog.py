@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import subprocess
 from pathlib import Path
 
 from catalog_lib import (
+    canonical_hash,
     canonical_git_hash,
     load_document,
     validate_schema,
@@ -112,6 +114,130 @@ def route(value, label, errors):
     return value
 
 
+def validate_candidate_sources(root: Path, errors: list[str]) -> None:
+    """Validate disabled candidate sources without treating them as active pins."""
+    try:
+        bundle = load_document(root / "candidates" / "bundle.json")
+    except (OSError, ValueError) as error:
+        errors.append(f"candidate bundle: {error}")
+        return
+    if not exact_keys(
+        bundle,
+        {"schema_version", "package", "installation", "activation", "sources"},
+        "candidate bundle",
+        errors,
+    ):
+        return
+    if (
+        bundle.get("schema_version") != "candidate-source-bundle-v1"
+        or bundle.get("package") != "codex-workflow"
+        or bundle.get("installation") != "disabled_not_installed"
+        or bundle.get("activation") is not False
+    ):
+        errors.append("candidate bundle installation contract is invalid")
+    sources = bundle.get("sources")
+    expected_ids = {
+        "compact-global-instructions",
+        "managed-subagent-task-contract",
+        "instruction-profiles",
+        "selection-policy",
+        "candidate-browser-evidence",
+        "candidate-git-hygiene",
+    }
+    if not isinstance(sources, list) or len(sources) != len(expected_ids):
+        errors.append("candidate source coverage is invalid")
+        return
+    seen = set()
+    candidate_root = root / "candidates"
+    for source in sources:
+        if not exact_keys(source, {"id", "path", "content_hash"}, "candidate source", errors):
+            continue
+        source_id, path, digest = source.get("id"), source.get("path"), source.get("content_hash")
+        seen.add(source_id)
+        if (
+            not isinstance(source_id, str)
+            or not isinstance(path, str)
+            or not path.startswith(("sources/", "skills/"))
+            or "/../" in f"/{path}"
+            or not isinstance(digest, str)
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+        ):
+            errors.append("candidate source metadata is invalid")
+            continue
+        source_path = candidate_root / path
+        if not source_path.resolve().is_relative_to(candidate_root.resolve()):
+            errors.append("candidate source escapes the owned source root")
+            continue
+        if not source_path.is_file() and not source_path.is_dir():
+            errors.append(f"candidate source is absent: {path}")
+            continue
+        actual = (
+            "sha256:" + hashlib.sha256(source_path.read_bytes()).hexdigest()
+            if source_path.is_file()
+            else canonical_hash(source_path)
+        )
+        if digest != actual:
+            errors.append(f"candidate source content hash does not match: {source_id}")
+    if seen != expected_ids:
+        errors.append("candidate source IDs are invalid")
+    try:
+        policy = load_document(candidate_root / "sources" / "selection-policy.json")
+    except (OSError, ValueError) as error:
+        errors.append(f"candidate selection policy: {error}")
+        return
+    if not exact_keys(
+        policy, {"schema_version", "skills", "language_references", "reuse"},
+        "candidate selection policy", errors,
+    ):
+        return
+    if policy.get("schema_version") != "candidate-selection-policy-v1" or policy.get(
+        "reuse"
+    ) != "retained_identical_applicable_context_only_no_automatic_cache":
+        errors.append("candidate selection policy metadata is invalid")
+    expected_skills = {
+        "candidate-browser-evidence": (
+            "skills/browser-evidence/SKILL.md", "rendered_or_interactive_state_material"
+        ),
+        "candidate-git-hygiene": (
+            "skills/git-hygiene-candidate/SKILL.md", "explicit_git_hygiene_or_cleanup"
+        ),
+    }
+    skills = policy.get("skills")
+    if not isinstance(skills, list) or len(skills) != len(expected_skills):
+        errors.append("candidate skill trigger coverage is invalid")
+    else:
+        for item in skills:
+            if not exact_keys(item, {"id", "path", "trigger", "references"}, "candidate skill trigger", errors):
+                continue
+            expected = expected_skills.get(item.get("id"))
+            if (
+                expected is None
+                or (item.get("path"), item.get("trigger")) != expected
+                or item.get("references") != []
+                or not (candidate_root / expected[0]).is_file()
+            ):
+                errors.append("candidate skill trigger or reference is invalid")
+    expected_languages = {"csharp", "python", "sql"}
+    references = policy.get("language_references")
+    if not isinstance(references, list) or {item.get("language") for item in references if isinstance(item, dict)} != expected_languages:
+        errors.append("candidate language reference coverage is invalid")
+    else:
+        for item in references:
+            if not exact_keys(item, {"language", "path", "select_when"}, "candidate language reference", errors):
+                continue
+            path, selections = item.get("path"), item.get("select_when")
+            if (
+                not isinstance(path, str)
+                or not path.startswith("references/")
+                or not (candidate_root / path).resolve().is_relative_to(candidate_root.resolve())
+                or not (candidate_root / path).is_file()
+                or not isinstance(selections, list)
+                or not selections
+                or not all(isinstance(selection, str) and selection for selection in selections)
+            ):
+                errors.append("candidate language reference is invalid")
+
+
 def validate(
     root: Path,
     repository_roots: dict[str, Path] | None = None,
@@ -144,6 +270,7 @@ def validate(
     surface = doc(root, "active-surface.yaml", errors)
     variants = doc(root, "observed-variants.yaml", errors)
     scenarios = doc(root, "routing-scenarios.yaml", errors)
+    validate_candidate_sources(root, errors)
     if (
         inventory.get("schema_version") != "origin-inventory-v1"
         or inventory.get("hash_algorithm") != "git-tree-sha1"

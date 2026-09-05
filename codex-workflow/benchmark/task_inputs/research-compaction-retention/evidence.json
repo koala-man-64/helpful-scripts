@@ -1,0 +1,1 @@
+{"decisions":["Contract owner is upstream.","Do NOT merge before human review.","A source receipt does not prove deployment.","Resume pending wait exactly once after completion."],"pins":{"contract":"fixture-schema-v2","lock":"fixture-lock-v1"},"blockers":["human_review","consumer_validation"]}

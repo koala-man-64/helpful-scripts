@@ -1,0 +1,143 @@
+{
+  "cross-child-review-recovery": {
+    "files": {
+      "owner/change.py": "sha256:317bcb56553a6777415419d1d2d306d252fbbf505a3113ca865da8c55d5a326e",
+      "review.json": "sha256:e3fd5afd43b8b71084f386ab619fa0b5db502728b662618f3e6d13c1489a133e",
+      "tests/test_change.py": "sha256:aa789b010a3fd771811d5b1834854c77e98c3549158b167a4182d00dcd38e383"
+    },
+    "input_digest": "sha256:ed15abad89791c20cc61413d36e6cbf2ba4c82071eb5aa7865e7273d727a5a60",
+    "test_command": [
+      "python",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tests"
+    ],
+    "validator": "review disposition/test receipt"
+  },
+  "cross-protected-human-gate": {
+    "files": {
+      "gate.json": "sha256:bb29c97f2a46d8d97e46355f6396264327aef64d4a37b1de9eaaf7b5f75c2926",
+      "upstream/change.txt": "sha256:8689c7f29e63e5be715264882c9b81d85877c0202c40f6e045b29d64abd322ed"
+    },
+    "input_digest": "sha256:1499f6cfa25c59ca7cf46e8651c40ffce29794f0ab87ee27be7534cd30ffc2b1",
+    "test_command": null,
+    "validator": "requires_actual_adapter_evidence"
+  },
+  "cross-stale-sha": {
+    "files": {
+      "downstream/contract.json": "sha256:8c581095675ca7886bf2e9c8ed52a39697228ecbf94bd43588006f24676577c1",
+      "request.json": "sha256:796654b2edf7a8672fc8471805348253053cfd2782bbc257a9df23bb01e1147d",
+      "upstream/contract.json": "sha256:a50033464434741effec60bc542016a47d149b40bf644673083454bfc28fdfda"
+    },
+    "input_digest": "sha256:63303bcfa1d6a51d9c496aa28bad40cade11ba12dd864cbaaa4069743fbc2f92",
+    "test_command": null,
+    "validator": "paired SHA receipts"
+  },
+  "cross-urgent-peer-negation": {
+    "files": {
+      "contract.json": "sha256:618d7396383c03dd5e58c331d520b1a3fb419778147b3d86dc0eb5672b91a6ad",
+      "peer_message.json": "sha256:df863734e52e8152a2b1ca395db5c64a09b1d6d88d169f11e4e78a885131d8c5"
+    },
+    "input_digest": "sha256:8b613f1ea4cfc22d49c2e67c65a11477ce6763fa5e056682bb8d13909dd3fbc1",
+    "test_command": null,
+    "validator": "fixed scope rejection"
+  },
+  "localized-failed-test": {
+    "bug": "remainder lost",
+    "files": {
+      "src/allocation.py": "sha256:b27dc821be7ca7ac489976f9154c71b4a2459c1a37a2510e2a1097c80d20127f",
+      "tests/test_allocation.py": "sha256:e3121c328996427d2e459c4a2f95803a244f46833043f41a605c09f655aff03e"
+    },
+    "input_digest": "sha256:e77de2670ba3bbbe1065f070658d387bba445349148ef21b237c65d7d2532040",
+    "test_command": [
+      "python",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tests"
+    ],
+    "validator": "offline pytest"
+  },
+  "localized-long-output": {
+    "files": {
+      "generate_log.py": "sha256:30432953798e141762d742673b2870cf3f8a71ce6d34698be745529be97f918a",
+      "src/route.py": "sha256:052dfafedf1ea0cba1ef67c39a768e967e07d9ee99e8601316e3265e6100b982",
+      "tests/test_routes.py": "sha256:90f14848f35a67c40ee330d8d735382a410d6ae8aa18b64f35678457a49d8c2a"
+    },
+    "generator": "python generate_log.py; exactly 153000 Unicode characters",
+    "input_digest": "sha256:d82b8620b6a88059a822fba77902ea3d2aaffc5349b2f01681bcfcfc95505c84",
+    "test_command": [
+      "python",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tests"
+    ],
+    "validator": "first failure/hash"
+  },
+  "localized-missing-dependency": {
+    "files": {
+      "request.json": "sha256:751fd3755892768406f51f97e8c7e4ef595682715edb3549bf6ef3d8e265abbd",
+      "requirements.txt": "sha256:924b53abbf07a68d2ac10a4a02a324cc1ea3ec61e25415c79ce509b5f1bd79ca",
+      "src/supported.py": "sha256:b4c05fd46ca4c73f78a6989f9022ef6651307d756775f35b1c0f8227ff1d3816",
+      "tests/test_supported.py": "sha256:37792d5840c7ad952455325d4456c9ef70ed42dee138634e4be29f24f34992ef"
+    },
+    "input_digest": "sha256:d19fea2d1d7b47e08d8d7045f446f614225524d4cf92f6039d3ee0b7d5d99c66",
+    "test_command": [
+      "python",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tests"
+    ],
+    "validator": "no install; lock unchanged"
+  },
+  "localized-wrong-checkout": {
+    "files": {
+      "target.json": "sha256:2b13f61fa2f060c79a52d5762c1625c8fc0ae1dee87ea081b74ff4960eea0329",
+      "version.txt": "sha256:9165ea0363835be31bcc2ee35583cfdcaae53d851bfa8d6a91a74d70dc64b5bc"
+    },
+    "input_digest": "sha256:886b43291925cdb0581c38f2e7230b11199f91827f8a99951a8e08387a34e58c",
+    "test_command": null,
+    "validator": "scratch-only wrong HEAD then pinned HEAD"
+  },
+  "research-clarification-and-failure": {
+    "files": {
+      "ambiguous-request.json": "sha256:fb74c45038de8cdfbbfa76a3250291ca841364b3844e4dd8eb5116687cea4591",
+      "failed-validation.json": "sha256:2bb7d03c0720ce1c6f72676ea45c81a0dd30e35634feea779c367fa8b6c15c7b"
+    },
+    "input_digest": "sha256:fd888fc5010fae438942256a6df43f73a33c8e58f783b7955c9ade2fdcde0bbe",
+    "test_command": null,
+    "validator": "failure retained; one material question"
+  },
+  "research-compaction-retention": {
+    "files": {
+      "checklist.json": "sha256:7e105098097db77b71e5e6731c088a4b57daa681e223d2a520f836cd550373f5",
+      "evidence.json": "sha256:5ab11cda48553c0f585ee3d391807c8178c0f5ed2302bbb2698683eb15ca5c64"
+    },
+    "input_digest": "sha256:a3494ec7dd18142ab2d108adb959f750a2ef3aab9742c84718ad58fba2116ad8",
+    "test_command": null,
+    "validator": "requires_actual_adapter_evidence"
+  },
+  "research-external-fixture": {
+    "files": {
+      "comparison.json": "sha256:78db40ee1908d6af8a6f789fb8affc28b503709ce3b2f606e88e07b12e9af2d7"
+    },
+    "input_digest": "sha256:e3772115a5873e76d39a1b620e1a6277a1b969bc4fb729c08d84f921183eb8ed",
+    "test_command": null,
+    "validator": "fixture digest only"
+  },
+  "research-resumable-wait": {
+    "files": {
+      "service_fixture.json": "sha256:3da5d68211a03e8278bba86318281f9419eda134d368890fca219187e3b133c6"
+    },
+    "input_digest": "sha256:752c77a2a8049a4002511e64c967ba4f19397864f767011c8028c52d1584be55",
+    "test_command": null,
+    "validator": "requires_actual_adapter_evidence"
+  }
+}

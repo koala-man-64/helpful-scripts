@@ -1,0 +1,1 @@
+{"task_id":"localized-failed-test","files":{"src/allocation.py":"def split(cents,n): return [cents//n]*n","tests/test_allocation.py":"assert sum(split(10,3)) == 10"},"command":"python -m pytest tests/test_allocation.py","expected":"failing allocation rounding test; fix distributes remainder","validator_plan":"run named offline test; inspect narrow diff"}

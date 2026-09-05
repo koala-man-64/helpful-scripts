@@ -15,10 +15,12 @@ def render(
     lane: str,
     repository_roots: dict[str, Path] | None = None,
     strict_origin: bool = False,
+    validate_catalog: bool = True,
 ) -> dict[str, object]:
-    errors = validate(root, repository_roots, strict_origin)
-    if errors:
-        raise ValueError("catalog is invalid: " + "; ".join(errors))
+    if validate_catalog:
+        errors = validate(root, repository_roots, strict_origin)
+        if errors:
+            raise ValueError("catalog is invalid: " + "; ".join(errors))
     manifest = load_document(root / "catalog" / "skills.yaml")
     surface = load_document(root / "catalog" / "active-surface.yaml")
     decisions = load_document(root / "catalog" / "skill-decisions.yaml")

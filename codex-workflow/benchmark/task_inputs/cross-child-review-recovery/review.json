@@ -1,0 +1,1 @@
+{"findings":[{"id":"R1","file":"owner/change.py","issue":"negative quantities are accepted","expected":"raise ValueError"},{"id":"R2","file":"owner/change.py","issue":"rewrite service framework","expected_disposition":"out_of_scope"}],"requires_actual_adapter_evidence":["child_execution","review_disposition","recovery_validation"]}

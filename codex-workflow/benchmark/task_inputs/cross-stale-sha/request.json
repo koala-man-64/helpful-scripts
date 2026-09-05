@@ -1,0 +1,1 @@
+{"authoring_owner":"upstream","consumer":"downstream","target_schema_version":2,"required_fields":["quantity","unit"],"requires_actual_adapter_evidence":["upstream_sha","stale_downstream_sha","approved_refresh","sha_revalidation_before_mutation"]}

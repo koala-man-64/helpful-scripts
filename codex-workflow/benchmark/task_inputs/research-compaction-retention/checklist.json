@@ -1,0 +1,1 @@
+{"required_retention":["decisions","pins","blockers"],"requires_actual_adapter_evidence":["pre_compaction_context","host_compaction_boundary","post_compaction_continuation"]}

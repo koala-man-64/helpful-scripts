@@ -1,0 +1,1 @@
+{"task_id":"localized-long-output","files":{"logs/build.log":"deterministically generated 153600-character log; first failure marker is BUILD-417"},"expected":"identify BUILD-417 and preserve raw receipt reference","validator_plan":"generate log with 'x'*153000 plus marker; verify first marker and hash"}
