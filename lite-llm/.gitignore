@@ -1,0 +1,4 @@
+# Keep edited configurations and diagnostic output local.
+settings.json
+config.yaml
+*.log
