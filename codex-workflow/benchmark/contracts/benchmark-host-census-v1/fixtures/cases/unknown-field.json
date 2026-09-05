@@ -1,0 +1,191 @@
+{
+  "schema_version": "benchmark-host-census-v1",
+  "run_id": "synthetic-run",
+  "run_set_digest": "sha256:c127373c18b8a1689c6134b25bfd993106689c86dc29a78db018b08e9ef43002",
+  "manifest_digest": "sha256:c127373c18b8a1689c6134b25bfd993106689c86dc29a78db018b08e9ef43002",
+  "capture_id": "synthetic-capture",
+  "producer_digest": "sha256:c127373c18b8a1689c6134b25bfd993106689c86dc29a78db018b08e9ef43002",
+  "runtime_digest": "sha256:c127373c18b8a1689c6134b25bfd993106689c86dc29a78db018b08e9ef43002",
+  "protocol_digest": "sha256:c127373c18b8a1689c6134b25bfd993106689c86dc29a78db018b08e9ef43002",
+  "artifacts": {
+    "capture": {
+      "path": "raw/capture.jsonl",
+      "digest": "sha256:fc751fc939a0bfbc4fc03d6b35ba063140f49631f867f6e96b0e51082c2188f6",
+      "byte_length": 546,
+      "sealed_at": "2026-09-05T00:00:00Z",
+      "kind": "fixture"
+    }
+  },
+  "segments": [
+    {
+      "id": "segment-0",
+      "sequence": 0,
+      "prior_segment_id": null,
+      "start": {
+        "artifact_id": "capture",
+        "offset": 0,
+        "length": 68,
+        "frame_digest": "sha256:904ac6e6546af1bc0ae1f1cd71be0a09b54521580f83d473eb50bc3216bf0648"
+      },
+      "stop": {
+        "artifact_id": "capture",
+        "offset": 131,
+        "length": 63,
+        "frame_digest": "sha256:527be97a6947014e87def99f996a9be5a882591604dbf269a158aa1f68f5702d"
+      },
+      "cutoff": {
+        "artifact_id": "capture",
+        "offset": 131,
+        "length": 63,
+        "frame_digest": "sha256:527be97a6947014e87def99f996a9be5a882591604dbf269a158aa1f68f5702d"
+      },
+      "closed": true,
+      "recovery_proof": null,
+      "partial_reasons": [
+        "synthetic_capture_is_not_host_authority"
+      ]
+    }
+  ],
+  "attempts": [
+    {
+      "id": "root",
+      "role": "root",
+      "root_attempt_id": "root",
+      "parent_attempt_id": null,
+      "retry_of": null,
+      "thread_id": "root-thread",
+      "turn_id": "turn-1",
+      "dispatch": {
+        "artifact_id": "capture",
+        "offset": 0,
+        "length": 68,
+        "frame_digest": "sha256:904ac6e6546af1bc0ae1f1cd71be0a09b54521580f83d473eb50bc3216bf0648"
+      },
+      "ownership": {
+        "artifact_id": "capture",
+        "offset": 68,
+        "length": 63,
+        "frame_digest": "sha256:e4ef8718b4f2034709fe9aca7ab3ad689fc9bea2eb83a21234f7d2fc46dfc365"
+      },
+      "terminal": {
+        "artifact_id": "capture",
+        "offset": 131,
+        "length": 63,
+        "frame_digest": "sha256:527be97a6947014e87def99f996a9be5a882591604dbf269a158aa1f68f5702d"
+      },
+      "terminal_status": "completed",
+      "request_ids": [
+        "request-1"
+      ],
+      "partial_reasons": [
+        "synthetic_capture_is_not_host_authority"
+      ]
+    }
+  ],
+  "requests": [
+    {
+      "id": "request-1",
+      "attempt_id": "root",
+      "segment_id": "segment-0",
+      "rpc_id": 1,
+      "provider_response_id": "response-1",
+      "dispatch": {
+        "artifact_id": "capture",
+        "offset": 0,
+        "length": 68,
+        "frame_digest": "sha256:904ac6e6546af1bc0ae1f1cd71be0a09b54521580f83d473eb50bc3216bf0648"
+      },
+      "usage_event": {
+        "artifact_id": "capture",
+        "offset": 194,
+        "length": 86,
+        "frame_digest": "sha256:1808a02318b3d820f8487f13e97a59c9b176ad8f7f49c6bef3348569aa447c50"
+      },
+      "usage_source_id": "fixture-source",
+      "usage_event_id": "fixture-event-1",
+      "context": {
+        "product": null,
+        "pricing_scope": null,
+        "model": null,
+        "effort": null,
+        "mode": null,
+        "regional": null,
+        "request_input_tokens": null,
+        "provenance": {},
+        "effective_at": null
+      },
+      "partial_reasons": [
+        "request_context_unavailable",
+        "synthetic_usage_is_not_admitted"
+      ]
+    }
+  ],
+  "host_events": [],
+  "scenarios": [
+    {
+      "task_id": "cross-urgent-peer-negation",
+      "invariants": {
+        "peer_request_recorded": [],
+        "scope_preserved": [],
+        "unauthorized_change_rejected": [],
+        "followup_identified": []
+      },
+      "partial_reasons": [
+        "actual_host_path_not_executed"
+      ]
+    },
+    {
+      "task_id": "cross-child-review-recovery",
+      "invariants": {
+        "child_evidence_retained": [],
+        "review_findings_dispositioned": [],
+        "impacted_validation": [],
+        "scope_preserved": []
+      },
+      "partial_reasons": [
+        "actual_host_path_not_executed"
+      ]
+    },
+    {
+      "task_id": "research-compaction-retention",
+      "invariants": {
+        "load_bearing_retention": [],
+        "pins_retained": [],
+        "blockers_retained": [],
+        "unknowns_explicit": []
+      },
+      "partial_reasons": [
+        "actual_host_path_not_executed"
+      ]
+    },
+    {
+      "task_id": "research-resumable-wait",
+      "invariants": {
+        "supported_wait_used": [],
+        "wait_receipt_retained": [],
+        "single_continuation": [],
+        "dependent_work_resumed": []
+      },
+      "partial_reasons": [
+        "actual_host_path_not_executed"
+      ]
+    }
+  ],
+  "reconciliation": {
+    "scope_closure": null,
+    "terminal_cutoff": null,
+    "enumeration_refs": [],
+    "pending_rpc_ids": [],
+    "pending_server_request_refs": [],
+    "missing_attempt_ids": [],
+    "conflicting_ids": [],
+    "partial_reasons": [
+      "host_scope_closure_unavailable",
+      "synthetic_fixture_only"
+    ],
+    "complete_accounting": false,
+    "host_semantics_verified": false,
+    "promotion_eligible": false
+  },
+  "accepted": true
+}

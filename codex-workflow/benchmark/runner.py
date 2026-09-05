@@ -64,7 +64,7 @@ def study_capabilities() -> dict[str, Any]:
             "central acceptance of separate request-price derivations and verified product/configuration context; original usage prices remain null",
             "admitted host-census contract and independent verification of actual host semantics and closure",
         ],
-        "implemented": ["fixed preparation", "explicit CodexExecAdapter API", "raw execution receipt collection", "artifact verification", "eight deterministic semantic evaluators", "sealed app-server frame reading", "attributed host-event diagnostics"],
+        "implemented": ["fixed preparation", "explicit CodexExecAdapter API", "raw execution receipt collection", "artifact verification", "eight deterministic semantic evaluators", "sealed app-server frame reading", "attributed host-event diagnostics", "approved pinned host-census contract and partial census producer"],
     }
 
 
@@ -192,6 +192,13 @@ def main() -> int:
     host.add_argument("--artifact-root", type=Path, required=True)
     host.add_argument("--run-id", required=True)
     host.add_argument("--output", type=Path, required=True)
+    census = commands.add_parser("produce-host-census", help="retain a pinned, explicitly partial host census")
+    census.add_argument("--capture", type=Path, required=True)
+    census.add_argument("--artifact-root", type=Path, required=True)
+    census.add_argument("--run-id", required=True)
+    census.add_argument("--pins", type=Path, required=True)
+    census.add_argument("--sealed-at", required=True)
+    census.add_argument("--output", type=Path, required=True)
     pricing = commands.add_parser("derive-pricing", help="retain request estimates separately from unmodified usage")
     pricing.add_argument("--usage", type=Path, required=True)
     pricing.add_argument("--contexts", type=Path, required=True)
@@ -223,6 +230,14 @@ def main() -> int:
                                      "digest": "sha256:" + hashlib.sha256(raw).hexdigest()}
             write_new(args.output, result)
             print(json.dumps({"inspected": True, "capability": "diagnostic_only", "promotion_eligible": False}))
+            return 0
+        if args.command == "produce-host-census":
+            from .census_contract import strict_json
+            from .host_census import build_partial_census
+            result = build_partial_census(args.capture, args.artifact_root, run_id=args.run_id,
+                                          expected_pins=strict_json(args.pins.read_bytes()), sealed_at=args.sealed_at)
+            write_new(args.output, result)
+            print(json.dumps({"produced": True, "disposition": "partial", "promotion_eligible": False}))
             return 0
         if args.command == "derive-pricing":
             result = derive_request_prices(args.usage, args.contexts, hook_source=args.hook_source,

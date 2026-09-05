@@ -1,0 +1,10 @@
+{
+  "synthetic": true,
+  "expected_pins": {
+    "run_set_digest": "sha256:c127373c18b8a1689c6134b25bfd993106689c86dc29a78db018b08e9ef43002",
+    "manifest_digest": "sha256:c127373c18b8a1689c6134b25bfd993106689c86dc29a78db018b08e9ef43002",
+    "producer_digest": "sha256:c127373c18b8a1689c6134b25bfd993106689c86dc29a78db018b08e9ef43002",
+    "runtime_digest": "sha256:c127373c18b8a1689c6134b25bfd993106689c86dc29a78db018b08e9ef43002",
+    "protocol_digest": "sha256:c127373c18b8a1689c6134b25bfd993106689c86dc29a78db018b08e9ef43002"
+  }
+}

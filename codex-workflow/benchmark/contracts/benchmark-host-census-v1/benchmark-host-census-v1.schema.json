@@ -1,0 +1,975 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:asset-allocation:workflow:benchmark-host-census-v1",
+  "title": "Benchmark host census v1",
+  "description": "Structural producer evidence only. Validity does not prove authenticity, completeness, pricing, host semantics, or promotion eligibility.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "benchmark-host-census-v1"
+    },
+    "run_id": {
+      "$ref": "#/$defs/Id"
+    },
+    "run_set_digest": {
+      "$ref": "#/$defs/Digest"
+    },
+    "manifest_digest": {
+      "$ref": "#/$defs/Digest"
+    },
+    "capture_id": {
+      "$ref": "#/$defs/Id"
+    },
+    "producer_digest": {
+      "$ref": "#/$defs/Digest"
+    },
+    "runtime_digest": {
+      "$ref": "#/$defs/Digest"
+    },
+    "protocol_digest": {
+      "$ref": "#/$defs/Digest"
+    },
+    "artifacts": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/Artifact"
+      }
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Segment"
+      }
+    },
+    "attempts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Attempt"
+      }
+    },
+    "requests": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Request"
+      }
+    },
+    "host_events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/HostEvent"
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Scenario"
+      }
+    },
+    "reconciliation": {
+      "$ref": "#/$defs/Reconciliation"
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "run_set_digest",
+    "manifest_digest",
+    "capture_id",
+    "producer_digest",
+    "runtime_digest",
+    "protocol_digest",
+    "artifacts",
+    "segments",
+    "attempts",
+    "requests",
+    "host_events",
+    "scenarios",
+    "reconciliation"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "Digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "UtcTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|\\+00:00)(?![\\s\\S])"
+    },
+    "RelativePath": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*(?![\\s\\S])"
+    },
+    "EventRef": {
+      "type": "object",
+      "properties": {
+        "artifact_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "frame_digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "offset",
+        "length",
+        "frame_digest"
+      ],
+      "additionalProperties": false
+    },
+    "Artifact": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/RelativePath"
+        },
+        "digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "byte_length": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sealed_at": {
+          "$ref": "#/$defs/UtcTimestamp"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "outbound",
+            "inbound",
+            "stderr",
+            "rollout",
+            "host",
+            "fixture",
+            "workspace",
+            "usage_export",
+            "pricing_context"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "digest",
+        "byte_length",
+        "sealed_at",
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "Segment": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "prior_segment_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "start": {
+          "$ref": "#/$defs/EventRef"
+        },
+        "stop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cutoff": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "closed": {
+          "type": "boolean"
+        },
+        "recovery_proof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "partial_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "id",
+        "sequence",
+        "prior_segment_id",
+        "start",
+        "stop",
+        "cutoff",
+        "closed",
+        "recovery_proof",
+        "partial_reasons"
+      ],
+      "additionalProperties": false
+    },
+    "Attempt": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "root",
+            "child",
+            "review",
+            "retry",
+            "recovery",
+            "clarification"
+          ]
+        },
+        "root_attempt_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "parent_attempt_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retry_of": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "thread_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "turn_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dispatch": {
+          "$ref": "#/$defs/EventRef"
+        },
+        "ownership": {
+          "$ref": "#/$defs/EventRef"
+        },
+        "terminal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "terminal_status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "failed",
+            "interrupted",
+            "pending",
+            "unknown"
+          ]
+        },
+        "request_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          }
+        },
+        "partial_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "root_attempt_id",
+        "parent_attempt_id",
+        "retry_of",
+        "thread_id",
+        "turn_id",
+        "dispatch",
+        "ownership",
+        "terminal",
+        "terminal_status",
+        "request_ids",
+        "partial_reasons"
+      ],
+      "additionalProperties": false
+    },
+    "RequestContext": {
+      "type": "object",
+      "properties": {
+        "product": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "codex",
+                "api"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pricing_scope": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "request",
+                "aggregate"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "effort": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "standard",
+                "fast"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "regional": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "request_input_tokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "product": {
+              "$ref": "#/$defs/EventRef"
+            },
+            "pricing_scope": {
+              "$ref": "#/$defs/EventRef"
+            },
+            "model": {
+              "$ref": "#/$defs/EventRef"
+            },
+            "effort": {
+              "$ref": "#/$defs/EventRef"
+            },
+            "mode": {
+              "$ref": "#/$defs/EventRef"
+            },
+            "regional": {
+              "$ref": "#/$defs/EventRef"
+            },
+            "request_input_tokens": {
+              "$ref": "#/$defs/EventRef"
+            }
+          },
+          "additionalProperties": false
+        },
+        "effective_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "product",
+        "pricing_scope",
+        "model",
+        "effort",
+        "mode",
+        "regional",
+        "request_input_tokens",
+        "provenance",
+        "effective_at"
+      ],
+      "additionalProperties": false
+    },
+    "Request": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "segment_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "rpc_id": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider_response_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dispatch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usage_event": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usage_source_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usage_event_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "$ref": "#/$defs/RequestContext"
+        },
+        "partial_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "id",
+        "attempt_id",
+        "segment_id",
+        "rpc_id",
+        "provider_response_id",
+        "dispatch",
+        "usage_event",
+        "usage_source_id",
+        "usage_event_id",
+        "context",
+        "partial_reasons"
+      ],
+      "additionalProperties": false
+    },
+    "HostEvent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "attempt_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "peer_delivery",
+            "child_admission",
+            "review_delivery",
+            "compaction_boundary",
+            "wait_registered",
+            "wait_completed",
+            "continuation_dispatched",
+            "attempt_recovered",
+            "scope_closed"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/EventRef"
+        },
+        "related_event_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "attempt_id",
+        "kind",
+        "source",
+        "related_event_ids"
+      ],
+      "additionalProperties": false
+    },
+    "Scenario": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "const": "cross-urgent-peer-negation",
+              "type": "string"
+            },
+            "invariants": {
+              "type": "object",
+              "properties": {
+                "peer_request_recorded": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                },
+                "scope_preserved": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                },
+                "unauthorized_change_rejected": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                },
+                "followup_identified": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                }
+              },
+              "required": [
+                "peer_request_recorded",
+                "scope_preserved",
+                "unauthorized_change_rejected",
+                "followup_identified"
+              ],
+              "additionalProperties": false
+            },
+            "partial_reasons": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "task_id",
+            "invariants",
+            "partial_reasons"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "const": "cross-child-review-recovery",
+              "type": "string"
+            },
+            "invariants": {
+              "type": "object",
+              "properties": {
+                "child_evidence_retained": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                },
+                "review_findings_dispositioned": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                },
+                "impacted_validation": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                },
+                "scope_preserved": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                }
+              },
+              "required": [
+                "child_evidence_retained",
+                "review_findings_dispositioned",
+                "impacted_validation",
+                "scope_preserved"
+              ],
+              "additionalProperties": false
+            },
+            "partial_reasons": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "task_id",
+            "invariants",
+            "partial_reasons"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "const": "research-compaction-retention",
+              "type": "string"
+            },
+            "invariants": {
+              "type": "object",
+              "properties": {
+                "load_bearing_retention": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                },
+                "pins_retained": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                },
+                "blockers_retained": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                },
+                "unknowns_explicit": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                }
+              },
+              "required": [
+                "load_bearing_retention",
+                "pins_retained",
+                "blockers_retained",
+                "unknowns_explicit"
+              ],
+              "additionalProperties": false
+            },
+            "partial_reasons": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "task_id",
+            "invariants",
+            "partial_reasons"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "const": "research-resumable-wait",
+              "type": "string"
+            },
+            "invariants": {
+              "type": "object",
+              "properties": {
+                "supported_wait_used": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                },
+                "wait_receipt_retained": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                },
+                "single_continuation": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                },
+                "dependent_work_resumed": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/EventRef"
+                  }
+                }
+              },
+              "required": [
+                "supported_wait_used",
+                "wait_receipt_retained",
+                "single_continuation",
+                "dependent_work_resumed"
+              ],
+              "additionalProperties": false
+            },
+            "partial_reasons": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "required": [
+            "task_id",
+            "invariants",
+            "partial_reasons"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Reconciliation": {
+      "type": "object",
+      "properties": {
+        "scope_closure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "terminal_cutoff": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enumeration_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventRef"
+          }
+        },
+        "pending_rpc_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          }
+        },
+        "pending_server_request_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EventRef"
+          }
+        },
+        "missing_attempt_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          }
+        },
+        "conflicting_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Id"
+          }
+        },
+        "partial_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "complete_accounting": {
+          "type": "boolean",
+          "const": false
+        },
+        "host_semantics_verified": {
+          "type": "boolean",
+          "const": false
+        },
+        "promotion_eligible": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "scope_closure",
+        "terminal_cutoff",
+        "enumeration_refs",
+        "pending_rpc_ids",
+        "pending_server_request_refs",
+        "missing_attempt_ids",
+        "conflicting_ids",
+        "partial_reasons",
+        "complete_accounting",
+        "host_semantics_verified",
+        "promotion_eligible"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

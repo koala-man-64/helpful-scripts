@@ -1,0 +1,7 @@
+{"synthetic": true, "kind": "dispatch", "thread_id": "root-thread"}
+{"synthetic": true, "kind": "ownership", "attempt_id": "root"}
+{"synthetic": true, "kind": "terminal", "status": "completed"}
+{"synthetic": true, "kind": "usage", "response_id": "response-1", "input_tokens": 10}
+{"synthetic": true, "kind": "context", "request_id": "request-1", "model": "fixture-model"}
+{"synthetic": true, "kind": "scope_closed", "note": "A label is not host authority: café"}
+{"synthetic": true, "kind": "continuation_dispatched", "origin": "manual_resume"}

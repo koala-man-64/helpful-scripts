@@ -1,0 +1,10 @@
+{
+  "artifact_name": "benchmark-host-census-v1",
+  "build_id": 21298,
+  "manifest_digest": "sha256:d0b9c38639d7b2dc630b063f7c9c1a375e9e5a081b2aa0fdd5eb2d082a264789",
+  "payload_digest": "sha256:98e6c920cac1a0b826ded12115ccc7ca9c778a9418e9c4566202b91f2ed0f337",
+  "publication_version": "workflow-contract-publication-v1",
+  "source_commit": "fde0edd62aff25fa466eebaefe2becaf1ca19423",
+  "source_path": "workflow-contracts/benchmark-host-census/v1",
+  "source_repository": "https://dev.azure.com/rdprokes/AdaptiveAssetAllocation/_git/asset-allocation-contracts"
+}
