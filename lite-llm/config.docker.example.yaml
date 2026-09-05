@@ -1,0 +1,17 @@
+# Copy your existing deployment parameters here; do not change working auth.
+# If using Azure AD instead of an API key, retain your working token settings.
+model_list:
+  - model_name: foundry-sonnet
+    litellm_params:
+      model: azure_ai/<FOUNDRY_MODEL>
+      api_base: "<FOUNDRY_ENDPOINT>"
+      api_key: os.environ/AZURE_AI_API_KEY
+  - model_name: foundry-opus
+    litellm_params:
+      model: azure_ai/<FOUNDRY_MODEL>
+      api_base: "<FOUNDRY_ENDPOINT>"
+      api_key: os.environ/AZURE_AI_API_KEY
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+litellm_settings:
+  telemetry: false

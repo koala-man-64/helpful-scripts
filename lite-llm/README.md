@@ -132,3 +132,5 @@ debug output can contain request content or credentials.
 Live Foundry routing is not verified by these templates. Run the test after
 substituting your existing values. Keep secrets in your local working files;
 `config.yaml`, `settings.json`, and `*.log` are ignored in this folder.
+
+For a local Docker deployment, use [the Compose instructions](DOCKER.md).
