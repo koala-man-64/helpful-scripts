@@ -320,7 +320,7 @@ def requires_bookkeeper_recap(text: str) -> bool:
 def compact_agent_summary(
     sequence: str, *, tracking_required: bool, finish_required: bool
 ) -> tuple[str, str]:
-    required = ["delivery-orchestrator-agent"]
+    required: list[str] = []
     if tracking_required:
         required.append(TRACKING_STEP)
     if finish_required:
@@ -337,7 +337,9 @@ def compact_agent_summary(
             .replace("relevant ", "")
             .strip()
         )
-        if not cleaned or cleaned in required:
+        # Orchestration is selected by the authoritative operating lane, not a
+        # topic keyword or a legacy specialist sequence.
+        if not cleaned or cleaned in required or cleaned == "delivery-orchestrator-agent":
             continue
         if cleaned == TRACKING_STEP and tracking_required:
             continue

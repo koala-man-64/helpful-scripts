@@ -25,7 +25,7 @@ def main() -> int:
             f"- Working tree: {dirty_summary(root)}",
             f"- Core team definitions missing: {missing_text}",
             "- Follow CLAUDE.md and prefer repo-local .claude/agents and .claude/skills definitions.",
-            "- Start substantive work through delivery-orchestrator-agent.",
+            "- Follow the selected operating lane; use delivery-orchestrator-agent only when that lane requires it.",
             "- Record Azure DevOps tracking only for auditable multi-repo, PR, CI/CD, deployment, or Azure Boards work.",
             "- Work on a task-owned branch and finish through commit, push, and PR rather than pushing to protected branches.",
             "- Classify changes as local-only or contracts-repo-first before editing shared API, schema, serialization, or mirrored contract shapes.",
