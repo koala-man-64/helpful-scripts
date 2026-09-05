@@ -16,7 +16,7 @@
       "content_hash_algorithm": "git-tree-sha1",
       "id": "delivery-engineer-agent",
       "source": {
-        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "commit": "f7892147ce7f7c759c1e41c8128e20421d8847c0",
         "path": ".codex/skills/delivery-engineer-agent",
         "repository": "asset-allocation-contracts"
       },
@@ -27,7 +27,7 @@
       "content_hash_algorithm": "git-tree-sha1",
       "id": "qa-release-gate-agent",
       "source": {
-        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "commit": "f7892147ce7f7c759c1e41c8128e20421d8847c0",
         "path": ".codex/skills/qa-release-gate-agent",
         "repository": "asset-allocation-contracts"
       },
@@ -38,7 +38,7 @@
       "content_hash_algorithm": "git-tree-sha1",
       "id": "forensic-debugger",
       "source": {
-        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "commit": "f7892147ce7f7c759c1e41c8128e20421d8847c0",
         "path": ".codex/skills/forensic-debugger",
         "repository": "asset-allocation-contracts"
       },
@@ -49,7 +49,7 @@
       "content_hash_algorithm": "git-tree-sha1",
       "id": "azure-devops-cicd-expert",
       "source": {
-        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "commit": "f7892147ce7f7c759c1e41c8128e20421d8847c0",
         "path": ".codex/skills/azure-devops-cicd-expert",
         "repository": "asset-allocation-contracts"
       },
@@ -60,7 +60,7 @@
       "content_hash_algorithm": "git-tree-sha1",
       "id": "cloud-security-vulnerability-expert",
       "source": {
-        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "commit": "f7892147ce7f7c759c1e41c8128e20421d8847c0",
         "path": ".codex/skills/cloud-security-vulnerability-expert",
         "repository": "asset-allocation-contracts"
       },
@@ -71,18 +71,18 @@
       "content_hash_algorithm": "git-tree-sha1",
       "id": "db-steward",
       "source": {
-        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "commit": "f7892147ce7f7c759c1e41c8128e20421d8847c0",
         "path": ".codex/skills/db-steward",
         "repository": "asset-allocation-contracts"
       },
       "version": "origin-snapshot"
     },
     {
-      "content_hash": "git-tree-sha1:843b407f9638524148b4e01a78a25e0c8719565a",
+      "content_hash": "git-tree-sha1:2c178f274796aacc7feba7edf9e1e0c324b26ef7",
       "content_hash_algorithm": "git-tree-sha1",
       "id": "project-workflow-enforcer-agent",
       "source": {
-        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "commit": "f7892147ce7f7c759c1e41c8128e20421d8847c0",
         "path": ".codex/skills/project-workflow-enforcer-agent",
         "repository": "asset-allocation-contracts"
       },
@@ -93,7 +93,7 @@
       "content_hash_algorithm": "git-tree-sha1",
       "id": "audit-workitem-for-spark",
       "source": {
-        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "commit": "f7892147ce7f7c759c1e41c8128e20421d8847c0",
         "path": ".codex/skills/audit-workitem-for-spark",
         "repository": "asset-allocation-contracts"
       },
@@ -104,7 +104,7 @@
       "content_hash_algorithm": "git-tree-sha1",
       "id": "runtime-ownership-enforcer",
       "source": {
-        "commit": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+        "commit": "f7892147ce7f7c759c1e41c8128e20421d8847c0",
         "path": ".codex/skills/runtime-ownership-enforcer",
         "repository": "asset-allocation-contracts"
       },

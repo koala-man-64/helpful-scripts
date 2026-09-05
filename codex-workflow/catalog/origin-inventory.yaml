@@ -6,7 +6,7 @@
     {
       "id": "asset-allocation-contracts",
       "origin_ref": "origin/main",
-      "origin_sha": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+      "origin_sha": "f7892147ce7f7c759c1e41c8128e20421d8847c0",
       "skill_root": ".codex/skills"
     },
     {
@@ -93,4 +93,3 @@
     "scope": "out_of_shared_scope"
   }
 }
-
