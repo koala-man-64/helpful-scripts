@@ -254,10 +254,11 @@ def main() -> int:
     context = "\n".join(
         [
             "Team workflow routing:",
-            f"- Lane: {lane}",
+            f"- Topic: {lane}",
+            "- Apply the selected operating lane before considering optional specialists; topic hints do not select models, effort, delegation, or permissions.",
             f"- Work kind: {work_kind}",
-            f"- Required agents: {required_agents}",
-            f"- Optional agents: {optional_agents}",
+            f"- Required workflow steps: {required_agents}",
+            f"- Optional steps within the selected lane: {optional_agents}",
             f"- Tracking required: {'yes' if tracking_required else 'no'}",
             f"- Finish workflow required: {'yes' if finish_required else 'no'}",
             "- Blanket finish approval: when task-owned files change and the user does not explicitly limit scope, complete the git finish workflow (commit, push, PR, merge/completion) before closeout instead of waiting for a separate 'finish it' prompt.",
