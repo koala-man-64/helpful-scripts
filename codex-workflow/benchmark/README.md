@@ -24,6 +24,8 @@ older audit.
 `CodexExecAdapter` uses the supported `codex exec --json` interface with an explicit
 model and `model_reasoning_effort` override and sends the fixed prompt on stdin.
 It revalidates the task worktree, HEAD, locks and skill pins before dispatch. Its
+runtime preflight additionally requires the pinned absolute executable and an
+immutable captured catalog advertising the requested model and effort. Its
 owned process call uses `tools.output_projection.run_process`, preserving the real
 exit status and raw combined output. It does not change CODEX_HOME, install global
 instructions, disable hooks, bypass approvals, or start benchmark tasks implicitly.
@@ -54,9 +56,18 @@ research checks recompute the structured answers required by the fixed prompts.
 Supplied pass flags cannot override these results. See [SEMANTIC_CHECKS.md](SEMANTIC_CHECKS.md).
 The accounting diagnostic checks supplied totals through the hook-owned parser;
 an independent complete-attempt census remains absent. Four host-event scenarios
-are unimplemented in the CLI adapter. App-server interfaces are being assessed
-separately; this is an adapter limitation, not proof the platform lacks them.
+are unimplemented in the CLI adapter. A separate version-pinned app-server raw
+capture and request pricing derivation are implemented; neither establishes host
+acceptance or complete accounting. See [CAPTURE_AND_PRICING.md](CAPTURE_AND_PRICING.md).
+The [host census contract proposal](CENSUS_CONTRACT_PROPOSAL_V1.md) records the
+required joins, host observations, partial states and separate verifier work.
 The whole 72-run study is not ready for dispatch or promotion.
+
+The candidate bundle retains its historical c540 installed-policy observation.
+It does not attest the currently installed release. The coordinating owner will
+freeze a new bundle after the final producer/verifier contract and installed
+trust evidence are ready; intermediate installation changes do not rewrite the
+fifteen preserved consumer locks.
 
 ## Runnable preparation and collection
 
@@ -97,14 +108,14 @@ preserves failed executions, null accounting, and absent acceptance as such;
 `structural_errors` and `acceptance_verified:false` accompany the collected
 receipt. A collected receipt does not establish complete accounting. Root/child
 and failed-attempt census, compaction/wait/peer/review producers,
-and monetary rate provenance still need their authoritative implementations.
+and acceptance of separate monetary derivations still need their authoritative implementations.
 
 The gate applies all declared acceptance/safety/continuation/compaction checks,
 aggregate cost **per accepted task**, paired median cost, and the specified cohort
 median/p90 limits. All attempt costs remain in the numerator. Cache and reasoning
 subsets are never added again; the accounting validator must choose request or
-cumulative accounting explicitly. API-equivalent estimates are not subscription
-charges. An unavailable USD basis stays null.
+cumulative accounting explicitly. The separate published Codex-equivalent
+estimate does not establish subscription charges. An unavailable USD basis stays null.
 
 `emit_artifacts(output, prepared=..., receipts=..., validators=..., observations=...)`
 writes an explicit artifact set. It includes the fixed definition/thresholds,

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from .manifest import FIXED_MANIFEST, BenchmarkTask, canonical_digest, manifest_digest, task_identity
+from .app_server_capture import RuntimePin, verify_model_catalog, verify_runtime_pin
 from tools.context_selection import capture_git_state, revalidate_git_state
 from tools.output_projection import run_process as owned_run_process
 
@@ -681,9 +682,29 @@ class CodexExecAdapter:
 
     name = "codex-cli-exec-v1"
 
-    def __init__(self, executable: str = "codex", process_runner: ProcessRunner | None = None) -> None:
+    def __init__(self, executable: str = "codex", process_runner: ProcessRunner | None = None,
+                 *, runtime_pin: RuntimePin | None = None, model_catalog_ref: Mapping[str, str] | None = None) -> None:
         self.executable = executable
         self.process_runner = process_runner or owned_run_process
+        self.runtime_pin = runtime_pin
+        self.model_catalog_ref = model_catalog_ref
+
+    def runtime_preflight(self, run: RunRequest, prepared: PreparedRunSet) -> dict:
+        if self.runtime_pin is None or self.model_catalog_ref is None:
+            raise ValueError("dispatch requires an explicit pinned executable and model catalog")
+        runtime_digest = "sha256:" + self.runtime_pin.sha256.removeprefix("sha256:").lower()
+        if (prepared.pins.skill_pins.get("codex-runtime") != runtime_digest
+                or prepared.pins.skill_pins.get("codex-model-catalog") != self.model_catalog_ref.get("digest")):
+            raise ValueError("runtime and catalog evidence must match immutable preparation pins")
+        configs = prepared.pins.variant_configs
+        if configs is None or configs.get(run.variant) is None:
+            raise ValueError("actual model and reasoning configuration is not frozen")
+        config = configs[run.variant]
+        binary = verify_runtime_pin(self.runtime_pin)
+        catalog_ref = verify_model_catalog(self.model_catalog_ref, self.runtime_pin, config.model, config.reasoning_effort)
+        self.executable = str(binary)
+        return {"binary": str(binary), "version": self.runtime_pin.version,
+                "sha256": self.runtime_pin.sha256, "model_catalog_ref": catalog_ref}
 
     def supported(self, *, cwd: Path, raw_dir: Path) -> bool:
         try:
@@ -711,6 +732,7 @@ class CodexExecAdapter:
     ) -> Mapping[str, Any]:
         if _run_index(prepared).get(run.id) != run:
             raise ValueError("run is not in the immutable prepared set")
+        runtime = self.runtime_preflight(run, prepared)
         if not self.supported(cwd=workspace, raw_dir=raw_dir / "adapter-check"):
             raise RuntimeError("installed Codex CLI does not support codex exec")
         last_message = raw_dir / f"last-message-{uuid.uuid4().hex}.txt"
@@ -737,6 +759,7 @@ class CodexExecAdapter:
             "adapter": self.name,
             "run_request": asdict(run),
             "run_set_digest": prepared.run_set_digest,
+            "runtime": runtime,
             "projection": projection,
             "raw_artifact_digests": {"events": raw_file["hash"]},
             "raw_artifact_refs": {"events": {"path": raw_file["path"], "digest": raw_file["hash"]}},

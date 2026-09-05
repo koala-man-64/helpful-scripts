@@ -27,6 +27,8 @@ CURATED_REPOSITORY_PATHS = (
     "codex-workflow/benchmark/manifest.py",
     "codex-workflow/benchmark/harness.py",
     "codex-workflow/benchmark/artifacts.py",
+    "codex-workflow/benchmark/app_server_capture.py",
+    "codex-workflow/benchmark/pricing.py",
     "codex-workflow/benchmark/fixtures.py",
     "codex-workflow/benchmark/runner.py",
     "codex-workflow/benchmark/validators.py",
@@ -37,6 +39,7 @@ CURATED_REPOSITORY_PATHS = (
     "codex-workflow/benchmark/semantic_validation.py",
     "codex-workflow/benchmark/evidence-receipt-v1.schema.json",
     "codex-token-usage-audit/codex_token_usage_audit.py",
+    "codex-token-usage-audit/codex_equivalent_pricing.py",
 )
 
 

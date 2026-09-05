@@ -207,6 +207,8 @@ class UsageSnapshot:
     effort: str = ""
     request_identifier: str = ""
     provider_identifier: str = ""
+    event_key: str = ""
+    source_order: int = 0
 
 
 @dataclass
@@ -619,6 +621,24 @@ def _usage_vector(value: Any) -> Usage | None:
     return usage
 
 
+def _complete_usage_vector(value: Any) -> Usage | None:
+    """Validate the six-counter desktop record form without filling omissions."""
+
+    if not isinstance(value, Mapping) or any(name not in value for name in TOKEN_FIELDS):
+        return None
+    total = value.get("total_tokens")
+    input_tokens = value.get("input_tokens")
+    output_tokens = value.get("output_tokens")
+    if (
+        type(total) is not int
+        or type(input_tokens) is not int
+        or type(output_tokens) is not int
+        or total != input_tokens + output_tokens
+    ):
+        return None
+    return _usage_vector(value)
+
+
 def _known_usage_fields(value: Any) -> frozenset[str]:
     if not isinstance(value, Mapping):
         return frozenset()
@@ -694,6 +714,8 @@ def _provider_identifier(info: Mapping[str, Any], *names: str) -> str:
 
 def parse_rollout(path: Path, warnings: list[str]) -> ParsedSession | None:
     session_payload: Mapping[str, Any] = {}
+    expected_session_id = _session_id_from_filename(path)
+    expected_session_alias = ""
     turns_by_id: dict[str, TurnSnapshot] = {}
     turn_order: list[str] = []
     active_turn_id = ""
@@ -701,9 +723,15 @@ def parse_rollout(path: Path, warnings: list[str]) -> ParsedSession | None:
     active_turn_completed = False
     task_markers_seen = False
     previous_cumulative: Usage | None = None
+    previous_cumulative_source = ""
+    previous_cumulative_request: Usage | None = None
+    previous_cumulative_baseline_complete = False
+    previous_turn_cumulative: dict[str, Usage] = {}
     segment_index = 0
     malformed_lines = 0
     accounting_warnings: list[str] = []
+    last_desktop_ordinal = 0
+    seen_desktop_responses: dict[str, tuple[Any, ...]] = {}
 
     def ensure_turn(turn_id: str, timestamp: str = "") -> TurnSnapshot:
         if turn_id not in turns_by_id:
@@ -742,6 +770,8 @@ def parse_rollout(path: Path, warnings: list[str]) -> ParsedSession | None:
 
             if entry_type == "session_meta" and not session_payload:
                 session_payload = payload
+                expected_session_id = str(payload.get("id") or expected_session_id)
+                expected_session_alias = str(payload.get("session_id") or "")
                 continue
 
             if entry_type == "turn_context":
@@ -768,6 +798,147 @@ def parse_rollout(path: Path, warnings: list[str]) -> ParsedSession | None:
                 elif not active_turn_id or (active_turn_completed and active_turn_id != turn_id):
                     active_turn_id = turn_id
                     active_turn_completed = False
+                continue
+
+            if entry_type == "token_usage_record":
+                ordinal = entry.get("ordinal")
+                if type(ordinal) is not int or ordinal <= last_desktop_ordinal:
+                    accounting_warnings.append(
+                        f"line {line_number}: invalid or non-monotone desktop ordinal"
+                    )
+                    continue
+                last_desktop_ordinal = ordinal
+                record_thread_id = payload.get("thread_id")
+                record_session_id = payload.get("session_id")
+                turn_id = payload.get("turn_id")
+                root_turn_id = payload.get("root_turn_id")
+                response_id = payload.get("response_id")
+                if not all(
+                    isinstance(value, str) and value
+                    for value in (
+                        record_thread_id,
+                        record_session_id,
+                        turn_id,
+                        root_turn_id,
+                        response_id,
+                    )
+                ):
+                    accounting_warnings.append(
+                        f"line {line_number}: desktop record omitted required identity"
+                    )
+                    continue
+                if record_thread_id != expected_session_id:
+                    accounting_warnings.append(
+                        f"line {line_number}: desktop record belonged to another thread"
+                    )
+                    continue
+                if record_session_id not in {expected_session_id, expected_session_alias}:
+                    accounting_warnings.append(
+                        f"line {line_number}: desktop record belonged to another session"
+                    )
+                    continue
+
+                request_usage = _complete_usage_vector(payload.get("usage"))
+                turn_usage = _complete_usage_vector(payload.get("turn_token_usage"))
+                thread_usage = _complete_usage_vector(payload.get("thread_token_usage"))
+                if (
+                    request_usage is None
+                    or turn_usage is None
+                    or thread_usage is None
+                    or not _componentwise_at_most(request_usage, turn_usage)
+                    or not _componentwise_at_most(turn_usage, thread_usage)
+                ):
+                    accounting_warnings.append(
+                        f"line {line_number}: invalid or inconsistent desktop usage vectors"
+                    )
+                    continue
+
+                fingerprint = (turn_id, request_usage, turn_usage, thread_usage)
+                prior = seen_desktop_responses.get(response_id)
+                if prior is not None:
+                    detail = "replayed" if prior == fingerprint else "conflicted"
+                    accounting_warnings.append(
+                        f"line {line_number}: {detail} desktop response identifier"
+                    )
+                    continue
+
+                had_previous = previous_cumulative is not None
+                reset = previous_cumulative is not None and not _componentwise_at_most(
+                    previous_cumulative, thread_usage
+                )
+                prior_turn_usage = previous_turn_cumulative.get(turn_id)
+                if prior_turn_usage is not None and not reset:
+                    if not _componentwise_at_most(prior_turn_usage, turn_usage):
+                        accounting_warnings.append(
+                            f"line {line_number}: desktop turn counter rebased without thread rebase"
+                        )
+                        continue
+                    turn_increment, turn_reset = turn_usage.delta_from(prior_turn_usage)
+                    if turn_reset or turn_increment != request_usage:
+                        accounting_warnings.append(
+                            f"line {line_number}: desktop response did not reconcile with turn cumulative"
+                        )
+                        continue
+                increment, accounting_warning = _usage_increment(
+                    thread_usage, request_usage, previous_cumulative
+                )
+                if accounting_warning:
+                    accounting_warnings.append(f"line {line_number}: {accounting_warning}")
+                reconciled_legacy = (
+                    not reset
+                    and increment == Usage()
+                    and previous_cumulative_source == "legacy"
+                    and previous_cumulative_request == request_usage
+                )
+                if increment != request_usage and not reconciled_legacy:
+                    accounting_warnings.append(
+                        f"line {line_number}: desktop response did not reconcile with thread cumulative"
+                    )
+                    continue
+
+                baseline_complete = (
+                    previous_cumulative_baseline_complete
+                    if reconciled_legacy
+                    else had_previous and not reset
+                )
+                seen_desktop_responses[response_id] = fingerprint
+                previous_turn_cumulative[turn_id] = turn_usage
+                previous_cumulative = thread_usage
+                previous_cumulative_source = "desktop"
+                previous_cumulative_request = request_usage
+                previous_cumulative_baseline_complete = baseline_complete
+                if reset:
+                    segment_index += 1
+
+                timestamp = str(entry.get("timestamp") or "")
+                turn = ensure_turn(turn_id, timestamp)
+                turn.last_usage_timestamp = timestamp or turn.last_usage_timestamp
+                snapshot = UsageSnapshot(
+                    timestamp=timestamp,
+                    source_line=ordinal,
+                    cumulative=thread_usage,
+                    last_request=request_usage,
+                    cumulative_known=frozenset(TOKEN_FIELDS),
+                    last_request_known=frozenset(TOKEN_FIELDS),
+                    segment_index=segment_index,
+                    baseline_complete=baseline_complete,
+                    reset=reset,
+                    model=turn.model,
+                    effort=turn.effort,
+                    request_identifier=response_id,
+                    event_key=f"desktop:{ordinal}",
+                    source_order=line_number,
+                )
+                turn.snapshots.append(snapshot)
+                if increment.total_tokens:
+                    turn.increments.append(
+                        UsageIncrement(
+                            timestamp=timestamp,
+                            usage=increment,
+                            model=turn.model,
+                            effort=turn.effort,
+                        )
+                    )
                 continue
 
             if entry_type != "event_msg":
@@ -802,7 +973,8 @@ def parse_rollout(path: Path, warnings: list[str]) -> ParsedSession | None:
                 turn_id = active_turn_id or context_turn_id or "legacy-unattributed"
                 timestamp = str(entry.get("timestamp") or "")
                 turn = ensure_turn(turn_id, timestamp)
-                turn.snapshots.append(UsageSnapshot(timestamp, line_number, None, last, frozenset(), _known_usage_fields(info.get("last_token_usage")), segment_index, False, False, turn.model, turn.effort, _provider_identifier(info, "request_id", "requestId", "response_id", "responseId"), _provider_identifier(info, "provider_id", "providerId", "provider")))
+                snapshot = UsageSnapshot(timestamp, line_number, None, last, frozenset(), _known_usage_fields(info.get("last_token_usage")), segment_index, False, False, turn.model, turn.effort, _provider_identifier(info, "request_id", "requestId", "response_id", "responseId"), _provider_identifier(info, "provider_id", "providerId", "provider"), source_order=line_number)
+                turn.snapshots.append(snapshot)
                 accounting_warnings.append(f"line {line_number}: invalid cumulative token vector; retained valid last-token usage")
                 continue
             had_previous = previous_cumulative is not None
@@ -812,7 +984,6 @@ def parse_rollout(path: Path, warnings: list[str]) -> ParsedSession | None:
             if reset:
                 segment_index += 1
             increment, accounting_warning = _usage_increment(current, last, previous_cumulative)
-            previous_cumulative = current
             if accounting_warning:
                 accounting_warnings.append(f"line {line_number}: {accounting_warning}")
             turn_id = active_turn_id or context_turn_id or "legacy-unattributed"
@@ -820,31 +991,35 @@ def parse_rollout(path: Path, warnings: list[str]) -> ParsedSession | None:
             turn = ensure_turn(turn_id, timestamp)
             turn.last_usage_timestamp = timestamp or turn.last_usage_timestamp
             valid_last = last if last and _componentwise_at_most(last, current) else None
-            turn.snapshots.append(
-                UsageSnapshot(
-                    timestamp=timestamp,
-                    source_line=line_number,
-                    cumulative=current,
-                    last_request=valid_last,
-                    cumulative_known=_known_usage_fields(info.get("total_token_usage")),
-                    last_request_known=(
-                        _known_usage_fields(info.get("last_token_usage"))
-                        if valid_last is not None
-                        else frozenset()
-                    ),
-                    segment_index=segment_index,
-                    baseline_complete=had_previous and not reset,
-                    reset=reset,
-                    model=turn.model,
-                    effort=turn.effort,
-                    request_identifier=_provider_identifier(
-                        info, "request_id", "requestId", "response_id", "responseId"
-                    ),
-                    provider_identifier=_provider_identifier(
-                        info, "provider_id", "providerId", "provider"
-                    ),
-                )
+            previous_cumulative = current
+            previous_cumulative_source = "legacy"
+            previous_cumulative_request = valid_last
+            previous_cumulative_baseline_complete = had_previous and not reset
+            snapshot = UsageSnapshot(
+                timestamp=timestamp,
+                source_line=line_number,
+                cumulative=current,
+                last_request=valid_last,
+                cumulative_known=_known_usage_fields(info.get("total_token_usage")),
+                last_request_known=(
+                    _known_usage_fields(info.get("last_token_usage"))
+                    if valid_last is not None
+                    else frozenset()
+                ),
+                segment_index=segment_index,
+                baseline_complete=had_previous and not reset,
+                reset=reset,
+                model=turn.model,
+                effort=turn.effort,
+                request_identifier=_provider_identifier(
+                    info, "request_id", "requestId", "response_id", "responseId"
+                ),
+                provider_identifier=_provider_identifier(
+                    info, "provider_id", "providerId", "provider"
+                ),
+                source_order=line_number,
             )
+            turn.snapshots.append(snapshot)
             # Retain raw snapshots even when they contribute no local delta;
             # only a prior snapshot in the same segment completes a baseline.
             if not increment.total_tokens:
@@ -1257,6 +1432,41 @@ def build_observations(
     observations: list[dict[str, Any]] = []
     skipped_timestamps = 0
     for session in sessions:
+        snapshots_in_source_order = sorted(
+            ((turn, snapshot) for turn in session.turns for snapshot in turn.snapshots),
+            key=lambda item: item[1].source_order,
+        )
+        first_boundary_by_key: dict[tuple[str, int, Usage, Usage], UsageSnapshot] = {}
+        suppressed_snapshot_ids: set[int] = set()
+        for turn, snapshot in snapshots_in_source_order:
+            if snapshot.cumulative is None or snapshot.last_request is None:
+                continue
+            key = (
+                turn.turn_id,
+                snapshot.segment_index,
+                snapshot.cumulative,
+                snapshot.last_request,
+            )
+            first = first_boundary_by_key.setdefault(key, snapshot)
+            if first is snapshot:
+                continue
+            if first.event_key.startswith("desktop:") != snapshot.event_key.startswith("desktop:"):
+                suppressed_snapshot_ids.add(id(snapshot))
+
+        prior_event_index: int | None = None
+        for _, snapshot in snapshots_in_source_order:
+            if id(snapshot) in suppressed_snapshot_ids:
+                continue
+            if (
+                prior_event_index is not None
+                and snapshot.source_line <= prior_event_index
+            ):
+                raise ValueError(
+                    "mixed usage source_event_index order is ambiguous; "
+                    "export cannot preserve existing replay identity"
+                )
+            prior_event_index = snapshot.source_line
+
         source_id = _observation_identifier("source", session.session_id)
         task_id = _observation_identifier("task", session.session_id)
         source_kind = session.thread_source.lower()
@@ -1326,12 +1536,14 @@ def build_observations(
                     "rate_card_id": None,
                     "cost_basis": None,
                 }
-                if snapshot.last_request is not None:
+                suppressed_boundary = id(snapshot) in suppressed_snapshot_ids
+                if snapshot.last_request is not None and not suppressed_boundary:
                     observations.append(
                         {
                             **common,
                             "event_id": _observation_identifier(
-                                "event", f"{source_id}:{snapshot.source_line}"
+                                "event",
+                                f"{source_id}:{snapshot.event_key or snapshot.source_line}",
                             ),
                             "request_id": (
                                 _observation_identifier("request", snapshot.request_identifier)
@@ -1349,12 +1561,13 @@ def build_observations(
                             "reset": False,
                         }
                     )
-                if snapshot.cumulative is not None:
+                if snapshot.cumulative is not None and not suppressed_boundary:
                     observations.append(
                         {
                         **common,
                         "event_id": _observation_identifier(
-                            "event", f"{source_id}:{snapshot.source_line}"
+                            "event",
+                            f"{source_id}:{snapshot.event_key or snapshot.source_line}",
                         ),
                         "request_id": None,
                         "kind": "cumulative",

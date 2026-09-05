@@ -37,7 +37,8 @@ blockers; a self-declared preparation pin is insufficient release authority.
 
 Four host-event scenarios still lack implemented semantic evaluators in this
 checkpoint: compaction/recovery, wait/resume, peer collaboration, and detached
-review. The app-server capture and monetary calculator are separate unfinished
-work and are not part of this checkpoint. Actual model execution, route admission,
+review. The app-server raw capture and monetary calculator now have separate
+diagnostic producers; their central acceptance and complete census remain unfinished.
+Actual model execution, route admission,
 candidate feature consumption, full accounting and the 72-run efficiency gate
 remain unverified. No candidate is ready or activated.

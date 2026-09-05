@@ -243,6 +243,27 @@ class BenchmarkReceiptAndGateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "HEAD"):
                 validate_launch(prepared(), workspace=Path("C:/work"), repository_id="owner/repo-a", observed_skill_pins=PINS.skill_pins)
 
+    def test_runtime_and_catalog_cannot_be_swapped_after_preparation(self) -> None:
+        from benchmark.app_server_capture import RuntimePin
+        pin = RuntimePin(Path("C:/runtime/codex.exe"))
+        reference = {"path": "C:/evidence/models.json", "digest": "sha256:" + "a" * 64}
+        pins = replace(PINS, skill_pins={**PINS.skill_pins, "codex-runtime": "sha256:" + pin.sha256, "codex-model-catalog": reference["digest"]})
+        run_set = prepare_run_set(pins=pins, execution_mode="cold", seed=1)
+        adapter = CodexExecAdapter(runtime_pin=pin, model_catalog_ref=reference)
+        with patch("benchmark.harness.verify_runtime_pin", return_value=pin.binary) as binary, \
+             patch("benchmark.harness.verify_model_catalog", return_value=reference) as catalog:
+            adapter.runtime_preflight(run_set.runs[0], run_set)
+            self.assertEqual(adapter.executable, str(pin.binary))
+            self.assertEqual(binary.call_count, 1)
+            self.assertEqual(catalog.call_count, 1)
+            binary.reset_mock()
+            for key in ("codex-runtime", "codex-model-catalog"):
+                changed = replace(pins, skill_pins={**pins.skill_pins, key: "sha256:" + "f" * 64})
+                wrong_set = prepare_run_set(pins=changed, execution_mode="cold", seed=1)
+                with self.subTest(key=key), self.assertRaisesRegex(ValueError, "immutable preparation pins"):
+                    adapter.runtime_preflight(wrong_set.runs[0], wrong_set)
+            binary.assert_not_called()
+
     def test_dispatch_rejects_changed_request_and_revalidates_after_adapter_probe(self) -> None:
         run_set = prepared()
         run = run_set.runs[0]
@@ -257,6 +278,12 @@ class BenchmarkReceiptAndGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "immutable prepared set"):
             adapter.dispatch(replace(run, prompt="changed prompt"), run_set, **arguments)
         self.assertEqual(calls, [])
+        with self.assertRaisesRegex(ValueError, "pinned executable"):
+            adapter.dispatch(run, run_set, **arguments)
+        self.assertEqual(calls, [])
+        runtime_patch = patch.object(adapter, "runtime_preflight", return_value={"fixture": "synthetic only"})
+        runtime_patch.start()
+        self.addCleanup(runtime_patch.stop)
         with patch("benchmark.harness.validate_launch", side_effect=ValueError("workspace changed")):
             with self.assertRaisesRegex(ValueError, "workspace changed"):
                 adapter.dispatch(run, run_set, **arguments)
