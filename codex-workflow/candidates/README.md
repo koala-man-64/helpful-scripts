@@ -10,6 +10,10 @@ SHAs, the exact helpful-scripts catalog-base tested commit, and content-free rec
 verifier owned by `codex-workflow-hooks` supplies and verifies receipts; neither a
 render nor a boolean field enables anything.
 
+The envelope's `validator_pins` binds the combined semantic implementation digest
+and `validator:deterministic-semantic-v1` entrypoint digest. Its coordinated central
+consumer update is still required before those pins establish promotion authority.
+
 The outputs bind the installed manifest named by the central policy observation.
 That observation records read-only bytes from installed v4 release
 `0.6.3+sha.c540d2c99fe31220ea91c9d2ce8618c47b686403`; they distinguish those
@@ -46,6 +50,10 @@ The command is read-only. It verifies the whole pinned bundle, each selected
 lock's exact bytes, schema, and route plan. Its result explicitly leaves the
 owner's repository checks and runtime consumption unverified; it is not a hook
 readiness receipt or installation instruction.
+
+To validate the existing consumer naming convention at its real repository
+location, add `--filename-pattern '{lane}.consumer-lock.v2.json'`. The reader
+records those actual paths and never renames or stages the consumer's files.
 
 Digest recipe: `catalog_digest` uses the catalog tool's canonical directory hash.
 `bundle_digest` is the candidate-source digest and uses the same recipe over every

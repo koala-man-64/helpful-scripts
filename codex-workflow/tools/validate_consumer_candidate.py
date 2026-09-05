@@ -10,17 +10,22 @@ from render_candidate_bundle import LANES, sha256_file, validate_candidate_bundl
 from render_consumer_lock import render
 from validate_catalog import REPOSITORIES
 
+FILENAME_PATTERNS = ("{lane}.json", "{lane}.consumer-lock.v2.json")
 
-def validate_consumer(root: Path, bundle_dir: Path, repository: str, locks_dir: Path) -> dict:
+
+def validate_consumer(root: Path, bundle_dir: Path, repository: str, locks_dir: Path,
+                      filename_pattern: str = "{lane}.json") -> dict:
     """Verify source/release bindings and exact shared-renderer output, without installing."""
     if repository not in REPOSITORIES:
         raise ValueError(f"unknown consumer repository: {repository}")
+    if filename_pattern not in FILENAME_PATTERNS:
+        raise ValueError("unsupported consumer lock filename pattern")
     bundle = load_document(bundle_dir / "candidate-bundle.json")
     validate_candidate_bundle(root, bundle_dir, bundle)
     entry = next(item for item in bundle["repositories"] if item["repository"] == repository)
     verified = {}
     for lane in LANES:
-        path = locks_dir / f"{lane}.json"
+        path = locks_dir / filename_pattern.format(lane=lane)
         if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
             raise ValueError(f"consumer lock must be a regular file: {lane}")
         actual = load_document(path)
@@ -52,9 +57,10 @@ def main() -> int:
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--repository", choices=sorted(REPOSITORIES), required=True)
     parser.add_argument("--locks", type=Path, required=True)
+    parser.add_argument("--filename-pattern", choices=FILENAME_PATTERNS, default="{lane}.json")
     args = parser.parse_args()
     try:
-        result = validate_consumer(args.root, args.bundle, args.repository, args.locks)
+        result = validate_consumer(args.root, args.bundle, args.repository, args.locks, args.filename_pattern)
     except (ValueError, OSError) as error:
         parser.error(str(error))
     print(json.dumps(result, sort_keys=True))

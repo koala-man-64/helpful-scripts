@@ -53,6 +53,19 @@ def candidate_digests(root: Path) -> dict[str, str]:
     }
 
 
+def semantic_validator_pins(root: Path) -> dict[str, str]:
+    """Bind the exact semantic source bytes using the evaluator's digest recipe."""
+    digest = hashlib.sha256()
+    for name in ("semantic_evidence.py", "semantic_git.py", "semantic_local.py",
+                 "semantic_research.py", "semantic_validation.py"):
+        raw = (root / "benchmark" / name).read_bytes()
+        digest.update(name.encode() + len(raw).to_bytes(8, "big") + raw)
+    return {
+        "semantic-validators": "sha256:" + digest.hexdigest(),
+        "validator:deterministic-semantic-v1": sha256_file(root / "benchmark/semantic_validation.py"),
+    }
+
+
 def candidate_source_digest(root: Path) -> str:
     """Hash the disabled package and its fixed curated implementation inputs."""
     candidate_root = root / "candidates"
@@ -156,6 +169,7 @@ def render_candidate_bundle(
         "tested_commit_scope": "helpful-scripts-catalog-base",
         "preflight_receipts": [],
         "readiness_receipts": [],
+        "validator_pins": semantic_validator_pins(root),
         **bindings,
         "repositories": repositories,
     }
@@ -170,7 +184,7 @@ def validate_candidate_bundle(root: Path, output: Path, value: Any) -> None:
         "schema_version", "package", "installation", "activation", "readiness",
         "evidence", "canonical_origins", "tested_commit", "tested_commit_scope", "preflight_receipts",
         "readiness_receipts", "catalog_digest", "bundle_digest", "release_digest",
-        "repositories",
+        "repositories", "validator_pins",
     }:
         raise ValueError("candidate bundle fields are invalid")
     if (
@@ -191,6 +205,8 @@ def validate_candidate_bundle(root: Path, output: Path, value: Any) -> None:
         "bundle_digest"
     ] != candidate_source_digest(root):
         raise ValueError("candidate bundle source digests do not match")
+    if value["validator_pins"] != semantic_validator_pins(root):
+        raise ValueError("candidate semantic validator pins do not match source")
     observation = load_document(root / "candidates" / "central-policy-observation.json")
     if observation.get("release_digest") != value["release_digest"]:
         raise ValueError("release digest differs from the pinned central policy observation")

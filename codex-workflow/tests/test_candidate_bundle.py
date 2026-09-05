@@ -81,6 +81,15 @@ class CandidateBundleTests(unittest.TestCase):
         self.assertEqual(len(self.bundle["repositories"]), 5)
         self.assertEqual(sum(len(item["locks"]) for item in self.bundle["repositories"]), 15)
         self.assertEqual(self.bundle["bundle_digest"], candidate_source_digest(ROOT))
+        sys.path.insert(0, str(ROOT))
+        from benchmark.semantic_validation import semantic_preparation_pins
+        self.assertEqual(self.bundle["validator_pins"], semantic_preparation_pins(ROOT / "benchmark/task_inputs")["skill_pins"])
+
+    def test_forged_semantic_validator_pins_are_rejected(self) -> None:
+        forged = copy.deepcopy(self.bundle)
+        forged["validator_pins"]["semantic-validators"] = "sha256:" + "0" * 64
+        with self.assertRaisesRegex(ValueError, "semantic validator pins"):
+            validate_candidate_bundle(ROOT, self.output, forged)
 
     def test_forged_readiness_or_lock_digest_is_rejected(self) -> None:
         forged = copy.deepcopy(self.bundle)
@@ -106,6 +115,19 @@ class CandidateBundleTests(unittest.TestCase):
             lock.write_text(json.dumps(altered), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "differs from pinned standard"):
                 validate_consumer(ROOT, self.output, repository, directory)
+
+    def test_consumer_repository_filenames_preserve_actual_receipt_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            repository = "asset-allocation-ui"
+            for lane in ("lite", "standard", "critical"):
+                (directory / f"{lane}.consumer-lock.v2.json").write_bytes(
+                    (self.output / "locks" / repository / f"{lane}.json").read_bytes())
+            result = validate_consumer(ROOT, self.output, repository, directory, "{lane}.consumer-lock.v2.json")
+            for lane, reference in result["locks"].items():
+                self.assertEqual(Path(reference["path"]), directory / f"{lane}.consumer-lock.v2.json")
+            with self.assertRaisesRegex(ValueError, "unsupported.*pattern"):
+                validate_consumer(ROOT, self.output, repository, directory, "../{lane}.json")
 
     def test_release_binding_must_match_policy_observation(self) -> None:
         forged = copy.deepcopy(self.bundle)
