@@ -22,7 +22,11 @@ The installed manifest and policy bytes were independently read and hashed.
 Its provenance is a clean-tag local installation with `source_kind=git` and
 `build_id=local-install-21211-76e85ad`; successful release 21211 is separate evidence
 and does not make this installation a downloaded pipeline artifact.
-User reload, review, and trust for this exact manifest remain pending. Per-route
+After Rudy reported completing the refresh, the hooks owner independently verified
+supported `hooks/list` from desktop version 0.153.4: all seven owned hooks enabled
+and trusted for this exact manifest, zero errors, and unchanged configuration hash.
+This producer records that stdout-only owner attestation. No result artifact or
+digest was retained, so it is not an independently retained receipt. Per-route
 admission evidence and actual spawn proof remain absent; readiness stays false.
 
 The byte-for-byte prior installed observation is retained in

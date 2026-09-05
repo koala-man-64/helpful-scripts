@@ -65,7 +65,8 @@ The whole 72-run study is not ready for dispatch or promotion.
 
 The candidate bundle binds the independently hashed final installed manifest
 `sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e`.
-Its exact-release user reload, review, and trust remain pending; this disabled
+The hooks owner independently verified exact-release trust through supported
+`hooks/list`; this producer records that owner's live evidence. This disabled
 preparation establishes no runtime admission, accounting, or study acceptance.
 Historical c540 observations remain preserved. The release refresh updates
 observation and bundle receipts; unchanged policy and catalog selections preserve
