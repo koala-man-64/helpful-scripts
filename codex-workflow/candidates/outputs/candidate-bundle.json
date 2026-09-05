@@ -2,13 +2,13 @@
   "activation": false,
   "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
   "canonical_origins": {
-    "asset-allocation-contracts": "41b9cc33ba1d8b9b61cdc63ebc2d8396f9b248b5",
+    "asset-allocation-contracts": "f7892147ce7f7c759c1e41c8128e20421d8847c0",
     "asset-allocation-control-plane": "81c35e371864737309777e4b0561082efd23592d",
     "asset-allocation-jobs": "e31e03e79ebe577a1fe1f78acaa946c8eb9470e7",
     "asset-allocation-runtime-common": "114c2d10cf00e9b722d5363032389f0fc885f66f",
     "asset-allocation-ui": "3e60369b7f818004faa7815074b1b391525dc4cf"
   },
-  "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+  "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
   "evidence": {
     "acceptance": {
       "status": "missing"
@@ -31,24 +31,24 @@
       "locks": {
         "critical": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-contracts/critical.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:0b5cb65b768b8c60a9b38c169a2b37f6785916cfdd2af64bb6292cb24401bd0a"
+          "sha256": "sha256:5bb14174a9c9d42e025468b8da8df34d4d58d8a911519402964673335e116f73"
         },
         "lite": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-contracts/lite.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:3338a257626973cbdc23488e2327b939b3acd2dc4c1bd143074b7c2f9f8cb5c6"
+          "sha256": "sha256:a34c43060fe10c65d42c1eaeb9f51a2f1ddd03a061f81cb46705af9e8ad5d86b"
         },
         "standard": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-contracts/standard.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:f3fee80f19dab7c0ff26894cb02a92c24bd8ce44838772a4dd2ecffc47cbd577"
+          "sha256": "sha256:2012dd3aa6b7e47d6efdf75ce269490142c7a6785561e563817c713ed508a345"
         }
       },
       "repository": "asset-allocation-contracts"
@@ -57,24 +57,24 @@
       "locks": {
         "critical": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-control-plane/critical.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:0fc8ade448eddedc8af32ccbb32aa1e69cd636c44be356082afd1060ba4803e8"
+          "sha256": "sha256:d7b83ea1a1b3d68e556b92848509ff09cf29f2cb664dd34bdc2a9a7c06d0a9a1"
         },
         "lite": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-control-plane/lite.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:a5eeb89beea91099bc9bdc5965d7e3e0102758b6941357667abad206573edd10"
+          "sha256": "sha256:3d8ae9fb2c79d81d8e18d021e756fea13d37f4a1fde8617babbc811f5e3ecf1e"
         },
         "standard": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-control-plane/standard.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:989495cc077dec1b1cda535e97460554eb3af2353b567cf91270c1a68b97f344"
+          "sha256": "sha256:5691b4aae88982f70a795bd91eef145cee82966ba860362453827fee8705b108"
         }
       },
       "repository": "asset-allocation-control-plane"
@@ -83,24 +83,24 @@
       "locks": {
         "critical": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-jobs/critical.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:15fb789b8083dd977f153cd8884ea4f69fa885a0e2704814adeb84c8eff5c7ca"
+          "sha256": "sha256:0c587b162c048bae979ea90b8c36688f84c4221dd981a98333c8ecd149d02460"
         },
         "lite": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-jobs/lite.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:5660dba0135c7645540708a684ebdfb00b37a60e02fe095e9b6bc1549218c9a1"
+          "sha256": "sha256:9b9c87ddae17625840d9351ca8cc913ee13a2655c76982e7a61749b977c2f2e7"
         },
         "standard": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-jobs/standard.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:e89d76465ad38735da6f5f1b917419ae34dfcccac3d9722d83b6bc326626c3bf"
+          "sha256": "sha256:d82112fd7aeddacdf5bcb9aaa63c00ca88cb2a0bff5573c60d1769ad28d08012"
         }
       },
       "repository": "asset-allocation-jobs"
@@ -109,24 +109,24 @@
       "locks": {
         "critical": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-runtime-common/critical.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:f358f6ff6aa49a426914a0a3126eab9dbeb0afa6a74b5a9e00687f36292acfc0"
+          "sha256": "sha256:17a43c3fcddde2fc1f6fb9911c08c7a95c4de7c8d5454e14fcefff5b30c9dd15"
         },
         "lite": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-runtime-common/lite.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:eb54b400bf99121db531683495c30cbb87f5d138eac51dfc1c21f0d9660aad98"
+          "sha256": "sha256:d0699ae222e7e7fe2b82c294acce21cffa19f865940259e7b583959f3e604eed"
         },
         "standard": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-runtime-common/standard.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:0d93894d71ec960898bebe730ec659239281b298b40ff1c922a797bfcd7c1607"
+          "sha256": "sha256:f0a28cf7185f019fc83cb324c0f6dc627a0ac3d1b268a22b022d391eca97eeb3"
         }
       },
       "repository": "asset-allocation-runtime-common"
@@ -135,31 +135,31 @@
       "locks": {
         "critical": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-ui/critical.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:9a18efc7325730b1fbf376169ec15195ead91c9b14454cdf63e850d609d03036"
+          "sha256": "sha256:ebcfabdaef77b1425b50049cfd6148745308326e9cd659f08928caf6a4c5fc3f"
         },
         "lite": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-ui/lite.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:60b14586b5749a9ef0d076435bf4566c0c82bbd4356ad1055606fb4f4645750e"
+          "sha256": "sha256:4196dcd9d5a08eaf43a5b4533c692b5b0aea40577f27223a908f80e37795800b"
         },
         "standard": {
           "bundle_digest": "sha256:5fad93c4eb51d048c3bb0acc9b3c21d84db1baeabe2fa9933bc9f24adebd7079",
-          "catalog_digest": "sha256:feaee43a135f987ddfa6a270742559a0b2e285276dce088fae0df14a1084bbca",
+          "catalog_digest": "sha256:6cf546672b771c3d3a66ddef88e56c2143e0199919a44270db88647ae8ae7067",
           "path": "locks/asset-allocation-ui/standard.json",
           "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
-          "sha256": "sha256:7cf315fb0aeff3c53008e6b51fcd6c4c556b07d1b23616ce538f329ac5653a84"
+          "sha256": "sha256:54a234e6d6405962e370fadbc79adba406bf5c28ef79b715e03b070df6f65ba4"
         }
       },
       "repository": "asset-allocation-ui"
     }
   ],
   "schema_version": "candidate-bundle-v1",
-  "tested_commit": "3ecbe418d8e81cf5966cbe9f38a9408fc0844586",
+  "tested_commit": "b6f587d32a0441e1fff35871317b1d5f4a49899e",
   "tested_commit_scope": "helpful-scripts-catalog-base",
   "validator_pins": {
     "semantic-validators": "sha256:7b7c246d449f6fc7a1bfef27b7d2012443b0375a14e88f0981a3db2176845cb5",
