@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import re
@@ -52,6 +53,14 @@ CREDIT_RATES: dict[str, tuple[float, float, float]] = {
     "gpt-5.6-terra": (50.0, 5.0, 300.0),
     "gpt-5.6-luna": (5.0, 0.5, 30.0),
 }
+
+# Pin the external interchange contract. The local credit rates above are
+# credits, not USD API pricing, so they are deliberately never exported as
+# ``estimated_cost_usd`` observations.
+USAGE_OBSERVATIONS_SCHEMA_SHA256 = (
+    "2c8791ab436bf6142743a4976bd901e6f3d0f82b97331ef3987356f5fc0186d7"
+)
+USAGE_OBSERVATIONS_SCHEMA_VERSION = 1
 
 ROUTING_POLICY_VERSION = "builtin-v1"
 KNOWN_ROUTING_MODELS = {
@@ -178,6 +187,31 @@ class UsageIncrement:
 
 
 @dataclass
+class UsageSnapshot:
+    """One validated provider cumulative snapshot and its optional request usage.
+
+    This is retained alongside accounting increments so the observation export
+    can expose source evidence without reparsing rollout JSONL.
+    """
+
+    timestamp: str
+    source_line: int
+    cumulative: Usage | None
+    last_request: Usage | None
+    cumulative_known: frozenset[str]
+    last_request_known: frozenset[str]
+    segment_index: int
+    baseline_complete: bool
+    reset: bool
+    model: str = ""
+    effort: str = ""
+    request_identifier: str = ""
+    provider_identifier: str = ""
+    event_key: str = ""
+    source_order: int = 0
+
+
+@dataclass
 class TurnSnapshot:
     turn_id: str
     index: int
@@ -186,6 +220,7 @@ class TurnSnapshot:
     model: str = ""
     effort: str = ""
     increments: list[UsageIncrement] = field(default_factory=list)
+    snapshots: list[UsageSnapshot] = field(default_factory=list)
 
     @property
     def usage(self) -> Usage:
@@ -405,22 +440,29 @@ def validate_output_destinations(
     json_path: str | None,
     database_path: Path,
     rollout_paths: Sequence[Path],
+    observations_path: str | None = None,
 ) -> None:
     """Reject destinations that could overwrite another output or Codex input."""
 
     outputs = {
         name: Path(value).expanduser()
-        for name, value in (("csv", csv_path), ("json", json_path))
+        for name, value in (
+            ("csv", csv_path),
+            ("json", json_path),
+            ("observations", observations_path),
+        )
         if value and value != "-"
     }
     output_items = list(outputs.items())
-    if len(output_items) == 2:
-        (_, first), (_, second) = output_items
-        if (
-            _canonical_path_key(first) == _canonical_path_key(second)
-            or _same_existing_file(first, second)
-        ):
-            parser.error("--csv and --json must use different destination paths")
+    for index, (first_name, first) in enumerate(output_items):
+        for second_name, second in output_items[index + 1 :]:
+            if (
+                _canonical_path_key(first) == _canonical_path_key(second)
+                or _same_existing_file(first, second)
+            ):
+                parser.error(
+                    f"--{first_name} and --{second_name} must use different destination paths"
+                )
 
     protected = [(database_path, "state database")]
     protected.extend((path, "rollout input") for path in rollout_paths)
@@ -560,12 +602,9 @@ def _usage_vector(value: Any) -> Usage | None:
     parsed: dict[str, int] = {}
     for name in TOKEN_FIELDS:
         raw = value.get(name, 0)
-        if isinstance(raw, bool):
+        if raw is None or isinstance(raw, bool) or not isinstance(raw, int):
             return None
-        try:
-            parsed[name] = int(raw or 0)
-        except (TypeError, ValueError):
-            return None
+        parsed[name] = raw
         if parsed[name] < 0:
             return None
     if not parsed["total_tokens"]:
@@ -580,6 +619,40 @@ def _usage_vector(value: Any) -> Usage | None:
     if usage.cache_write_input_tokens > usage.input_tokens:
         return None
     return usage
+
+
+def _complete_usage_vector(value: Any) -> Usage | None:
+    """Validate the six-counter desktop record form without filling omissions."""
+
+    if not isinstance(value, Mapping) or any(name not in value for name in TOKEN_FIELDS):
+        return None
+    total = value.get("total_tokens")
+    input_tokens = value.get("input_tokens")
+    output_tokens = value.get("output_tokens")
+    if (
+        type(total) is not int
+        or type(input_tokens) is not int
+        or type(output_tokens) is not int
+        or total != input_tokens + output_tokens
+    ):
+        return None
+    return _usage_vector(value)
+
+
+def _known_usage_fields(value: Any) -> frozenset[str]:
+    if not isinstance(value, Mapping):
+        return frozenset()
+    return frozenset(
+        name
+        for name in (
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+            "cache_write_input_tokens",
+        )
+        if name in value and type(value[name]) is int
+    )
 
 
 def _componentwise_at_most(left: Usage, right: Usage) -> bool:
@@ -625,8 +698,24 @@ def _usage_increment(
     return Usage(), "counter rebase had no valid last-token usage"
 
 
+def _observation_identifier(kind: str, value: str) -> str:
+    """Return the hooks v1 namespaced, content-free identifier."""
+
+    return hashlib.sha256(f"codex-usage-v1:{kind}:{value}".encode("utf-8")).hexdigest()
+
+
+def _provider_identifier(info: Mapping[str, Any], *names: str) -> str:
+    for name in names:
+        value = info.get(name)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
 def parse_rollout(path: Path, warnings: list[str]) -> ParsedSession | None:
     session_payload: Mapping[str, Any] = {}
+    expected_session_id = _session_id_from_filename(path)
+    expected_session_alias = ""
     turns_by_id: dict[str, TurnSnapshot] = {}
     turn_order: list[str] = []
     active_turn_id = ""
@@ -634,8 +723,15 @@ def parse_rollout(path: Path, warnings: list[str]) -> ParsedSession | None:
     active_turn_completed = False
     task_markers_seen = False
     previous_cumulative: Usage | None = None
+    previous_cumulative_source = ""
+    previous_cumulative_request: Usage | None = None
+    previous_cumulative_baseline_complete = False
+    previous_turn_cumulative: dict[str, Usage] = {}
+    segment_index = 0
     malformed_lines = 0
     accounting_warnings: list[str] = []
+    last_desktop_ordinal = 0
+    seen_desktop_responses: dict[str, tuple[Any, ...]] = {}
 
     def ensure_turn(turn_id: str, timestamp: str = "") -> TurnSnapshot:
         if turn_id not in turns_by_id:
@@ -674,6 +770,8 @@ def parse_rollout(path: Path, warnings: list[str]) -> ParsedSession | None:
 
             if entry_type == "session_meta" and not session_payload:
                 session_payload = payload
+                expected_session_id = str(payload.get("id") or expected_session_id)
+                expected_session_alias = str(payload.get("session_id") or "")
                 continue
 
             if entry_type == "turn_context":
@@ -688,6 +786,11 @@ def parse_rollout(path: Path, warnings: list[str]) -> ParsedSession | None:
                         existing_increment.model = context_model
                     if context_effort and not existing_increment.effort:
                         existing_increment.effort = context_effort
+                for snapshot in turn.snapshots:
+                    if context_model and not snapshot.model:
+                        snapshot.model = context_model
+                    if context_effort and not snapshot.effort:
+                        snapshot.effort = context_effort
                 context_turn_id = turn_id
                 if not task_markers_seen:
                     active_turn_id = turn_id
@@ -695,6 +798,147 @@ def parse_rollout(path: Path, warnings: list[str]) -> ParsedSession | None:
                 elif not active_turn_id or (active_turn_completed and active_turn_id != turn_id):
                     active_turn_id = turn_id
                     active_turn_completed = False
+                continue
+
+            if entry_type == "token_usage_record":
+                ordinal = entry.get("ordinal")
+                if type(ordinal) is not int or ordinal <= last_desktop_ordinal:
+                    accounting_warnings.append(
+                        f"line {line_number}: invalid or non-monotone desktop ordinal"
+                    )
+                    continue
+                last_desktop_ordinal = ordinal
+                record_thread_id = payload.get("thread_id")
+                record_session_id = payload.get("session_id")
+                turn_id = payload.get("turn_id")
+                root_turn_id = payload.get("root_turn_id")
+                response_id = payload.get("response_id")
+                if not all(
+                    isinstance(value, str) and value
+                    for value in (
+                        record_thread_id,
+                        record_session_id,
+                        turn_id,
+                        root_turn_id,
+                        response_id,
+                    )
+                ):
+                    accounting_warnings.append(
+                        f"line {line_number}: desktop record omitted required identity"
+                    )
+                    continue
+                if record_thread_id != expected_session_id:
+                    accounting_warnings.append(
+                        f"line {line_number}: desktop record belonged to another thread"
+                    )
+                    continue
+                if record_session_id not in {expected_session_id, expected_session_alias}:
+                    accounting_warnings.append(
+                        f"line {line_number}: desktop record belonged to another session"
+                    )
+                    continue
+
+                request_usage = _complete_usage_vector(payload.get("usage"))
+                turn_usage = _complete_usage_vector(payload.get("turn_token_usage"))
+                thread_usage = _complete_usage_vector(payload.get("thread_token_usage"))
+                if (
+                    request_usage is None
+                    or turn_usage is None
+                    or thread_usage is None
+                    or not _componentwise_at_most(request_usage, turn_usage)
+                    or not _componentwise_at_most(turn_usage, thread_usage)
+                ):
+                    accounting_warnings.append(
+                        f"line {line_number}: invalid or inconsistent desktop usage vectors"
+                    )
+                    continue
+
+                fingerprint = (turn_id, request_usage, turn_usage, thread_usage)
+                prior = seen_desktop_responses.get(response_id)
+                if prior is not None:
+                    detail = "replayed" if prior == fingerprint else "conflicted"
+                    accounting_warnings.append(
+                        f"line {line_number}: {detail} desktop response identifier"
+                    )
+                    continue
+
+                had_previous = previous_cumulative is not None
+                reset = previous_cumulative is not None and not _componentwise_at_most(
+                    previous_cumulative, thread_usage
+                )
+                prior_turn_usage = previous_turn_cumulative.get(turn_id)
+                if prior_turn_usage is not None and not reset:
+                    if not _componentwise_at_most(prior_turn_usage, turn_usage):
+                        accounting_warnings.append(
+                            f"line {line_number}: desktop turn counter rebased without thread rebase"
+                        )
+                        continue
+                    turn_increment, turn_reset = turn_usage.delta_from(prior_turn_usage)
+                    if turn_reset or turn_increment != request_usage:
+                        accounting_warnings.append(
+                            f"line {line_number}: desktop response did not reconcile with turn cumulative"
+                        )
+                        continue
+                increment, accounting_warning = _usage_increment(
+                    thread_usage, request_usage, previous_cumulative
+                )
+                if accounting_warning:
+                    accounting_warnings.append(f"line {line_number}: {accounting_warning}")
+                reconciled_legacy = (
+                    not reset
+                    and increment == Usage()
+                    and previous_cumulative_source == "legacy"
+                    and previous_cumulative_request == request_usage
+                )
+                if increment != request_usage and not reconciled_legacy:
+                    accounting_warnings.append(
+                        f"line {line_number}: desktop response did not reconcile with thread cumulative"
+                    )
+                    continue
+
+                baseline_complete = (
+                    previous_cumulative_baseline_complete
+                    if reconciled_legacy
+                    else had_previous and not reset
+                )
+                seen_desktop_responses[response_id] = fingerprint
+                previous_turn_cumulative[turn_id] = turn_usage
+                previous_cumulative = thread_usage
+                previous_cumulative_source = "desktop"
+                previous_cumulative_request = request_usage
+                previous_cumulative_baseline_complete = baseline_complete
+                if reset:
+                    segment_index += 1
+
+                timestamp = str(entry.get("timestamp") or "")
+                turn = ensure_turn(turn_id, timestamp)
+                turn.last_usage_timestamp = timestamp or turn.last_usage_timestamp
+                snapshot = UsageSnapshot(
+                    timestamp=timestamp,
+                    source_line=ordinal,
+                    cumulative=thread_usage,
+                    last_request=request_usage,
+                    cumulative_known=frozenset(TOKEN_FIELDS),
+                    last_request_known=frozenset(TOKEN_FIELDS),
+                    segment_index=segment_index,
+                    baseline_complete=baseline_complete,
+                    reset=reset,
+                    model=turn.model,
+                    effort=turn.effort,
+                    request_identifier=response_id,
+                    event_key=f"desktop:{ordinal}",
+                    source_order=line_number,
+                )
+                turn.snapshots.append(snapshot)
+                if increment.total_tokens:
+                    turn.increments.append(
+                        UsageIncrement(
+                            timestamp=timestamp,
+                            usage=increment,
+                            model=turn.model,
+                            effort=turn.effort,
+                        )
+                    )
                 continue
 
             if entry_type != "event_msg":
@@ -719,23 +963,67 @@ def parse_rollout(path: Path, warnings: list[str]) -> ParsedSession | None:
             if not isinstance(info, Mapping):
                 continue
             current = _usage_vector(info.get("total_token_usage"))
-            if current is None:
+            last = _usage_vector(info.get("last_token_usage"))
+            if current is None and last is None:
                 accounting_warnings.append(
                     f"line {line_number}: invalid cumulative token vector"
                 )
                 continue
-            last = _usage_vector(info.get("last_token_usage"))
+            if current is None:
+                turn_id = active_turn_id or context_turn_id or "legacy-unattributed"
+                timestamp = str(entry.get("timestamp") or "")
+                turn = ensure_turn(turn_id, timestamp)
+                snapshot = UsageSnapshot(timestamp, line_number, None, last, frozenset(), _known_usage_fields(info.get("last_token_usage")), segment_index, False, False, turn.model, turn.effort, _provider_identifier(info, "request_id", "requestId", "response_id", "responseId"), _provider_identifier(info, "provider_id", "providerId", "provider"), source_order=line_number)
+                turn.snapshots.append(snapshot)
+                accounting_warnings.append(f"line {line_number}: invalid cumulative token vector; retained valid last-token usage")
+                continue
+            had_previous = previous_cumulative is not None
+            reset = previous_cumulative is not None and not _componentwise_at_most(
+                previous_cumulative, current
+            )
+            if reset:
+                segment_index += 1
             increment, accounting_warning = _usage_increment(current, last, previous_cumulative)
-            previous_cumulative = current
             if accounting_warning:
                 accounting_warnings.append(f"line {line_number}: {accounting_warning}")
-            if not increment.total_tokens:
-                continue
-
             turn_id = active_turn_id or context_turn_id or "legacy-unattributed"
             timestamp = str(entry.get("timestamp") or "")
             turn = ensure_turn(turn_id, timestamp)
             turn.last_usage_timestamp = timestamp or turn.last_usage_timestamp
+            valid_last = last if last and _componentwise_at_most(last, current) else None
+            previous_cumulative = current
+            previous_cumulative_source = "legacy"
+            previous_cumulative_request = valid_last
+            previous_cumulative_baseline_complete = had_previous and not reset
+            snapshot = UsageSnapshot(
+                timestamp=timestamp,
+                source_line=line_number,
+                cumulative=current,
+                last_request=valid_last,
+                cumulative_known=_known_usage_fields(info.get("total_token_usage")),
+                last_request_known=(
+                    _known_usage_fields(info.get("last_token_usage"))
+                    if valid_last is not None
+                    else frozenset()
+                ),
+                segment_index=segment_index,
+                baseline_complete=had_previous and not reset,
+                reset=reset,
+                model=turn.model,
+                effort=turn.effort,
+                request_identifier=_provider_identifier(
+                    info, "request_id", "requestId", "response_id", "responseId"
+                ),
+                provider_identifier=_provider_identifier(
+                    info, "provider_id", "providerId", "provider"
+                ),
+                source_order=line_number,
+            )
+            turn.snapshots.append(snapshot)
+            # Retain raw snapshots even when they contribute no local delta;
+            # only a prior snapshot in the same segment completes a baseline.
+            if not increment.total_tokens:
+                continue
             turn.increments.append(
                 UsageIncrement(
                     timestamp=timestamp,
@@ -1058,6 +1346,248 @@ def deduplicate_copied_turns(
     )
 
 
+def _observation_timestamp(value: str) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _observation_label(value: str) -> str | None:
+    return value if value and value != "?" else None
+
+
+def _observation_usage(usage: Usage, known: frozenset[str]) -> dict[str, int | None]:
+    return {
+        "input_tokens": usage.input_tokens if "input_tokens" in known else None,
+        "cached_input_tokens": (
+            usage.cached_input_tokens if "cached_input_tokens" in known else None
+        ),
+        "output_tokens": usage.output_tokens if "output_tokens" in known else None,
+        "reasoning_tokens": (
+            usage.reasoning_output_tokens if "reasoning_output_tokens" in known else None
+        ),
+        "cache_write_tokens": (
+            usage.cache_write_input_tokens if "cache_write_input_tokens" in known else None
+        ),
+    }
+
+
+def build_observations(
+    sessions: Iterable[ParsedSession], records: Iterable[TurnRecord], warnings: list[str], args: argparse.Namespace | None = None
+) -> dict[str, Any]:
+    """Project already parsed usage snapshots into the hooks v1 interchange.
+
+    Request and cumulative observations remain separate so consumers cannot add
+    an exact request measurement to a cumulative stream. Raw provider snapshots
+    are never reconstructed from the accounting deltas used by this auditor.
+    """
+
+    sessions = list(sessions)
+    selected = {
+        (record.thread_id, record.turn_id, record.day, record.model, record.reasoning_effort): record
+        for record in records
+    }
+    parents = {session.session_id: session.parent_thread_id for session in sessions if session.parent_thread_id}
+    copies: dict[str, list[tuple[ParsedSession, TurnSnapshot]]] = defaultdict(list)
+    allowed_copies: set[tuple[str, str]] = set()
+    for session in sessions:
+        for turn in session.turns:
+            if UUID_TURN_ID.fullmatch(turn.turn_id):
+                copies[turn.turn_id].append((session, turn))
+            else:
+                allowed_copies.add((session.session_id, turn.turn_id))
+    for turn_id, candidates in copies.items():
+        winner = min(candidates, key=lambda item: (-sum(snapshot.cumulative.total_tokens for snapshot in item[1].snapshots if snapshot.cumulative), 0 if not parents.get(item[0].session_id) else 1, item[0].session_id))
+        allowed_copies.add((winner[0].session_id, turn_id))
+
+    def eligible(session: ParsedSession, turn: TurnSnapshot, timestamp: str, model: str, effort: str, thread_type: str) -> bool:
+        if (session.session_id, turn.turn_id) not in allowed_copies:
+            return False
+        day = timestamp[:10]
+        root = _root_thread_id(session.session_id, parents)
+        if args is None:
+            return True
+        if args.since and day < args.since or args.until and day > args.until:
+            return False
+        if args.session and not session.session_id.startswith(args.session) or args.root_session and not root.startswith(args.root_session):
+            return False
+        if args.model and args.model.lower() not in model.lower() or args.effort and args.effort.lower() != effort.lower():
+            return False
+        if args.thread_type and args.thread_type != thread_type:
+            return False
+        if args.agent:
+            text = " ".join((session.agent_path, session.agent_nickname, session.agent_role)).lower()
+            if args.agent.lower() not in text:
+                return False
+        if args.project:
+            if args.project.lower() not in session.cwd.lower() and args.project.lower() not in session.repository_url.lower():
+                return False
+        return True
+    observations: list[dict[str, Any]] = []
+    skipped_timestamps = 0
+    for session in sessions:
+        snapshots_in_source_order = sorted(
+            ((turn, snapshot) for turn in session.turns for snapshot in turn.snapshots),
+            key=lambda item: item[1].source_order,
+        )
+        first_boundary_by_key: dict[tuple[str, int, Usage, Usage], UsageSnapshot] = {}
+        suppressed_snapshot_ids: set[int] = set()
+        for turn, snapshot in snapshots_in_source_order:
+            if snapshot.cumulative is None or snapshot.last_request is None:
+                continue
+            key = (
+                turn.turn_id,
+                snapshot.segment_index,
+                snapshot.cumulative,
+                snapshot.last_request,
+            )
+            first = first_boundary_by_key.setdefault(key, snapshot)
+            if first is snapshot:
+                continue
+            if first.event_key.startswith("desktop:") != snapshot.event_key.startswith("desktop:"):
+                suppressed_snapshot_ids.add(id(snapshot))
+
+        prior_event_index: int | None = None
+        for _, snapshot in snapshots_in_source_order:
+            if id(snapshot) in suppressed_snapshot_ids:
+                continue
+            if (
+                prior_event_index is not None
+                and snapshot.source_line <= prior_event_index
+            ):
+                raise ValueError(
+                    "mixed usage source_event_index order is ambiguous; "
+                    "export cannot preserve existing replay identity"
+                )
+            prior_event_index = snapshot.source_line
+
+        source_id = _observation_identifier("source", session.session_id)
+        task_id = _observation_identifier("task", session.session_id)
+        source_kind = session.thread_source.lower()
+        for turn in session.turns:
+            for snapshot in turn.snapshots:
+                timestamp = _observation_timestamp(snapshot.timestamp)
+                if timestamp is None:
+                    skipped_timestamps += 1
+                    continue
+                model = snapshot.model or turn.model or "?"
+                effort = snapshot.effort or turn.effort or "?"
+                identity = (session.session_id, turn.turn_id, timestamp[:10], model, effort)
+                record = selected.get(identity)
+                guessed_type = "subagent" if parents.get(session.session_id) else "root"
+                if not eligible(session, turn, timestamp, model, effort, guessed_type):
+                    continue
+                if record is None:
+                    # Accounting rows are intentionally absent for an unproven
+                    # first baseline or duplicate snapshot. Keep source evidence
+                    # for an unfiltered export rather than making it disappear.
+                    parent_id = session.parent_thread_id
+                    thread_type = "subagent" if parent_id else "root"
+                else:
+                    parent_id = record.parent_thread_id
+                    thread_type = record.thread_type
+                parent_task_id = (
+                    _observation_identifier("task", parent_id)
+                    if parent_id
+                    else None
+                )
+                if turn.turn_id == "legacy-unattributed":
+                    attribution = "unattributed"
+                elif source_kind == "aggregate":
+                    attribution = "aggregate"
+                elif thread_type == "subagent":
+                    attribution = "child"
+                else:
+                    attribution = "root"
+                turn_id = (
+                    None
+                    if turn.turn_id == "legacy-unattributed"
+                    else _observation_identifier("turn", turn.turn_id)
+                )
+                segment_id = _observation_identifier(
+                    "segment", f"{session.session_id}:{snapshot.segment_index}"
+                )
+                provider_id = (
+                    _observation_identifier("provider", snapshot.provider_identifier)
+                    if snapshot.provider_identifier
+                    else None
+                )
+                common = {
+                    "source_id": source_id,
+                    "source_event_index": snapshot.source_line,
+                    "task_id": task_id,
+                    "parent_task_id": parent_task_id,
+                    "turn_id": turn_id,
+                    "provider_id": provider_id,
+                    "segment_id": segment_id,
+                    "model": _observation_label(model),
+                    "reasoning_effort": _observation_label(effort),
+                    "attribution": attribution,
+                    "observed_at": timestamp,
+                    # Local rate cards describe Codex credits only. They are
+                    # intentionally not converted into USD API charges.
+                    "estimated_cost_usd": None,
+                    "rate_card_id": None,
+                    "cost_basis": None,
+                }
+                suppressed_boundary = id(snapshot) in suppressed_snapshot_ids
+                if snapshot.last_request is not None and not suppressed_boundary:
+                    observations.append(
+                        {
+                            **common,
+                            "event_id": _observation_identifier(
+                                "event",
+                                f"{source_id}:{snapshot.event_key or snapshot.source_line}",
+                            ),
+                            "request_id": (
+                                _observation_identifier("request", snapshot.request_identifier)
+                                if snapshot.request_identifier
+                                else None
+                            ),
+                            "kind": "request",
+                            **_observation_usage(snapshot.last_request, snapshot.last_request_known),
+                            "cache_write_semantics": (
+                                "included"
+                                if "cache_write_input_tokens" in snapshot.last_request_known
+                                else "unknown"
+                            ),
+                            "baseline_complete": True,
+                            "reset": False,
+                        }
+                    )
+                if snapshot.cumulative is not None and not suppressed_boundary:
+                    observations.append(
+                        {
+                        **common,
+                        "event_id": _observation_identifier(
+                            "event",
+                            f"{source_id}:{snapshot.event_key or snapshot.source_line}",
+                        ),
+                        "request_id": None,
+                        "kind": "cumulative",
+                        **_observation_usage(snapshot.cumulative, snapshot.cumulative_known),
+                        "cache_write_semantics": (
+                            "included"
+                            if "cache_write_input_tokens" in snapshot.cumulative_known
+                            else "unknown"
+                        ),
+                        "baseline_complete": snapshot.baseline_complete,
+                        "reset": snapshot.reset,
+                        }
+                    )
+    if skipped_timestamps:
+        warnings.append(
+            f"skipped {skipped_timestamps} usage observation(s) without an RFC 3339 timestamp"
+        )
+    return {"schema_version": USAGE_OBSERVATIONS_SCHEMA_VERSION, "observations": observations}
+
+
 def filter_records(records: Iterable[TurnRecord], args: argparse.Namespace) -> list[TurnRecord]:
     selected: list[TurnRecord] = []
     for record in records:
@@ -1376,6 +1906,12 @@ def build_report(
         "routing_adherence": build_routing_adherence(records, routing_exceptions),
         "breakdowns": breakdowns,
         "pricing": {
+            "schema_version": "rate-card-metadata/v1",
+            "rate_card_id": "codex-standard-credits-2026-08-23",
+            "measurement": "estimated",
+            "cost_basis": "standard_credit_equivalent",
+            "subscription_charge": None,
+            "api_equivalent_usd": None,
             "unit": "estimated standard Codex credits per 1M tokens",
             "verified_date": "2026-08-23",
             "rates": {
@@ -1657,6 +2193,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--csv", metavar="PATH", help="write normalized turn rows; use - for stdout")
     parser.add_argument("--json", metavar="PATH", help="write full snapshot; use - for stdout")
+    parser.add_argument(
+        "--observations",
+        metavar="PATH",
+        help="write content-free usage-observations/v1 JSON; use - for stdout",
+    )
     return parser
 
 
@@ -1681,7 +2222,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--since must be on or before --until")
     if args.top < 1:
         parser.error("--top must be at least 1")
-    if args.csv == "-" and args.json == "-":
+    if sum(path == "-" for path in (args.csv, args.json, args.observations)) > 1:
         parser.error("only one machine-readable output may use stdout")
 
     root_value = args.root or os.environ.get("CODEX_HOME") or str(Path.home() / ".codex")
@@ -1719,6 +2260,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.json,
         database_path,
         all_rollout_paths,
+        args.observations,
     )
     rollout_paths = (
         [path for path in all_rollout_paths if not _is_archived_rollout(path)]
@@ -1754,6 +2296,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     records, stats.copied_turns_deduplicated = deduplicate_copied_turns(records)
     selected = filter_records(records, args)
     selected.sort(key=lambda record: (record.timestamp, record.thread_id, record.turn_index))
+    observations = build_observations(sessions, selected, warnings, args) if args.observations else None
     if not args.include_paths:
         for record in selected:
             record.cwd = ""
@@ -1800,7 +2343,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         filters,
         routing_exceptions,
     )
-    machine_stdout = args.csv == "-" or args.json == "-"
+    machine_stdout = args.csv == "-" or args.json == "-" or args.observations == "-"
 
     if not machine_stdout:
         if selected:
@@ -1827,6 +2370,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.json != "-":
             destination = sys.stderr if machine_stdout else sys.stdout
             print(f"wrote snapshot -> {args.json}", file=destination)
+    if args.observations:
+        write_json(args.observations, observations, sys.stdout)
+        if args.observations != "-":
+            destination = sys.stderr if machine_stdout else sys.stdout
+            print(f"wrote usage observations -> {args.observations}", file=destination)
 
     if output_warnings:
         print(f"\nWarnings ({len(output_warnings)}):", file=sys.stderr)

@@ -1,0 +1,1 @@
+{"command":["python","-m","unittest","tests.test_target"],"exit_status":1,"failed_test":"test_target_is_explicit","exception_chain":["MissingTarget: deployment target is absent","ValidationError: deployment cannot be prepared"]}

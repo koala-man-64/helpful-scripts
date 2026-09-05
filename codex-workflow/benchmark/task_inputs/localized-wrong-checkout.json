@@ -1,0 +1,1 @@
+{"task_id":"localized-wrong-checkout","files":{"prepare_git.py":"task-specific scratch Git fixture: wrong HEAD then pinned HEAD"},"expected":"detect mismatch before edit and recover through preparation hook","validator_plan":"compare HEAD/branch before and after hook; no real repository mutation"}

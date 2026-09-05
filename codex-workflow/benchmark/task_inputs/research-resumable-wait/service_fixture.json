@@ -1,0 +1,1 @@
+{"operation_id":"fixture-op-17","responses":[{"revision":1,"state":"pending"},{"revision":2,"state":"completed","result":"consumer validation available"}],"resume_step":"summarize consumer validation","requires_actual_adapter_evidence":["registered_wait","completed_wait","dependent_resume_once"]}

@@ -15,10 +15,12 @@ def render(
     lane: str,
     repository_roots: dict[str, Path] | None = None,
     strict_origin: bool = False,
+    validate_catalog: bool = True,
 ) -> dict[str, object]:
-    errors = validate(root, repository_roots, strict_origin)
-    if errors:
-        raise ValueError("catalog is invalid: " + "; ".join(errors))
+    if validate_catalog:
+        errors = validate(root, repository_roots, strict_origin)
+        if errors:
+            raise ValueError("catalog is invalid: " + "; ".join(errors))
     manifest = load_document(root / "catalog" / "skills.yaml")
     surface = load_document(root / "catalog" / "active-surface.yaml")
     decisions = load_document(root / "catalog" / "skill-decisions.yaml")
@@ -92,10 +94,10 @@ def _lane_execution_plan(lane: dict[str, object]) -> dict[str, object]:
     children, minimum, maximum, orchestrator, gates = [], 0, 0, False, {}
     if name == "terra":
         children = [
-            {"model": "Luna", "effort": "low", "role": "focused_qa", "required": True},
+            {"model": "Luna", "effort": "max", "role": "focused_qa", "required": True},
             {
                 "model": "Luna",
-                "effort": "low",
+                "effort": "max",
                 "role": "necessary_specialist",
                 "required": False,
             },
@@ -105,7 +107,7 @@ def _lane_execution_plan(lane: dict[str, object]) -> dict[str, object]:
         children = [
             {
                 "model": "Terra",
-                "effort": "medium",
+                "effort": "high",
                 "role": "bounded_specialist",
                 "required": True,
             }
@@ -141,10 +143,10 @@ def _validate_execution_plan(plan: dict[str, object], lane: str) -> None:
     if lane == "standard" and (
         children
         != [
-            {"model": "Luna", "effort": "low", "role": "focused_qa", "required": True},
+            {"model": "Luna", "effort": "max", "role": "focused_qa", "required": True},
             {
                 "model": "Luna",
-                "effort": "low",
+                "effort": "max",
                 "role": "necessary_specialist",
                 "required": False,
             },
@@ -159,7 +161,7 @@ def _validate_execution_plan(plan: dict[str, object], lane: str) -> None:
         != [
             {
                 "model": "Terra",
-                "effort": "medium",
+                "effort": "high",
                 "role": "bounded_specialist",
                 "required": True,
             }

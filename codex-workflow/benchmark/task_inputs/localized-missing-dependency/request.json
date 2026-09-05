@@ -1,0 +1,1 @@
+{"requested_dependency":"pandas","available_path":"src/supported.py","test_command":["python","-m","unittest","discover","-s","tests"],"installation_authorized":false}

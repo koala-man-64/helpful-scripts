@@ -42,6 +42,35 @@ def token_entry(
     }
 
 
+def desktop_usage_entry(
+    ordinal: int,
+    timestamp: str,
+    *,
+    thread_id: str,
+    turn_id: str,
+    response_id: str,
+    request_usage: dict[str, int],
+    turn_usage: dict[str, int],
+    thread_usage: dict[str, int],
+    session_id: str | None = None,
+) -> dict[str, object]:
+    return {
+        "ordinal": ordinal,
+        "timestamp": timestamp,
+        "type": "token_usage_record",
+        "payload": {
+            "thread_id": thread_id,
+            "turn_id": turn_id,
+            "session_id": session_id or thread_id,
+            "root_turn_id": turn_id,
+            "response_id": response_id,
+            "usage": request_usage,
+            "turn_token_usage": turn_usage,
+            "thread_token_usage": thread_usage,
+        },
+    }
+
+
 def turn_entry(timestamp: str, turn_id: str, model: str, effort: str) -> dict[str, object]:
     return {
         "timestamp": timestamp,
@@ -334,6 +363,316 @@ class ParserTests(unittest.TestCase):
         exported = json.dumps([audit.asdict(record) for record in records])
         self.assertNotIn("must-not-be-exported", exported)
 
+    def test_desktop_records_reconcile_with_legacy_and_keep_ordinals_stable(self) -> None:
+        unknown = usage(10, 8, 2, 1)
+        first = usage(100, 80, 10, 5)
+        second = usage(30, 20, 8, 3)
+        third = usage(20, 15, 4, 2)
+        entries = [
+            session_entry(ROOT_ID),
+            desktop_usage_entry(
+                101,
+                "2026-08-23T10:00:01Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-unknown",
+                response_id="response-unknown",
+                request_usage=unknown,
+                turn_usage=unknown,
+                thread_usage=unknown,
+            ),
+            turn_entry("2026-08-23T10:01:00Z", "desktop-one", "gpt-5.6-sol", "high"),
+            desktop_usage_entry(
+                102,
+                "2026-08-23T10:01:01Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-one",
+                response_id="response-one",
+                request_usage=first,
+                turn_usage=first,
+                thread_usage=usage(110, 88, 12, 6),
+            ),
+            token_entry("2026-08-23T10:01:02Z", usage(110, 88, 12, 6), first),
+            desktop_usage_entry(
+                103,
+                "2026-08-23T10:01:03Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-one",
+                response_id="response-two",
+                request_usage=second,
+                turn_usage=usage(130, 100, 18, 8),
+                thread_usage=usage(140, 108, 20, 9),
+            ),
+            turn_entry("2026-08-23T10:02:00Z", "desktop-two", "gpt-5.6-terra", "high"),
+            desktop_usage_entry(
+                104,
+                "2026-08-23T10:02:01Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-two",
+                response_id="response-three",
+                request_usage=third,
+                turn_usage=third,
+                thread_usage=usage(160, 123, 24, 11),
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = write_rollout(root, ROOT_ID, entries)
+            copied_path = write_rollout(
+                root,
+                ROOT_ID,
+                [{"type": "response_item", "payload": {}}, *entries],
+                suffix="10-01-00",
+            )
+            warnings: list[str] = []
+            session = audit.parse_rollout(path, warnings)
+            copied = audit.parse_rollout(copied_path, [])
+            records = audit.build_turn_records([session], {}, {}, True, False, warnings)  # type: ignore[list-item]
+            export = audit.build_observations([session], records, warnings)  # type: ignore[list-item]
+            copied_records = audit.build_turn_records([copied], {}, {}, True, False, [])  # type: ignore[list-item]
+            copied_export = audit.build_observations([copied], copied_records, [])  # type: ignore[list-item]
+
+        self.assertEqual([], warnings)
+        self.assertEqual(
+            {"desktop-unknown": 12, "desktop-one": 148, "desktop-two": 24},
+            {record.turn_id: record.total_tokens for record in records},
+        )
+        unknown_row = next(
+            row
+            for row in export["observations"]
+            if row["request_id"] == audit._observation_identifier("request", "response-unknown")
+        )
+        self.assertIsNone(unknown_row["model"])
+        self.assertIsNone(unknown_row["reasoning_effort"])
+        request_rows = [row for row in export["observations"] if row["kind"] == "request"]
+        self.assertEqual(4, len(request_rows))
+        self.assertEqual(4, len({row["request_id"] for row in request_rows}))
+        self.assertEqual([101, 102, 103, 104], [row["source_event_index"] for row in request_rows])
+        self.assertEqual(
+            [row["event_id"] for row in request_rows],
+            [row["event_id"] for row in copied_export["observations"] if row["kind"] == "request"],
+        )
+
+    def test_desktop_records_reject_replays_foreign_ids_malformed_vectors_and_rebases(self) -> None:
+        initial = usage(100, 80, 10, 5)
+        rebased = usage(40, 30, 6, 2)
+        malformed = usage(5, 4, 1, 0)
+        malformed.pop("cached_input_tokens")
+        entries = [
+            session_entry(ROOT_ID),
+            desktop_usage_entry(
+                10,
+                "2026-08-23T10:00:01Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-one",
+                response_id="response-one",
+                request_usage=initial,
+                turn_usage=initial,
+                thread_usage=initial,
+            ),
+            desktop_usage_entry(
+                11,
+                "2026-08-23T10:00:02Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-one",
+                response_id="response-one",
+                request_usage=initial,
+                turn_usage=initial,
+                thread_usage=initial,
+            ),
+            desktop_usage_entry(
+                12,
+                "2026-08-23T10:00:03Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-two",
+                response_id="response-one",
+                request_usage=rebased,
+                turn_usage=rebased,
+                thread_usage=rebased,
+            ),
+            desktop_usage_entry(
+                13,
+                "2026-08-23T10:00:04Z",
+                thread_id=CHILD_ID,
+                turn_id="desktop-two",
+                response_id="foreign-thread",
+                request_usage=rebased,
+                turn_usage=rebased,
+                thread_usage=rebased,
+            ),
+            desktop_usage_entry(
+                14,
+                "2026-08-23T10:00:05Z",
+                thread_id=ROOT_ID,
+                session_id=CHILD_ID,
+                turn_id="desktop-two",
+                response_id="foreign-session",
+                request_usage=rebased,
+                turn_usage=rebased,
+                thread_usage=rebased,
+            ),
+            desktop_usage_entry(
+                15,
+                "2026-08-23T10:00:06Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-two",
+                response_id="malformed",
+                request_usage=malformed,
+                turn_usage=rebased,
+                thread_usage=rebased,
+            ),
+            desktop_usage_entry(
+                16,
+                "2026-08-23T10:00:07Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-two",
+                response_id="response-two",
+                request_usage=rebased,
+                turn_usage=rebased,
+                thread_usage=rebased,
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = write_rollout(Path(temporary), ROOT_ID, entries)
+            warnings: list[str] = []
+            session = audit.parse_rollout(path, warnings)
+            records = audit.build_turn_records([session], {}, {}, True, False, warnings)  # type: ignore[list-item]
+            export = audit.build_observations([session], records, warnings)  # type: ignore[list-item]
+
+        self.assertEqual(
+            {"desktop-one": 110, "desktop-two": 46},
+            {record.turn_id: record.total_tokens for record in records},
+        )
+        self.assertEqual(2, len([row for row in export["observations"] if row["kind"] == "request"]))
+        rebased_cumulative = next(
+            row
+            for row in export["observations"]
+            if row["kind"] == "cumulative" and row["source_event_index"] == 16
+        )
+        self.assertTrue(rebased_cumulative["reset"])
+        warning_text = "\n".join(warnings)
+        self.assertIn("replayed desktop response identifier", warning_text)
+        self.assertIn("conflicted desktop response identifier", warning_text)
+        self.assertIn("another thread", warning_text)
+
+    def test_desktop_record_after_matching_legacy_keeps_first_observed_export(self) -> None:
+        request = usage(100, 80, 10, 5)
+        entries = [
+            session_entry(ROOT_ID),
+            turn_entry("2026-08-23T10:00:01Z", "desktop-one", "gpt-5.6-sol", "high"),
+            token_entry("2026-08-23T10:00:02Z", request),
+            desktop_usage_entry(
+                1001,
+                "2026-08-23T10:00:03Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-one",
+                response_id="response-one",
+                request_usage=request,
+                turn_usage=request,
+                thread_usage=request,
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = write_rollout(Path(temporary), ROOT_ID, entries)
+            warnings: list[str] = []
+            session = audit.parse_rollout(path, warnings)
+            records = audit.build_turn_records([session], {}, {}, True, False, warnings)  # type: ignore[list-item]
+            export = audit.build_observations([session], records, warnings)  # type: ignore[list-item]
+
+        self.assertEqual([], warnings)
+        self.assertEqual([110], [record.total_tokens for record in records])
+        self.assertEqual(1, len([row for row in export["observations"] if row["kind"] == "request"]))
+        self.assertEqual(1, len([row for row in export["observations"] if row["kind"] == "cumulative"]))
+        cumulative_row = next(row for row in export["observations"] if row["kind"] == "cumulative")
+        self.assertFalse(cumulative_row["baseline_complete"])
+        request_row = next(row for row in export["observations"] if row["kind"] == "request")
+        self.assertIsNone(request_row["request_id"])
+        self.assertEqual(3, request_row["source_event_index"])
+        self.assertIn(
+            "response-one",
+            [snapshot.request_identifier for snapshot in session.turns[0].snapshots],  # type: ignore[union-attr]
+        )
+
+    def test_ambiguous_mixed_source_indexes_fail_export_without_rewriting_legacy(self) -> None:
+        first = usage(10, 8, 2, 1)
+        entries = [
+            session_entry(ROOT_ID),
+            turn_entry("2026-08-23T10:00:01Z", "desktop-one", "gpt-5.6-sol", "high"),
+            desktop_usage_entry(
+                101,
+                "2026-08-23T10:00:02Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-one",
+                response_id="response-one",
+                request_usage=first,
+                turn_usage=first,
+                thread_usage=first,
+            ),
+            token_entry("2026-08-23T10:00:03Z", usage(20, 16, 4, 2), first),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = write_rollout(Path(temporary), ROOT_ID, entries)
+            warnings: list[str] = []
+            session = audit.parse_rollout(path, warnings)
+            records = audit.build_turn_records([session], {}, {}, True, False, warnings)  # type: ignore[list-item]
+
+            with self.assertRaisesRegex(ValueError, "source_event_index order is ambiguous"):
+                audit.build_observations([session], records, warnings)  # type: ignore[list-item]
+
+        self.assertEqual([], warnings)
+
+    def test_desktop_record_validation_warnings_are_individually_visible(self) -> None:
+        first = usage(10, 8, 2, 1)
+        second = usage(5, 4, 1, 0)
+
+        def record(ordinal: int = 1, response_id: str = "response") -> dict[str, object]:
+            return desktop_usage_entry(
+                ordinal,
+                "2026-08-23T10:00:01Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-one",
+                response_id=response_id,
+                request_usage=dict(first),
+                turn_usage=dict(first),
+                thread_usage=dict(first),
+            )
+
+        missing_session = record()
+        missing_session["payload"]["session_id"] = None  # type: ignore[index]
+        missing_root_turn = record()
+        missing_root_turn["payload"]["root_turn_id"] = False  # type: ignore[index]
+        inconsistent_total = record()
+        inconsistent_total["payload"]["usage"]["total_tokens"] = 0  # type: ignore[index]
+        foreign_session = record()
+        foreign_session["payload"]["session_id"] = CHILD_ID  # type: ignore[index]
+        first_turn = record(10, "response-one")
+        stale_turn = desktop_usage_entry(
+            11,
+            "2026-08-23T10:00:02Z",
+            thread_id=ROOT_ID,
+            turn_id="desktop-one",
+            response_id="response-two",
+            request_usage=second,
+            turn_usage=first,
+            thread_usage=usage(15, 12, 3, 1),
+        )
+
+        cases = (
+            ([missing_session], "omitted required identity"),
+            ([missing_root_turn], "omitted required identity"),
+            ([inconsistent_total], "invalid or inconsistent desktop usage vectors"),
+            ([foreign_session], "belonged to another session"),
+            ([first_turn, record(10, "response-three")], "invalid or non-monotone desktop ordinal"),
+            ([first_turn, stale_turn], "did not reconcile with turn cumulative"),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for index, (entries, expected) in enumerate(cases):
+                with self.subTest(expected=expected):
+                    path = write_rollout(root, ROOT_ID, [session_entry(ROOT_ID), *entries], suffix=f"10-0{index}-00")
+                    warnings: list[str] = []
+                    audit.parse_rollout(path, warnings)
+                    self.assertTrue(any(expected in warning for warning in warnings), warnings)
+
     def test_nested_subagents_roll_up_to_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             codex_home = Path(temporary)
@@ -567,6 +906,88 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(any("gpt-unknown" in warning for warning in warnings))
 
 
+@unittest.skipUnless(os.environ.get("CODEX_USAGE_HOOKS_SOURCE"), "set explicit hooks source for interoperability")
+class DesktopHooksInteropTests(unittest.TestCase):
+    def test_mixed_legacy_and_desktop_cumulative_stream_imports_in_order(self) -> None:
+        source = Path(os.environ["CODEX_USAGE_HOOKS_SOURCE"]).resolve(strict=True)
+        sys.path.insert(0, str(source / "src"))
+        self.addCleanup(sys.path.remove, str(source / "src"))
+        from codex_workflow_hooks.evidence import EvidenceLedger
+
+        first = usage(100, 80, 10, 5)
+        second = usage(20, 15, 4, 2)
+        legacy_prefix = [
+            session_entry(ROOT_ID),
+            turn_entry("2026-08-23T10:00:01Z", "desktop-one", "gpt-5.6-sol", "high"),
+            token_entry("2026-08-23T10:00:02Z", first),
+        ]
+        entries = [
+            *legacy_prefix,
+            desktop_usage_entry(
+                101,
+                "2026-08-23T10:00:03Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-one",
+                response_id="response-one",
+                request_usage=first,
+                turn_usage=first,
+                thread_usage=first,
+            ),
+            desktop_usage_entry(
+                102,
+                "2026-08-23T10:00:04Z",
+                thread_id=ROOT_ID,
+                turn_id="desktop-one",
+                response_id="response-two",
+                request_usage=second,
+                turn_usage=usage(120, 95, 14, 7),
+                thread_usage=usage(120, 95, 14, 7),
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prefix_path = write_rollout(root, ROOT_ID, legacy_prefix)
+            mixed_path = write_rollout(root, ROOT_ID, entries, suffix="10-01-00")
+            prefix_warnings: list[str] = []
+            prefix_session = audit.parse_rollout(prefix_path, prefix_warnings)
+            prefix_records = audit.build_turn_records([prefix_session], {}, {}, True, False, prefix_warnings)  # type: ignore[list-item]
+            prefix_payload = audit.build_observations([prefix_session], prefix_records, prefix_warnings)  # type: ignore[list-item]
+            warnings: list[str] = []
+            session = audit.parse_rollout(mixed_path, warnings)
+            records = audit.build_turn_records([session], {}, {}, True, False, warnings)  # type: ignore[list-item]
+            payload = audit.build_observations([session], records, warnings)  # type: ignore[list-item]
+            ledger = EvidenceLedger(Path(temporary) / "temporary-test-ledger")
+            self.assertEqual([], prefix_warnings)
+            self.assertEqual([], warnings)
+            self.assertEqual(2, len(prefix_payload["observations"]))
+            self.assertEqual(4, len(payload["observations"]))
+            self.assertEqual(
+                {"inserted": 2, "duplicates": 0}, ledger.import_usage(prefix_payload)
+            )
+            self.assertEqual(
+                {"inserted": 2, "duplicates": 2}, ledger.import_usage(payload)
+            )
+            summary = ledger.usage_summary()
+
+        self.assertEqual(120, summary["request"]["root"]["totals"]["input_tokens"])
+        self.assertNotIn(
+            audit._observation_identifier("request", "response-one"),
+            [row["request_id"] for row in payload["observations"]],
+        )
+        self.assertEqual(
+            prefix_payload["observations"][0]["source_event_index"],
+            payload["observations"][0]["source_event_index"],
+        )
+        self.assertEqual(
+            prefix_payload["observations"][0]["event_id"],
+            payload["observations"][0]["event_id"],
+        )
+        self.assertIsNone(summary["cumulative"]["root"]["totals"]["input_tokens"])
+        self.assertEqual(
+            20, summary["cumulative"]["root"]["known_lower_bounds"]["input_tokens"]
+        )
+
+
 class StateAndCliTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "Windows extended path behavior")
     def test_windows_extended_and_normal_paths_share_one_identity(self) -> None:
@@ -786,6 +1207,101 @@ class StateAndCliTests(unittest.TestCase):
         self.assertEqual(2, len(rows))
         self.assertIn("wrote 2 turn rows", stderr.getvalue())
         self.assertNotIn("wrote", stdout.getvalue())
+
+    def test_observations_export_keeps_request_and_cumulative_evidence_separate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary)
+            write_rollout(codex_home, ROOT_ID, root_entries())
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                exit_code = audit.main(
+                    ["--root", str(codex_home), "--no-state-db", "--observations", "-"]
+                )
+
+        export = json.loads(stdout.getvalue())
+        observations = export["observations"]
+        self.assertEqual(0, exit_code)
+        self.assertEqual(1, export["schema_version"])
+        self.assertEqual(8, len(observations))
+        self.assertEqual({"request", "cumulative"}, {row["kind"] for row in observations})
+        self.assertEqual(4, len({row["event_id"] for row in observations}))
+        self.assertTrue(all(isinstance(row["source_event_index"], int) for row in observations))
+        self.assertTrue(all(row["attribution"] == "root" for row in observations))
+        self.assertTrue(all(row["estimated_cost_usd"] is None for row in observations))
+        self.assertTrue(all(row["rate_card_id"] is None for row in observations))
+        self.assertTrue(all(row["cost_basis"] is None for row in observations))
+        self.assertTrue(all("must-not-be-exported" not in json.dumps(row) for row in observations))
+        first_cumulative = next(row for row in observations if row["kind"] == "cumulative")
+        self.assertFalse(first_cumulative["baseline_complete"])
+        self.assertEqual(
+            audit._observation_identifier("task", ROOT_ID), first_cumulative["task_id"]
+        )
+        self.assertEqual("", stderr.getvalue())
+
+    def test_observations_export_marks_reset_and_uses_a_new_segment(self) -> None:
+        entries = [
+            session_entry(ROOT_ID),
+            turn_entry("2026-08-23T10:01:00Z", "turn-1", "gpt-5.6-sol", "high"),
+            token_entry("2026-08-23T10:01:10Z", usage(100, 80, 10, 5)),
+            token_entry("2026-08-23T10:01:20Z", usage(45, 35, 5, 2)),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary)
+            write_rollout(codex_home, ROOT_ID, entries)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                exit_code = audit.main(
+                    ["--root", str(codex_home), "--no-state-db", "--observations", "-"]
+                )
+
+        rows = json.loads(stdout.getvalue())["observations"]
+        cumulative = [row for row in rows if row["kind"] == "cumulative"]
+        self.assertEqual(0, exit_code)
+        self.assertEqual(2, len(cumulative))
+        self.assertFalse(cumulative[0]["reset"])
+        self.assertTrue(cumulative[1]["reset"])
+        self.assertFalse(cumulative[1]["baseline_complete"])
+        self.assertNotEqual(cumulative[0]["segment_id"], cumulative[1]["segment_id"])
+
+    def test_observations_export_uses_null_for_provider_fields_not_present(self) -> None:
+        partial = {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120}
+        entries = [
+            session_entry(ROOT_ID),
+            turn_entry("2026-08-23T10:01:00Z", "turn-1", "gpt-5.6-sol", "high"),
+            token_entry("2026-08-23T10:01:10Z", partial),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            codex_home = Path(temporary)
+            write_rollout(codex_home, ROOT_ID, entries)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                exit_code = audit.main(
+                    ["--root", str(codex_home), "--no-state-db", "--observations", "-"]
+                )
+
+        request = next(
+            row for row in json.loads(stdout.getvalue())["observations"] if row["kind"] == "request"
+        )
+        self.assertEqual(0, exit_code)
+        self.assertEqual(100, request["input_tokens"])
+        self.assertEqual(20, request["output_tokens"])
+        self.assertIsNone(request["cached_input_tokens"])
+        self.assertIsNone(request["reasoning_tokens"])
+        self.assertIsNone(request["cache_write_tokens"])
+        self.assertEqual("unknown", request["cache_write_semantics"])
+
+    def test_observations_preserve_request_when_cumulative_is_malformed(self) -> None:
+        entries = [session_entry(ROOT_ID), turn_entry("2026-08-23T10:01:00Z", "turn-1", "gpt-5.6-sol", "high"), token_entry("2026-08-23T10:01:10Z", usage(100, 80, 10, 5))]
+        entries[-1]["payload"]["info"]["total_token_usage"] = {"input_tokens": None}  # type: ignore[index]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            write_rollout(root, ROOT_ID, entries)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                self.assertEqual(0, audit.main(["--root", str(root), "--no-state-db", "--observations", "-"]))
+        rows = json.loads(stdout.getvalue())["observations"]
+        self.assertEqual(["request"], [row["kind"] for row in rows])
 
     def test_output_destinations_cannot_overwrite_inputs_or_each_other(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

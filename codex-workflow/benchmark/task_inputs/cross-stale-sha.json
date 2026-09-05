@@ -1,0 +1,1 @@
+{"task_id":"cross-stale-sha","files":{"upstream/contract.json":"{\"version\":2}","downstream/contract.json":"{\"version\":1}","prepare_git.py":"scratch paired repo stale-SHA fixture"},"expected":"defer downstream mutation until pinned SHA revalidated","validator_plan":"verify both scratch SHA receipts and paired contract versions"}

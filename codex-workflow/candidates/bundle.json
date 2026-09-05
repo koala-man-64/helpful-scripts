@@ -1,0 +1,38 @@
+{
+  "schema_version": "candidate-source-bundle-v1",
+  "package": "codex-workflow",
+  "installation": "disabled_not_installed",
+  "activation": false,
+  "sources": [
+    {
+      "id": "compact-global-instructions",
+      "path": "sources/compact-global-instructions.md",
+      "content_hash": "sha256:ec80cf5df7df5995c09e5c2cc19e21e966fe0936f89e934ab305f5d153eacb99"
+    },
+    {
+      "id": "managed-subagent-task-contract",
+      "path": "sources/managed-subagent-task-contract.md",
+      "content_hash": "sha256:2aa37f15ebad035908d05aab0199bca2649f43d55fc18628628a421ed32c0170"
+    },
+    {
+      "id": "instruction-profiles",
+      "path": "sources/instruction-profiles.json",
+      "content_hash": "sha256:69c6addf252a7faebc0e55f57a1eb46f191817e8fdc63b5e242fbace49d7d56d"
+    },
+    {
+      "id": "selection-policy",
+      "path": "sources/selection-policy.json",
+      "content_hash": "sha256:2fc10cc9981193edb49132682fe41194b35c2c8cc1aafb7188dfe94a18b2d226"
+    },
+    {
+      "id": "candidate-browser-evidence",
+      "path": "skills/browser-evidence",
+      "content_hash": "sha256:5e2ab986eb49026ebcc552e9942569d118bd63606ffe888ded9fd8d355ad60ee"
+    },
+    {
+      "id": "candidate-git-hygiene",
+      "path": "skills/git-hygiene-candidate",
+      "content_hash": "sha256:6a8e55d1b4a9c626f9c315f43a3a22d954beee1d668d9124ea4f3bdb13cfcc8a"
+    }
+  ]
+}

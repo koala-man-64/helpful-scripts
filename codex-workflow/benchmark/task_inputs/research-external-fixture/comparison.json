@@ -1,0 +1,1 @@
+{"recorded_at":"2026-09-04T00:00:00Z","units":{"latency":"milliseconds","capacity":"requests_per_second"},"requirement":{"max_latency":100,"minimum_capacity":50},"alternatives":[{"id":"A","latency":80,"capacity":70},{"id":"B","latency":120,"capacity":100}],"expected_selection":"A","network_reads_authorized":false}

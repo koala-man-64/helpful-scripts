@@ -48,6 +48,14 @@ task titles from `state_5.sqlite` without modifying it. Credit figures are dated
 standard-rate estimates, not billing truth. See
 [codex-token-usage-audit/README.md](codex-token-usage-audit/README.md).
 
+## Codex hook bytecode recovery
+
+[`Repair-CodexHookBytecode.ps1`](codex-workflow/tools/Repair-CodexHookBytecode.ps1)
+previews a narrowly verified cache-only integrity failure, then quarantines the
+four approved files when explicitly applied. It checks release bindings, path
+boundaries, preserved bytes, doctor health, and the installed self-test. See the
+[recovery runbook](codex-workflow/tools/HOOK_BYTECODE_RECOVERY.md).
+
 ## Claude Code token audit (Claude Code only)
 
 `claude-code-token-audit/` holds a single-file, dependency-free Python tool

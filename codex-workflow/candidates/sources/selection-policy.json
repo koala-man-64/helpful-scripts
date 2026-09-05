@@ -1,0 +1,23 @@
+{
+  "schema_version": "candidate-selection-policy-v1",
+  "skills": [
+    {
+      "id": "candidate-browser-evidence",
+      "path": "skills/browser-evidence/SKILL.md",
+      "trigger": "rendered_or_interactive_state_material",
+      "references": []
+    },
+    {
+      "id": "candidate-git-hygiene",
+      "path": "skills/git-hygiene-candidate/SKILL.md",
+      "trigger": "explicit_git_hygiene_or_cleanup",
+      "references": []
+    }
+  ],
+  "language_references": [
+    {"language": "csharp", "path": "references/csharp.md", "select_when": ["explicit:csharp", "suffix:.cs", "suffix:.csproj", "suffix:.sln"]},
+    {"language": "python", "path": "references/python.md", "select_when": ["explicit:python", "suffix:.py", "path:pyproject.toml"]},
+    {"language": "sql", "path": "references/sql.md", "select_when": ["explicit:sql", "suffix:.sql"]}
+  ],
+  "reuse": "retained_identical_applicable_context_only_no_automatic_cache"
+}

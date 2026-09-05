@@ -1,0 +1,51 @@
+{
+  "authority": "central_hooks_source_snapshot",
+  "candidate_installation": "not_installed",
+  "legacy_lane_pair_observations": [
+    {"compatibility": "root_owner_admission_unverified", "lane": "lite", "model": "gpt-5.6-luna", "participant": "owner", "reasoning_effort": "low"},
+    {"compatibility": "root_owner_admission_unverified", "lane": "standard", "model": "gpt-5.6-terra", "participant": "owner", "reasoning_effort": "medium"},
+    {"compatibility": "source_evaluator_accepts_observed_parent_context_route_admission_unverified", "lane": "standard", "model": "gpt-5.6-luna", "participant": "child", "reasoning_effort": "max"},
+    {"compatibility": "root_owner_admission_unverified", "lane": "critical", "model": "gpt-5.6-sol", "participant": "owner", "reasoning_effort": "high"},
+    {"compatibility": "source_evaluator_accepts_observed_parent_context_route_admission_unverified", "lane": "critical", "model": "gpt-5.6-terra", "participant": "child", "reasoning_effort": "high"}
+  ],
+  "observed_release": {
+    "manifest_sha256": "sha256:3d5df72bae74736007a27b385dcaebb04e89db020a0747b638d83d69a1e04451",
+    "policy_raw_bytes_sha256": "sha256:c8370b86982c00b0292b6bb1f1b61ba4d0dad7b4f6034f6ed5ab423b94075961",
+    "status": "installed_bytes_read_only",
+    "version": "0.6.3+sha.c540d2c99fe31220ea91c9d2ce8618c47b686403"
+  },
+  "user_validation": {
+    "evidence_scope": "Hooks owner verified Rudy's done confirmation for c540d2c reload, review, and trust.",
+    "status": "owner_confirmed_not_independently_rechecked"
+  },
+  "readiness": {
+    "ready": false,
+    "reason": "installed policy-byte observation, owner-confirmed user validation and historical source parser evidence do not establish per-route admission or actual spawn proof"
+  },
+  "schema_version": "central-policy-source-observation-v1",
+  "source": {
+    "commit": "08a2073c0651699454f9e1f793e9c3c438f0195a",
+    "policy_bytes_relation": "matches_after_windows_line_ending_normalization; canonical_json_equal",
+    "repository": "codex-workflow-hooks",
+    "status": "historical_source_snapshot_not_install_identity"
+  },
+  "subagent_routing": {
+    "allowed_model_efforts": {
+      "gpt-5.3-codex-spark": ["medium", "high"],
+      "gpt-5.6-luna": ["max"],
+      "gpt-5.6-sol": ["high", "xhigh"],
+      "gpt-5.6-terra": ["high", "xhigh"],
+      "gpt-6-astra": ["medium", "high", "xhigh"]
+    },
+    "contract_optional_fields": ["dependencies_resolved"],
+    "contract_required_fields": ["tier", "objective", "scope", "acceptance_checks", "constraints", "decomposition_attempted", "delegation"],
+    "message_tag": "codex_subagent_task_v2",
+    "policy_id": "subagent-routing-v4",
+    "schema_version": 4
+  },
+  "verified_policy": {
+    "canonical_json_sha256": "sha256:c5184cc0b5ca087d7d384f48690c705679316237ccf9b9fa9287c3cd2c08b392",
+    "path": "policies/global.json",
+    "raw_git_bytes_sha256": "sha256:fec04455a30971ebebb963aa7028623c4c93c2355df604e6680a44ba5e65aaf3"
+  }
+}

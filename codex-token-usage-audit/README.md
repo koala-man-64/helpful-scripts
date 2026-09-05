@@ -85,7 +85,17 @@ models. Compare with the previous snapshot if one is available.
 | `--no-credits` | suppress standard-rate credit estimates |
 | `--csv PATH` | normalized turn/model-effort/day ledger; use `-` for clean stdout |
 | `--json PATH` | snapshot with totals, breakdowns, rows, scan stats, and warnings; use `-` for clean stdout |
+| `--observations PATH` | content-free `usage-observations/v1` JSON for the hooks importer; use `-` for clean stdout |
 | `--strict` | emit the report but return exit code `2` when scan warnings occur |
+
+`--observations` is opt-in and does not persist anything by default. It emits
+validated `last_token_usage` rows as `request` evidence and raw
+`total_token_usage` rows as separate `cumulative` evidence. Consumers must not
+add the two kinds together. The export uses stable, namespaced hashes for
+provenance and identifiers, includes reset segments and incomplete baselines,
+and omits paths and content. Its USD cost fields are null: the auditor's local
+rate card is a Codex-credit estimate, not an API billing or subscription-charge
+estimate.
 
 ## Why cumulative turn deltas
 

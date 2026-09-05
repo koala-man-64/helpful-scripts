@@ -118,9 +118,9 @@ def catalog_root(path: Path) -> Path:
 
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    # Distribution hashes must survive checkout on platforms with different
+    # native line endings; match the repository's explicit LF policy.
+    path.write_bytes((json.dumps(value, indent=2, sort_keys=True) + "\n").encode("utf-8"))
 
 
 def _schema_definition_errors(schema: Any, path: str = "$schema") -> list[str]:

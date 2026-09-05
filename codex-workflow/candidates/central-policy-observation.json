@@ -1,0 +1,28 @@
+{
+  "admission_status": "blocked_pending_per_route_admission_evidence",
+  "authority": "central_hooks",
+  "candidate_installation": "disabled_not_installed",
+  "legacy_lock_execution_plan_authoritative": false,
+  "policy_file_digest": "sha256:c8370b86982c00b0292b6bb1f1b61ba4d0dad7b4f6034f6ed5ab423b94075961",
+  "policy_observation_kind": "installed_release_bytes_read_only",
+  "user_validation": {
+    "evidence_scope": "After Rudy reported completing the refresh, the hooks owner independently verified supported hooks/list from the current 0.153.4 desktop executable: all seven owned hooks enabled=true and trustStatus=trusted for this exact manifest, zero errors, unchanged configuration hash. This producer records the owner's stdout-only readback attestation. No result artifact or digest was retained; this is not an independently retained receipt or this producer's own live verification.",
+    "status": "owner_attested_exact_release_trusted"
+  },
+  "readiness_basis": "Installed manifest and policy bytes were independently read and hashed. The hooks owner independently verified exact-release trust through supported hooks/list. Historical source-evaluator compatibility is separate evidence. Root-owner admission, actual spawn proof, and per-route admission remain unverified.",
+  "installation_provenance": {
+    "build_id": "local-install-21211-76e85ad",
+    "kind": "clean_tag_local_install",
+    "source_commit": "76e85adf338bddc4ac51f1bf2d4ef67e6f245120",
+    "evidence_scope": "The installed manifest independently confirms source_kind=git and this local build identity. The hooks owner and coordinator reported the normal clean-tag local installation after successful automatic release 21211. This installation is not a downloaded CI artifact."
+  },
+  "release_digest": "sha256:927f3553597aee2bc5085e56271fa729ba16fb0229f7f3558bd9c99b63044c3e",
+  "release_version": "0.6.3+sha.76e85adf338bddc4ac51f1bf2d4ef67e6f245120",
+  "schema_version": "central-routing-observation-v1",
+  "snapshot_status": "installed_v4_policy_observed_candidate_admission_pending",
+  "subagent_routing": {
+    "message_tag": "codex_subagent_task_v2",
+    "policy_id": "subagent-routing-v4",
+    "schema_version": 4
+  }
+}
