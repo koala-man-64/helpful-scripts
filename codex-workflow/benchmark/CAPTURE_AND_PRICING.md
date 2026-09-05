@@ -87,6 +87,39 @@ closure remain explicit partial reasons. `complete_accounting`,
 `host_semantics_verified` and `promotion_eligible` stay false. This command does
 not emit an admitted host census or evaluate the four host scenarios.
 
+## Published census contract and partial producer
+
+The retained contract under `benchmark/contracts/benchmark-host-census-v1/`
+comes from [approved source fde0edd](https://dev.azure.com/rdprokes/AdaptiveAssetAllocation/_git/asset-allocation-contracts/commit/fde0edd62aff25fa466eebaefe2becaf1ca19423)
+and [successful main CI 21298](https://dev.azure.com/rdprokes/AdaptiveAssetAllocation/_build/results?buildId=21298).
+All 63 artifact files retain their original bytes. The offline loader verifies
+the publication receipt, manifest, payload inventory and schema pins before
+Draft 2020-12 validation with strict UTC calendar checking. Fixture validation
+checks structural outcomes only; the independent central verifier owns semantic
+dispositions. `tools/retain_census_contract.py` reproduces retention from the
+exact pinned downloaded ZIP without runtime network access.
+
+```powershell
+py -3 -B -m benchmark.runner produce-host-census --capture C:\evidence\capture.json --artifact-root C:\evidence --run-id EXACT_RUN_ID --pins C:\evidence\census-pins.json --sealed-at 2026-09-05T18:00:00Z --output C:\evidence\census.json
+```
+
+The pins file is an independently prepared object with exactly `run_set_digest`,
+`manifest_digest`, `producer_digest`, `runtime_digest` and `protocol_digest`.
+`host_census.producer_digest()` identifies the length-framed implementation used
+at preparation time. The producer compares its implementation and capture
+runtime/protocol with those expected values; matching claims alone do not
+authenticate the running provider. `sealed-at` is the caller's actual artifact
+sealing timestamp, never a provider cutoff inferred from the wall clock.
+
+This version retains one observed root and attributed child/review ancestry as
+explicitly unclosed attempts. A completed turn does not close a whole thread's
+attempt scope. Transport RPC IDs are not model request IDs: `requests: []`
+means attribution is unavailable, not zero model requests. The output carries
+that reason, pending RPC/server requests and unverified session binding. It
+does not manufacture usage, prices, scenario proofs or scheduler events. All
+three reconciliation flags stay false. Contradictory terminal records reject.
+No input or existing output is overwritten.
+
 ## Request pricing derivations
 
 The existing audit extractor supports desktop `token_usage_record` alongside

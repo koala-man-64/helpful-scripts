@@ -1,0 +1,527 @@
+{
+  "fixture_version": "benchmark-host-census-fixtures-v1",
+  "synthetic": true,
+  "semantic_expectations_executed": false,
+  "pricing_checks_file": "pricing-checks.json",
+  "cases": [
+    {
+      "id": "valid-partial",
+      "census_file": "cases/valid-partial.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "partial",
+      "reason": "Well-formed synthetic envelope; no authoritative scope closure or executed host paths."
+    },
+    {
+      "id": "missing-context",
+      "census_file": "cases/missing-context.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "unpriced",
+      "reason": "Required null context and explicit partial reasons are valid; no request price may be inferred."
+    },
+    {
+      "id": "unknown-field",
+      "census_file": "cases/unknown-field.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Unknown envelope properties are forbidden."
+    },
+    {
+      "id": "unknown-nested-field",
+      "census_file": "cases/unknown-nested-field.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Unknown nested properties are forbidden."
+    },
+    {
+      "id": "missing-required-null",
+      "census_file": "cases/missing-required-null.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Nullable fields must remain present."
+    },
+    {
+      "id": "bool-offset",
+      "census_file": "cases/bool-offset.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Boolean is not an integer byte offset."
+    },
+    {
+      "id": "bool-rpc-id",
+      "census_file": "cases/bool-rpc-id.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Boolean is not an RPC integer ID."
+    },
+    {
+      "id": "zero-frame-length",
+      "census_file": "cases/zero-frame-length.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Byte frames must have positive length."
+    },
+    {
+      "id": "negative-token-count",
+      "census_file": "cases/negative-token-count.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Request input size cannot be negative."
+    },
+    {
+      "id": "unsafe-path",
+      "census_file": "cases/unsafe-path.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Artifact paths must be portable relative paths without traversal."
+    },
+    {
+      "id": "uppercase-digest",
+      "census_file": "cases/uppercase-digest.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Digest encoding must use lowercase hexadecimal."
+    },
+    {
+      "id": "non-utc-seal",
+      "census_file": "cases/non-utc-seal.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Sealing timestamps require UTC, expressed as Z or +00:00."
+    },
+    {
+      "id": "invalid-calendar-date",
+      "census_file": "cases/invalid-calendar-date.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "UTC timestamps must also be real calendar dates; format validation is required."
+    },
+    {
+      "id": "producer-promotion-claim",
+      "census_file": "cases/producer-promotion-claim.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Producer reconciliation flags are false constants."
+    },
+    {
+      "id": "unknown-scenario",
+      "census_file": "cases/unknown-scenario.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Only the four fixed semantic scenarios are supported."
+    },
+    {
+      "id": "unknown-invariant",
+      "census_file": "cases/unknown-invariant.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Scenario invariant names are exact."
+    },
+    {
+      "id": "wrong-artifact-digest",
+      "census_file": "cases/wrong-artifact-digest.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Recompute full-file digest from retained bytes."
+    },
+    {
+      "id": "mismatched-run-set-digest",
+      "census_file": "cases/mismatched-run-set-digest.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Expected pins come from admission-config.json supplied independently of the census; reject this mismatch."
+    },
+    {
+      "id": "mismatched-manifest-digest",
+      "census_file": "cases/mismatched-manifest-digest.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Expected pins come from admission-config.json supplied independently of the census; reject this mismatch."
+    },
+    {
+      "id": "mismatched-producer-digest",
+      "census_file": "cases/mismatched-producer-digest.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Expected pins come from admission-config.json supplied independently of the census; reject this mismatch."
+    },
+    {
+      "id": "mismatched-runtime-digest",
+      "census_file": "cases/mismatched-runtime-digest.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Expected pins come from admission-config.json supplied independently of the census; reject this mismatch."
+    },
+    {
+      "id": "mismatched-protocol-digest",
+      "census_file": "cases/mismatched-protocol-digest.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Expected pins come from admission-config.json supplied independently of the census; reject this mismatch."
+    },
+    {
+      "id": "wrong-declared-size",
+      "census_file": "cases/wrong-declared-size.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Declared artifact size must equal retained byte length."
+    },
+    {
+      "id": "frame-outside-seal",
+      "census_file": "cases/frame-outside-seal.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Referenced byte interval extends beyond sealed artifact."
+    },
+    {
+      "id": "wrong-frame-digest",
+      "census_file": "cases/wrong-frame-digest.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Each exact byte interval must match its own digest."
+    },
+    {
+      "id": "frame-cuts-json",
+      "census_file": "cases/frame-cuts-json.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Even matching digests cannot make a truncated JSON record a valid event."
+    },
+    {
+      "id": "frame-cuts-utf8",
+      "census_file": "cases/frame-cuts-utf8.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "A frame starting inside a UTF-8 code point cannot be decoded as a supported event."
+    },
+    {
+      "id": "duplicate-attempt-id",
+      "census_file": "cases/duplicate-attempt-id.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Attempt identities must be unique."
+    },
+    {
+      "id": "duplicate-request-across-segments",
+      "census_file": "cases/duplicate-request-across-segments.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Global request IDs cannot be reused even across transport segments."
+    },
+    {
+      "id": "segment-cycle",
+      "census_file": "cases/segment-cycle.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Segment predecessor graph must be acyclic."
+    },
+    {
+      "id": "attempt-cycle",
+      "census_file": "cases/attempt-cycle.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Attempt ownership graph must be acyclic."
+    },
+    {
+      "id": "request-membership-conflict",
+      "census_file": "cases/request-membership-conflict.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Attempt.request_ids must exactly match its attributed requests."
+    },
+    {
+      "id": "conflicting-response-replay",
+      "census_file": "cases/conflicting-response-replay.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Duplicate response identity with a different usage event must reach the existing usage replay authority."
+    },
+    {
+      "id": "conflicting-context",
+      "census_file": "cases/conflicting-context.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Declared model contradicts the referenced context bytes."
+    },
+    {
+      "id": "unrelated-context-reference",
+      "census_file": "cases/unrelated-context-reference.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "A usage frame cannot establish effective model configuration."
+    },
+    {
+      "id": "catalog-default-context",
+      "census_file": "cases/catalog-default-context.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "unpriced",
+      "reason": "A model/catalog default without request provenance cannot establish request pricing."
+    },
+    {
+      "id": "missing-thread-session-binding",
+      "census_file": "cases/missing-thread-session-binding.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "partial",
+      "reason": "Normalized usage identity hashes raw session.session_id. A differing attempt.thread_id needs an explicit retained binding; absent binding cannot be inferred from names or timestamps."
+    },
+    {
+      "id": "conflicting-thread-session-binding",
+      "census_file": "cases/conflicting-thread-session-binding.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "The retained binding names another-thread for raw-session-1, contradicting this root-thread attempt. Different namespaces must not be equated."
+    },
+    {
+      "id": "forged-scope-closed",
+      "census_file": "cases/forged-scope-closed.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "A fixture scope_closed label and self-declared pins are not independent host authority."
+    },
+    {
+      "id": "fake-peer-delivery",
+      "census_file": "cases/fake-peer-delivery.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "A prepared fixture label is not delivery of an actual peer message."
+    },
+    {
+      "id": "fake-compaction-boundary",
+      "census_file": "cases/fake-compaction-boundary.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "A label cannot prove real compaction or load-bearing retention."
+    },
+    {
+      "id": "foreign-child-enrollment",
+      "census_file": "cases/foreign-child-enrollment.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "A foreign notification cannot enroll a child merely by naming a known sender."
+    },
+    {
+      "id": "manual-scheduler-continuation",
+      "census_file": "cases/manual-scheduler-continuation.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Manual resume is not authoritative scheduler continuation for fixture-op-17."
+    },
+    {
+      "id": "duplicate-scheduler-continuation",
+      "census_file": "cases/duplicate-scheduler-continuation.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Two claimed continuations cannot prove exactly one dependent scheduler action."
+    },
+    {
+      "id": "wait-without-dependent-action",
+      "census_file": "cases/wait-without-dependent-action.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "partial",
+      "reason": "A completed wait label with no dependent action does not satisfy dependent_work_resumed."
+    },
+    {
+      "id": "duplicate-frame-json-key",
+      "census_file": "cases/duplicate-frame-json-key.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Matching byte/frame digests do not permit duplicate keys or nonfinite JSON values."
+    },
+    {
+      "id": "nonfinite-frame",
+      "census_file": "cases/nonfinite-frame.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Matching byte/frame digests do not permit duplicate keys or nonfinite JSON values."
+    },
+    {
+      "id": "missing-terminal",
+      "census_file": "cases/missing-terminal.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "partial",
+      "reason": "A dispatched attempt without a terminal remains partial."
+    },
+    {
+      "id": "contradictory-terminal",
+      "census_file": "cases/contradictory-terminal.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "reject",
+      "reason": "Declared failed status contradicts retained completed terminal."
+    },
+    {
+      "id": "hidden-partial-reasons",
+      "census_file": "cases/hidden-partial-reasons.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "partial",
+      "reason": "Derive missing scope/usage/context from retained evidence even if producer partial_reasons is empty."
+    },
+    {
+      "id": "unreconciled-recovery",
+      "census_file": "cases/unreconciled-recovery.json",
+      "artifact_root": ".",
+      "admission_config_file": "admission-config.json",
+      "json_valid": true,
+      "schema_valid": true,
+      "expected_disposition": "partial",
+      "reason": "A new segment without host gap recovery proof does not clear a capture gap."
+    },
+    {
+      "id": "duplicate-json-key",
+      "census_file": "cases/duplicate-json-key.json",
+      "artifact_root": ".",
+      "json_valid": false,
+      "schema_valid": false,
+      "expected_disposition": "reject",
+      "reason": "Reject duplicate JSON keys before schema validation; do not silently keep the last value."
+    }
+  ]
+}

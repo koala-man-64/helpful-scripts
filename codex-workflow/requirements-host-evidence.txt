@@ -1,2 +1,2 @@
-# Optional tooling for benchmark/host_protocol.py. Catalog and CLI tools stay stdlib-only.
+# Optional protocol/census validation. Ordinary catalog operations stay stdlib-only.
 jsonschema==4.26.0

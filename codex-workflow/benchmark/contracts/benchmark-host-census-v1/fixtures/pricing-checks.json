@@ -1,0 +1,87 @@
+{
+  "fixture_version": "benchmark-host-census-pricing-checks-v1",
+  "synthetic": true,
+  "semantic_expectations_executed": false,
+  "unchanged_usage": {
+    "source_id": "fixture-source",
+    "event_id": "fixture-event-1",
+    "kind": "request",
+    "model": "fixture-model",
+    "input_tokens": 10,
+    "cached_input_tokens": 0,
+    "output_tokens": 2,
+    "reasoning_tokens": 1
+  },
+  "request_context": {
+    "product": "codex",
+    "pricing_scope": "request",
+    "model": "fixture-model",
+    "mode": "standard",
+    "regional": false,
+    "request_input_tokens": 10
+  },
+  "synthetic_rate_card": {
+    "unit_tokens": 1000000,
+    "input": "2",
+    "cached_input": "0.2",
+    "output": "12"
+  },
+  "expected_exact_model_token_estimate_usd": "0.000044",
+  "required_label": "Published Codex-equivalent model-token estimate; not an account charge",
+  "cases": [
+    {
+      "id": "unchanged-derived-estimate",
+      "change": null,
+      "expected_disposition": "partial",
+      "reason": "Matching arithmetic establishes no authentic request or complete task cost."
+    },
+    {
+      "id": "forged-derived-price",
+      "change": {
+        "estimated_cost_usd": "0"
+      },
+      "expected_disposition": "reject",
+      "reason": "Recompute from unchanged usage, exact context and the independently pinned rate card."
+    },
+    {
+      "id": "changed-usage-after-pricing",
+      "change": {
+        "output_tokens": 3
+      },
+      "expected_disposition": "reject",
+      "reason": "Original retained usage bytes must match their independent digest."
+    },
+    {
+      "id": "rate-card-pin-mismatch",
+      "change": {
+        "rate_card_digest": "sha256:b257e92ded2d71a753ccfb968c9fbc6231ae9271aef01650ad1d6be528453d31"
+      },
+      "expected_disposition": "reject",
+      "reason": "Expected rate card identity comes from independent admission configuration."
+    },
+    {
+      "id": "missing-region-proof",
+      "change": {
+        "regional": null
+      },
+      "expected_disposition": "unpriced",
+      "reason": "Missing effective region provenance prevents request pricing."
+    },
+    {
+      "id": "input-size-conflicts-with-usage",
+      "change": {
+        "request_input_tokens": 11
+      },
+      "expected_disposition": "reject",
+      "reason": "Request-effective input size must agree with immutable usage."
+    },
+    {
+      "id": "account-charge-label",
+      "change": {
+        "label": "Actual billed account cost"
+      },
+      "expected_disposition": "reject",
+      "reason": "Never relabel a published-equivalent estimate as actual billed cost."
+    }
+  ]
+}

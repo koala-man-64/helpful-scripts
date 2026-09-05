@@ -13,6 +13,8 @@ benchmark.
 | Model dispatch and immutable preparation | Prepared benchmark owner; runtime and model-catalog digests must match preparation pins before dispatch; no automatic runtime install or approval answers |
 | Usage validation and acceptance | Central hooks owner; the producer consumes its pinned source API and never treats a local estimate or snapshot as complete accounting |
 | Sealed host diagnostics | Benchmark caller; reads retained streams and validates the pinned provider projection, writes a new body-free diagnostic, and leaves admission and closure false |
+| Shared census retention and partial output | Source delivery owner retains approved CI bytes; offline loader verifies publication pins. Caller-owned output keeps attempts unclosed and model requests unattributed; it cannot alter the central verifier or activate features |
+| Passive amplification report | Explicit caller selects local rollouts and comparable baseline; derives bounded body-free metrics with existing token parser, no raw observation changes or scheduled model observer |
 | Candidate source and lock rendering | Source delivery owner; disabled outputs and historical policy observation; no installed configuration or consumer writes |
 | Installed release recovery | Runtime owner/operator; `Repair-CodexHookBytecode.ps1` requires an explicit invocation, exact diagnosed release/cache inventory and `-Apply`; preserves quarantined bytes and verifies the installed release afterward |
 

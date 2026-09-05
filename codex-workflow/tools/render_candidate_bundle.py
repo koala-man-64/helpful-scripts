@@ -31,9 +31,12 @@ CURATED_REPOSITORY_PATHS = (
     "codex-workflow/benchmark/host_capture.py",
     "codex-workflow/benchmark/host_observations.py",
     "codex-workflow/benchmark/host_protocol.py",
+    "codex-workflow/benchmark/host_census.py",
+    "codex-workflow/benchmark/census_contract.py",
     "codex-workflow/benchmark/protocol/host-events-0.153.4.schema.json",
     "codex-workflow/requirements-host-evidence.txt",
     "codex-workflow/tools/extract_host_protocol.py",
+    "codex-workflow/tools/retain_census_contract.py",
     "codex-workflow/benchmark/pricing.py",
     "codex-workflow/benchmark/fixtures.py",
     "codex-workflow/benchmark/runner.py",
@@ -46,6 +49,7 @@ CURATED_REPOSITORY_PATHS = (
     "codex-workflow/benchmark/evidence-receipt-v1.schema.json",
     "codex-token-usage-audit/codex_token_usage_audit.py",
     "codex-token-usage-audit/codex_equivalent_pricing.py",
+    "codex-token-usage-audit/amplification_report.py",
 )
 
 
@@ -92,6 +96,9 @@ def candidate_source_digest(root: Path) -> str:
         paths.append((path, relative))
     for path in sorted((root / "benchmark" / "task_inputs").rglob("*")):
         if path.is_file() and "__pycache__" not in path.parts:
+            paths.append((path, path.relative_to(root.parent).as_posix()))
+    for path in sorted((root / "benchmark" / "contracts" / "benchmark-host-census-v1").rglob("*")):
+        if path.is_file():
             paths.append((path, path.relative_to(root.parent).as_posix()))
     digest = hashlib.sha256()
     for path, relative_name in sorted(paths, key=lambda item: item[1]):

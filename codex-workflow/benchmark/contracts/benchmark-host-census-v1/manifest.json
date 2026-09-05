@@ -1,0 +1,315 @@
+{
+  "bundle_version": "1.0.0",
+  "files": [
+    {
+      "byte_length": 8143,
+      "digest": "sha256:f1399cad299b7d8f8b892ced955bf0aef90a00293c32cf39e9cb9801538830cf",
+      "path": "README.md"
+    },
+    {
+      "byte_length": 22460,
+      "digest": "sha256:28854a8f019646b3cd51294c5b634a0fdddc375cd354c7b71b72edf009334302",
+      "path": "benchmark-host-census-v1.schema.json"
+    },
+    {
+      "byte_length": 537,
+      "digest": "sha256:ec91a5c121eb88982b7f49ab2033fc74a440d5bab92ce794696bf1274396e056",
+      "path": "fixtures/admission-config.json"
+    },
+    {
+      "byte_length": 5522,
+      "digest": "sha256:ec08ebe4d121fba6390d7a6f55998066a1efbf81ba5caedf8fda9e333dfd1923",
+      "path": "fixtures/cases/attempt-cycle.json"
+    },
+    {
+      "byte_length": 5529,
+      "digest": "sha256:0b48722385e7ea6fd9121f355128d7a406b939d2178b5fe18b2d754cd266f05c",
+      "path": "fixtures/cases/bool-offset.json"
+    },
+    {
+      "byte_length": 5524,
+      "digest": "sha256:72b5efbdf50466f3fa9115d83a8cad45f9d6970b127863c2de25c008528890d8",
+      "path": "fixtures/cases/bool-rpc-id.json"
+    },
+    {
+      "byte_length": 5544,
+      "digest": "sha256:f5987a2e35fac9060d135ab9f1e8f289e91012baa1d0db03f856d17a13b5d90d",
+      "path": "fixtures/cases/catalog-default-context.json"
+    },
+    {
+      "byte_length": 5956,
+      "digest": "sha256:f89e185ec09ee24697b7a45b844ceb5d1d0d04d1ca9c0b638f506a583c2fefd3",
+      "path": "fixtures/cases/conflicting-context.json"
+    },
+    {
+      "byte_length": 6592,
+      "digest": "sha256:02295d523ebb397d1db443328bece547a5aad91f8278b1f6f73724b4f7e1ef39",
+      "path": "fixtures/cases/conflicting-response-replay.json"
+    },
+    {
+      "byte_length": 5825,
+      "digest": "sha256:6bb09d17d7e3fd1b58818b8fc8fed3ad91aa2aeaa870e3dd5c4d88c7f6e438d9",
+      "path": "fixtures/cases/conflicting-thread-session-binding.json"
+    },
+    {
+      "byte_length": 5517,
+      "digest": "sha256:61e7c113ee13b83f2892d6a4cc5710b75fa91f2906616598b4085fd2385802ef",
+      "path": "fixtures/cases/contradictory-terminal.json"
+    },
+    {
+      "byte_length": 6517,
+      "digest": "sha256:08a91e285de5a7e30632959b5353000a21a2b25a3fb080b9369ea669157f408a",
+      "path": "fixtures/cases/duplicate-attempt-id.json"
+    },
+    {
+      "byte_length": 6114,
+      "digest": "sha256:d800045a904bc6545543d425075968467c8f6a36dc909b1573374a7edd64370b",
+      "path": "fixtures/cases/duplicate-frame-json-key.json"
+    },
+    {
+      "byte_length": 5547,
+      "digest": "sha256:fa150a215cdf3ea6079400960b85a8a97bffa696a7ec1869d6d844bc89a65de7",
+      "path": "fixtures/cases/duplicate-json-key.json"
+    },
+    {
+      "byte_length": 7411,
+      "digest": "sha256:cbf9e82074e11d7d97fa0652156f0c68c423c2d0cbcf43406b299e64d3522cde",
+      "path": "fixtures/cases/duplicate-request-across-segments.json"
+    },
+    {
+      "byte_length": 6249,
+      "digest": "sha256:9abd9e606e304405f000e27bb3bc69dd6029bf485327aa0d8968197082c442e4",
+      "path": "fixtures/cases/duplicate-scheduler-continuation.json"
+    },
+    {
+      "byte_length": 5861,
+      "digest": "sha256:e906f44f8882f130a06edaa6a2dd8de211e5061b6b8d5cb18023a86b9549886a",
+      "path": "fixtures/cases/fake-compaction-boundary.json"
+    },
+    {
+      "byte_length": 5855,
+      "digest": "sha256:2f10acf3b5ea7823afb06617ae6d8355c53e3fa93efab31346d7afc6e08def73",
+      "path": "fixtures/cases/fake-peer-delivery.json"
+    },
+    {
+      "byte_length": 6842,
+      "digest": "sha256:f1bc0f6b1f2f37c244af23c3fd644df4070a656acfa946ab855b8220f323ec4d",
+      "path": "fixtures/cases/foreign-child-enrollment.json"
+    },
+    {
+      "byte_length": 6028,
+      "digest": "sha256:8ed93edb52b8ae1ad4b9e635112f2737fe04eb9a3a69c15e4b744b5a0c697762",
+      "path": "fixtures/cases/forged-scope-closed.json"
+    },
+    {
+      "byte_length": 5519,
+      "digest": "sha256:918854b9a62c468d50c3f3893513e20e6371fa5abf1455f82cf89810154635e9",
+      "path": "fixtures/cases/frame-cuts-json.json"
+    },
+    {
+      "byte_length": 5521,
+      "digest": "sha256:22500695af5ddfb3912b44a2a315a0283214cb8072ba7c2830b72332a395e86d",
+      "path": "fixtures/cases/frame-cuts-utf8.json"
+    },
+    {
+      "byte_length": 5526,
+      "digest": "sha256:d23ef4d2474079ea241865ac013cb70733e6923e24c4fdd91a7328a7c53cd061",
+      "path": "fixtures/cases/frame-outside-seal.json"
+    },
+    {
+      "byte_length": 5444,
+      "digest": "sha256:adc0ef381a31645c4fe0eaf2c9735c701d5f004af1ef9bfc2d8190810db53ce4",
+      "path": "fixtures/cases/hidden-partial-reasons.json"
+    },
+    {
+      "byte_length": 5520,
+      "digest": "sha256:5c40101c4d1418f47a9461388bc5a755c594bee214c5b1bbe9872bcd2d2a4cff",
+      "path": "fixtures/cases/invalid-calendar-date.json"
+    },
+    {
+      "byte_length": 5867,
+      "digest": "sha256:51e71d79aaeb21792c05184dc4e89751fd7651340f668774e7841d1eef44a48b",
+      "path": "fixtures/cases/manual-scheduler-continuation.json"
+    },
+    {
+      "byte_length": 5520,
+      "digest": "sha256:01c08687c0931bb7062cabb1043ce7698a7424d78dabfaf3313fab7d8829c2e1",
+      "path": "fixtures/cases/mismatched-manifest-digest.json"
+    },
+    {
+      "byte_length": 5520,
+      "digest": "sha256:e6bf8d048d2275ccb95f8d527d7f12987d0473b27039cd25c11f46a8c715cd11",
+      "path": "fixtures/cases/mismatched-producer-digest.json"
+    },
+    {
+      "byte_length": 5520,
+      "digest": "sha256:ccbed389843a90defde202ba6f19dd7c242d25c886bde54c22758abc2699243f",
+      "path": "fixtures/cases/mismatched-protocol-digest.json"
+    },
+    {
+      "byte_length": 5520,
+      "digest": "sha256:b18ce7e1929d2014951b1c7903ff4abb8ed726938053e2afb6c60d6727de564f",
+      "path": "fixtures/cases/mismatched-run-set-digest.json"
+    },
+    {
+      "byte_length": 5520,
+      "digest": "sha256:8a87a7a5dc93b089e3ada44c2d4fcf8190e476375a6720fc1aef5d154853e864",
+      "path": "fixtures/cases/mismatched-runtime-digest.json"
+    },
+    {
+      "byte_length": 5520,
+      "digest": "sha256:b7b56f7b3e55abb0c174af28df527072c82ecbc75483f14e99216deb28b9a85c",
+      "path": "fixtures/cases/missing-context.json"
+    },
+    {
+      "byte_length": 5476,
+      "digest": "sha256:fbad74809dd891e0eacd7f0308f7b13eeef7c781c2cd280b53194a7a1df07130",
+      "path": "fixtures/cases/missing-required-null.json"
+    },
+    {
+      "byte_length": 5313,
+      "digest": "sha256:7339993908028bfa522b977c0baaf1215ad617ed40ca824047061bdb048064ae",
+      "path": "fixtures/cases/missing-terminal.json"
+    },
+    {
+      "byte_length": 5537,
+      "digest": "sha256:5730e4881611fadab5153212081abd7a97164bd682c81770d0055d00e0557708",
+      "path": "fixtures/cases/missing-thread-session-binding.json"
+    },
+    {
+      "byte_length": 5518,
+      "digest": "sha256:c2a9a94c1c1994309f18031a85317add6fb0c4c4376217e35697ddd87aa07273",
+      "path": "fixtures/cases/negative-token-count.json"
+    },
+    {
+      "byte_length": 5525,
+      "digest": "sha256:f82dc372e3a8cf6f4b68aa4614991002990b36c46a9ac3288034ae27d441a245",
+      "path": "fixtures/cases/non-utc-seal.json"
+    },
+    {
+      "byte_length": 6105,
+      "digest": "sha256:ca41fa14d21dc539d31edb270f24a21e42ab13b3141cc17437c02fdb3d31ca65",
+      "path": "fixtures/cases/nonfinite-frame.json"
+    },
+    {
+      "byte_length": 5519,
+      "digest": "sha256:b925c6ac707fabedab8a2603482ec29384aa3627692a3f4f71450b4b335110f8",
+      "path": "fixtures/cases/producer-promotion-claim.json"
+    },
+    {
+      "byte_length": 5493,
+      "digest": "sha256:e94e38627184ba44694660a17f314291fde8bd1ef23ded188af14cf9f6400619",
+      "path": "fixtures/cases/request-membership-conflict.json"
+    },
+    {
+      "byte_length": 5527,
+      "digest": "sha256:d0c84698aa756cdd05821f61dabc8fa88e46944d219ea97d56d41a0fc8c8616d",
+      "path": "fixtures/cases/segment-cycle.json"
+    },
+    {
+      "byte_length": 5540,
+      "digest": "sha256:b3e190a846e287da21086d86ff114359c5fc8a7ed722a91c262212ca404402eb",
+      "path": "fixtures/cases/unknown-field.json"
+    },
+    {
+      "byte_length": 5545,
+      "digest": "sha256:cd9ecc433353eee456114a73fb38b545df6bdba7412d3e2a88b9cc2b546ec22a",
+      "path": "fixtures/cases/unknown-invariant.json"
+    },
+    {
+      "byte_length": 5541,
+      "digest": "sha256:046efda7e8585ea208bf88dfd7e050d0cbf353bb71d99ad230240eaffd856a8b",
+      "path": "fixtures/cases/unknown-nested-field.json"
+    },
+    {
+      "byte_length": 5502,
+      "digest": "sha256:ff09ec87c29e2d252d595f1f0e74e55590253672bad402d4e71400a074946edd",
+      "path": "fixtures/cases/unknown-scenario.json"
+    },
+    {
+      "byte_length": 6347,
+      "digest": "sha256:3b6459f870f606784eab5eb7f8131d86e2aa0b206879a2e44c3a64198ed1e446",
+      "path": "fixtures/cases/unreconciled-recovery.json"
+    },
+    {
+      "byte_length": 5958,
+      "digest": "sha256:ce12b0dae78d7174f62befc340493262d7b239953de850a97dad5b5ee949bf74",
+      "path": "fixtures/cases/unrelated-context-reference.json"
+    },
+    {
+      "byte_length": 5519,
+      "digest": "sha256:b47821155ac9bf3422e15dd6fd6db214de9cc598e22f4c5df4b6700f7e5b14ba",
+      "path": "fixtures/cases/unsafe-path.json"
+    },
+    {
+      "byte_length": 5520,
+      "digest": "sha256:19f747bcdfec864ffc9a68bae0325a34c09ca88bd09193cfcbf10c47f6bfca3c",
+      "path": "fixtures/cases/uppercase-digest.json"
+    },
+    {
+      "byte_length": 5520,
+      "digest": "sha256:b7b56f7b3e55abb0c174af28df527072c82ecbc75483f14e99216deb28b9a85c",
+      "path": "fixtures/cases/valid-partial.json"
+    },
+    {
+      "byte_length": 5858,
+      "digest": "sha256:143797d7a6f5e81956160e1cd435462c501dbef216b7aa5eebf4336cca8ce6cb",
+      "path": "fixtures/cases/wait-without-dependent-action.json"
+    },
+    {
+      "byte_length": 5520,
+      "digest": "sha256:05c55ec11432556827210854fce6366545ebcbe61d74f37e6530937bd43d72f9",
+      "path": "fixtures/cases/wrong-artifact-digest.json"
+    },
+    {
+      "byte_length": 5520,
+      "digest": "sha256:69e5c053c325e83a931dacc44ce61c3fe2a3527d2017b38723de4f2118371b72",
+      "path": "fixtures/cases/wrong-declared-size.json"
+    },
+    {
+      "byte_length": 5520,
+      "digest": "sha256:cee6b4c5d3bcd0fb84717843d15b22c2310ad73bd9b6b390766b26be2d57dceb",
+      "path": "fixtures/cases/wrong-frame-digest.json"
+    },
+    {
+      "byte_length": 5517,
+      "digest": "sha256:dc0d1897dd318016ae9b5d3784360016cfaa95cbfcf4b4c31911f45f5f3deb85",
+      "path": "fixtures/cases/zero-frame-length.json"
+    },
+    {
+      "byte_length": 19604,
+      "digest": "sha256:0cc1252d5fbdca56d1c71d4c78f4328f770a4f8abf4fe073fe206255fd6f9570",
+      "path": "fixtures/index.json"
+    },
+    {
+      "byte_length": 2599,
+      "digest": "sha256:8c24ccd8c1585047891426244c07d36915ccfafe9d14c501a20833b19dd07ba2",
+      "path": "fixtures/pricing-checks.json"
+    },
+    {
+      "byte_length": 546,
+      "digest": "sha256:fc751fc939a0bfbc4fc03d6b35ba063140f49631f867f6e96b0e51082c2188f6",
+      "path": "fixtures/raw/capture.jsonl"
+    },
+    {
+      "byte_length": 42,
+      "digest": "sha256:7d9085b252064fa283d33fb0136b219a30604c82ac94fd846f862688f7d8a87f",
+      "path": "fixtures/raw/duplicate-frame-json-key.jsonl"
+    },
+    {
+      "byte_length": 15,
+      "digest": "sha256:25eebfe3aedb4783ec70e035ffbcf050872e41717388a3863024c493739c8fe8",
+      "path": "fixtures/raw/nonfinite-frame.jsonl"
+    },
+    {
+      "byte_length": 109,
+      "digest": "sha256:28d28c0b776ef44b335ab7e237e624f64629223d64778c1efd94623f924076d4",
+      "path": "fixtures/raw/session-binding.jsonl"
+    }
+  ],
+  "fixture_version": "benchmark-host-census-fixtures-v1",
+  "manifest_version": "workflow-contract-manifest-v1",
+  "payload_digest": "sha256:98e6c920cac1a0b826ded12115ccc7ca9c778a9418e9c4566202b91f2ed0f337",
+  "schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "benchmark-host-census-v1"
+}
