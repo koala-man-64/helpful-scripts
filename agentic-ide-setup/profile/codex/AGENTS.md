@@ -42,6 +42,9 @@ Prefer completing the task over asking for permission at every step. Ask for app
 
 - When a tool or dependency is waitable, use the applicable event-aware wait facility, process the result as soon as it arrives, and continue the authorized dependent work in the same task.
 - Complete independent safe work while waiting when practical; do not stop after an unchanged wait snapshot.
+- Retain dependency cursors after unchanged checks. Do not repeat task navigation, renaming, moves, or status prompts unless relevant evidence changes, a deadline or uncertainty requires a check, or the user requests it.
+- Use one monitor for each external operation and reuse it across sequential gates. Stay quiet while unchanged or non-actionable; notify on meaningful change, completion, failure, or required user action. Explicit pause or deletion takes precedence over automatic continuation.
+- Batch independent reads and return the fields needed for the decision, preserving exit status and decisive errors. Repeat a successful check only when its relevant source, configuration, state, or unresolved concern changes.
 - For waits expected to exceed 60 seconds, create or reuse a current-task heartbeat that rechecks the pending work and continues when actionable progress arrives. Do not create duplicate monitors for the same operation.
 - Request user input only for a materially necessary decision, credential, human-owned approval, or unavailable authority. Use the product's Need Input action or tool when it is available; state the exact choice, its impact, and the available options, then continue non-dependent safe work.
 - When Need Input is unavailable, ask one explicit blocking question as the fallback. Do not seek confirmation for actions already in scope, self-approve, or bypass protected gates.
