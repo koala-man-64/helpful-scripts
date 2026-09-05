@@ -29,16 +29,22 @@ binds the run, task, observation IDs, validator source and raw evidence referenc
 The semantic observation index links retained CLI bytes; it is not token usage
 accounting or a complete attempt census.
 
-The disabled bundle's source digest includes the evaluator implementation, but
-the installed readiness verifier does not yet bind its expected combined and
-entrypoint digests to that bundle authority or recompute the exact semantic
-observation identity recipe. Those consumer-verifier joins remain promotion
-blockers; a self-declared preparation pin is insufficient release authority.
+The disabled bundle's source digest includes the evaluator implementation.
+The installed readiness verifier at release
+`0.6.3+sha.76e85adf338bddc4ac51f1bf2d4ef67e6f245120` checks combined and
+entrypoint pins against admission authority and recomputes the semantic
+observation identity recipe. These implemented checks do not establish that
+any particular run has supplied valid evidence; a self-declared preparation
+pin is insufficient release authority.
 
 Four host-event scenarios still lack implemented semantic evaluators in this
 checkpoint: compaction/recovery, wait/resume, peer collaboration, and detached
 review. The app-server raw capture and monetary calculator now have separate
-diagnostic producers; their central acceptance and complete census remain unfinished.
+diagnostic producers. The sealed frame reader validates raw bytes and the pinned
+provider payload schema before attributing known roots, children and reviews.
+It retains partial and contradictory observations; compaction is not retention,
+and a child wait is not an external scheduler continuation. Their central
+acceptance and complete census remain unfinished.
 Actual model execution, route admission,
 candidate feature consumption, full accounting and the 72-run efficiency gate
 remain unverified. No candidate is ready or activated.

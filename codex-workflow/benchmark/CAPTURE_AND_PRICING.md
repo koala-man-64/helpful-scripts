@@ -61,6 +61,32 @@ root/child/retry/review/recovery/clarification census remain separate work.
 The proposed consumer obligations and all four fixed invariant maps are in
 [CENSUS_CONTRACT_PROPOSAL_V1.md](CENSUS_CONTRACT_PROPOSAL_V1.md).
 
+## Inspecting retained host frames
+
+Install the optional `requirements-host-evidence.txt` dependency to validate host
+payloads. From `codex-workflow/`, inspect an already closed capture without
+dispatching a model:
+
+```powershell
+py -3 -B -m benchmark.runner inspect-host-capture --capture C:\evidence\capture.json --artifact-root C:\evidence --run-id EXACT_RUN_ID --output C:\evidence\host-diagnostic.json
+```
+
+The reader verifies each sealed stream, resolves references inside the artifact
+root, preserves byte offsets, and reconciles request/response identities.
+The interpreter validates supported payloads against a digest-pinned Draft 7
+projection of the combined provider export. `tools/extract_host_protocol.py`
+reproduces that projection from the exact source digest, including all transitive
+local references. This provider adapter data is separate from the shared census
+contract.
+
+The output is the private `host-capture-diagnostic-v1` format. It contains
+identities and byte references, not message bodies. It never overwrites an
+existing output or raw evidence. Foreign or contradictory events cannot create
+accepted topology; unknown scope, pending replies, errors and missing provider
+closure remain explicit partial reasons. `complete_accounting`,
+`host_semantics_verified` and `promotion_eligible` stay false. This command does
+not emit an admitted host census or evaluate the four host scenarios.
+
 ## Request pricing derivations
 
 The existing audit extractor supports desktop `token_usage_record` alongside

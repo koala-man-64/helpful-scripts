@@ -18,6 +18,7 @@ from .validators import capability_report
 from .semantic_evidence import capture_workspace
 from .semantic_validation import fixture_record, semantic_observations, semantic_preparation_pins, semantic_proofs, validator_digest
 from .pricing import derive_request_prices
+from .host_observations import diagnostic_payload, read_host_trace
 
 
 def read_json(path: Path) -> Any:
@@ -61,9 +62,9 @@ def study_capabilities() -> dict[str, Any]:
             "independent complete root/child/retry/review/recovery/clarification census",
             "supported host compaction, wait, peer-message and child-review event producers",
             "central acceptance of separate request-price derivations and verified product/configuration context; original usage prices remain null",
-            "authority-bound expected semantic validator pins and exact observation join verification",
+            "admitted host-census contract and independent verification of actual host semantics and closure",
         ],
-        "implemented": ["fixed preparation", "explicit CodexExecAdapter API", "raw execution receipt collection", "artifact verification", "eight deterministic semantic evaluators"],
+        "implemented": ["fixed preparation", "explicit CodexExecAdapter API", "raw execution receipt collection", "artifact verification", "eight deterministic semantic evaluators", "sealed app-server frame reading", "attributed host-event diagnostics"],
     }
 
 
@@ -186,6 +187,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("capabilities", help="report exact support gaps without model execution")
+    host = commands.add_parser("inspect-host-capture", help="inspect sealed host frames without admitting a census")
+    host.add_argument("--capture", type=Path, required=True)
+    host.add_argument("--artifact-root", type=Path, required=True)
+    host.add_argument("--run-id", required=True)
+    host.add_argument("--output", type=Path, required=True)
     pricing = commands.add_parser("derive-pricing", help="retain request estimates separately from unmodified usage")
     pricing.add_argument("--usage", type=Path, required=True)
     pricing.add_argument("--contexts", type=Path, required=True)
@@ -207,6 +213,16 @@ def main() -> int:
     try:
         if args.command == "capabilities":
             print(json.dumps(study_capabilities(), indent=2, sort_keys=True))
+            return 0
+        if args.command == "inspect-host-capture":
+            raw = args.capture.read_bytes()
+            trace = read_host_trace(json.loads(raw), args.artifact_root, expected_run_id=args.run_id)
+            result = diagnostic_payload(trace)
+            result["run_id"] = args.run_id
+            result["capture_ref"] = {"path": str(args.capture.resolve(strict=True)),
+                                     "digest": "sha256:" + hashlib.sha256(raw).hexdigest()}
+            write_new(args.output, result)
+            print(json.dumps({"inspected": True, "capability": "diagnostic_only", "promotion_eligible": False}))
             return 0
         if args.command == "derive-pricing":
             result = derive_request_prices(args.usage, args.contexts, hook_source=args.hook_source,

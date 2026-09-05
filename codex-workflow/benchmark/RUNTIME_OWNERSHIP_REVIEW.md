@@ -12,6 +12,7 @@ benchmark.
 | App-server process and raw files | Benchmark caller; exact binary/protocol preflight, caller-owned workspace and new raw files outside it; bounded shutdown with explicit failures |
 | Model dispatch and immutable preparation | Prepared benchmark owner; runtime and model-catalog digests must match preparation pins before dispatch; no automatic runtime install or approval answers |
 | Usage validation and acceptance | Central hooks owner; the producer consumes its pinned source API and never treats a local estimate or snapshot as complete accounting |
+| Sealed host diagnostics | Benchmark caller; reads retained streams and validates the pinned provider projection, writes a new body-free diagnostic, and leaves admission and closure false |
 | Candidate source and lock rendering | Source delivery owner; disabled outputs and historical policy observation; no installed configuration or consumer writes |
 | Installed release recovery | Runtime owner/operator; `Repair-CodexHookBytecode.ps1` requires an explicit invocation, exact diagnosed release/cache inventory and `-Apply`; preserves quarantined bytes and verifies the installed release afterward |
 
@@ -21,7 +22,7 @@ Source scanner command (enforcement mode, bytecode disabled):
 py -3 -B .codex/skills/runtime-ownership-enforcer/scripts/scan_runtime_ownership.py . --runtime-dir codex-workflow/benchmark --runtime-dir codex-workflow/tools --runtime-dir codex-token-usage-audit --format text
 ```
 
-The final 2026-09-05 scan returned exit 1 with 25 pattern matches. It did **not** pass.
+The 2026-09-05 host-diagnostic scan returned exit 1 with 30 pattern matches. It did **not** pass.
 Inspection classified the matches as follows; no scanner exceptions or policy
 changes were introduced to alter that result.
 
@@ -31,6 +32,8 @@ changes were introduced to alter that result.
 | 7 `runtime_bootstrap` | App-server JSON-RPC `initialize` request/response checks | `valid_runtime_data_operation`; protocol handshake, no infrastructure provisioning |
 | 13 `runtime_bootstrap` | Deterministic schedule `seed` arguments and cumulative-counter explanation | `valid_runtime_data_operation`; statistical/data processing terminology, no environment mutation |
 | 2 `runtime_bootstrap` | Desktop token-vector reconciliation failure messages | `valid_runtime_data_operation`; failed validation is reported, with no infrastructure repair |
+| 2 `masked_environment_error` | `host_protocol._load_projection` converts malformed JSON into an explicit validation failure | `valid_runtime_data_operation`; no fallback schema or concealed success |
+| 3 `masked_environment_error` | `extract_host_protocol.extract_projection` rejects malformed provider JSON | `valid_deployment_provisioning_operation`; explicit source-generation tooling, no runtime repair |
 
 The explicit recovery helper is a
 `valid_deployment_provisioning_operation` in the management plane. The benchmark
