@@ -1,0 +1,11 @@
+{
+  "model": "sonnet",
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://localhost:4000",
+    "ANTHROPIC_AUTH_TOKEN": "<LITELLM_KEY>",
+    "ANTHROPIC_API_KEY": "",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "foundry-sonnet",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "foundry-opus",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "foundry-sonnet"
+  }
+}

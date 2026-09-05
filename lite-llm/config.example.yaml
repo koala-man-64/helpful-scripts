@@ -1,0 +1,16 @@
+# Alias additions for your EXISTING working LiteLLM config.yaml.
+# Merge these entries into its model_list; retain its general_settings and auth.
+# Copy your working deployment's litellm_params to both entries. The api_key
+# reference below illustrates existing key-based auth; retain your existing
+# credential variable or Azure AD token configuration if it differs.
+model_list:
+  - model_name: foundry-sonnet
+    litellm_params:
+      model: azure_ai/<FOUNDRY_MODEL>
+      api_base: "<FOUNDRY_ENDPOINT>"
+      api_key: os.environ/AZURE_AI_API_KEY
+  - model_name: foundry-opus
+    litellm_params:
+      model: azure_ai/<FOUNDRY_MODEL>
+      api_base: "<FOUNDRY_ENDPOINT>"
+      api_key: os.environ/AZURE_AI_API_KEY
