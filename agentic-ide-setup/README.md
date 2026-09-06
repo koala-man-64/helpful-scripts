@@ -1,11 +1,12 @@
 # Agentic IDE Setup
 
-Portable Windows PowerShell setup for the current Codex, Claude Code, and VS Code chat workflow. The committed profile contains selected settings plus user-authored agents, skills, rules, and hooks. It deliberately omits account details, sessions, caches, databases, and project-local configuration.
+Portable Windows PowerShell setup for the current Antigravity (Gemini), Codex, Claude Code, and VS Code chat workflow. The committed profile contains selected settings plus user-authored agents, skills, rules, and hooks. It deliberately omits account details, sessions, caches, databases, and project-local configuration.
 
 ## Captured baseline
 
 | Tool | Current version |
 | --- | --- |
+| Antigravity | 2.0 (Gemini 3.8 Flash High / Pro) |
 | Codex CLI | 0.116.0 |
 | Claude Code | 2.1.236 |
 | VS Code | 1.125.1 |
@@ -88,3 +89,6 @@ For the local Codex coordination pilot, follow
 OS-vault credential, isolated identity and SQLite state, MCP registration, lifecycle hooks,
 behavioral guidance, validation, and rollback. It does not authorize or claim an Azure
 production deployment.
+
+For the Antigravity 2.0 setup, working agreements, 79-skill suite, safety hooks, and multi-model team orchestration, follow [ANTIGRAVITY-SETUP.md](ANTIGRAVITY-SETUP.md).
+
