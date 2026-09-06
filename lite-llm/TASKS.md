@@ -2,6 +2,39 @@
 
 LiteLLM routes model requests. Task creation uses each agent's own interface.
 
+## Instructions delivered to agents
+
+[AGENT_INSTRUCTIONS.md](AGENT_INSTRUCTIONS.md) defines the conversation protocol:
+one shared discussion record, separate persistent native sessions, explicit
+roles/model/effort, assigned turns, checkpoints, and finite execution limits.
+The Claude launcher automatically appends its contents to the default system
+prompt on every launch, including when `--cwd` points elsewhere. Missing,
+unreadable, or empty instructions prevent dispatch. Single-agent work does not
+require setting up a team. Direct `claude` invocations bypass this launcher.
+
+For other agent integrations, the adapter must deliver the same file's contents
+through its supported instruction mechanism. A README link alone does not make
+an external agent load the file. Codex and Antigravity adapters remain pending.
+
+## Ensuring adherence
+
+Instruction delivery is implemented; behavioral enforcement is not. To enforce
+the protocol, a coordinator/dispatcher must validate the participant manifest,
+reject unknown conversation/session IDs and unauthorized turn assignments,
+serialize writes to each session, enforce cancellation and finite limits, and
+record dispatch/results with provider evidence. Enforce model access and spending
+limits at the gateway where supported; a gateway cannot enforce roles or shared
+history in applications it does not control. Do not silently drop unsupported
+effort settings. Test rejected turns, limit exhaustion, cancellation, duplicate
+dispatch, and resume-after-restart before claiming those controls work.
+
+For stronger assurance, provision gateway-only credentials and restrict direct
+provider access through separately managed configuration/network controls.
+Prompt instructions and session affinity cannot prevent bypass. These controls
+are design requirements, not changes installed by this launcher. Its offline
+tests verify instruction inclusion and fail-closed delivery only, not an LLM's
+obedience, multi-agent coordination, or gateway-only traffic.
+
 ## Claude CLI
 
 Run on Windows with the existing Python and Claude CLI installations:

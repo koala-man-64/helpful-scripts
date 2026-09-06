@@ -35,7 +35,11 @@ Selecting Opus still calls that deployment; an alias does not turn Sonnet into
 Opus. If you have separate deployments, copy each deployment's working
 `litellm_params` into its corresponding entry.
 
-This folder contains templates and commands only. Keep your existing LiteLLM
+Agents using this setup must follow [the conversation instructions](AGENT_INSTRUCTIONS.md).
+See [task launching and adherence controls](TASKS.md) for how instructions reach
+agents and which enforcement capabilities are still pending.
+
+This folder contains gateway templates and a local Claude task launcher. Keep your existing LiteLLM
 `general_settings`, key validation, and Foundry authentication. The `api_key`
 lines illustrate existing key-based auth: preserve your actual credential
 variable or Azure AD token configuration if different. Do not replace an entire

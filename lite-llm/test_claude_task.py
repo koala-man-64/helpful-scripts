@@ -9,6 +9,26 @@ import claude_task
 
 
 class ClaudeTaskTests(unittest.TestCase):
+    def test_required_instructions_are_appended_separately_from_task(self):
+        command = claude_task.task_command("claude.exe", "task")
+        index = command.index("--append-system-prompt")
+        self.assertEqual(command[index + 1], claude_task.INSTRUCTIONS_PATH.read_text(encoding="utf-8").strip())
+        self.assertEqual(command[-2:], ["--", "task"])
+
+    @patch("claude_task.subprocess.run")
+    @patch("claude_task.shutil.which", return_value="C:/tools/claude.exe")
+    def test_missing_or_empty_instructions_prevent_dispatch(self, which, run):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "instructions.md"
+            for contents in (None, "  ", "\n"):
+                if contents is not None:
+                    path.write_text(contents, encoding="utf-8")
+                with self.subTest(contents=contents), patch.object(claude_task, "INSTRUCTIONS_PATH", path):
+                    with self.assertRaises(SystemExit) as error:
+                        claude_task.main(["--cwd", folder, "--prompt", "task"])
+                    self.assertEqual(error.exception.code, 2)
+        run.assert_not_called()
+
     def test_prompt_and_model_remain_arguments(self):
         prompt = '--settings example.json & harmless; punctuation\nnext line'
         command = claude_task.task_command("claude.exe", prompt, "--example")
