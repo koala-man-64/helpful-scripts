@@ -145,6 +145,8 @@ class Session:
         self.skill_invocations: list[int] = []
         self.compactions = 0
         self.attachments: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        self.agent_spawns: Counter[str] = Counter()
+        self.skill_calls: Counter[str] = Counter()
 
 
 def parse_session(path: str, project: str, kind: str) -> Session:
@@ -200,6 +202,10 @@ def parse_session(path: str, project: str, kind: str) -> Session:
                         tool_names[str(block.get("id"))] = str(block.get("name"))
                         if block.get("name") == "ToolSearch":
                             rec["toolsearch"] = True
+                        elif block.get("name") in ("Agent", "Task"):
+                            s.agent_spawns[str((block.get("input") or {}).get("subagent_type") or "general-purpose")] += 1
+                        elif block.get("name") == "Skill":
+                            s.skill_calls[str((block.get("input") or {}).get("skill") or "?")] += 1
                         rec["chars"] += len(json.dumps(block.get("input"), ensure_ascii=False))
                     elif block.get("type") == "text":
                         rec["chars"] += len(block.get("text", ""))
@@ -599,6 +605,36 @@ def disk_section(home: Path, repo: Path | None) -> tuple[list[str], dict[str, An
 
 
 # ----------------------------------------------------------------------------
+# section 4b: definition usage (which agents and skills earn their listing)
+def definitions_section(sessions: list[Session], home: Path, min_uses: int, top: int) -> tuple[list[str], dict[str, Any]]:
+    spawns: Counter[str] = Counter()
+    calls: Counter[str] = Counter()
+    for s in sessions:  # main and subagent transcripts both spawn and invoke
+        spawns.update(s.agent_spawns)
+        calls.update(s.skill_calls)
+    out: list[str] = ["## 4b. Definition usage in the window", ""]
+    out.append("| Agent type | Spawns |")
+    out.append("|---|---|")
+    for name, n in spawns.most_common(top):
+        out.append(f"| {name} | {n} |")
+    out.append("")
+    out.append("| Skill | Invocations |")
+    out.append("|---|---|")
+    for name, n in calls.most_common(top):
+        out.append(f"| {name} | {n} |")
+    out.append("")
+    agents_on_disk = sorted(p.stem for p in (home / "agents").glob("*.md"))
+    skills_on_disk = sorted(p.parent.name for p in (home / "skills").glob("*/SKILL.md"))
+    below_agents = [a for a in agents_on_disk if spawns.get(a, 0) < min_uses]
+    below_skills = [k for k in skills_on_disk if calls.get(k, 0) < min_uses]
+    out.append(f"Global agents used fewer than {min_uses} times in the window ({len(below_agents)} of {len(agents_on_disk)}): " + (", ".join(below_agents) or "none") + ".")
+    out.append(f"Global skills used fewer than {min_uses} times ({len(below_skills)} of {len(skills_on_disk)}): " + (", ".join(below_skills) or "none") + ".")
+    out.append("Widen --days before retiring anything; a definition younger than the window has no history yet.")
+    out.append("")
+    return out, {"agent_spawns": dict(spawns), "skill_calls": dict(calls), "agents_below_min": below_agents, "skills_below_min": below_skills}
+
+
+# ----------------------------------------------------------------------------
 # section 5: levers
 def levers(usage: dict[str, Any], anatomy: dict[str, Any], turns: dict[str, Any], disk: dict[str, Any]) -> list[str]:
     out = ["## 5. Where the leverage is", ""]
@@ -649,6 +685,7 @@ def main() -> int:
     ap.add_argument("--session", help="session id prefix for the anatomy section (default: newest main session)")
     ap.add_argument("--repo", help="repository path to include repo-level CLAUDE.md, agents, skills, .mcp.json")
     ap.add_argument("--top", type=int, default=15)
+    ap.add_argument("--min-uses", type=int, default=2, help="flag global agents/skills used fewer times than this (default 2)")
     ap.add_argument("--json", help="write all numbers to this JSON file")
     args = ap.parse_args()
 
@@ -675,10 +712,11 @@ def main() -> int:
     a_lines, a_data = anatomy_section(target)
     t_lines, t_data = per_turn_section(sessions, args.top)
     d_lines, d_data = disk_section(home, Path(args.repo) if args.repo else None)
-    report += u_lines + a_lines + t_lines + d_lines + levers(u_data, a_data, t_data, d_data)
+    f_lines, f_data = definitions_section(sessions, home, args.min_uses, args.top)
+    report += u_lines + a_lines + t_lines + d_lines + f_lines + levers(u_data, a_data, t_data, d_data)
     print("\n".join(report))
     if args.json:
-        Path(args.json).write_text(json.dumps({"usage": u_data, "anatomy": a_data, "per_turn": t_data, "disk": d_data}, indent=2, default=str), encoding="utf-8")
+        Path(args.json).write_text(json.dumps({"usage": u_data, "anatomy": a_data, "per_turn": t_data, "disk": d_data, "definitions": f_data}, indent=2, default=str), encoding="utf-8")
         print(f"\nJSON written to {args.json}")
     return 0
 
