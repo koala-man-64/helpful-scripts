@@ -1,4 +1,0 @@
-interface:
-  display_name: "Runtime Ownership Enforcer"
-  short_description: "Govern cloud-native AI lifecycle ownership"
-  default_prompt: "Use $runtime-ownership-enforcer to audit this cloud-native AI system across its full development and operational lifecycle."
