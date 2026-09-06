@@ -8,13 +8,26 @@ import shutil
 import subprocess
 import sys
 
+INSTRUCTIONS_PATH = Path(__file__).with_name("AGENT_INSTRUCTIONS.md")
+
+
+def conversation_instructions() -> str:
+    """Fail before dispatch if the required agent guidance cannot be loaded."""
+    try:
+        instructions = INSTRUCTIONS_PATH.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError) as exc:
+        raise ValueError("Cannot read required AGENT_INSTRUCTIONS.md; restore it before dispatch.") from exc
+    if not instructions:
+        raise ValueError("Required AGENT_INSTRUCTIONS.md is empty; restore it before dispatch.")
+    return instructions
+
 
 def task_command(executable: str, prompt: str,
                  model: str | None = None, settings: Path | None = None) -> list[str]:
     """Keep task text as arguments, never shell source."""
     if not prompt.strip():
         raise ValueError("The task prompt must not be empty.")
-    command = [executable, "--background"]
+    command = [executable, "--background", "--append-system-prompt", conversation_instructions()]
     if model is not None:
         if not model.strip():
             raise ValueError("The model must not be empty.")
