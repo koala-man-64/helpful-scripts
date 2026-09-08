@@ -1,5 +1,12 @@
 # helpful-scripts
 
+## Fantasy football
+
+Fantasy football research, league playbooks, reports, and the draft assistant
+have moved to the private [fantasy-football repository](https://github.com/koala-man-64/fantasy-football).
+The former `fantasy-draft-research/` folder's Git history is preserved there.
+Unmerged copilot work continues in [fantasy-football PR #2](https://github.com/koala-man-64/fantasy-football/pull/2).
+
 ## VS Code GLM orchestrator with Microsoft Foundry workers
 
 `foundry-vscode-setup/` is an agent-ready handoff package for configuring VS Code's Local agent harness with a tool-capable local GLM coordinator and Microsoft Foundry-backed custom worker subagents. It includes model-provider templates, least-privilege custom-agent definitions, staged canaries, troubleshooting, and rollback guidance for a Copilot-disabled environment. See [foundry-vscode-setup/README.md](foundry-vscode-setup/README.md).
