@@ -2,13 +2,13 @@
 
 Use [Find-LaunchDarklySdkCredential.ps1](Find-LaunchDarklySdkCredential.ps1) to find the project, environment, and credential record that owns a known exposed `sdk-...` value. Give those identifiers to the authorized LaunchDarkly owner so they can revoke or rotate the correct credential through the incident process.
 
-The script only discovers information using GET requests. It does **not** revoke, rotate, delete, or test whether the exposed credential still authenticates.
+The script first requests caller identity with the exposed SDK credential, then uses a separate management token to discover the exact SDK credential record. It only uses GET requests and does **not** revoke, rotate, delete, or initialize an SDK. A successful identity request shows that the endpoint accepted the credential at that time; it does not verify application health.
 
 ## What the agent needs
 
 - Windows PowerShell 5.1 or PowerShell 7; no additional modules.
 - The exact exposed SDK secret, supplied through an approved private channel.
-- A **separate LaunchDarkly management REST API access token** for a candidate organization. Its permissions must allow listing projects, environments, and SDK credentials and reading their secret values. The exposed SDK secret and a VIT/incident number do not provide this access.
+- For the full scan: a **separate LaunchDarkly management REST API access token** for a candidate organization. Its permissions must allow listing projects, environments, and SDK credentials and reading their secret values. The exposed SDK secret and a VIT/incident number do not provide this access. `-IdentityOnly` does not need a management token.
 - Network access to `https://app.launchdarkly.com` and the name of the organization associated with the management token, confirmed by its owner.
 
 This script targets the **US commercial API only**. A token searches its own organization's accessible resources; it cannot search other organizations or reveal resources hidden by permissions. Stop and report the scope mismatch if the candidate organization uses another region or a federal deployment.
@@ -28,6 +28,17 @@ This script targets the **US commercial API only**. A token searches its own org
 Never put either credential in a command line, agent message, ticket, output example, or commit. Do not display the configured script, enable tracing, or record a transcript containing credentials. Managed PowerShell script-block logging may capture edited source: use an operator environment approved for this handling, without disabling managed logging. If access or secure credential delivery is unavailable, report that blocker instead of requesting the secret in chat.
 
 ## Run
+
+To start with only the exposed SDK credential, run:
+
+```powershell
+powershell.exe -NoProfile -File .\Find-LaunchDarklySdkCredential.ps1 -IdentityOnly
+$scanExitCode = $LASTEXITCODE
+```
+
+Use `pwsh` instead of `powershell.exe` for PowerShell 7. This mode never prompts for a management token or enumerates resources. It sends the exposed value in the Authorization header to `/api/v2/caller-identity` on the fixed US commercial host, with redirects disabled. It prints only recognized, sanitized identity fields. Available fields may include account ID, project/environment names and IDs, authentication kind, and token identifiers. Fields are optional, and returned IDs must not be mistaken for resource keys. Even successful identity metadata may leave the SDK credential name/resource key unresolved.
+
+Exit `4` means identity metadata was returned and **no full scan was performed**. Exit `2` means the lookup was inconclusive; a `401` does not identify the owner or prove revocation. Retain the identity result and use the full scan below when the exact credential record is still needed. The script still expects an exposed `sdk-...` value, not a management API token, in `KnownSdkSecret`.
 
 From the folder containing the private script copy, choose one:
 
@@ -49,7 +60,7 @@ Capture the exit code immediately after the process finishes. Read the script's 
 Get-Help .\Find-LaunchDarklySdkCredential.ps1 -Full
 ```
 
-The scan enumerates projects, their environments, and all returned server-side SDK credentials, including default keys, without an active-only filter. It compares secret values locally using exact, case-sensitive equality. Pagination, request timeouts, retry limits, and bounded rate-limit handling are built in. Let the scan finish: an early `MATCH` does not mean the remaining scan completed.
+The default run performs identity lookup before prompting for a management token, then scans even if the lookup fails. Identity lookup status does not determine full-scan completeness. The scan enumerates projects, their environments, and all returned server-side SDK credentials, including default keys, without an active-only filter. It compares secret values locally using exact, case-sensitive equality. Pagination, request timeouts, retry limits, and bounded rate-limit handling are built in. Let the scan finish: an early `MATCH` does not mean the remaining scan completed.
 
 ## Interpret the result
 
@@ -57,8 +68,9 @@ The scan enumerates projects, their environments, and all returned server-side S
 | --- | --- | --- |
 | `0` | One or more matches; accessible scan complete | Return **every** match and the owner handoff below. |
 | `1` | No match; accessible scan complete | Report the searched organization and scope. Ask the owner to verify permissions and candidate organizations. Do not conclude the credential is revoked or nonexistent. |
-| `2` | Incomplete scan; matches may still exist | Return any matches **and** each sanitized failure scope/category. Resolve missing access or API failures and rerun. No-match is inconclusive. |
+| `2` | Incomplete full scan, or inconclusive lookup in `-IdentityOnly` mode | Return any matches **and** each sanitized failure scope/category. Resolve missing access or API failures and rerun. No-match is inconclusive. |
 | `3` | Configuration or setup error | Correct the placeholder/token/setup issue using the script's safe error message, then rerun. |
+| `4` | Identity metadata only; full scan not performed | Return the sanitized identity fields. Run the full scan if credential-record identifiers remain unresolved. |
 
 `HTTP-401` usually requires the owner to check the management token; `HTTP-403` requires checking its permissions. Persistent `HTTP-404`, other API failures, masked/missing values, changing totals, repeated pages, or safety limits require investigation before claiming completeness. Do not expose raw HTTP responses or exception details while troubleshooting.
 
@@ -73,9 +85,10 @@ Incident/VIT reference: <reference, if supplied>
 Organization: <confirmed by the management-token owner>
 API scope: US commercial, accessible resources only
 Scan time: <date/time and timezone>
-Result: FOUND / NOT FOUND / INCOMPLETE / CONFIGURATION ERROR
-Exit code: <0, 1, 2, or 3>
-Counts: <projects, environments, SDK credentials, matches from output>
+Result: FOUND / NOT FOUND / INCOMPLETE / CONFIGURATION ERROR / IDENTITY METADATA ONLY
+Exit code: <0, 1, 2, 3, or 4>
+Identity lookup: <sanitized fields or inconclusive category from output>
+Counts: <projects, environments, SDK credentials, matches; or not scanned>
 
 For each MATCH:
   Project name and key: <from output>
@@ -105,3 +118,4 @@ The implementation's API references were verified on September 11, 2026:
 - [List environments](https://launchdarkly.com/docs/api/environments/get-environments-by-project)
 - [List environment SDK keys](https://launchdarkly.com/docs/api/sdk-keys-beta/get-sdk-keys)
 - [SDK credentials and owner navigation](https://launchdarkly.com/docs/home/account/environment/keys)
+- [Identify the caller](https://launchdarkly.com/docs/api/other/get-caller-identity)
