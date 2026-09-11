@@ -1,4 +1,5 @@
 #requires -Version 5.1
+
 <#
 .SYNOPSIS
 Find the owner of one exposed LaunchDarkly server-side SDK secret (read-only).
@@ -53,6 +54,7 @@ after short pages. SDK pages use the documented totalCount. Duplicate keys and
 page limits prevent loops when a server ignores offset. No legacy apiKey fallback
 can establish the name/resource key of every additional SDK credential.
 #>
+param()
 
 # ----------------------- OPERATOR CONFIGURATION -----------------------
 $KnownSdkSecret = 'REPLACE_WITH_EXPOSED_SDK_SECRET'
