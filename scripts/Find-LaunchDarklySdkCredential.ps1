@@ -9,6 +9,12 @@ Edit KnownSdkSecret below in a PRIVATE copy, then run:
 Or use pwsh -NoProfile -File .\Find-LaunchDarklySdkCredential.ps1.
 Get-Help .\Find-LaunchDarklySdkCredential.ps1 -Full displays these instructions.
 
+First calls /api/v2/caller-identity with the exposed SDK value in the Authorization
+header and prints only sanitized identity fields returned by LaunchDarkly.
+Use -IdentityOnly to stop after this lookup without a management token or prompt.
+Identity fields are optional; IDs are not project/environment keys or proof of
+the SDK credential record name. A 401 does not identify the owner or prove revocation.
+By default, continue with the full discovery scan even if this lookup fails.
 The script reads LD_ACCESS_TOKEN from the process environment. If absent it
 prompts securely for a separate LaunchDarkly management REST API access token.
 Have the authorized LaunchDarkly team supply a token that can list projects,
@@ -20,7 +26,8 @@ copy; configure the secret only on the authorized operator's machine. Managed
 PowerShell script-block logging may capture edited source; follow local policy.
 
 Uses GET only against the US commercial API at https://app.launchdarkly.com.
-Does not delete, rotate, revoke, or test SDK authentication. No external modules.
+Does not delete, rotate, revoke, or initialize an SDK. The identity request does
+authenticate the exposed credential to that endpoint. No external modules.
 One token searches only its own organization and accessible resources, not other
 organizations, hidden projects, other regions, or credentials already deleted.
 Rerun with an authorized token for each candidate organization. A complete scan
@@ -35,7 +42,9 @@ SDK total, or safety limit makes the scan INCOMPLETE, even if matches were found
 Previously discovered resources are still scanned after a later page fails.
 
 Exit codes: 0 = match(es), accessible scan complete; 1 = no match, accessible
-scan complete; 2 = incomplete (matches may exist); 3 = configuration/setup error.
+scan complete; 2 = incomplete full scan (matches may exist), or an inconclusive
+lookup when -IdentityOnly is used;
+3 = configuration/setup error; 4 = identity metadata only, full scan not performed.
 The authorized owner should use Organization settings > Security > SDK keys,
 select the reported project/environment, and locate the reported credential.
 Use the organization's incident/revocation process; discovery is not revocation.
@@ -45,6 +54,7 @@ https://launchdarkly.com/docs/api/projects/get-projects
 https://launchdarkly.com/docs/api/environments/get-environments-by-project
 https://launchdarkly.com/docs/api/sdk-keys-beta/get-sdk-keys
 https://launchdarkly.com/docs/home/account/environment/keys
+https://launchdarkly.com/docs/api/other/get-caller-identity
 All three collections support limit/offset. SDK keys require LD-API-Version:
 beta and expose items[].value separately from items[].key, name and isDefault.
 SDK queries filter kind:sdk without an active filter (include expired keys).
@@ -53,8 +63,12 @@ on the fixed origin. Projects/environments continue until an empty page, even
 after short pages. SDK pages use the documented totalCount. Duplicate keys and
 page limits prevent loops when a server ignores offset. No legacy apiKey fallback
 can establish the name/resource key of every additional SDK credential.
+.PARAMETER IdentityOnly
+Only request caller identity using the configured exposed SDK value. Never prompt
+for a management token or enumerate resources. Exit 4 means metadata was returned,
+not a complete scan or a confirmed SDK credential record match.
 #>
-param()
+param([switch]$IdentityOnly)
 
 # ----------------------- OPERATOR CONFIGURATION -----------------------
 $KnownSdkSecret = 'REPLACE_WITH_EXPOSED_SDK_SECRET'
@@ -103,9 +117,10 @@ function Protect-Text([string]$Text) {
     return [regex]::Replace($Text, '[\x00-\x1f\x7f-\x9f]', ' ')
 }
 
-function Invoke-LdGet([string]$PathAndQuery) {
+function Invoke-LdGet([string]$PathAndQuery, [switch]$CallerIdentity) {
     # Only locally generated paths reach here; no response link can change host.
-    if (-not $PathAndQuery.StartsWith('/api/v2/projects', [StringComparison]::Ordinal)) {
+    if (($CallerIdentity -and $PathAndQuery -cne '/api/v2/caller-identity') -or
+        (-not $CallerIdentity -and -not $PathAndQuery.StartsWith('/api/v2/projects', [StringComparison]::Ordinal))) {
         return @{ Ok = $false; Reason = 'unsafe-path' }
     }
     for ($attempt = 0; $attempt -le $MaxRetries; $attempt++) {
@@ -117,8 +132,13 @@ function Invoke-LdGet([string]$PathAndQuery) {
         try {
             $request = [System.Net.Http.HttpRequestMessage]::new(
                 [System.Net.Http.HttpMethod]::Get, ($ApiOrigin + $PathAndQuery))
-            $request.Headers.Add('Authorization', $ManagementToken)
-            $request.Headers.Add('LD-API-Version', 'beta')
+            if ($CallerIdentity) {
+                $request.Headers.Add('Authorization', $KnownSdkSecret)
+            }
+            else {
+                $request.Headers.Add('Authorization', $ManagementToken)
+                $request.Headers.Add('LD-API-Version', 'beta')
+            }
             $request.Headers.Add('Accept', 'application/json')
             $response = $Client.SendAsync($request).GetAwaiter().GetResult()
             $status = [int]$response.StatusCode
@@ -228,6 +248,45 @@ try {
         exit 3
     }
     $ManagementToken = [Environment]::GetEnvironmentVariable($ManagementTokenEnvironmentVariable)
+    Add-Type -AssemblyName System.Net.Http
+    [Net.ServicePointManager]::SecurityProtocol = $oldTls -bor [Net.SecurityProtocolType]::Tls12
+    $Handler = [System.Net.Http.HttpClientHandler]::new()
+    $Handler.AllowAutoRedirect = $false
+    $Handler.UseCookies = $false
+    $Client = [System.Net.Http.HttpClient]::new($Handler)
+    $Client.Timeout = [TimeSpan]::FromSeconds($RequestTimeoutSeconds)
+    $Client.MaxResponseContentBufferSize = 16MB
+    $exitCode = 2
+    Write-Output 'Looking up exposed SDK credential identity (US commercial API); GET only.'
+    $identity = Invoke-LdGet '/api/v2/caller-identity' -CallerIdentity
+    $identityFieldCount = 0
+    if ($identity.Ok) {
+        # Ignore every other property, including any unexpected credential values.
+        foreach ($field in @('accountId', 'projectId', 'projectName', 'environmentId',
+                'environmentName', 'authKind', 'tokenKind', 'tokenName', 'tokenId', 'memberId')) {
+            $fieldValue = Get-Field $identity.Data $field
+            if ($fieldValue -is [string] -and -not [string]::IsNullOrWhiteSpace($fieldValue)) {
+                Write-Output ('  Identity {0}: {1}' -f $field, (Protect-Text $fieldValue))
+                $identityFieldCount++
+            }
+        }
+        if ($identityFieldCount -eq 0) {
+            Write-Output 'IDENTITY INCONCLUSIVE: no recognized metadata returned.'
+        }
+        else {
+            Write-Output 'IDENTITY METADATA: optional fields only; not a confirmed SDK credential record match or full scan.'
+        }
+    }
+    else {
+        Write-Output ('IDENTITY INCONCLUSIVE: [' + $identity.Reason + ']. Failure does not identify the owner or prove revocation.')
+    }
+    $identity = $null
+    if ($IdentityOnly) {
+        if ($identityFieldCount -gt 0) { exit 4 }
+        exit 2
+    }
+    Write-Output 'Continuing full discovery using a separate management token; identity lookup status does not determine scan completeness.'
+    $exitCode = 3 # A missing/unreadable management token is still a setup failure.
     if ([string]::IsNullOrWhiteSpace($ManagementToken)) {
         $secureToken = Read-Host 'LaunchDarkly management API token (hidden)' -AsSecureString
         $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
@@ -242,14 +301,6 @@ try {
         Write-Output 'CONFIGURATION ERROR: supply a separate management REST API token.'
         exit 3
     }
-    Add-Type -AssemblyName System.Net.Http
-    [Net.ServicePointManager]::SecurityProtocol = $oldTls -bor [Net.SecurityProtocolType]::Tls12
-    $Handler = [System.Net.Http.HttpClientHandler]::new()
-    $Handler.AllowAutoRedirect = $false
-    $Handler.UseCookies = $false
-    $Client = [System.Net.Http.HttpClient]::new($Handler)
-    $Client.Timeout = [TimeSpan]::FromSeconds($RequestTimeoutSeconds)
-    $Client.MaxResponseContentBufferSize = 16MB
     $exitCode = 2
     $complete = $true
     $matchCount = 0
