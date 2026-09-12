@@ -11,6 +11,8 @@ The script first requests caller identity with the exposed SDK credential, then 
 - For the full scan: a **separate LaunchDarkly management REST API access token** for a candidate organization. Its permissions must allow listing projects, environments, and SDK credentials and reading their secret values. The exposed SDK secret and a VIT/incident number do not provide this access. `-IdentityOnly` does not need a management token.
 - Network access to `https://app.launchdarkly.com` and the name of the organization associated with the management token, confirmed by its owner.
 
+The expanded full scan also uses permission to read the creator's member record and resource-scoped audit logs. If these are denied, the script preserves the match and reports supplementary details as incomplete.
+
 This script targets the **US commercial API only**. A token searches its own organization's accessible resources; it cannot search other organizations or reveal resources hidden by permissions. Stop and report the scope mismatch if the candidate organization uses another region or a federal deployment.
 
 ## Configure a private copy
@@ -71,10 +73,29 @@ The default run performs identity lookup before prompting for a management token
 | `2` | Incomplete full scan, or inconclusive lookup in `-IdentityOnly` mode | Return any matches **and** each sanitized failure scope/category. Resolve missing access or API failures and rerun. No-match is inconclusive. |
 | `3` | Configuration or setup error | Correct the placeholder/token/setup issue using the script's safe error message, then rerun. |
 | `4` | Identity metadata only; full scan not performed | Return the sanitized identity fields. Run the full scan if credential-record identifiers remain unresolved. |
+| `5` | Match found, credential scan complete, supplementary details/history incomplete | Return the match and every `DETAILS INCOMPLETE` reason. Resolve access or pagination limits as needed; do not discard the confirmed match. |
 
 `HTTP-401` usually requires the owner to check the management token; `HTTP-403` requires checking its permissions. Persistent `HTTP-404`, other API failures, masked/missing values, changing totals, repeated pages, or safety limits require investigation before claiming completeness. Do not expose raw HTTP responses or exception details while troubleshooting.
 
 For another candidate organization, arrange a token for that organization and run a separate scan. Record the organization for each result. Hidden resources, other organizations/regions, and already deleted credentials are outside a complete accessible scan. Avoid concurrent credential changes where possible; pagination is not a consistent snapshot.
+
+## Additional credential evidence
+
+Every full-scan match now collects:
+
+- SDK description, record version, creator member ID, creation/update timestamps and expiration value, alongside the existing credential name/key/default status.
+- Project ID and tags; environment ID, tags, critical flag, color, cache TTL, secure-mode flag, event-tracking default, and comment/confirmation settings where returned.
+- Creator name, email, base/custom roles and invitation/verification status, when the member record is readable. A historical creator may no longer operate the credential. Their account roles do not describe the SDK key's permissions.
+- Retained audit events filtered to `proj/<project>:env/<environment>:sdk-key/<credential-key>`, including event ID/time/type, action, actor name/email/ID, and acting management-token or app identifiers. The acting management token is distinct from the exposed SDK key; no token value or token suffix is printed.
+- Identity lookup now also includes client ID, service-token flag, and scopes when returned. These optional identity fields do not establish the full flag/view payload accessible through the SDK credential.
+
+Fields that are absent are labeled **not returned**; an explicit empty list is labeled **empty list**. SDK timestamp output retains the raw API number and adds a UTC interpretation assuming Unix milliseconds. A missing or zero expiration value is not used to declare the credential expired, unexpired, or revoked.
+
+Audit scanning requests records after Unix epoch zero and before the scan's initial timestamp, limited by the organization's retention and token access. It follows validated continuation cursors, with **100 pages of 20 events per match** by default. Adjust `$MaxAuditPages` in the private copy to at most 1000 if necessary. A remaining next page at the limit, malformed pagination, repeated event, or permission/API failure produces `DETAILS INCOMPLETE` and exit `5` when the credential scan itself succeeded. Empty audit results mean no records returned in that accessible retained scope, not that the key was never used or changed. Missing creator IDs also produce an explicit detail limitation.
+
+The script does **not** provide per-key last-use time, originating IPs, a list of consuming applications/deployments/repositories, SDK request logs, proof of compromise, or complete effective flag/view payload scope. Audit logs describe management changes, not feature evaluations or credential use. Investigate deployment configuration, repository history, service logs, SDK-key settings, and available organization telemetry separately for those questions. It also excludes raw audit comments, descriptions, change payloads, arbitrary response fields, and flag values to avoid disclosing unrelated secrets.
+
+An exit `0` means the accessible credential scan and attempted supplemental requests completed; it does not mean every possible field or all historical evidence exists. Include the printed limitations in the handoff.
 
 ## Information the agent must return
 
@@ -86,7 +107,7 @@ Organization: <confirmed by the management-token owner>
 API scope: US commercial, accessible resources only
 Scan time: <date/time and timezone>
 Result: FOUND / NOT FOUND / INCOMPLETE / CONFIGURATION ERROR / IDENTITY METADATA ONLY
-Exit code: <0, 1, 2, 3, or 4>
+Exit code: <0, 1, 2, 3, 4, or 5>
 Identity lookup: <sanitized fields or inconclusive category from output>
 Counts: <projects, environments, SDK credentials, matches; or not scanned>
 
@@ -97,6 +118,11 @@ For each MATCH:
   SDK credential resource key: <from output; NOT the secret value>
   isDefault: <from output>
   GET resource path: <sanitized path from output>
+  Credential metadata: <description/version/raw timestamps/expiry>
+  Creator: <member ID and available name/email; distinguish from current owner>
+  Project/environment context: <available metadata from output>
+  Audit evidence: <resource specifier, time bounds, event IDs/times/actions/actors>
+  Detail limitations: <missing fields, inaccessible member/history, pagination limits>
 
 Incomplete scopes/categories: <each failure, or none>
 Scope/access limitations: <known gaps or other candidate organizations>
@@ -119,3 +145,7 @@ The implementation's API references were verified on September 11, 2026:
 - [List environment SDK keys](https://launchdarkly.com/docs/api/sdk-keys-beta/get-sdk-keys)
 - [SDK credentials and owner navigation](https://launchdarkly.com/docs/home/account/environment/keys)
 - [Identify the caller](https://launchdarkly.com/docs/api/other/get-caller-identity)
+- [SDK credential metadata](https://launchdarkly.com/docs/api/sdk-keys-beta/get-sdk-key-by-key)
+- [Creator member lookup](https://launchdarkly.com/docs/api/account-members/get-member)
+- [Audit log queries](https://launchdarkly.com/docs/api/audit-log/get-audit-log-entries)
+- [Resource specifiers](https://launchdarkly.com/docs/home/account/roles/role-resources)
