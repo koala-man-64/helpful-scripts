@@ -22,6 +22,11 @@ it does not add either extension to the portable installer.
 
 ## Agent wait-scheduling and peer coordination
 
+The [minimal subagent history guide](docs/minimal-subagent-history.md) provides a
+copyable shared instruction for Claude Code and Antigravity, host-specific setup
+paths, safe history fallbacks, and synthetic validation checks. It is manual
+guidance; it does not install rules or hooks or change host transcript retention.
+
 The [Codex wait-scheduling repair brief](docs/codex-wait-scheduling-repair.md) records a
 `codex-workflow-hooks` audit: the asynchronous wait/follow-up feature has never executed, because
 its trigger requires a `pushed` delivery artifact that the recorder never writes. It lists the
