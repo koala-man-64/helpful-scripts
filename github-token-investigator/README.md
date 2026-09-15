@@ -21,6 +21,19 @@ Optional named repository metadata check:
 pwsh -NoProfile -File ./github-token-investigator/Investigate-GitHubToken.ps1 -Repository owner/repository
 ```
 
+Optional GitHub Enterprise Cloud audit-frequency check:
+
+```powershell
+pwsh -NoProfile -File ./github-token-investigator/Investigate-GitHubToken.ps1 -Enterprise octo-enterprise -AuditDays 30
+```
+
+This prompts separately for the credential being investigated and an enterprise-owner
+audit credential with `read:audit_log`. They must differ so the lookup does not add an
+event attributed to the credential being measured. The result's `auditUsage` object
+reports retained event count, average events per day, pages read and completeness.
+The audit lookup is available only against `https://api.github.com`; it is not enabled
+for a custom Enterprise Server host.
+
 GitHub Enterprise Server (verify the issuing instance with its administrator):
 
 ```powershell
@@ -41,6 +54,10 @@ An explicit SecureString takes precedence. The script deliberately does not read
 `GH_TOKEN` or `GITHUB_TOKEN`, which could identify the investigator's own account.
 Remove the dedicated environment value after use. It remains in the calling
 process environment until you remove it.
+For an enterprise audit lookup, inject the separate audit credential through
+`GITHUB_AUDIT_TOKEN`. Supplying `-AuditToken` without `-Enterprise`, omitting the
+second credential in non-interactive mode, or reusing the investigated credential
+is rejected.
 
 ## Evidence and limits
 
@@ -62,16 +79,23 @@ process environment until you remove it.
   a wrong issuing host or invalid credential is also possible. A 403 may indicate
   policy, SSO, permissions or rate limiting. Selected SSO/rate-limit headers help
   distinguish cases; absence of an SSO header does not establish SSO authorization.
-- Token ID, token name, creation time and last-used time remain null. Use the
-  identified account's token settings and authorized administrator audit records
-  for further investigation. No audit history or complete access inventory is
-  collected. This utility does not revoke or rotate credentials.
+- Token ID, token name, creation time and last-used time remain null. Without
+  `-Enterprise`, no audit history is collected. With it, the script hashes the
+  investigated credential locally and searches retained enterprise audit events
+  for that exact hash, including web and Git events. The hash is not emitted.
+- `auditUsage.eventCount` is a count of retained, auditable GitHub events—not raw
+  API requests or a lifetime use counter. GitHub documents 180-day audit retention
+  and seven-day Git-event retention. Expired, unlogged and out-of-retention activity
+  cannot be counted. `truncated_at_page_limit` is reported as `partial`, never as a
+  complete count. This utility does not revoke or rotate credentials.
 
 ## Security and operation
 
 All requests are GET-only, with redirects and cookies disabled, normal TLS
 certificate validation, a 20-second timeout per request, and a 1 MiB response cap.
-There are at most two requests and no automatic retries; follow reported
+Identity/repository mode makes at most two requests. Audit mode additionally reads
+up to 100 cursor-paginated pages of 100 events each, without automatic retries;
+follow reported
 `Retry-After`/rate-limit information before running again. Returned links are never
 followed. SSO authorization URLs, raw bodies, raw exception messages and arbitrary
 response headers are not emitted. Selected text is redacted for the supplied
@@ -103,8 +127,9 @@ pwsh -NoProfile -File ./github-token-investigator/Test-Investigate-GitHubToken.p
 
 The suite uses synthetic credentials and an in-memory HTTP handler. It checks
 identity shape, redaction, header evidence, repository mismatch, partial results,
-SSO, URL restrictions, custom-host opt-in, HTTP errors, timeouts, response size,
-client security settings, SecureString input and the actual missing-input CLI exit.
+SSO, URL restrictions, custom-host opt-in, audit hashing/counting/page limits,
+pagination confinement, HTTP errors, timeouts, response size, client security
+settings, separate SecureString inputs and the actual missing-input CLI exit.
 No real PAT or network is used. For an authorized live check, run the hidden-prompt
 command against the known issuing host and compare the login/ID to account settings.
 
@@ -115,3 +140,5 @@ command against the known issuing host and compare the login/ID to account setti
 - [OAuth scopes and response headers](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps)
 - [REST API troubleshooting](https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api)
 - [Managing personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+- [Identifying audit events performed by an access token](https://docs.github.com/en/enterprise-cloud@latest/admin/monitoring-activity-in-your-enterprise/reviewing-audit-logs-for-your-enterprise/identifying-audit-log-events-performed-by-an-access-token)
+- [Using the enterprise audit log API](https://docs.github.com/en/enterprise-cloud@latest/admin/monitoring-activity-in-your-enterprise/reviewing-audit-logs-for-your-enterprise/using-the-audit-log-api-for-your-enterprise)
