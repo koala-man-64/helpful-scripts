@@ -1,19 +1,31 @@
 function Read-LdcConfiguration {
-    param([string]$Path)
+    param([string]$Path, [ValidateSet('LaunchDarkly','TerraformCloud')][string]$CredentialKind = 'LaunchDarkly')
     try {
         $file = Get-Item -LiteralPath $Path -ErrorAction Stop
         if ($file.Length -gt 1MB) { throw 'size' }
         $config = ConvertFrom-Json -AsHashtable -InputObject ([IO.File]::ReadAllText($file.FullName)) -ErrorAction Stop
         if ($config -isnot [Collections.IDictionary]) { throw 'shape' }
+        $providerField = if ($CredentialKind -eq 'TerraformCloud') { 'terraformCloud' } else { 'launchDarkly' }
         foreach ($key in $config.Keys) {
-            if ($key -notin @('launchDarkly','azure','gcp','azureDevOps','github')) { throw 'field' }
+            if ($key -notin @($providerField,'azure','gcp','azureDevOps','github')) { throw 'field' }
         }
-        if ($config.launchDarkly -isnot [Collections.IDictionary]) { throw 'launchdarkly' }
-        foreach ($field in @('projectKey','environmentKey','credentialResourceKey')) {
-            if ($config.launchDarkly[$field] -isnot [string] -or $config.launchDarkly[$field] -notmatch '^[A-Za-z0-9_.-]{1,256}$') { throw 'launchdarkly-field' }
-        }
-        foreach ($field in $config.launchDarkly.Keys) {
-            if ($field -notin @('projectKey','environmentKey','credentialResourceKey')) { throw 'field' }
+        if ($config[$providerField] -isnot [Collections.IDictionary]) { throw 'provider' }
+        if ($CredentialKind -eq 'LaunchDarkly') {
+            foreach ($field in @('projectKey','environmentKey','credentialResourceKey')) {
+                if ($config.launchDarkly[$field] -isnot [string] -or $config.launchDarkly[$field] -notmatch '^[A-Za-z0-9_.-]{1,256}$') { throw 'launchdarkly-field' }
+            }
+            foreach ($field in $config.launchDarkly.Keys) {
+                if ($field -notin @('projectKey','environmentKey','credentialResourceKey')) { throw 'field' }
+            }
+        } else {
+            foreach ($field in $config.terraformCloud.Keys) { if ($field -notin @('hostname','organizations')) { throw 'field' } }
+            if (!$config.terraformCloud.Contains('hostname')) { $config.terraformCloud.hostname = 'app.terraform.io' }
+            if ($config.terraformCloud.hostname -cnotin @('app.terraform.io','app.eu.terraform.io')) { throw 'terraform-host' }
+            if ($config.terraformCloud.organizations -isnot [array]) { throw 'terraform-organizations' }
+            foreach ($org in $config.terraformCloud.organizations) {
+                if ($org -isnot [string] -or $org -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$') { throw 'terraform-organization' }
+            }
+            $config.terraformCloud.organizations = @($config.terraformCloud.organizations | Select-Object -Unique)
         }
         foreach ($name in @('azure','gcp','github')) {
             if (-not $config.ContainsKey($name)) { $config[$name]=@{} }

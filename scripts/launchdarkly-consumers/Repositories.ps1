@@ -145,10 +145,22 @@ function Add-LdcTextReferences {
         Add-LdcCollectorGap $Platform $Scope $Resource 'CONTENT_LIMIT_REACHED'; return
     }; if ($Text -match '\$\{\{|\$\(') {
         Add-LdcCollectorGap $Platform $Scope $Resource 'DYNAMIC_REFERENCE_UNRESOLVED'
-    }; $known = [string]$script:Ldc.KnownSecret; if ($known -and [regex]::IsMatch($Text, '(?<![A-Za-z0-9_-])' + [regex]::Escape($known) + '(?![A-Za-z0-9_-])')) {
+    }
+    $tokenCharacters = if ($script:Ldc.CredentialKind -eq 'TerraformCloud') { 'A-Za-z0-9_.-' } else { 'A-Za-z0-9_-' }
+    $known = [string]$script:Ldc.KnownSecret; if ($known -and [regex]::IsMatch($Text, "(?<![$tokenCharacters])" + [regex]::Escape($known) + "(?![$tokenCharacters])")) {
         [void](Test-LdcSecret $known); Add-LdcFinding -Platform $Platform -Scope $Scope -Resource $Resource -Classification ExactSourceKeyMatch -Application $Application -Environment $Environment -Evidence 'Exact key matched locally; value withheld.' -NextStep 'Rotate and remove the exposed credential.'
-    }; if ($Text -match '(?i)(sdk[-_ ]?key|client[-_ ]?side[-_ ]?id|launchdarkly)') {
-        Add-LdcFinding -Platform $Platform -Scope $Scope -Resource $Resource -Classification UnresolvedCandidate -Application $Application -Environment $Environment -Evidence 'LaunchDarkly configuration candidate found; source text withheld.' -NextStep 'Validate candidate through approved secret inventory.'
+    }
+    $candidatePattern = if ($script:Ldc.CredentialKind -eq 'TerraformCloud') {
+        '(?i)(TF_TOKEN_|TFE_TOKEN|TFC_TOKEN|TERRAFORM_CLOUD_TOKEN|TF_CLI_CONFIG_FILE|cli_config_credentials_token|app\.(?:eu\.)?terraform\.io|hashicorp/setup-terraform|credentials\s*["{]|backend\s*"remote"|cloud\s*\{)'
+    } else { '(?i)(sdk[-_ ]?key|client[-_ ]?side[-_ ]?id|launchdarkly)' }
+    if ($Text -match $candidatePattern) {
+        $label = if ($script:Ldc.CredentialKind -eq 'TerraformCloud') { 'Terraform Cloud' } else { 'LaunchDarkly' }
+        Add-LdcFinding -Platform $Platform -Scope $Scope -Resource $Resource -Classification UnresolvedCandidate -Application $Application -Environment $Environment -Evidence "$label configuration candidate found; source text withheld." -NextStep 'Validate candidate through approved secret inventory.'
+    }
+    if ($script:Ldc.CredentialKind -eq 'TerraformCloud') {
+        foreach ($reference in [regex]::Matches($Text, '\b(?:TF_TOKEN_[A-Za-z0-9_]+|TFE_TOKEN|TFC_TOKEN|TERRAFORM_CLOUD_TOKEN|TF_CLI_CONFIG_FILE)\b')) {
+            Add-LdcFinding -Platform $Platform -Scope $Scope -Resource $Resource -Classification UnresolvedCandidate -Application $Application -Environment $Environment -SecretReference $reference.Value -Evidence 'Terraform CLI or automation credential variable name; value and runtime use unverified.' -NextStep 'Resolve this variable in the deployed runner or application environment.'
+        }
     }
     if ($Platform -eq 'GitHub') {
         foreach ($reference in [regex]::Matches($Text, '(?im)\bsecrets\.([A-Za-z_][A-Za-z0-9_]*)\b')) {
@@ -193,7 +205,7 @@ function Invoke-LdcGitHubRepository {
         Add-LdcCollectorGap GitHub $Repo $Repo 'TREE_UNAVAILABLE'; $tree = @{tree = @() }
     }; if (Get-LdcValue $tree truncated $false) {
         Add-LdcCollectorGap GitHub $Repo "$Repo@$branch" 'TREE_TRUNCATED'
-    }; $ext = @('.yml', '.yaml', '.json', '.toml', '.ini', '.config', '.xml', '.properties', '.env', '.js', '.jsx', '.ts', '.tsx', '.py', '.cs', '.fs', '.go', '.java', '.rb'); $sourceFiles = @(Get-LdcValue $tree tree @() | Where-Object { $path = [string](Get-LdcValue $_ path ''); (Get-LdcValue $_ type '') -eq 'blob' -and (($path -like '*.env') -or ([IO.Path]::GetExtension($path).ToLowerInvariant() -in $ext)) }); if ($sourceFiles.Count -gt (Get-LdcLimit maxSourceFiles 1000)) {
+    }; $ext = @('.yml', '.yaml', '.json', '.toml', '.ini', '.config', '.xml', '.properties', '.env', '.js', '.jsx', '.ts', '.tsx', '.py', '.cs', '.fs', '.go', '.java', '.rb', '.tf', '.tfvars', '.hcl', '.ps1', '.psm1', '.sh', '.bash'); $sourceFiles = @(Get-LdcValue $tree tree @() | Where-Object { $path = [string](Get-LdcValue $_ path ''); (Get-LdcValue $_ type '') -eq 'blob' -and (($path -like '*.env' -or [IO.Path]::GetFileName($path) -in @('.terraformrc','terraform.rc')) -or ([IO.Path]::GetExtension($path).ToLowerInvariant() -in $ext)) }); if ($sourceFiles.Count -gt (Get-LdcLimit maxSourceFiles 1000)) {
         Add-LdcCollectorGap GitHub $Repo "$Repo@$branch" 'SOURCE_FILE_LIMIT_REACHED'
     }; foreach ($f in @($sourceFiles | Select-Object -First (Get-LdcLimit maxSourceFiles 1000))) {
         $path = [string](Get-LdcValue $f path ''); if (([int64](Get-LdcValue $f size 0)) -gt (Get-LdcLimit maxContentCharacters 1048576)) {
@@ -307,8 +319,8 @@ function Invoke-LdcAdoRepository {
     $listUri = "$Base/git/repositories/$([uri]::EscapeDataString($id))/items?recursionLevel=Full&includeContentMetadata=true&versionDescriptor.version=$([uri]::EscapeDataString($b))&versionDescriptor.versionType=branch&api-version=7.1"
     try { $items = (Invoke-LdcRequest -Platform AzureDevOps -Uri $listUri).Data.value } catch { Add-LdcCollectorGap AzureDevOps $Scope "$Scope/repository/$name@$b" 'ITEMS_LIST_UNAVAILABLE'; return }
     if ($items -isnot [array]) { Add-LdcCollectorGap AzureDevOps $Scope "$Scope/repository/$name@$b" 'INVALID_ITEMS_LIST'; return }
-    $extensions = @('.yml','.yaml','.json','.toml','.ini','.config','.xml','.properties','.env','.js','.jsx','.ts','.tsx','.py','.cs','.fs','.go','.java','.rb')
-    $eligible = @($items | Where-Object { -not (Get-LdcValue $_ isFolder $false) -and (([IO.Path]::GetExtension([string](Get-LdcValue $_ path '')).ToLowerInvariant() -in $extensions) -or ([IO.Path]::GetFileName([string]$_.path) -eq '.env')) })
+    $extensions = @('.yml','.yaml','.json','.toml','.ini','.config','.xml','.properties','.env','.js','.jsx','.ts','.tsx','.py','.cs','.fs','.go','.java','.rb','.tf','.tfvars','.hcl','.ps1','.psm1','.sh','.bash')
+    $eligible = @($items | Where-Object { -not (Get-LdcValue $_ isFolder $false) -and (([IO.Path]::GetExtension([string](Get-LdcValue $_ path '')).ToLowerInvariant() -in $extensions) -or ([IO.Path]::GetFileName([string]$_.path) -in @('.env','.terraformrc','terraform.rc'))) })
     if ($eligible.Count -gt 1000) { Add-LdcCollectorGap AzureDevOps $Scope "$Scope/repository/$name@$b" 'SOURCE_FILE_LIMIT_REACHED' }
     foreach ($item in @($eligible | Select-Object -First 1000)) { $path = [string](Get-LdcValue $item path ''); Invoke-LdcAdoTextReferences $Base $Scope $id $path $b "$Scope/$name" }
 }
