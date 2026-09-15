@@ -1,0 +1,10 @@
+{
+  "terraformCloud": {
+    "hostname": "app.terraform.io",
+    "organizations": ["example-organization"]
+  },
+  "azure": { "subscriptionIds": [] },
+  "gcp": { "projectIds": [] },
+  "azureDevOps": [],
+  "github": { "organizations": [], "repositories": [] }
+}

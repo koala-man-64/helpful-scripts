@@ -1,14 +1,17 @@
 # Private implementation for Find-LaunchDarklyConsumers.ps1. No work on import.
 function Initialize-LdcState {
     param([hashtable]$Config, [string]$KnownSecret, [string]$ManagementToken,
-        [datetimeoffset]$From = [datetimeoffset]::UtcNow.AddDays(-30), [datetimeoffset]$To = [datetimeoffset]::UtcNow)
+        [datetimeoffset]$From = [datetimeoffset]::UtcNow.AddDays(-30), [datetimeoffset]$To = [datetimeoffset]::UtcNow,
+        [ValidateSet('LaunchDarkly','TerraformCloud')][string]$CredentialKind = 'LaunchDarkly')
     $script:Ldc = @{
-        Config = $Config; KnownSecret = $KnownSecret; ManagementToken = $ManagementToken
+        Config = $Config; KnownSecret = $KnownSecret; ManagementToken = $ManagementToken; CredentialKind = $CredentialKind
         From = $From; To = $To; MaxPages = 10000; MaxRetries = 4; TimeoutSeconds = 30
         Findings = [Collections.Generic.List[object]]::new(); Coverage = [Collections.Generic.List[object]]::new()
         Sensitive = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
         AllowedVaultHosts = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
         Tokens = @{}; GapCount = 0; GcpProjectAliases = @{}; SensitiveCharacters = 0
+        TerraformWorkspaces = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        TerraformVariableSets = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     }
     Register-LdcSensitive $KnownSecret
     Register-LdcSensitive $ManagementToken
@@ -105,7 +108,7 @@ function Invoke-LdcNative {
         $start.FileName = $resolved.Source
         foreach ($arg in $Arguments) { $start.ArgumentList.Add($arg) }
     }
-    foreach ($name in @('LD_ACCESS_TOKEN','LD_KNOWN_SDK_SECRET')) { [void]$start.Environment.Remove($name) }
+    foreach ($name in @('LD_ACCESS_TOKEN','LD_KNOWN_SDK_SECRET','TFC_ACCESS_TOKEN','TFC_KNOWN_TOKEN')) { [void]$start.Environment.Remove($name) }
     $start.Environment['AZURE_CORE_COLLECT_TELEMETRY'] = 'false'
     $start.Environment['AZURE_CORE_LOG_LEVEL'] = 'error'
     $start.Environment['CLOUDSDK_CORE_LOG_HTTP'] = 'false'
@@ -150,7 +153,8 @@ function Invoke-LdcNative {
 
 function Get-LdcToken {
     param([string]$Platform, [string]$Subscription)
-    if ($Platform -eq 'LaunchDarkly') {
+    if ($Platform -eq 'TerraformIdentity') { return $script:Ldc.KnownSecret }
+    if ($Platform -in @('LaunchDarkly','TerraformCloud')) {
         if (-not $script:Ldc.ManagementToken) { throw 'LDC:missing-management-token' }
         return $script:Ldc.ManagementToken
     }
@@ -186,6 +190,25 @@ function Assert-LdcRequest {
     switch ($Platform) {
         'LaunchDarkly' {
             $ok = $Uri.Host -eq 'app.launchdarkly.com' -and $path -in @('/api/v2/applications','/api/v2/usage/service-connections') -and $Method -eq 'GET'
+        }
+        'TerraformIdentity' {
+            $ok = $script:Ldc.CredentialKind -eq 'TerraformCloud' -and
+                $Uri.Host -ceq $script:Ldc.Config.terraformCloud.hostname -and
+                $Uri.Host -in @('app.terraform.io','app.eu.terraform.io') -and $path -ceq '/api/v2/account/details' -and $Method -eq 'GET'
+        }
+        'TerraformCloud' {
+            if ($script:Ldc.CredentialKind -eq 'TerraformCloud' -and $Uri.Host -ceq $script:Ldc.Config.terraformCloud.hostname -and
+                $Uri.Host -in @('app.terraform.io','app.eu.terraform.io') -and $Method -eq 'GET') {
+                foreach ($org in $script:Ldc.Config.terraformCloud.organizations) {
+                    if ($path -cin @("/api/v2/organizations/$org/workspaces","/api/v2/organizations/$org/varsets")) { $ok = $true }
+                }
+                if ($path -cmatch '^/api/v2/workspaces/(ws-[A-Za-z0-9]+)/(?:(?:vars)|(?:runs))$') {
+                    $ok = $script:Ldc.TerraformWorkspaces.Contains($Matches[1])
+                }
+                if ($path -cmatch '^/api/v2/varsets/(varset-[A-Za-z0-9]+)/relationships/vars$') {
+                    $ok = $script:Ldc.TerraformVariableSets.Contains($Matches[1])
+                }
+            }
         }
         'Azure' {
             foreach ($id in @($script:Ldc.Config.azure.subscriptionIds)) {
@@ -238,7 +261,8 @@ function Invoke-LdcHttpAttempt {
     try {
         $auth = if ($Platform -eq 'LaunchDarkly') { $Token } else { "Bearer $Token" }
         [void]$request.Headers.TryAddWithoutValidation('Authorization', $auth)
-        [void]$request.Headers.TryAddWithoutValidation('User-Agent', 'LaunchDarklyConsumerInventory/1')
+        [void]$request.Headers.TryAddWithoutValidation('User-Agent', 'CredentialConsumerInventory/1')
+        if ($Platform -in @('TerraformCloud','TerraformIdentity')) { [void]$request.Headers.TryAddWithoutValidation('Accept','application/vnd.api+json') }
         if ($Platform -eq 'LaunchDarkly') { [void]$request.Headers.TryAddWithoutValidation('LD-API-Version','beta') }
         if ($Platform -eq 'GitHub') {
             [void]$request.Headers.TryAddWithoutValidation('Accept','application/vnd.github+json')
@@ -367,7 +391,8 @@ function Write-LdcReport {
     $report = Get-LdcReport
     $directory = [IO.Path]::GetFullPath($OutputDirectory)
     [void][IO.Directory]::CreateDirectory($directory)
-    $jsonPath = Join-Path $directory 'launchdarkly-consumers.json'; $csvPath = Join-Path $directory 'launchdarkly-consumers.csv'
+    $stem = if ($script:Ldc.CredentialKind -eq 'TerraformCloud') { 'terraform-cloud-consumers' } else { 'launchdarkly-consumers' }
+    $jsonPath = Join-Path $directory "$stem.json"; $csvPath = Join-Path $directory "$stem.csv"
     if ([IO.File]::Exists($jsonPath) -or [IO.File]::Exists($csvPath)) { throw 'LDC:output-already-exists' }
     $json = ConvertTo-Json -InputObject $report -Depth 20
     $csvRows = foreach ($row in $report.findings) {
