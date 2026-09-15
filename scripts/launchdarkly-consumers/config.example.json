@@ -1,0 +1,11 @@
+{
+  "launchDarkly": {
+    "projectKey": "your-project",
+    "environmentKey": "production",
+    "credentialResourceKey": "your-credential-resource-key"
+  },
+  "azure": { "subscriptionIds": [] },
+  "gcp": { "projectIds": [] },
+  "azureDevOps": [],
+  "github": { "organizations": [], "repositories": [] }
+}
