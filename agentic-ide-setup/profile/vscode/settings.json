@@ -1,4 +1,4 @@
 {
-  "claudeCode.preferredLocation": "panel",
-  "chat.useAgentSkills": true
+  "chat.useAgentSkills": true,
+  "claudeCode.preferredLocation": "panel"
 }

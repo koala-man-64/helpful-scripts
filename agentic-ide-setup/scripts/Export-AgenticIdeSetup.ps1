@@ -50,7 +50,7 @@ try {
     # Keep repository-owned hook source/tests for maintenance, never activation.
     Copy-PortableTree -Source (Join-Path $expected 'claude/hooks') -Destination (Join-Path $stage 'claude/hooks') -SourceHome $SourceHome
     Write-PortableJson -Value $manifest.claudeDefaults -Destination (Join-Path $stage 'claude/settings.template.json')
-    Write-PortableJson -Value @{ 'chat.useAgentSkills' = $true; 'claudeCode.preferredLocation' = 'panel' } -Destination (Join-Path $stage 'vscode/settings.json')
+    Write-PortableJson -Value ([ordered]@{ 'chat.useAgentSkills' = $true; 'claudeCode.preferredLocation' = 'panel' }) -Destination (Join-Path $stage 'vscode/settings.json')
     Write-PortableJson -Value @{ servers = @{} } -Destination (Join-Path $stage 'vscode/mcp.template.json')
     Set-Content -LiteralPath (Join-Path $stage 'vscode/extensions.txt') -Value ($manifest.extensions -join "`n") -Encoding utf8NoBOM
     Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $stage 'setup-manifest.json')
