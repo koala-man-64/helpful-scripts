@@ -141,6 +141,21 @@ GIT_HYGIENE_FINISH_REQUIREMENT = (
     "(commit, push, pull request, merge/completion) or the exact blocker reported"
 )
 
+GATE_SENTINEL_MARKERS = (
+    "code-drift-sentinel",
+    "drift-sentinel",
+    "drift sentinel",
+)
+
+GATE_TESTING_MARKERS = (
+    "software-testing-validation-architect",
+    "testing-validation-architect",
+    "validation-architect",
+    "validation architect",
+    "testing-architect",
+    "testing architect",
+)
+
 
 def contains_any(text: str, markers: tuple[str, ...]) -> bool:
     return any(marker in text for marker in markers)
@@ -188,7 +203,11 @@ def main() -> int:
         missing.append("what changed")
     if (has_change or needs_git_hygiene) and not contains_any(normalized, VALIDATION_MARKERS):
         missing.append("validation run or explicit not-run reason")
-    if needs_git_hygiene and not contains_any(normalized, FINISH_WORKFLOW_MENTION_MARKERS):
+    # Reporting the finish actions (committed, pushed, opened PR, merged) is
+    # the finish mention; the literal words "finish workflow" are not required.
+    if needs_git_hygiene and not contains_any(
+        normalized, FINISH_WORKFLOW_MENTION_MARKERS + GIT_HYGIENE_FINISH_MARKERS
+    ):
         missing.append(GIT_HYGIENE_FINISH_REQUIREMENT)
     elif (
         needs_git_hygiene
@@ -207,10 +226,16 @@ def main() -> int:
             "finish workflow details "
             "(commit, push, pull request, merge/completion) or exact blocker"
         )
-    if has_change:
-        if "code-drift-sentinel" not in normalized:
+    # The gate agents are a finish-time requirement on changed code. Require
+    # them only once the turn reports the git finish (commit, push, PR, merge)
+    # and accept the short names the model actually writes. Measured
+    # 2026-09-05: 34 of 58 closeout blocks were for the literal long names,
+    # several on turns that already said "drift-sentinel ... not applicable".
+    finish_reported = contains_any(normalized, GIT_HYGIENE_FINISH_MARKERS)
+    if has_change and finish_reported:
+        if not contains_any(normalized, GATE_SENTINEL_MARKERS):
             missing.append("code-drift-sentinel completed, not applicable, or blocker")
-        if "software-testing-validation-architect" not in normalized:
+        if not contains_any(normalized, GATE_TESTING_MARKERS):
             missing.append("software-testing-validation-architect completed, not applicable, or blocker")
 
     if has_blocker and not contains_any(normalized, NEXT_ACTION_MARKERS):

@@ -8,7 +8,15 @@ from hook_utils import (
     read_hook_input,
     requires_finish_workflow,
     requires_tracking,
+    session_flag_once,
     workflow_scope_enabled,
+)
+
+
+# Stated once per session (see main); these do not vary by prompt.
+STANDING_POLICY_LINES = (
+    "- Blanket finish approval: when task-owned files change and the user does not explicitly limit scope, complete the git finish workflow (commit, push, PR, merge/completion) before closeout instead of waiting for a separate 'finish it' prompt.",
+    "- Finish delegation: run the finish workflow and any Azure Boards bookkeeping as ONE sonnet-tier subagent spawn (git-hygiene-orchestrator for git, gateway-bookkeeper for boards). Do not run the az/git steps one by one from the main thread; each such call re-reads the whole conversation.",
 )
 
 
@@ -56,7 +64,7 @@ LANES = (
     (
         "repo-cleanup",
         ("git hygiene", "branch cleanup", "stale branch", "worktree", "repo cleanup", "prune", "conflict"),
-        "delivery-orchestrator-agent -> cleanup-change-debris-auditor -> code-drift-sentinel as needed -> git finish workflow -> Azure DevOps tracking",
+        "delivery-orchestrator-agent -> code-drift-sentinel -> git finish workflow -> Azure DevOps tracking",
     ),
     (
         "trading-strategy-validation",
@@ -181,7 +189,7 @@ LANES = (
             "stale prices",
             "reference data",
         ),
-        "delivery-orchestrator-agent -> market-data-integrity-corporate-actions-agent -> relevant implementation/QA agents",
+        "delivery-orchestrator-agent -> relevant specialist -> relevant implementation/QA agents",
     ),
     (
         "trading-evidence-pack",
@@ -206,7 +214,7 @@ LANES = (
     (
         "db-data",
         ("database", "postgres", "sql", "migration", "schema", "dataframe", "pipeline data", "copy error"),
-        "delivery-orchestrator-agent -> db-steward or data-engineer-data-architect-advisor -> software-testing-validation-architect -> Azure DevOps tracking",
+        "delivery-orchestrator-agent -> db-steward -> software-testing-validation-architect -> Azure DevOps tracking",
     ),
     (
         "architecture",
@@ -216,7 +224,7 @@ LANES = (
     (
         "docs",
         ("documentation", "docs", "readme", "runbook", "developer guide"),
-        "delivery-orchestrator-agent -> technical-writer-dev-advocate -> git finish workflow",
+        "delivery-orchestrator-agent -> relevant specialist -> git finish workflow",
     ),
 )
 
@@ -244,6 +252,7 @@ def main() -> int:
     if not workflow_scope_enabled():
         return emit_json(None)
     payload = read_hook_input()
+    session_id = str(payload.get("session_id") or "")
     prompt = extract_prompt(payload)
     lane, sequence = classify(prompt)
     work_kind = classify_work_kind(prompt)
@@ -254,24 +263,27 @@ def main() -> int:
         tracking_required=tracking_required,
         finish_required=finish_required,
     )
-    context = "\n".join(
-        [
-            "Team workflow routing:",
-            f"- Lane: {lane}",
-            f"- Work kind: {work_kind}",
-            f"- Required agents: {required_agents}",
-            f"- Optional agents: {optional_agents}",
-            f"- Tracking required: {'yes' if tracking_required else 'no'}",
-            f"- Finish workflow required: {'yes' if finish_required else 'no'}",
-            "- Blanket finish approval: when task-owned files change and the user does not explicitly limit scope, complete the git finish workflow (commit, push, PR, merge/completion) before closeout instead of waiting for a separate 'finish it' prompt.",
-            f"- Contract routing: {contract_hint(prompt)}",
-            *(
-                azure_devops_agent_authority_lines()
-                if (tracking_required or finish_required)
-                else ()
-            ),
-        ]
-    )
+    lines = [
+        "Team workflow routing:",
+        f"- Lane: {lane}",
+        f"- Work kind: {work_kind}",
+        f"- Required agents: {required_agents}",
+        f"- Optional agents: {optional_agents}",
+        f"- Tracking required: {'yes' if tracking_required else 'no'}",
+        f"- Finish workflow required: {'yes' if finish_required else 'no'}",
+        f"- Contract routing: {contract_hint(prompt)}",
+    ]
+    # Standing policy is stated once per session and again after compaction
+    # (the session-start hook clears the flags). Every turn's text is re-sent
+    # with every later request, so the per-turn block carries only the facts
+    # that change.
+    if session_flag_once(session_id, "router-standing-policy"):
+        lines.extend(STANDING_POLICY_LINES)
+    if (tracking_required or finish_required) and session_flag_once(
+        session_id, "router-azure-devops-authority"
+    ):
+        lines.extend(azure_devops_agent_authority_lines())
+    context = "\n".join(lines)
     return emit_json(additional_context("UserPromptSubmit", context))
 
 

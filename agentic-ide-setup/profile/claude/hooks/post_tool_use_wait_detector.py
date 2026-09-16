@@ -329,10 +329,10 @@ def _detect_and_register() -> int:
                     f"Wait registered: {kind} {resource_id} ({wait['wait_id']}).",
                     f"Poll it with: py \"{Path.home()}\\.claude\\hooks\\wait_poll.py\" "
                     f"poll {wait['wait_id']}",
-                    "Do not treat registration as delivery evidence. Before yielding, either "
-                    "poll to a terminal status, or arm a check that outlives this turn: "
-                    "Monitor for a session-length watch, or a scheduled task when the wait may "
-                    f"outlive the session. This wait times out after {hours}h.",
+                    "Do not treat registration as delivery evidence, and do not poll from the "
+                    "main thread: at most one inline poll, then delegate polling to a haiku-tier "
+                    "subagent or arm a Monitor for a session-length watch (a scheduled task when "
+                    f"the wait may outlive the session). This wait times out after {hours}h.",
                 ]
             ),
         )

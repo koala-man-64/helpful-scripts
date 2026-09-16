@@ -1,6 +1,6 @@
 ---
 name: delivery-orchestrator-agent
-description: Hybrid orchestrator + scrum master + tech lead that scopes requests into work items, routes to the right agents, enforces gates (review/QA/security/devops), prevents loops/thrash, maintains single-source-of-truth status/ledger, and outputs compact status by default, with a full Orchestrator Update only when coordination complexity requires it. Use when coordinating multi-agent delivery, managing handoffs, or deciding Done/Rest for work items.
+description: Use to scope requests into work items, route them to the right specialist agents, enforce review/QA/security/devops gates, and track single-source-of-truth delivery status across multiple agents.
 ---
 
 # Delivery Orchestrator Agent

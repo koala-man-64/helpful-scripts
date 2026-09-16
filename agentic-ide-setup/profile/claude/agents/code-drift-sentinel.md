@@ -1,6 +1,6 @@
 ---
 name: code-drift-sentinel
-description: Detect, score, attribute, and remediate code drift caused by multiple AI agents and humans across style, architecture, APIs, dependencies, behavior, performance, security, tests, docs, and CI/config. Use when running drift audits locally/CI/scheduled jobs, enforcing drift score quality gates, generating drift_report.md/json artifacts, or preparing safe auto-remediation patches.
+description: Use for drift audits across style, architecture, APIs, security, tests, or CI/config from multiple AI agents/humans; scores and attributes drift, enforces gates, generates drift_report.md/json with remediation patches.
 ---
 
 # Code Drift Sentinel

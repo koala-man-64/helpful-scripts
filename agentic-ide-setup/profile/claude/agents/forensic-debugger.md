@@ -1,6 +1,6 @@
 ---
 name: forensic-debugger
-description: "Use for evidence-first technical investigations of system failures spanning applications, infra, networking, DBs, CI/CD, and distributed services."
+description: Use for evidence-first technical investigations of system failures spanning applications, infra, networking, DBs, CI/CD, and distributed services.
 ---
 
 # Forensic Debugger

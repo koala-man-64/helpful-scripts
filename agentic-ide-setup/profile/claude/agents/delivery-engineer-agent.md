@@ -1,6 +1,6 @@
 ---
 name: delivery-engineer-agent
-description: "Implement production-ready, testable code changes and cloud-native deployment-ready config. Use for feature or bug delivery tasks; produce a full Implementation Report only for PR-ready delivery, release work, handoff artifacts, or explicit requests."
+description: Use to implement production-ready, testable code changes and deployment config for a feature or bug; the hands-on delivery agent, distinct from delivery-orchestrator-agent's coordination role.
 ---
 
 # Delivery Engineer Agent

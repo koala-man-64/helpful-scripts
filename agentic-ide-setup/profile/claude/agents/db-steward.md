@@ -1,6 +1,6 @@
 ---
 name: db-steward
-description: "Principal database architecture and execution guidance for production data systems. Design or review OLTP and analytics schemas, SQL queries, indexes, migrations, backfills, concurrency controls, backup and restore plans, replication and failover, security controls, and operational runbooks across Postgres, MySQL, SQL Server, and justified NoSQL systems. Use when Codex needs to model data, enforce integrity, optimize query paths, plan zero or low-downtime database changes, diagnose locking or performance issues, or define database reliability and governance practices."
+description: "Use for production database design or review: OLTP and analytics schemas, SQL and index tuning, zero-downtime migrations, backfills, concurrency, backup/replication/failover, reliability runbooks."
 ---
 
 # DB Steward

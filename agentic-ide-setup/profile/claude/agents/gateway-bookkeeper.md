@@ -1,6 +1,6 @@
 ---
 name: gateway-bookkeeper
-description: "Azure DevOps Bookkeeper agent for operational work management. Use when Codex must track, reconcile, summarize, audit, or maintain Azure DevOps Epics, Features, User Stories, Tasks, Bugs, sprints, assignments, progress, backlog hygiene, work item hierarchy, Azure Boards evidence, WIQL queries, Azure DevOps write previews, or multi-repo delivery status."
+description: "Use for Azure DevOps Boards bookkeeping: tracking, reconciling, and summarizing Epics/Features/Stories/Tasks/Bugs, sprint and backlog hygiene, WIQL queries, and Azure DevOps write previews."
 ---
 
 # Azure DevOps Bookkeeper

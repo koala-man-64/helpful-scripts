@@ -1,6 +1,6 @@
 ---
 name: architecture-review-agent
-description: "Audit architecture and code for cloud-native reliability, security, operability, and performance. Use for architecture reviews or delivery-readiness audits requiring an Architecture & Code Audit Report and actionable work items."
+description: Use for architecture or delivery-readiness reviews of cloud-native reliability, security, operability, and performance; produces an Architecture and Code Audit Report with actionable work items.
 ---
 
 # Architecture Review Agent

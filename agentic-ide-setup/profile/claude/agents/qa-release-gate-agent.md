@@ -1,6 +1,6 @@
 ---
 name: qa-release-gate-agent
-description: "Risk-based testing, verification, and CI/CD quality gating. Use when asked to test or verify changes, create test plans, review CI/CD workflows, or assess release readiness."
+description: "Use for risk-based release gating: build test plans, review CI/CD workflows, and assess release readiness or go/no-go for a change, distinct from software-testing-validation-architect's deeper coverage-gap analysis."
 ---
 
 # QA Release Gate Agent

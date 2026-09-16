@@ -15,13 +15,13 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
 
 CORE_AGENTS = (
     "delivery-orchestrator-agent",
-    "project-workflow-enforcer-agent",
 )
 
 # The gateway-bookkeeper agent no longer exists as a Claude definition; the
@@ -459,22 +459,21 @@ def agent_status(root: Path | None = None) -> tuple[list[str], list[str]]:
     return present, missing
 
 
-WORKFLOW_SCOPE_MARKERS = (
-    ".codex/hooks.json",
-    ".claude/workflow-hooks",
-)
+WORKFLOW_SCOPE_MARKERS = (".claude/workflow-hooks",)
 
 
 def workflow_scope_enabled(root: Path | None = None) -> bool:
     """True when the team-workflow hooks should engage for this repository.
 
-    Mirrors the Codex opt-in. Those hooks are registered per repository through
-    .codex/hooks.json, so they never fire in scratch directories. Claude
-    registers the same hooks once, globally, which would apply team routing and
-    closeout enforcement to work that has no team, no board, and no branch
-    policy. A repository opts in by carrying the Codex hook manifest, by
-    dropping a .claude/workflow-hooks marker, or by being one of the managed
-    Azure DevOps origins the ladder already recognizes.
+    Claude registers these hooks once, globally, which would otherwise apply
+    team routing and closeout enforcement to work that has no team, no board,
+    and no branch policy. A repository opts in by dropping a
+    .claude/workflow-hooks marker, or by being one of the managed Azure DevOps
+    origins the ladder already recognizes.
+
+    Claude does not read any Codex configuration to decide this. A sibling
+    agent's per-repo manifest is that agent's business; scope is declared here
+    or by repository identity, never inherited.
     """
     base = root or repo_root()
     code, _ = run_git(["rev-parse", "--is-inside-work-tree"], base)
@@ -730,3 +729,76 @@ def path_is_inside(path_text: str, root: Path | None = None) -> bool:
         )
     except Exception:
         return True
+
+
+# --- Per-session flags ------------------------------------------------------
+# Hooks run as a fresh process on every event, so "have I already said this in
+# this session?" needs durable state. One small file per session id, mirroring
+# task-notes. Fail-open: any problem reports "not seen yet", so a filesystem
+# fault can only cause a repeated instruction, never a missing one.
+
+SESSION_FLAGS_MAX_AGE_DAYS = 7
+
+
+def session_flags_dir() -> Path:
+    override = os.environ.get("CLAUDE_SESSION_FLAGS_DIR")
+    if override:
+        return Path(override)
+    return Path.home() / ".claude" / "session-flags"
+
+
+def _session_flag_file(session_id: str) -> Path | None:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]", "", session_id or "")
+    if not cleaned:
+        return None
+    return session_flags_dir() / f"{cleaned}.json"
+
+
+def session_flag_once(session_id: str, name: str) -> bool:
+    """True the first time `name` is asked for in this session, False after.
+
+    Sets the flag as a side effect. An unknown session id or an IO failure
+    returns True so the caller emits its text.
+    """
+    path = _session_flag_file(session_id)
+    if path is None:
+        return True
+    try:
+        flags: dict[str, Any] = {}
+        if path.exists():
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                flags = loaded
+        if flags.get(name):
+            return False
+        flags[name] = True
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(flags, sort_keys=True), encoding="utf-8")
+    except (OSError, ValueError):
+        return True
+    return True
+
+
+def clear_session_flags(session_id: str) -> None:
+    """Forget the session's flags so standing text is re-stated (after compaction)."""
+    path = _session_flag_file(session_id)
+    if path is None:
+        return
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+def prune_session_flags(max_age_days: int = SESSION_FLAGS_MAX_AGE_DAYS) -> None:
+    """Bounded like the ladder log: flag files older than the cutoff are dropped."""
+    cutoff = time.time() - max_age_days * 86400
+    try:
+        for entry in session_flags_dir().glob("*.json"):
+            try:
+                if entry.stat().st_mtime < cutoff:
+                    entry.unlink()
+            except OSError:
+                continue
+    except OSError:
+        pass

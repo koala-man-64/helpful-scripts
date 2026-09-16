@@ -1,6 +1,6 @@
 ---
 name: actionmedic
-description: Autonomous Azure DevOps Pipelines troubleshooting and repair for repositories with failing CI. Use when Codex needs to audit Azure Pipeline runs on a branch or pull request, diagnose failed, cancelled, timed-out, queued, or stuck jobs, implement the smallest justified fix, validate locally, commit and push to Azure Repos, and monitor until the latest commit is green or a hard blocker is proven.
+description: Use when Azure Pipelines CI is failing, stuck, cancelled, or timed out on a branch or PR; diagnoses the run, applies the smallest fix, pushes to Azure Repos, and monitors until green or a hard blocker is proven.
 ---
 
 # ActionMedic

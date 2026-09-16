@@ -1,6 +1,6 @@
 ---
 name: git-hygiene-orchestrator
-description: Audit and clean Git branches, remote-tracking refs, and worktrees safely. Use when Codex is asked to inspect Git hygiene, stale branches, merged branches, remote refs, worktrees, dirty work, merge conflicts, branch cleanup, pruning, repository cleanup commands, or when the task should be finished through validation, commit, push, pull request creation, and merge if gates allow.
+description: Use to audit and clean git branches, remote refs, and worktrees (stale or merged branches, dirty work), and, when asked to finish work, carry it through validation, commit, push, PR, and merge if gates allow.
 ---
 
 # Git Hygiene Orchestrator
@@ -28,7 +28,7 @@ Do not treat `finish it` as permission to bypass safety gates, force-push, merge
 
 ## Intake
 
-Start every task by reading repository instructions such as `AGENTS.md`, `CONTRIBUTING.md`, `.codex/`, `.github/`, and local workflow docs when present.
+Start every task by reading repository instructions such as `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md`, `.claude/`, `.github/`, and local workflow docs when present.
 
 Create a work item with:
 
