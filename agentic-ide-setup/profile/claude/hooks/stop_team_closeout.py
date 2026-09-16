@@ -1,5 +1,7 @@
 from hook_utils import (
     block,
+    classify_lane,
+    extract_last_user_prompt,
     branch_header,
     emit_json,
     extract_last_message,
@@ -254,9 +256,12 @@ def main() -> int:
             "finish workflow details "
             "(commit, push, pull request, merge/completion) or exact blocker"
         )
+    # Risk is judged from the request as well as the report: a closeout that
+    # simply never names the risk must not skip the review it requires.
+    critical_request = classify_lane(extract_last_user_prompt(payload))[0] == "critical"
     if (
         has_change
-        and contains_any(normalized, REVIEW_RISK_MARKERS)
+        and (critical_request or contains_any(normalized, REVIEW_RISK_MARKERS))
         and not contains_any(normalized, REVIEW_EVIDENCE_MARKERS)
     ):
         missing.append(

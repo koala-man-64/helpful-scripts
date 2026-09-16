@@ -94,6 +94,21 @@ class TeamCloseoutScenarios(CloseoutHarness):
             "opened PR #9.",
         )
 
+    def test_critical_request_requires_review_even_if_report_omits_risk_words(self) -> None:
+        import json
+        import tempfile
+
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "user", "message": {"content": "auth.py compares signatures with ==; make it constant-time"}}))
+            path = fh.name
+        self.addCleanup(Path(path).unlink)
+        closeout.read_hook_input = lambda: {"transcript_path": path}
+        self.assertBlocks(
+            closeout,
+            "Fixed check_signature to use hmac.compare_digest; tests pass. Committed on the task branch; local-only, no push.",
+            "independent review",
+        )
+
     def test_pending_human_approval_is_a_valid_stop(self) -> None:
         self.assertPasses(
             closeout,

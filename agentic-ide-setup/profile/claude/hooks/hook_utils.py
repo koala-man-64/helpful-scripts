@@ -591,6 +591,32 @@ def extract_last_message(payload: dict[str, Any]) -> str:
     return ""
 
 
+def extract_last_user_prompt(payload: dict[str, Any]) -> str:
+    """Text of the most recent real user prompt in the transcript, or ``""``."""
+    transcript_path = payload.get("transcript_path")
+    if not isinstance(transcript_path, str) or not transcript_path:
+        return ""
+    try:
+        lines = Path(transcript_path).read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()
+    except OSError:
+        return ""
+    for line in reversed(lines):
+        if '"user"' not in line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not _is_real_user_turn(record):
+            continue
+        text = _text_from_message_content((record.get("message") or {}).get("content"))
+        if text.strip():
+            return text
+    return ""
+
+
 MUTATING_TOOLS = frozenset(
     {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 )

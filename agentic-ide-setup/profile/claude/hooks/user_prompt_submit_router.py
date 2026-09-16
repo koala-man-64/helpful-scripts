@@ -6,6 +6,7 @@ It names specialists only as optional hints; no orchestrator or specialist
 sequence is required for ordinary delivery.
 """
 
+from agent_ladder import TIER_ORDER, parent_model
 from hook_utils import (
     additional_context,
     azure_devops_agent_authority_lines,
@@ -65,6 +66,20 @@ def delegation_answer(lane: str) -> str:
     return "bounded specialists as needed; independent review required"
 
 
+def owner_model_lines(lane: str, payload: dict) -> list[str]:
+    """Flag a session model below the lane owner; a lane never switches models."""
+    if lane != "critical":
+        return []
+    session = parent_model(payload.get("transcript_path"))
+    if session not in TIER_ORDER or session == "opus":
+        return []
+    return [
+        f"- Session model: {session}, below the critical-lane owner (opus). Say so "
+        "plainly and ask Rudy to switch models; if he proceeds on this model, the "
+        "result still needs independent review before completion."
+    ]
+
+
 def main() -> int:
     if not workflow_scope_enabled():
         return emit_json(None)
@@ -90,6 +105,7 @@ def main() -> int:
                 f"- Tracking needed: {'yes' if tracking_required else 'no'}",
                 f"- Commit/PR when files change: {'yes' if finish_required else 'no'}",
                 f"- Delegation: {delegation_answer(lane)}",
+                *owner_model_lines(lane, payload),
                 f"- Optional specialist: {specialist_hint(prompt)}",
                 f"- Contract routing: {contract_hint(prompt)}",
             ]

@@ -73,6 +73,16 @@ class RouterScenarios(unittest.TestCase):
         self.assertIn("Suggested lane: critical", text)
         self.assertIn("independent review required", text)
 
+    def test_critical_on_sonnet_session_is_flagged(self) -> None:
+        import json
+
+        path = Path(self._tmp.name) / "t.jsonl"
+        path.write_text(json.dumps({"type": "assistant", "message": {"model": "claude-sonnet-5", "content": []}}), encoding="utf-8")
+        router.read_hook_input = lambda: {"session_id": "crit", "prompt": "Fix the authentication bypass", "transcript_path": str(path)}
+        router.main()
+        text = self.captured[-1]["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Session model: sonnet, below the critical-lane owner", text)
+
     def test_git_finish_is_owner_work_without_tracking(self) -> None:
         text = self.route("finish it")
         self.assertIn("Commit/PR when files change: yes", text)
