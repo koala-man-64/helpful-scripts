@@ -107,6 +107,9 @@ class LaneClassification(unittest.TestCase):
     def test_pr_alone_does_not_require_bookkeeper_recap(self) -> None:
         self.assertFalse(hook_utils.requires_bookkeeper_recap("Changed the parser, committed, and opened PR 12."))
 
+    def test_released_claims_are_not_a_release(self) -> None:
+        self.assertFalse(hook_utils.requires_bookkeeper_recap("Implemented the wrapper. Claims released; monitors removed."))
+
     def test_boards_update_requires_bookkeeper_recap(self) -> None:
         self.assertTrue(hook_utils.requires_bookkeeper_recap("Updated work item AB#12 and closed work item."))
 

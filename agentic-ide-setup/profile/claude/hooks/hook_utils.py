@@ -85,7 +85,11 @@ CI_MARKERS = (
 DEPLOYMENT_MARKERS = (
     "deploy",
     "deployment",
-    "release",
+    # Padded so "released" (claims released) is not a release.
+    " release ",
+    " release.",
+    " release,",
+    "release pipeline",
     "production",
     " prod ",
     "environment approval",
