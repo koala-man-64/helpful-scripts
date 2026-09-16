@@ -1,10 +1,9 @@
 from pathlib import Path
 
 import wait_registry
-from agent_ladder import is_managed, ladder_summary
+from agent_ladder import is_managed, lane_summary
 from hook_utils import (
     additional_context,
-    agent_status,
     branch_header,
     clear_session_flags,
     current_branch,
@@ -27,7 +26,9 @@ MAX_WAITS_SHOWN = 5
 def note_lines(root: Path) -> list[str]:
     """The per-branch task note, re-injected so it survives compaction.
 
-    A note problem must never take down session start.
+    The note is a recovery aid: it is reconciled with current instructions and
+    live evidence and never authorizes work. A note problem must never take
+    down session start.
     """
     try:
         return task_note_lines(root)
@@ -89,8 +90,6 @@ def main() -> int:
         if extra:
             return emit_json(additional_context("SessionStart", "\n".join(extra)))
         return emit_json(None)
-    _present, missing = agent_status(root)
-    missing_text = ", ".join(missing) if missing else "none"
     header = branch_header(root) or current_branch(root)
 
     context = "\n".join(
@@ -100,16 +99,15 @@ def main() -> int:
             f"- Root: {root}",
             f"- Branch: {header}",
             f"- Working tree: {dirty_summary(root)}",
-            f"- Core team definitions missing: {missing_text}",
             "- Follow CLAUDE.md and prefer repo-local .claude/agents and .claude/skills definitions.",
-            "- Start substantive work through delivery-orchestrator-agent.",
-            "- Record Azure DevOps tracking only for auditable multi-repo, PR, CI/CD, deployment, or Azure Boards work.",
+            "- Choose the smallest sufficient lane. Lite and standard work need no orchestrator; the owner investigates, implements, validates, and delivers.",
+            "- Record Azure DevOps tracking only when the work names Azure Boards, spans repositories, or touches CI/CD or deployment; a commit or PR alone does not require it.",
             "- Work on a task-owned branch and finish through commit, push, and PR rather than pushing to protected branches.",
             "- Classify changes as local-only or contracts-repo-first before editing shared API, schema, serialization, or mirrored contract shapes.",
         ]
-        # The ladder gate only fires in managed repositories, so only describe
+        # The lane gate only fires in managed repositories, so only describe
         # it where it actually applies.
-        + ([ladder_summary()] if is_managed(root, run_git) else [])
+        + ([lane_summary()] if is_managed(root, run_git) else [])
         + notes
         + waits
     )

@@ -63,6 +63,10 @@ VALIDATION_MARKERS = (
 
 CHANGE_MARKERS = (
     "changed",
+    "fixed",
+    "patched",
+    "edited",
+    "refactored",
     "updated",
     "added",
     "removed",
@@ -141,19 +145,37 @@ GIT_HYGIENE_FINISH_REQUIREMENT = (
     "(commit, push, pull request, merge/completion) or the exact blocker reported"
 )
 
-GATE_SENTINEL_MARKERS = (
-    "code-drift-sentinel",
-    "drift-sentinel",
-    "drift sentinel",
+# Independent review follows risk, not every change: a turn that reports a
+# change in one of these areas must name the review result or its blocker.
+# Specialist agents are never required by name.
+REVIEW_RISK_MARKERS = (
+    "security",
+    "vulnerab",
+    "authentication",
+    "authorization",
+    "credential",
+    "encryption",
+    "migration",
+    "data integrity",
+    "data-integrity",
+    "concurrency",
+    "race condition",
+    "public api",
+    "breaking change",
 )
 
-GATE_TESTING_MARKERS = (
-    "software-testing-validation-architect",
-    "testing-validation-architect",
-    "validation-architect",
-    "validation architect",
-    "testing-architect",
-    "testing architect",
+REVIEW_EVIDENCE_MARKERS = (
+    "independent review",
+    "independently reviewed",
+    "reviewed by",
+    "security review",
+    "reviewer",
+    "review found",
+    "review result",
+    "review passed",
+    "review pending",
+    "review blocked",
+    "review not run",
 )
 
 
@@ -205,8 +227,14 @@ def main() -> int:
         missing.append("validation run or explicit not-run reason")
     # Reporting the finish actions (committed, pushed, opened PR, merged) is
     # the finish mention; the literal words "finish workflow" are not required.
-    if needs_git_hygiene and not contains_any(
-        normalized, FINISH_WORKFLOW_MENTION_MARKERS + GIT_HYGIENE_FINISH_MARKERS
+    # The requirement reads "completed or the exact blocker reported", so a
+    # reported blocker (with its next action, checked below) satisfies it.
+    if (
+        needs_git_hygiene
+        and not has_blocker
+        and not contains_any(
+            normalized, FINISH_WORKFLOW_MENTION_MARKERS + GIT_HYGIENE_FINISH_MARKERS
+        )
     ):
         missing.append(GIT_HYGIENE_FINISH_REQUIREMENT)
     elif (
@@ -226,17 +254,15 @@ def main() -> int:
             "finish workflow details "
             "(commit, push, pull request, merge/completion) or exact blocker"
         )
-    # The gate agents are a finish-time requirement on changed code. Require
-    # them only once the turn reports the git finish (commit, push, PR, merge)
-    # and accept the short names the model actually writes. Measured
-    # 2026-09-05: 34 of 58 closeout blocks were for the literal long names,
-    # several on turns that already said "drift-sentinel ... not applicable".
-    finish_reported = contains_any(normalized, GIT_HYGIENE_FINISH_MARKERS)
-    if has_change and finish_reported:
-        if not contains_any(normalized, GATE_SENTINEL_MARKERS):
-            missing.append("code-drift-sentinel completed, not applicable, or blocker")
-        if not contains_any(normalized, GATE_TESTING_MARKERS):
-            missing.append("software-testing-validation-architect completed, not applicable, or blocker")
+    if (
+        has_change
+        and contains_any(normalized, REVIEW_RISK_MARKERS)
+        and not contains_any(normalized, REVIEW_EVIDENCE_MARKERS)
+    ):
+        missing.append(
+            "independent review result or blocker for the security, data-integrity, "
+            "migration, concurrency, or interface change"
+        )
 
     if has_blocker and not contains_any(normalized, NEXT_ACTION_MARKERS):
         missing.append("exact next action for incomplete work")

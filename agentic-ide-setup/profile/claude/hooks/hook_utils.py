@@ -20,14 +20,10 @@ from pathlib import Path
 from typing import Any
 
 
-CORE_AGENTS = (
-    "delivery-orchestrator-agent",
-)
-
-# The gateway-bookkeeper agent no longer exists as a Claude definition; the
-# obligation it carried does. Name the outcome so routing does not point at a
-# definition that cannot be invoked.
-TRACKING_STEP = "Azure DevOps tracking"
+# Definitions whose absence is worth reporting at session start. Orchestration
+# is a Critical-lane option, not a prerequisite, so nothing here is mandatory
+# for ordinary delivery.
+CORE_AGENTS: tuple[str, ...] = ()
 
 AZURE_DEVOPS_AGENT_AUTHORITY_LINES = (
     "- Finish workflow authority: for task-owned changes on a task-owned branch, agents are pre-approved to stage, commit, push, open or update PRs, set auto-complete, approve PRs, complete PRs, delete source branches, and transition linked work items when needed to complete the request, unless the user explicitly limits scope or says not to finish.",
@@ -276,12 +272,82 @@ def requires_finish_workflow(text: str) -> bool:
 
 
 def requires_tracking(text: str) -> bool:
+    """True when the request itself involves tracked delivery.
+
+    A commit or PR does not imply tracking: Azure Boards is used only when the
+    work names it, spans repositories, or touches CI or deployment.
+    """
     if contains_any_text(text, NO_REMOTE_FINISH_MARKERS):
         return False
     kind = classify_work_kind(text)
-    return kind in {"finish", "implementation", "ado", "ci", "deployment"} or contains_any_text(
+    return kind in {"ado", "ci", "deployment"} or contains_any_text(
         text, MULTI_REPO_MARKERS + TRACKING_CLAIM_MARKERS
     )
+
+
+LITE_MARKERS = (
+    "typo",
+    "rename",
+    "one-file",
+    "one file",
+    "single file",
+    "single-file",
+    "comment",
+    "wording",
+    "formatting",
+    "reformat",
+    "bump version",
+    "version bump",
+)
+
+CRITICAL_MARKERS = (
+    "security",
+    "vulnerab",
+    " auth",
+    "authentication",
+    "authorization",
+    "secret",
+    "credential",
+    " iam ",
+    "rbac",
+    "encryption",
+    "pii",
+    "migration",
+    "schema change",
+    "production",
+    " prod ",
+    "data integrity",
+    "data-integrity",
+    "data loss",
+    "corrupt",
+    "concurrency",
+    "race condition",
+    "deadlock",
+    "cross-repo",
+    "multi-repo",
+    "multiple repos",
+    "public api",
+    "breaking change",
+)
+
+
+def classify_lane(text: str) -> tuple[str, str]:
+    """Suggest an operating lane and the reason, from the request text.
+
+    Returns ``question`` for pure questions, which need no ticket, branch, or
+    spawn. This is a hint for the owner, who selects the lane from the actual
+    scope and risk once the code has been inspected.
+    """
+    if looks_like_question_only(text):
+        return "question", "question only"
+    normalized = normalize_text(text)
+    critical = [marker.strip() for marker in CRITICAL_MARKERS if marker in normalized]
+    if critical:
+        return "critical", "risk markers: " + ", ".join(dict.fromkeys(critical))
+    lite = [marker for marker in LITE_MARKERS if marker in normalized]
+    if lite:
+        return "lite", "mechanical markers: " + ", ".join(lite)
+    return "standard", "ordinary change or investigation"
 
 
 def is_planning_or_analysis_only(text: str) -> bool:
@@ -306,49 +372,17 @@ def requires_bookkeeper_recap(text: str) -> bool:
         text, CHANGE_MARKERS + ("committed", "pushed", "opened pr", "created pr")
     ):
         return True
+    # A pull request or merge alone is not tracked delivery; Boards, CI,
+    # deployment, and multi-repo work are.
     auditable_markers = (
         AZURE_DEVOPS_MARKERS
         + CI_MARKERS
         + DEPLOYMENT_MARKERS
-        + ("pull request", " pr ", "merge", "multi-repo", "cross-repo")
+        + ("multi-repo", "cross-repo")
     )
     return contains_any_text(text, auditable_markers) and contains_any_text(
         text, CHANGE_MARKERS + ("committed", "pushed", "opened pr", "created pr")
     )
-
-
-def compact_agent_summary(
-    sequence: str, *, tracking_required: bool, finish_required: bool
-) -> tuple[str, str]:
-    required = ["delivery-orchestrator-agent"]
-    if tracking_required:
-        required.append(TRACKING_STEP)
-    if finish_required:
-        required.append("git finish workflow")
-
-    optional: list[str] = []
-    for raw_part in sequence.split("->"):
-        part = raw_part.strip()
-        if not part:
-            continue
-        cleaned = (
-            part.replace(" as needed", "")
-            .replace(" when tracked", "")
-            .replace("relevant ", "")
-            .strip()
-        )
-        if not cleaned or cleaned in required:
-            continue
-        if cleaned == TRACKING_STEP and tracking_required:
-            continue
-        if cleaned == "git finish workflow" and finish_required:
-            continue
-        if cleaned not in optional:
-            optional.append(cleaned)
-
-    required_text = ", ".join(required) if required else "none"
-    optional_text = ", ".join(optional) if optional else "none"
-    return required_text, optional_text
 
 
 # Every hook shells out to git. A locked index, a credential prompt, or a slow

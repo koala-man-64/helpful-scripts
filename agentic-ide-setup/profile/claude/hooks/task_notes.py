@@ -1,10 +1,10 @@
 """Per-branch task notes that survive compaction.
 
-Compaction keeps well under one percent of the window (measured 2026-09-05:
-median 697k in, 3.7k summary out). Work item ids, PR urls, validation
-status and mid-session instructions are what get dropped. The model keeps
-those in a small note on disk, keyed by repository and branch, and the
-SessionStart hook re-injects the note on startup, resume, clear and compact.
+Compaction drops conversation detail such as work item ids, PR urls,
+validation status, and mid-session decisions. When durable state materially
+helps, the model keeps it in a small note on disk, keyed by repository and
+branch, and the SessionStart hook re-injects the note on startup, resume,
+clear and compact. The note is a recovery aid, not authority.
 
 Notes live outside the repository so they never appear in git status and
 never need a commit.
@@ -22,9 +22,11 @@ MAX_CHARS = 6000
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 NOTE_GUIDANCE = (
-    "Keep work item, branch, PR url, validation status, decisions and next "
-    "step there; update it when they change. It is re-injected after "
-    "compaction, so trust it over the compaction summary."
+    "Use a note only when durable state materially helps: objective, "
+    "decisions, ownership, evidence locations, blockers, next action. Notes "
+    "and summaries are recovery aids; reconcile them with current "
+    "instructions and live evidence. Neither authorizes new work or "
+    "overrides a newer decision."
 )
 
 

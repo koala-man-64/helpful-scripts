@@ -53,7 +53,7 @@ Treat `AdaptiveAssetAllocation` as an Azure DevOps Agile-process project unless 
 
 ## Start Every Task
 
-1. Run after `delivery-orchestrator-agent` identifies the objective, acceptance criteria, routing, owner, and gates.
+1. Run only for tracked delivery, after the owner (or `delivery-orchestrator-agent` for coordinated Critical work) has established the objective, acceptance criteria, owner, and applicable gates.
 2. Discover the Azure DevOps organization, project, team when known, repo, current branch, and worktree:
    - Prefer `origin` remotes shaped like `https://dev.azure.com/{org}/{project}/_git/{repo}`.
    - Fall back to repo docs, pipeline config, PR/build links, or configured Azure CLI defaults.

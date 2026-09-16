@@ -86,12 +86,14 @@ class RouterOncePerSessionTests(unittest.TestCase):
     def test_standing_and_authority_text_emitted_once(self) -> None:
         authority = hook_utils.AZURE_DEVOPS_AGENT_AUTHORITY_LINES[0]
         first = self._run("sess-1", "finish it")
-        self.assertIn("Blanket finish approval", first)
-        self.assertIn("Finish delegation", first)
+        self.assertIn("Finish authority", first)
+        # Finishing is the owner's job; no mandatory child or orchestrator.
+        self.assertNotIn("sonnet-tier", first)
+        self.assertNotIn("delivery-orchestrator-agent", first)
         self.assertIn(authority, first)
         second = self._run("sess-1", "finish it")
-        self.assertIn("- Lane: finish", second)
-        self.assertNotIn("Blanket finish approval", second)
+        self.assertIn("- Work kind: finish", second)
+        self.assertNotIn("Finish authority", second)
         self.assertNotIn(authority, second)
         self.assertLess(len(second), len(first) - 1000)
 
@@ -101,7 +103,7 @@ class RouterOncePerSessionTests(unittest.TestCase):
         router.requires_tracking = lambda prompt: False
         try:
             first = self._run("sess-2", "explain this function")
-            self.assertIn("Blanket finish approval", first)
+            self.assertIn("Finish authority", first)
             self.assertNotIn(authority, first)
         finally:
             router.requires_finish_workflow = hook_utils.requires_finish_workflow
@@ -114,8 +116,8 @@ class RouterOncePerSessionTests(unittest.TestCase):
     def test_no_session_id_emits_everything_every_turn(self) -> None:
         first = self._run("", "finish it")
         second = self._run("", "finish it")
-        self.assertIn("Blanket finish approval", first)
-        self.assertIn("Blanket finish approval", second)
+        self.assertIn("Finish authority", first)
+        self.assertIn("Finish authority", second)
 
 
 class OutstandingWaitCapTests(unittest.TestCase):

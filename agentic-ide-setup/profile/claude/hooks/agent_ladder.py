@@ -1,25 +1,35 @@
-"""Shared vocabulary for the ordered subagent model ladder.
+"""Shared vocabulary for direct, lane-based subagent routing.
 
-The ladder is deliberately three rungs, not four. Claude exposes
-``haiku | sonnet | opus | fable`` as spawn models, and only the first three
-form a capability ordering; Fable is a different model, not a step above Opus.
-The Codex ladder's middle pair (luna, terra) collapses onto Sonnet here.
+Lanes are alternatives chosen from a task's scope and risk, not a cumulative
+ladder: a spawn names its lane and model directly, and nothing requires a
+failed or justified lower tier first. The gate checks that the chosen model
+is one the lane permits, that it ranks strictly below the parent, and that the
+task is bounded and verifiable.
+
+Claude exposes ``haiku | sonnet | opus | fable`` as spawn models. Only the
+first three form a capability order; Fable is a different model, not a step
+above Opus, so it is never a routed child and a Fable parent counts as unknown.
+
+The module is still named ``agent_ladder`` so the installed hook paths in
+settings.json do not change.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
-ENVELOPE_TAG = "claude_subagent_task_v1"
+ENVELOPE_TAG = "claude_subagent_task_v2"
+# v1 envelopes still parse so an old prompt gets a precise lane error instead
+# of "missing envelope"; their ladder-only fields are ignored.
 ENVELOPE_PATTERN = re.compile(
-    rf"\A\s*<{ENVELOPE_TAG}>\s*(?P<body>.*?)\s*</{ENVELOPE_TAG}>",
+    r"\A\s*<(?P<tag>claude_subagent_task_v[12])>\s*(?P<body>.*?)\s*</(?P=tag)>",
     re.DOTALL,
 )
 
-# Ascending capability. The index is the tier rank, so every lower tier is a
-# slice of this tuple.
+# Ascending capability; the index is the rank.
 TIER_ORDER = ("haiku", "sonnet", "opus")
 
 TIER_MODEL = {
@@ -28,24 +38,25 @@ TIER_MODEL = {
     "opus": "opus",
 }
 
-TIER_SHAPE = {
-    "haiku": (
-        "single precise outcome, narrow scope, decisions already resolved, "
-        "focused verification, low blast radius"
-    ),
-    "sonnet": (
-        "bounded implementation, mechanical work, or read-heavy investigation "
-        "needing more context or local reasoning than one precise edit"
-    ),
-    "opus": (
-        "architecture, security, production, migration, data-integrity, or "
-        "cross-repository risk"
-    ),
+LANE_ORDER = ("lite", "standard", "critical")
+
+LANE_SHAPE = {
+    "lite": "bounded mechanical work; one owner, no children",
+    "standard": "Sonnet owner, solo by default; at most two bounded Haiku children (reviewer, specialist)",
+    "critical": "Opus owner; one to three bounded Sonnet or Haiku specialists with independent evidence",
 }
 
-# Turn caps and tool restrictions are agent-definition fields, not Agent tool
-# inputs, so the hook cannot inject them per spawn. They are advisory here and
-# become real by choosing an agent whose definition already matches the tier.
+# Which child tiers each lane permits, and how many children per session.
+LANE_CHILD_TIERS = {
+    "lite": (),
+    "standard": ("haiku",),
+    "critical": ("haiku", "sonnet"),
+}
+LANE_CHILD_CAP = {"lite": 0, "standard": 2, "critical": 3}
+
+# Turn caps and effort are agent-definition fields, not Agent tool inputs, so
+# the hook cannot inject them per spawn. They become real only by choosing an
+# agent whose definition already sets them.
 TIER_TURN_GUIDANCE = {"haiku": 12, "sonnet": 30, "opus": 60}
 
 # Spawning one of these keeps a read-only contract structurally honest rather
@@ -61,8 +72,7 @@ READ_ONLY_MARKERS = (
     "investigation only",
 )
 
-# Inheriting the full parent transcript defeats the decomposition the ladder
-# exists to force, so an unbounded fork is never a ladder spawn.
+# Inheriting the full parent transcript defeats a bounded child.
 FORK_AGENT_TYPES = frozenset({"fork"})
 
 MANAGED_ORIGINS = frozenset(
@@ -121,25 +131,20 @@ def is_managed(root: Any, runner: Any) -> bool:
     return canonical_origin(root, runner) in MANAGED_ORIGINS
 
 
-def ladder_summary() -> str:
-    """One compact block describing the ladder, for session context."""
-    rungs = "\n".join(
-        "  {0} -> model '{1}', ~{2} turns: {3}".format(
-            name, TIER_MODEL[name], TIER_TURN_GUIDANCE[name], TIER_SHAPE[name]
-        )
-        for name in TIER_ORDER
-    )
+def lane_summary() -> str:
+    """One compact block describing lane routing, for session context."""
+    lanes = "\n".join(f"  {name}: {LANE_SHAPE[name]}" for name in LANE_ORDER)
     return (
-        "- Subagent model ladder is enforced here. Decompose toward the lowest "
-        "viable tier before spawning:\n"
-        f"{rungs}\n"
+        "- Subagent routing is lane-based here. Pick the smallest sufficient lane "
+        "and select the model directly; no lower-tier attempts or blocker "
+        "justifications are required:\n"
+        f"{lanes}\n"
+        "- A child must rank strictly below its parent (haiku < sonnet < opus); "
+        "Fable is never a routed child. Effort is set only by agent-definition "
+        "frontmatter, and a lane never changes the running session's model.\n"
         f"- Lead every subagent prompt with a <{ENVELOPE_TAG}> JSON envelope: "
-        "tier, objective, scope, acceptance_checks, constraints, "
-        "decomposition_attempted, lower_tier_blockers.\n"
-        "- A higher tier needs a non-empty blocker for every tier beneath it. "
-        "Unbounded forks and explicit models that contradict the tier are "
-        "rejected, and a failed lower-tier spawn is never promoted silently -- "
-        "write a new contract naming that failure as the blocker."
+        "lane, tier, objective, scope, acceptance_checks, constraints, "
+        "routing_reason."
     )
 
 
@@ -147,13 +152,13 @@ def parse_envelope(prompt: str) -> tuple[dict[str, Any] | None, str | None]:
     """Return the leading task contract, or a reason code for its absence."""
     match = ENVELOPE_PATTERN.search(prompt or "")
     if not match:
-        return None, "LADDER_MISSING_ENVELOPE"
+        return None, "LANE_MISSING_ENVELOPE"
     try:
         contract = json.loads(match.group("body"))
     except json.JSONDecodeError:
-        return None, "LADDER_MALFORMED_ENVELOPE"
+        return None, "LANE_MALFORMED_ENVELOPE"
     if not isinstance(contract, dict):
-        return None, "LADDER_MALFORMED_ENVELOPE"
+        return None, "LANE_MALFORMED_ENVELOPE"
     return contract, None
 
 
@@ -162,8 +167,46 @@ def strip_envelope(prompt: str) -> str:
     return ENVELOPE_PATTERN.sub("", prompt or "", count=1).lstrip()
 
 
-def lower_tiers(tier: str) -> tuple[str, ...]:
-    return TIER_ORDER[: TIER_ORDER.index(tier)]
+def model_family(model_id: Any) -> str:
+    """Map a transcript model id (``claude-opus-5``) to a tier name, or ``""``."""
+    if not isinstance(model_id, str):
+        return ""
+    text = model_id.lower()
+    for tier in TIER_ORDER:
+        if tier in text:
+            return tier
+    return ""
+
+
+def parent_model(transcript_path: Any, max_lines: int = 400) -> str:
+    """Tier of the session model that issued the spawn, or ``""`` when unknown.
+
+    Reads the newest main-thread assistant record. Unknown is a real outcome
+    (no transcript, synthetic records, Fable) and callers must treat it as the
+    most restrictive case rather than guessing.
+    """
+    if not isinstance(transcript_path, str) or not transcript_path:
+        return ""
+    try:
+        lines = Path(transcript_path).read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()[-max_lines:]
+    except OSError:
+        return ""
+    for line in reversed(lines):
+        if '"assistant"' not in line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if record.get("type") != "assistant" or record.get("isSidechain"):
+            continue
+        model = (record.get("message") or {}).get("model")
+        if not isinstance(model, str) or model.startswith("<"):
+            continue
+        return model_family(model)
+    return ""
 
 
 def _nonempty_strings(value: Any) -> list[str]:
@@ -173,80 +216,103 @@ def _nonempty_strings(value: Any) -> list[str]:
 
 
 def validate(
-    contract: dict[str, Any], subagent_type: str, explicit_model: str
+    contract: dict[str, Any],
+    subagent_type: str,
+    explicit_model: str,
+    parent_tier: str,
 ) -> tuple[str, str] | None:
-    """Return ``(reason_code, message)`` for the first failure, else ``None``."""
-    tier = contract.get("tier")
-    if not isinstance(tier, str) or tier not in TIER_ORDER:
+    """Return ``(reason_code, message)`` for the first failure, else ``None``.
+
+    ``parent_tier`` is the parent's tier name, or ``""`` when unknown.
+    """
+    lane = contract.get("lane")
+    if not isinstance(lane, str) or lane not in LANE_ORDER:
         return (
-            "LADDER_UNKNOWN_TIER",
-            "Contract 'tier' must be one of {0}. The ladder has three rungs on "
-            "Claude: {1}.".format(
-                ", ".join(TIER_ORDER),
-                "; ".join(f"{name} = {TIER_SHAPE[name]}" for name in TIER_ORDER),
+            "LANE_UNKNOWN_LANE",
+            "Contract 'lane' must be one of {0}: {1}.".format(
+                ", ".join(LANE_ORDER),
+                "; ".join(f"{name} = {LANE_SHAPE[name]}" for name in LANE_ORDER),
             ),
         )
 
-    if contract.get("decomposition_attempted") is not True:
+    tier = contract.get("tier")
+    if not isinstance(tier, str) or tier not in TIER_ORDER:
         return (
-            "LADDER_NO_DECOMPOSITION",
-            "Contract must set 'decomposition_attempted': true. Split the task "
-            "into independent, verifiable leaves before selecting a tier.",
+            "LANE_UNKNOWN_TIER",
+            "Contract 'tier' must be one of {0}.".format(", ".join(TIER_ORDER)),
+        )
+
+    if lane == "lite":
+        return (
+            "LANE_LITE_NO_CHILDREN",
+            "The lite lane has one owner and no children. Do the work directly, "
+            "or re-scope the task to standard or critical if it genuinely needs "
+            "a bounded child.",
+        )
+
+    if tier not in LANE_CHILD_TIERS[lane]:
+        return (
+            "LANE_TIER_NOT_PERMITTED",
+            "The {0} lane permits child tiers: {1}. Choose one of those, or "
+            "re-scope the lane if the task's risk actually warrants it.".format(
+                lane, ", ".join(LANE_CHILD_TIERS[lane])
+            ),
         )
 
     if not _nonempty_strings(contract.get("scope")):
         return (
-            "LADDER_EMPTY_SCOPE",
+            "LANE_EMPTY_SCOPE",
             "Contract 'scope' must list at least one concrete path or surface "
             "the subagent may touch.",
         )
 
     if not _nonempty_strings(contract.get("acceptance_checks")):
         return (
-            "LADDER_MISSING_ACCEPTANCE",
+            "LANE_MISSING_ACCEPTANCE",
             "Contract 'acceptance_checks' must state at least one verifiable "
             "outcome. A task the parent cannot check is not delegable.",
         )
 
     if _nonempty_strings(contract.get("depends_on")):
         return (
-            "LADDER_UNRESOLVED_DEPENDENCY",
+            "LANE_UNRESOLVED_DEPENDENCY",
             "Contract declares unresolved dependencies in 'depends_on'. Resolve "
-            "them in the parent, or spawn the dependency as its own leaf first.",
+            "them in the parent first.",
         )
 
-    blockers = contract.get("lower_tier_blockers")
-    if not isinstance(blockers, dict):
-        blockers = {}
-    for lower in lower_tiers(tier):
-        text = blockers.get(lower)
-        if not isinstance(text, str) or not text.strip():
+    child_rank = TIER_ORDER.index(tier)
+    if parent_tier in TIER_ORDER:
+        if child_rank >= TIER_ORDER.index(parent_tier):
             return (
-                "LADDER_MISSING_BLOCKER",
-                "Tier '{0}' requires a documented blocker for every lower tier "
-                "({1}). Missing: '{2}'. Say what specifically makes {2} "
-                "unsuitable ({3}), or spawn at {2}.".format(
-                    tier,
-                    ", ".join(lower_tiers(tier)),
-                    lower,
-                    TIER_SHAPE[lower],
-                ),
+                "LANE_CHILD_NOT_LOWER",
+                "A child must rank strictly below its parent. This session runs "
+                "on {0}, so '{1}' is not permitted. Pick a lower tier, or do the "
+                "work in this session. A lane choice does not change the "
+                "session's model; if the task needs a stronger owner, say so and "
+                "ask Rudy to switch models.".format(parent_tier, tier),
             )
+    elif child_rank > 0:
+        return (
+            "LANE_PARENT_UNKNOWN",
+            "The parent session's model could not be determined, so only a "
+            "haiku child is permitted. Use tier 'haiku' or do the work directly.",
+        )
 
     expected_model = TIER_MODEL[tier]
     if explicit_model and explicit_model != expected_model:
         return (
-            "LADDER_MODEL_CONFLICT",
+            "LANE_MODEL_CONFLICT",
             "Explicit model '{0}' conflicts with tier '{1}', which routes to "
-            "'{2}'. Change the tier and its blockers, or drop the model "
-            "override.".format(explicit_model, tier, expected_model),
+            "'{2}'. Change the tier or drop the model override.".format(
+                explicit_model, tier, expected_model
+            ),
         )
 
     constraints = " ".join(_nonempty_strings(contract.get("constraints"))).lower()
     if any(marker in constraints for marker in READ_ONLY_MARKERS):
         if subagent_type not in READ_ONLY_AGENTS:
             return (
-                "LADDER_READONLY_TIER_VIOLATION",
+                "LANE_READONLY_AGENT_VIOLATION",
                 "Contract declares a read-only constraint, so spawn a subagent "
                 "that cannot write: {0}. '{1}' carries edit tools, which makes "
                 "the constraint a promise instead of a boundary.".format(

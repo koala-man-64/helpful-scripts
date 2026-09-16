@@ -1,8 +1,16 @@
+"""Classify the request before adding any workflow requirement.
+
+The router states a suggested lane and answers three independent questions --
+tracking, commit/PR, delegation -- so a yes to one never implies the others.
+It names specialists only as optional hints; no orchestrator or specialist
+sequence is required for ordinary delivery.
+"""
+
 from hook_utils import (
     additional_context,
     azure_devops_agent_authority_lines,
+    classify_lane,
     classify_work_kind,
-    compact_agent_summary,
     emit_json,
     extract_prompt,
     read_hook_input,
@@ -15,229 +23,30 @@ from hook_utils import (
 
 # Stated once per session (see main); these do not vary by prompt.
 STANDING_POLICY_LINES = (
-    "- Blanket finish approval: when task-owned files change and the user does not explicitly limit scope, complete the git finish workflow (commit, push, PR, merge/completion) before closeout instead of waiting for a separate 'finish it' prompt.",
-    "- Finish delegation: run the finish workflow and any Azure Boards bookkeeping as ONE sonnet-tier subagent spawn (git-hygiene-orchestrator for git, gateway-bookkeeper for boards). Do not run the az/git steps one by one from the main thread; each such call re-reads the whole conversation.",
+    "- Finish authority: when task-owned files change and the user does not explicitly limit scope, the owner completes the git finish workflow (commit, push, PR, merge/completion) before closeout, without waiting for a separate 'finish it' prompt. Delegate finishing only when it is an independent, bounded deliverable the lane permits; never spawn an agent just because work reached the finish stage.",
+    "- Lanes: lite (one owner, no children), standard (solo by default; at most a bounded Haiku reviewer and specialist), critical (Opus owner; one to three bounded specialists; independent review). Select the model directly; no lower-tier attempts are required.",
 )
 
 
-LANES = (
-    (
-        "finish",
-        (
-            "finish it",
-            "complete workflow",
-            "complete your workflow",
-            "commit",
-            "push",
-            "pull request",
-            " pr ",
-            "merge",
-            "squash",
-            "auto-complete",
-            "approve pr",
-            "approve pull request",
-            "complete pr",
-            "complete pull request",
-            "close work item",
-            "close workitem",
-            "complete work item",
-            "complete workitem",
-            "transition-work-items",
-        ),
-        "delivery-orchestrator-agent -> Azure DevOps tracking -> code-drift-sentinel -> software-testing-validation-architect -> git finish workflow",
-    ),
-    (
-        "ci-pipeline",
-        ("pipeline", "build failed", "failed build", "failing check", "failed check", "ci", "validation failed", "re-queue", "rerun"),
-        "delivery-orchestrator-agent -> actionmedic -> software-testing-validation-architect -> Azure DevOps tracking",
-    ),
-    (
-        "production-incident",
-        ("production", "prod", "live", "incident", "500", "traceback", "exception", "relation ", "does not exist", "unavailable"),
-        "delivery-orchestrator-agent -> forensic-debugger -> relevant specialist -> software-testing-validation-architect -> Azure DevOps tracking",
-    ),
-    (
-        "azure-boards-bookkeeping",
-        ("azure boards", "work item", "workitem", "ab#", "backlog", "board", "bookkeeper", "sprint"),
-        "delivery-orchestrator-agent -> Azure DevOps tracking",
-    ),
-    (
-        "repo-cleanup",
-        ("git hygiene", "branch cleanup", "stale branch", "worktree", "repo cleanup", "prune", "conflict"),
-        "delivery-orchestrator-agent -> code-drift-sentinel -> git finish workflow -> Azure DevOps tracking",
-    ),
-    (
-        "trading-strategy-validation",
-        (
-            "backtest",
-            "model risk",
-            "overfit",
-            "overfitting",
-            "leakage",
-            "walk-forward",
-            "train/test",
-            "feature stability",
-        ),
-        "delivery-orchestrator-agent -> relevant specialist -> relevant implementation/QA agents",
-    ),
-    (
-        "trading-execution-quality",
-        (
-            "fills",
-            "slippage",
-            "benchmark",
-            "routing quality",
-            "venue",
-            "implementation shortfall",
-            "participation rate",
-        ),
-        "delivery-orchestrator-agent -> relevant specialist -> relevant implementation/QA agents",
-    ),
-    (
-        "trading-portfolio-risk",
-        (
-            "gross exposure",
-            "net exposure",
-            "factor exposure",
-            "concentration",
-            "crowding",
-            "drawdown",
-            "liquidity stress",
-            "correlation cluster",
-        ),
-        "delivery-orchestrator-agent -> relevant specialist -> relevant implementation/QA agents",
-    ),
-    (
-        "trading-performance-attribution",
-        (
-            "attribution",
-            "return decomposition",
-            "alpha vs beta",
-            "cost drag",
-            "net returns",
-            "performance contribution",
-        ),
-        "delivery-orchestrator-agent -> relevant specialist -> relevant implementation/QA agents",
-    ),
-    (
-        "trading-thesis-drift",
-        (
-            "trade thesis",
-            "thesis drift",
-            "what changed",
-            "thesis weakened",
-            "thesis broken",
-            "thesis inverted",
-        ),
-        "delivery-orchestrator-agent -> relevant specialist -> relevant implementation/QA agents",
-    ),
-    (
-        "trading-process-review",
-        (
-            "trade journal",
-            "plan adherence",
-            "chasing",
-            "averaging down",
-            "stop discipline",
-            "override habit",
-            "process discipline",
-        ),
-        "delivery-orchestrator-agent -> relevant specialist -> relevant implementation/QA agents",
-    ),
-    (
-        "trading-compliance",
-        (
-            "restricted list",
-            "approval log",
-            "surveillance",
-            "locate record",
-            "policy breach",
-            "audit trail",
-        ),
-        "delivery-orchestrator-agent -> relevant specialist -> relevant implementation/QA agents",
-    ),
-    (
-        "trading-regime-scenario",
-        (
-            "market regime",
-            "regime transition",
-            "scenario analysis",
-            "market breadth",
-            "credit spreads",
-            "volatility state",
-        ),
-        "delivery-orchestrator-agent -> relevant specialist -> relevant implementation/QA agents",
-    ),
-    (
-        "trading-catalyst-calendar",
-        (
-            "earnings calendar",
-            "policy event",
-            "lockup expiry",
-            "dividend calendar",
-            "index change",
-            "corporate action calendar",
-        ),
-        "delivery-orchestrator-agent -> relevant specialist -> relevant implementation/QA agents",
-    ),
-    (
-        "trading-data-integrity",
-        (
-            "corporate actions",
-            "symbol map",
-            "vendor feed",
-            "stale prices",
-            "reference data",
-        ),
-        "delivery-orchestrator-agent -> relevant specialist -> relevant implementation/QA agents",
-    ),
-    (
-        "trading-evidence-pack",
-        (
-            "evidence pack",
-            "filings",
-            "transcripts",
-            "source traceability",
-        ),
-        "delivery-orchestrator-agent -> relevant specialist -> relevant implementation/QA agents",
-    ),
-    (
-        "review",
-        ("review", "audit", "risks", "findings", "regression"),
-        "delivery-orchestrator-agent -> relevant reviewer -> code-drift-sentinel as needed -> software-testing-validation-architect as needed -> Azure DevOps tracking when tracked",
-    ),
-    (
-        "frontend",
-        ("ui", "react", "component", "page", "css", "layout", "design", "browser", "playwright"),
-        "delivery-orchestrator-agent -> relevant specialist -> relevant specialist -> git finish workflow",
-    ),
-    (
-        "db-data",
-        ("database", "postgres", "sql", "migration", "schema", "dataframe", "pipeline data", "copy error"),
-        "delivery-orchestrator-agent -> db-steward -> software-testing-validation-architect -> Azure DevOps tracking",
-    ),
-    (
-        "architecture",
-        ("architecture", "design", "approach", "plan", "tradeoff", "proposal"),
-        "delivery-orchestrator-agent -> architecture-review-agent -> Azure DevOps tracking when tracked",
-    ),
-    (
-        "docs",
-        ("documentation", "docs", "readme", "runbook", "developer guide"),
-        "delivery-orchestrator-agent -> relevant specialist -> git finish workflow",
-    ),
+# Optional specialist hints by work area. First match wins; none are required.
+SPECIALIST_HINTS = (
+    (("pipeline", "build failed", "failed build", "failing check", "failed check", " ci ", "re-queue", "rerun"), "actionmedic"),
+    (("production", " prod ", "incident", "outage", "traceback", "exception", "does not exist", "unavailable"), "forensic-debugger"),
+    (("azure boards", "work item", "workitem", "ab#", "backlog", "sprint", "bookkeeper"), "gateway-bookkeeper"),
+    (("git hygiene", "branch cleanup", "stale branch", "worktree", "repo cleanup", "prune"), "git-hygiene-orchestrator"),
+    (("security", "vulnerab", "secret", "credential", " iam ", "rbac", "encryption"), "cloud-security-vulnerability-expert"),
+    (("database", "postgres", "sql", "migration", "schema", "index tuning"), "db-steward"),
+    (("architecture", "tradeoff", "proposal", "design review"), "architecture-review-agent"),
+    (("test plan", "coverage gap", "release readiness", "go/no-go"), "qa-release-gate-agent"),
 )
 
 
-def classify(prompt: str) -> tuple[str, str]:
+def specialist_hint(prompt: str) -> str:
     normalized = f" {prompt.lower()} "
-    for lane, needles, sequence in LANES:
+    for needles, agent in SPECIALIST_HINTS:
         if any(needle in normalized for needle in needles):
-            return lane, sequence
-    return (
-        "implementation",
-        "delivery-orchestrator-agent -> Azure DevOps tracking when tracked -> the primary agent -> code-drift-sentinel -> software-testing-validation-architect -> git finish workflow",
-    )
+            return agent
+    return "none"
 
 
 def contract_hint(prompt: str) -> str:
@@ -245,7 +54,15 @@ def contract_hint(prompt: str) -> str:
     shared_terms = ("api response", "api request", "payload", "schema", "serialization", "contract", "@asset-allocation/contracts", "asset-allocation-contracts")
     if any(term in normalized for term in shared_terms):
         return "Potential shared contract surface detected. Route authoring through asset-allocation-contracts first unless local evidence proves this is repo-private."
-    return "Before editing, classify the work as local-only or contracts-repo-first if shared shapes are involved."
+    return "Before editing shared API, schema, or serialization shapes, classify the work as local-only or contracts-repo-first."
+
+
+def delegation_answer(lane: str) -> str:
+    if lane in {"question", "lite"}:
+        return "no"
+    if lane == "standard":
+        return "only a bounded Haiku reviewer or specialist, when it clearly helps"
+    return "bounded specialists as needed; independent review required"
 
 
 def main() -> int:
@@ -254,25 +71,29 @@ def main() -> int:
     payload = read_hook_input()
     session_id = str(payload.get("session_id") or "")
     prompt = extract_prompt(payload)
-    lane, sequence = classify(prompt)
+    lane, lane_reason = classify_lane(prompt)
     work_kind = classify_work_kind(prompt)
-    finish_required = lane == "finish" or requires_finish_workflow(prompt)
-    tracking_required = finish_required or requires_tracking(prompt)
-    required_agents, optional_agents = compact_agent_summary(
-        sequence,
-        tracking_required=tracking_required,
-        finish_required=finish_required,
-    )
+    question = lane == "question"
+    finish_required = not question and requires_finish_workflow(prompt)
+    tracking_required = not question and requires_tracking(prompt)
+
     lines = [
         "Team workflow routing:",
-        f"- Lane: {lane}",
         f"- Work kind: {work_kind}",
-        f"- Required agents: {required_agents}",
-        f"- Optional agents: {optional_agents}",
-        f"- Tracking required: {'yes' if tracking_required else 'no'}",
-        f"- Finish workflow required: {'yes' if finish_required else 'no'}",
-        f"- Contract routing: {contract_hint(prompt)}",
+        f"- Suggested lane: {lane} ({lane_reason}); confirm against the actual scope and risk",
     ]
+    if question:
+        lines.append("- Answer from evidence; no ticket, branch, or agent spawn.")
+    else:
+        lines.extend(
+            [
+                f"- Tracking needed: {'yes' if tracking_required else 'no'}",
+                f"- Commit/PR when files change: {'yes' if finish_required else 'no'}",
+                f"- Delegation: {delegation_answer(lane)}",
+                f"- Optional specialist: {specialist_hint(prompt)}",
+                f"- Contract routing: {contract_hint(prompt)}",
+            ]
+        )
     # Standing policy is stated once per session and again after compaction
     # (the session-start hook clears the flags). Every turn's text is re-sent
     # with every later request, so the per-turn block carries only the facts
