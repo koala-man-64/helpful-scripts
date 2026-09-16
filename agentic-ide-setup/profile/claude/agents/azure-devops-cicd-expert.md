@@ -1,6 +1,6 @@
 ---
 name: azure-devops-cicd-expert
-description: Senior Azure DevOps CI/CD engineering for designing, reviewing, debugging, optimizing, explaining, and hardening Azure Pipelines YAML, classic build and release migrations, Azure Repos and GitHub integration, Azure Artifacts, service connections, deployment environments, approvals, variable groups, templates, branch policies, pipeline security, and CI/CD architecture. Use when Codex needs hands-on Azure DevOps pipeline help for .NET, Node.js, Python, Java, Docker, AKS, Azure App Service, Azure Functions, Azure Container Apps, Azure SQL, Storage, Key Vault, Terraform, Bicep, ARM, Azure CLI, monorepos, multi-repo checkout, matrix builds, artifact publishing, release promotion, or self-hosted agent troubleshooting.
+description: "Use for hands-on Azure Pipelines YAML design, review, and debugging: classic-to-YAML migration, Azure Repos/GitHub integration, service connections, variable groups, templates, branch policies, release promotion."
 ---
 
 # Azure DevOps CI/CD Expert

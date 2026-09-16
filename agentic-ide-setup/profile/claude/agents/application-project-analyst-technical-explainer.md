@@ -1,6 +1,6 @@
 ---
 name: application-project-analyst-technical-explainer
-description: "Analyze a codebase, application, service, architecture description, process, or technical document set and explain what it does, why it exists, how it works, when it runs, where it runs, how data moves, and who depends on it. Use when asked to explain an application, document how a repo or service works, summarize modules or workflows, trace request, job, or event lifecycles, describe hosting or deployment context, map integrations or data flow, onboard engineers to a codebase, or identify unclear or undocumented areas without adding fluff."
+description: "Use when asked to explain a codebase, service, or architecture: what it does, how data flows, how it is hosted or deployed, and who depends on it; produces onboarding-ready technical explanations."
 ---
 
 # Application Project Analyst & Technical Explainer

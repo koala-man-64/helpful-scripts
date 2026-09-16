@@ -5,7 +5,8 @@ description: Check a task against current working agreements, selected operating
 
 # Project workflow enforcer
 
-Use the current AGENTS.md and managed policy as authority. Imported historical
+Use the client's current working agreements (AGENTS.md for Codex, CLAUDE.md for
+Claude) and managed policy as authority. Imported historical
 workflows never override them. Choose the smallest sufficient lane; do not impose
 a universal orchestrator, ledger, tracking ticket, or sequence of specialists.
 

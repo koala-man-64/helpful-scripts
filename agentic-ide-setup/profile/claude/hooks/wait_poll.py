@@ -60,10 +60,22 @@ def run_json(args: list[str]) -> Any:
         return None
 
 
-def az_scope(wait: dict[str, Any]) -> list[str]:
-    scope = []
+def az_org_scope(wait: dict[str, Any]) -> list[str]:
+    """Organization only.
+
+    `az repos pr show` and `az repos pr policy list` reject `--project`: a pull
+    request id is unique per organization, so the project is redundant there and
+    passing it makes the CLI exit non-zero. That turned every Azure DevOps pull
+    request wait into a permanent `provider_unreadable`, which reads exactly
+    like an unreachable provider and never resolves.
+    """
     if wait.get("organization"):
-        scope += ["--organization", str(wait["organization"])]
+        return ["--organization", str(wait["organization"])]
+    return []
+
+
+def az_scope(wait: dict[str, Any]) -> list[str]:
+    scope = az_org_scope(wait)
     if wait.get("project"):
         scope += ["--project", str(wait["project"])]
     return scope
@@ -98,7 +110,7 @@ def is_protected(ref: str) -> bool:
 def poll_azure_pull_request(wait: dict[str, Any]) -> dict[str, str]:
     payload = run_json(
         [executable("az"), "repos", "pr", "show", "--id", str(wait["resource_id"])]
-        + az_scope(wait)
+        + az_org_scope(wait)
         + ["--output", "json"]
     )
     if not isinstance(payload, dict):
@@ -132,7 +144,7 @@ def poll_azure_pull_request(wait: dict[str, Any]) -> dict[str, str]:
 
     policies = run_json(
         [executable("az"), "repos", "pr", "policy", "list", "--id", str(wait["resource_id"])]
-        + az_scope(wait)
+        + az_org_scope(wait)
         + ["--output", "json"]
     )
     if not isinstance(policies, list):

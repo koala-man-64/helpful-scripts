@@ -1,16 +1,15 @@
-"""Enforce the ordered subagent model ladder in managed repositories.
+"""Validate lane-based subagent routing in managed repositories.
 
-Every Agent/Task spawn inside a managed repository must carry a task contract
-naming the lowest viable tier and documenting why each lower tier is
-unsuitable. The gate runs in enforce mode from the start: a missing or
-malformed contract, an out-of-order tier, an unbounded fork, or a conflicting
-explicit model denies the spawn.
+Every Agent/Task spawn inside a managed repository carries a task contract
+naming its lane and tier directly. The gate checks bounded scope, a permitted
+tier for the lane, a child strictly below its parent, a per-session child cap,
+and structural read-only enforcement. It never asks for lower-tier blockers:
+lanes are alternatives, not a sequence to climb.
 
-Outside managed repositories the hook emits nothing at all, so unmanaged work
-keeps its existing behavior.
+Outside managed repositories the hook emits nothing at all.
 
-The gate rewrites only the model, and only through ``updatedInput`` with no
-permission decision attached -- Claude applies ``updatedInput`` from a
+The gate rewrites only the model and prompt, and only through ``updatedInput``
+with no permission decision attached -- Claude applies ``updatedInput`` from a
 PreToolUse hook only when the hook declines to decide permission. Emitting
 "allow" here would both suppress the rewrite path and hand this hook a
 permission authority it should not hold.
@@ -19,18 +18,20 @@ permission authority it should not hold.
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
 
 from agent_ladder import (
     FORK_AGENT_TYPES,
+    LANE_CHILD_CAP,
+    LANE_ORDER,
+    LANE_SHAPE,
     MANAGED_ORIGINS,
     TIER_MODEL,
-    TIER_ORDER,
-    TIER_SHAPE,
-    TIER_TURN_GUIDANCE,
     canonical_origin,
+    parent_model,
     parse_envelope,
     strip_envelope,
     validate,
@@ -42,6 +43,7 @@ from hook_utils import (
     read_hook_input,
     repo_root,
     run_git,
+    session_flags_dir,
 )
 
 SUBAGENT_TOOLS = frozenset({"Agent", "Task"})
@@ -49,24 +51,25 @@ SUBAGENT_TOOLS = frozenset({"Agent", "Task"})
 LOG_PATH = Path.home() / ".claude" / "logs" / "agent-ladder.jsonl"
 LOG_MAX_LINES = 2000
 
-ENVELOPE_TEMPLATE = """<claude_subagent_task_v1>
+ENVELOPE_TEMPLATE = """<claude_subagent_task_v2>
 {
+  "lane": "standard",
   "tier": "haiku",
   "objective": "<one precise outcome>",
   "scope": ["<path or surface the subagent may touch>"],
   "acceptance_checks": ["<how the parent verifies the result>"],
   "constraints": ["Do not spawn another agent"],
-  "decomposition_attempted": true,
-  "lower_tier_blockers": {}
+  "routing_reason": "<why this lane and model>"
 }
-</claude_subagent_task_v1>"""
+</claude_subagent_task_v2>"""
 
 
 def record(origin: str, fields: dict[str, Any]) -> None:
     """Append one bounded, text-free decision record.
 
     Task text never reaches this file: no prompt, objective, scope, acceptance
-    check, constraint, or tool output. Only the routing decision and why.
+    check, constraint, routing reason, or tool output. Only the routing
+    decision and why.
     """
     entry = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -79,9 +82,8 @@ def record(origin: str, fields: dict[str, Any]) -> None:
             handle.write(json.dumps(entry, separators=(",", ":")) + "\n")
         trim_log()
     except Exception:
-        # Logging is evidence, not a gate. A read-only disk, a full volume, or
-        # an unwritable path must never decide whether a spawn is allowed, so
-        # this swallows everything rather than just OSError.
+        # Logging is evidence, not a gate. Swallow everything so a disk fault
+        # never decides whether a spawn is allowed.
         pass
 
 
@@ -96,25 +98,55 @@ def trim_log() -> None:
         pass
 
 
+def _children_file(session_id: str) -> Path | None:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]", "", session_id or "")
+    if not cleaned:
+        return None
+    # Separate from the session's flag file, which session start clears on
+    # compaction; a compaction must not reset the child budget.
+    return session_flags_dir() / f"{cleaned}.children.json"
+
+
+def claim_child_slot(session_id: str, lane: str) -> bool:
+    """Count one child against the lane's per-session cap.
+
+    Fail-open on an unknown session or IO fault: the cap bounds fan-out, it is
+    not a security boundary, and a filesystem problem must not block work.
+    """
+    cap = LANE_CHILD_CAP.get(lane, 0)
+    path = _children_file(session_id)
+    if path is None:
+        return True
+    try:
+        counts: dict[str, Any] = {}
+        if path.exists():
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                counts = loaded
+        used = counts.get(lane, 0)
+        used = used if isinstance(used, int) else 0
+        if used >= cap:
+            return False
+        counts[lane] = used + 1
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(counts, sort_keys=True), encoding="utf-8")
+    except (OSError, ValueError):
+        return True
+    return True
+
+
 def reject(origin: str, tier: str, code: str, message: str) -> int:
     record(origin, {"decision": "denied", "tier": tier, "reason_code": code})
     guidance = (
         "{0} [{1}]\n\n"
-        "Subagent ladder (lowest viable tier wins):\n"
+        "Lanes (choose the smallest sufficient one; no lower-tier attempts or "
+        "blocker justifications are needed):\n"
         "{2}\n\n"
-        "Every spawn in a managed repository begins with this envelope:\n{3}\n\n"
-        "A higher tier needs a non-empty 'lower_tier_blockers' entry for each "
-        "tier beneath it. A failed lower-tier spawn is not automatic promotion: "
-        "write a new contract naming that failure as the blocker."
+        "Every spawn in a managed repository begins with this envelope:\n{3}"
     ).format(
         message,
         code,
-        "\n".join(
-            "  {0} -> model '{1}', ~{2} turns: {3}".format(
-                name, TIER_MODEL[name], TIER_TURN_GUIDANCE[name], TIER_SHAPE[name]
-            )
-            for name in TIER_ORDER
-        ),
+        "\n".join(f"  {name}: {LANE_SHAPE[name]}" for name in LANE_ORDER),
         ENVELOPE_TEMPLATE,
     )
     return emit_json(deny_pre_tool(guidance))
@@ -139,50 +171,72 @@ def main() -> int:
     prompt = tool_input.get("prompt")
     prompt = prompt if isinstance(prompt, str) else ""
 
+    if payload.get("agent_id"):
+        return reject(
+            origin,
+            "",
+            "LANE_NESTED_SPAWN",
+            "Subagents do not spawn subagents. Return the need to the owner, "
+            "which keeps integration and final validation.",
+        )
+
     if not subagent_type or subagent_type in FORK_AGENT_TYPES:
         return reject(
             origin,
             "",
-            "LADDER_FULL_HISTORY_FORK",
+            "LANE_FULL_HISTORY_FORK",
             "An implicit fork inherits the full parent transcript, which is the "
-            "opposite of the bounded, independently verifiable leaf the ladder "
-            "requires. Name an explicit subagent_type and hand it a contract.",
+            "opposite of a bounded, independently verifiable child. Name an "
+            "explicit subagent_type and hand it a contract.",
         )
 
     contract, parse_code = parse_envelope(prompt)
-    if parse_code == "LADDER_MISSING_ENVELOPE":
+    if parse_code == "LANE_MISSING_ENVELOPE":
         return reject(
             origin,
             "",
             parse_code,
-            "This spawn carries no task contract. Decompose the work into "
-            "independent, verifiable leaves, pick the lowest tier that can "
-            "actually do one, and lead the prompt with the envelope.",
+            "This spawn carries no task contract. Lead the prompt with the "
+            "envelope naming the lane and tier you selected.",
         )
     if parse_code or contract is None:
         return reject(
             origin,
             "",
-            parse_code or "LADDER_MALFORMED_ENVELOPE",
+            parse_code or "LANE_MALFORMED_ENVELOPE",
             "The task contract is not a JSON object. The envelope body must "
             "parse on its own, before any prose.",
         )
 
-    failure = validate(contract, subagent_type, explicit_model)
+    parent_tier = parent_model(payload.get("transcript_path"))
+    failure = validate(contract, subagent_type, explicit_model, parent_tier)
     if failure:
         return reject(origin, str(contract.get("tier") or ""), *failure)
 
+    lane = str(contract["lane"])
     tier = str(contract["tier"])
+    if not claim_child_slot(str(payload.get("session_id") or ""), lane):
+        return reject(
+            origin,
+            tier,
+            "LANE_CHILD_CAP",
+            "The {0} lane allows at most {1} children per session. Do the "
+            "remaining work as the owner, or re-scope if the task's risk "
+            "actually changed.".format(lane, LANE_CHILD_CAP[lane]),
+        )
+
     model = TIER_MODEL[tier]
     record(
         origin,
         {
             "decision": "routed",
+            "lane": lane,
             "tier": tier,
             "model": model,
+            "parent_tier": parent_tier or "unknown",
             "selection_source": "explicit_model" if explicit_model else "contract_tier",
             "subagent_type": subagent_type,
-            "reason_code": "LADDER_OK",
+            "reason_code": "LANE_OK",
         },
     )
 
@@ -198,9 +252,11 @@ def main() -> int:
                 "hookEventName": "PreToolUse",
                 "updatedInput": updated,
                 "additionalContext": ascii_text(
-                    "Subagent ladder: tier '{0}' routed to model '{1}'. Keep the "
-                    "task within its declared scope and acceptance checks; do "
-                    "not spawn further agents.".format(tier, model)
+                    "Subagent routing: {0} lane, tier '{1}' routed to model "
+                    "'{2}'. Keep the task within its declared scope and "
+                    "acceptance checks; do not spawn further agents.".format(
+                        lane, tier, model
+                    )
                 ),
             }
         }

@@ -1,6 +1,6 @@
 ---
 name: project-workflow-auditor-agent
-description: "Audit a repository/project for security practices, Azure DevOps pipeline safety, adherence to project instructions (AGENTS.md/CONTRIBUTING/SECURITY), and consistency across code/config/docs. Use when preparing for release, reviewing Azure Pipelines, enforcing engineering guardrails, or assessing delivery readiness and governance."
+description: Use to audit a repo's security practices, Azure Pipeline safety, and AGENTS.md/CONTRIBUTING/SECURITY adherence before release; the read-only auditor, distinct from project-workflow-enforcer-agent's live enforcement.
 ---
 
 # Project Workflow Auditor Agent

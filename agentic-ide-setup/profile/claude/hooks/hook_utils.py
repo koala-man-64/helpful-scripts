@@ -15,19 +15,15 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
 
-CORE_AGENTS = (
-    "delivery-orchestrator-agent",
-    "project-workflow-enforcer-agent",
-)
-
-# The gateway-bookkeeper agent no longer exists as a Claude definition; the
-# obligation it carried does. Name the outcome so routing does not point at a
-# definition that cannot be invoked.
-TRACKING_STEP = "Azure DevOps tracking"
+# Definitions whose absence is worth reporting at session start. Orchestration
+# is a Critical-lane option, not a prerequisite, so nothing here is mandatory
+# for ordinary delivery.
+CORE_AGENTS: tuple[str, ...] = ()
 
 AZURE_DEVOPS_AGENT_AUTHORITY_LINES = (
     "- Finish workflow authority: for task-owned changes on a task-owned branch, agents are pre-approved to stage, commit, push, open or update PRs, set auto-complete, approve PRs, complete PRs, delete source branches, and transition linked work items when needed to complete the request, unless the user explicitly limits scope or says not to finish.",
@@ -89,7 +85,11 @@ CI_MARKERS = (
 DEPLOYMENT_MARKERS = (
     "deploy",
     "deployment",
-    "release",
+    # Padded so "released" (claims released) is not a release.
+    " release ",
+    " release.",
+    " release,",
+    "release pipeline",
     "production",
     " prod ",
     "environment approval",
@@ -276,12 +276,82 @@ def requires_finish_workflow(text: str) -> bool:
 
 
 def requires_tracking(text: str) -> bool:
+    """True when the request itself involves tracked delivery.
+
+    A commit or PR does not imply tracking: Azure Boards is used only when the
+    work names it, spans repositories, or touches CI or deployment.
+    """
     if contains_any_text(text, NO_REMOTE_FINISH_MARKERS):
         return False
     kind = classify_work_kind(text)
-    return kind in {"finish", "implementation", "ado", "ci", "deployment"} or contains_any_text(
+    return kind in {"ado", "ci", "deployment"} or contains_any_text(
         text, MULTI_REPO_MARKERS + TRACKING_CLAIM_MARKERS
     )
+
+
+LITE_MARKERS = (
+    "typo",
+    "rename",
+    "one-file",
+    "one file",
+    "single file",
+    "single-file",
+    "comment",
+    "wording",
+    "formatting",
+    "reformat",
+    "bump version",
+    "version bump",
+)
+
+CRITICAL_MARKERS = (
+    "security",
+    "vulnerab",
+    " auth",
+    "authentication",
+    "authorization",
+    "secret",
+    "credential",
+    " iam ",
+    "rbac",
+    "encryption",
+    "pii",
+    "migration",
+    "schema change",
+    "production",
+    " prod ",
+    "data integrity",
+    "data-integrity",
+    "data loss",
+    "corrupt",
+    "concurrency",
+    "race condition",
+    "deadlock",
+    "cross-repo",
+    "multi-repo",
+    "multiple repos",
+    "public api",
+    "breaking change",
+)
+
+
+def classify_lane(text: str) -> tuple[str, str]:
+    """Suggest an operating lane and the reason, from the request text.
+
+    Returns ``question`` for pure questions, which need no ticket, branch, or
+    spawn. This is a hint for the owner, who selects the lane from the actual
+    scope and risk once the code has been inspected.
+    """
+    if looks_like_question_only(text):
+        return "question", "question only"
+    normalized = normalize_text(text)
+    critical = [marker.strip() for marker in CRITICAL_MARKERS if marker in normalized]
+    if critical:
+        return "critical", "risk markers: " + ", ".join(dict.fromkeys(critical))
+    lite = [marker for marker in LITE_MARKERS if marker in normalized]
+    if lite:
+        return "lite", "mechanical markers: " + ", ".join(lite)
+    return "standard", "ordinary change or investigation"
 
 
 def is_planning_or_analysis_only(text: str) -> bool:
@@ -306,49 +376,17 @@ def requires_bookkeeper_recap(text: str) -> bool:
         text, CHANGE_MARKERS + ("committed", "pushed", "opened pr", "created pr")
     ):
         return True
+    # A pull request or merge alone is not tracked delivery; Boards, CI,
+    # deployment, and multi-repo work are.
     auditable_markers = (
         AZURE_DEVOPS_MARKERS
         + CI_MARKERS
         + DEPLOYMENT_MARKERS
-        + ("pull request", " pr ", "merge", "multi-repo", "cross-repo")
+        + ("multi-repo", "cross-repo")
     )
     return contains_any_text(text, auditable_markers) and contains_any_text(
         text, CHANGE_MARKERS + ("committed", "pushed", "opened pr", "created pr")
     )
-
-
-def compact_agent_summary(
-    sequence: str, *, tracking_required: bool, finish_required: bool
-) -> tuple[str, str]:
-    required = ["delivery-orchestrator-agent"]
-    if tracking_required:
-        required.append(TRACKING_STEP)
-    if finish_required:
-        required.append("git finish workflow")
-
-    optional: list[str] = []
-    for raw_part in sequence.split("->"):
-        part = raw_part.strip()
-        if not part:
-            continue
-        cleaned = (
-            part.replace(" as needed", "")
-            .replace(" when tracked", "")
-            .replace("relevant ", "")
-            .strip()
-        )
-        if not cleaned or cleaned in required:
-            continue
-        if cleaned == TRACKING_STEP and tracking_required:
-            continue
-        if cleaned == "git finish workflow" and finish_required:
-            continue
-        if cleaned not in optional:
-            optional.append(cleaned)
-
-    required_text = ", ".join(required) if required else "none"
-    optional_text = ", ".join(optional) if optional else "none"
-    return required_text, optional_text
 
 
 # Every hook shells out to git. A locked index, a credential prompt, or a slow
@@ -459,22 +497,21 @@ def agent_status(root: Path | None = None) -> tuple[list[str], list[str]]:
     return present, missing
 
 
-WORKFLOW_SCOPE_MARKERS = (
-    ".codex/hooks.json",
-    ".claude/workflow-hooks",
-)
+WORKFLOW_SCOPE_MARKERS = (".claude/workflow-hooks",)
 
 
 def workflow_scope_enabled(root: Path | None = None) -> bool:
     """True when the team-workflow hooks should engage for this repository.
 
-    Mirrors the Codex opt-in. Those hooks are registered per repository through
-    .codex/hooks.json, so they never fire in scratch directories. Claude
-    registers the same hooks once, globally, which would apply team routing and
-    closeout enforcement to work that has no team, no board, and no branch
-    policy. A repository opts in by carrying the Codex hook manifest, by
-    dropping a .claude/workflow-hooks marker, or by being one of the managed
-    Azure DevOps origins the ladder already recognizes.
+    Claude registers these hooks once, globally, which would otherwise apply
+    team routing and closeout enforcement to work that has no team, no board,
+    and no branch policy. A repository opts in by dropping a
+    .claude/workflow-hooks marker, or by being one of the managed Azure DevOps
+    origins the ladder already recognizes.
+
+    Claude does not read any Codex configuration to decide this. A sibling
+    agent's per-repo manifest is that agent's business; scope is declared here
+    or by repository identity, never inherited.
     """
     base = root or repo_root()
     code, _ = run_git(["rev-parse", "--is-inside-work-tree"], base)
@@ -549,6 +586,32 @@ def extract_last_message(payload: dict[str, Any]) -> str:
         text = _text_from_message_content(
             (record.get("message") or {}).get("content")
         )
+        if text.strip():
+            return text
+    return ""
+
+
+def extract_last_user_prompt(payload: dict[str, Any]) -> str:
+    """Text of the most recent real user prompt in the transcript, or ``""``."""
+    transcript_path = payload.get("transcript_path")
+    if not isinstance(transcript_path, str) or not transcript_path:
+        return ""
+    try:
+        lines = Path(transcript_path).read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()
+    except OSError:
+        return ""
+    for line in reversed(lines):
+        if '"user"' not in line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not _is_real_user_turn(record):
+            continue
+        text = _text_from_message_content((record.get("message") or {}).get("content"))
         if text.strip():
             return text
     return ""
@@ -730,3 +793,76 @@ def path_is_inside(path_text: str, root: Path | None = None) -> bool:
         )
     except Exception:
         return True
+
+
+# --- Per-session flags ------------------------------------------------------
+# Hooks run as a fresh process on every event, so "have I already said this in
+# this session?" needs durable state. One small file per session id, mirroring
+# task-notes. Fail-open: any problem reports "not seen yet", so a filesystem
+# fault can only cause a repeated instruction, never a missing one.
+
+SESSION_FLAGS_MAX_AGE_DAYS = 7
+
+
+def session_flags_dir() -> Path:
+    override = os.environ.get("CLAUDE_SESSION_FLAGS_DIR")
+    if override:
+        return Path(override)
+    return Path.home() / ".claude" / "session-flags"
+
+
+def _session_flag_file(session_id: str) -> Path | None:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]", "", session_id or "")
+    if not cleaned:
+        return None
+    return session_flags_dir() / f"{cleaned}.json"
+
+
+def session_flag_once(session_id: str, name: str) -> bool:
+    """True the first time `name` is asked for in this session, False after.
+
+    Sets the flag as a side effect. An unknown session id or an IO failure
+    returns True so the caller emits its text.
+    """
+    path = _session_flag_file(session_id)
+    if path is None:
+        return True
+    try:
+        flags: dict[str, Any] = {}
+        if path.exists():
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                flags = loaded
+        if flags.get(name):
+            return False
+        flags[name] = True
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(flags, sort_keys=True), encoding="utf-8")
+    except (OSError, ValueError):
+        return True
+    return True
+
+
+def clear_session_flags(session_id: str) -> None:
+    """Forget the session's flags so standing text is re-stated (after compaction)."""
+    path = _session_flag_file(session_id)
+    if path is None:
+        return
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
+def prune_session_flags(max_age_days: int = SESSION_FLAGS_MAX_AGE_DAYS) -> None:
+    """Bounded like the ladder log: flag files older than the cutoff are dropped."""
+    cutoff = time.time() - max_age_days * 86400
+    try:
+        for entry in session_flags_dir().glob("*.json"):
+            try:
+                if entry.stat().st_mtime < cutoff:
+                    entry.unlink()
+            except OSError:
+                continue
+    except OSError:
+        pass

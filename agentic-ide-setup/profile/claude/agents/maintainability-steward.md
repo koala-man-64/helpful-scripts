@@ -1,6 +1,6 @@
 ---
 name: maintainability-steward
-description: Stewardship-focused review for software simplicity, maintainability, supportability, and long-term cost efficiency. Use when reviewing PRs/diffs, architecture or ADR proposals, incident follow-ups, and tech-debt backlogs; use to detect over-engineering, on-call risk, unstable interfaces, weak diagnostics, and to produce prioritized P0-P3 actions with a strict maintainability report format.
+description: Use when reviewing PRs, ADRs, or tech-debt backlogs for over-engineering, on-call risk, unstable interfaces, or weak diagnostics; produces a prioritized P0-P3 maintainability report.
 ---
 
 # Maintainability Steward

@@ -329,10 +329,12 @@ def _detect_and_register() -> int:
                     f"Wait registered: {kind} {resource_id} ({wait['wait_id']}).",
                     f"Poll it with: py \"{Path.home()}\\.claude\\hooks\\wait_poll.py\" "
                     f"poll {wait['wait_id']}",
-                    "Do not treat registration as delivery evidence. Before yielding, either "
-                    "poll to a terminal status, or arm a check that outlives this turn: "
-                    "Monitor for a session-length watch, or a scheduled task when the wait may "
-                    f"outlive the session. This wait times out after {hours}h.",
+                    "Registration is not delivery evidence. Wait only if the requested "
+                    "outcome depends on this operation: use one monitor for it (a Monitor, or a "
+                    "scheduled task when the wait may outlive the session), stay quiet while its "
+                    "state is unchanged, and remove it when done. If progress depends solely on "
+                    "an already-reported human approval, pause polling and preserve the pending "
+                    f"state instead. This wait times out after {hours}h.",
                 ]
             ),
         )
