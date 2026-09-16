@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "codexDefaults": {
+    "model": "gpt-5.6-terra",
+    "model_reasoning_effort": "medium",
+    "approval_policy": "never",
+    "sandbox_mode": "danger-full-access"
+  },
+  "claudeDefaults": {
+    "model": "sonnet",
+    "effortLevel": "high"
+  },
+  "skills": [
+    {
+      "root": "home",
+      "source": ".agents/skills/workflow-router",
+      "destination": "codex/skills/workflow-router"
+    },
+    {
+      "root": "home",
+      "source": ".agents/skills/delivery-engineer-agent",
+      "destination": "codex/skills/delivery-engineer-agent"
+    },
+    {
+      "root": "home",
+      "source": ".agents/skills/qa-release-gate-agent",
+      "destination": "codex/skills/qa-release-gate-agent"
+    },
+    {
+      "root": "home",
+      "source": ".agents/skills/forensic-debugger",
+      "destination": "codex/skills/forensic-debugger"
+    },
+    {
+      "root": "home",
+      "source": ".agents/skills/azure-devops-cicd-expert",
+      "destination": "codex/skills/azure-devops-cicd-expert"
+    },
+    {
+      "root": "home",
+      "source": ".agents/skills/cloud-security-vulnerability-expert",
+      "destination": "codex/skills/cloud-security-vulnerability-expert"
+    },
+    {
+      "root": "home",
+      "source": ".agents/skills/db-steward",
+      "destination": "codex/skills/db-steward"
+    },
+    {
+      "root": "repo",
+      "source": "agentic-ide-setup/profile/codex/skills/project-workflow-enforcer-agent",
+      "destination": "codex/skills/project-workflow-enforcer-agent"
+    },
+    {
+      "root": "home",
+      "source": ".agents/skills/runtime-ownership-enforcer",
+      "destination": "codex/skills/runtime-ownership-enforcer"
+    },
+    {
+      "root": "home",
+      "source": ".agents/skills/agentcoord",
+      "destination": "codex/skills/agentcoord"
+    },
+    {
+      "root": "repo",
+      "source": ".codex/skills/audit-workitem-for-spark",
+      "destination": "codex/skills/audit-workitem-for-spark"
+    },
+    {
+      "root": "home",
+      "source": ".codex/skills/business-partner-agent",
+      "destination": "codex/skills/business-partner-agent"
+    },
+    {
+      "root": "home",
+      "source": ".codex/skills/data-engineer-data-architect-advisor",
+      "destination": "codex/skills/data-engineer-data-architect-advisor"
+    },
+    {
+      "root": "home",
+      "source": ".codex/skills/git-hygiene-orchestrator",
+      "destination": "codex/skills/git-hygiene-orchestrator"
+    },
+    {
+      "root": "home",
+      "source": ".codex/skills/strict-branch-and-merge-discipline",
+      "destination": "codex/skills/strict-branch-and-merge-discipline"
+    },
+    {
+      "root": "repo",
+      "source": "agentic-ide-setup/profile/claude/skills/agent-browser",
+      "destination": "claude/skills/agent-browser"
+    },
+    {
+      "root": "repo",
+      "source": "agentic-ide-setup/profile/claude/skills/audit-workitem",
+      "destination": "claude/skills/audit-workitem"
+    },
+    {
+      "root": "repo",
+      "source": "agentic-ide-setup/profile/claude/skills/gateway-bookkeeper",
+      "destination": "claude/skills/gateway-bookkeeper"
+    },
+    {
+      "root": "repo",
+      "source": "agentic-ide-setup/profile/claude/skills/strict-branch-and-merge-discipline",
+      "destination": "claude/skills/strict-branch-and-merge-discipline"
+    },
+    {
+      "root": "repo",
+      "source": "agentic-ide-setup/profile/codex/skills/project-workflow-enforcer-agent",
+      "destination": "claude/skills/project-workflow-enforcer-agent"
+    }
+  ],
+  "dependencies": [
+    "PowerShell 7 or newer",
+    "Python 3.11 or newer on PATH as python",
+    "Codex and Claude Code installed and authenticated separately",
+    "Managed hooks installed and verified through their owning installer",
+    "agent-browser CLI and Playwright installed separately; Edge or Chrome required",
+    "Plugins and MCP servers reviewed and installed separately"
+  ],
+  "extensions": [
+    "openai.chatgpt",
+    "anthropic.claude-code",
+    "github.copilot",
+    "github.copilot-chat"
+  ]
+}

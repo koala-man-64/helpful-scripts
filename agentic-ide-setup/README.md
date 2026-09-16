@@ -1,17 +1,22 @@
 # Agentic IDE Setup
 
-Portable Windows PowerShell setup for the current Antigravity (Gemini), Codex, Claude Code, and VS Code chat workflow. The committed profile contains selected settings plus user-authored agents, skills, rules, and hooks. It deliberately omits account details, sessions, caches, databases, and project-local configuration.
+Portable Windows PowerShell setup for the current Antigravity (Gemini), Codex, Claude Code, and VS Code chat workflow. The committed profile contains selected settings, user-authored agents, and required skills. Repository-owned Claude hook source remains available for maintenance but is not installed or activated by this bundle. It deliberately omits account details, sessions, caches, databases, and project-local configuration.
 
-## Captured baseline
+## Managed baseline
 
-| Tool | Current version |
-| --- | --- |
-| Antigravity | 2.0 (Gemini 3.8 Flash High / Pro) |
-| Codex CLI | 0.116.0 |
-| Claude Code | 2.1.236 |
-| VS Code | 1.125.1 |
+The September 16, 2026 refresh uses [setup-manifest.json](setup-manifest.json)
+as the required-skill and default-settings inventory. Python 3.11+ and PowerShell
+7+ are required. Host applications, authentication, plugins, and managed hooks are
+installed separately; their versions are not pinned by this bundle.
 
-VS Code installs the current ChatGPT and Claude Code extension versions from `profile/vscode/extensions.txt`, then adds GitHub Copilot and Copilot Chat at their current Marketplace versions.
+Fresh Codex profiles use Terra/medium and retain the existing never-approve/full-access policy.
+Fresh Claude profiles use Sonnet/high. Existing host configuration is preserved,
+even with `-Overwrite`; merge intended preference changes separately. The current
+machine's Astra/medium preference is not a portable routing requirement.
+
+See [remediation and rollout](docs/setup-remediation.md) for boundaries, validation,
+managed dependencies, and rollback. Extension IDs track Marketplace versions and
+are installed only with the explicit `-InstallExtensions` option on the active home.
 
 ## Planned enterprise Cline and Kilo Code documentation
 
@@ -36,7 +41,10 @@ Both documents are analysis and planning only; neither changes installed hooks o
 
 ## Refresh the profile
 
-All three scripts require PowerShell 7 (`pwsh`). They write with `-Encoding utf8NoBOM`, which Windows PowerShell 5.1 rejects with a parameter-binding error partway through the export, after the exporter has already cleared `profile/`. Install PowerShell 7 before running them; recover an interrupted export with `git restore --source=HEAD --worktree -- agentic-ide-setup/profile`.
+Scripts reject PowerShell versions below 7 before writing. Export first creates a
+sibling staging directory, validates it, and only then replaces `profile/`. The
+previous snapshot is retained in an ignored `profile.backup-*` directory. Failed
+exports preserve the previous snapshot and leave a diagnostic staging directory.
 
 Run from this directory after reviewing local configuration changes:
 
@@ -45,7 +53,7 @@ Run from this directory after reviewing local configuration changes:
 .\scripts\Test-AgenticIdeSetup.ps1
 ```
 
-The exporter has an allowlist and produces templates with portable path markers. It captures only the custom Codex skills named by the bundle, avoiding runtime-managed packages. It also removes machine-specific Codex project state and replaces restricted MCP fields with `__REVIEW_REQUIRED__`.
+The exporter follows the manifest and produces templates with portable path markers. It excludes machine-specific project state, hook trust, permission grants, notification executables, and installed MCP commands. The MCP template starts empty; plugins are an inventory for separate reviewed installation. Required skill absence fails export.
 
 ## Install on a new Windows machine
 
@@ -61,7 +69,7 @@ Apply selected components only after the preview is correct:
 .\scripts\Install-AgenticIdeSetup.ps1 -Components Codex,Claude,VSCode -Apply
 ```
 
-Existing files are preserved by default. Use `-Overwrite` only when replacing an existing profile file is intentional; the installer creates a timestamped sibling backup before replacement. Use `-DestinationRoot C:\Temp\agentic-home` to validate a complete install without changing the active profile.
+Existing files are preserved by default. Use `-Overwrite` only for intentional guidance or skill replacement; each replacement receives a unique sibling backup. Host config, settings, and MCP files are always preserved when present. Use `-DestinationRoot C:\Temp\agentic-home` for a files-only staged install. Embedded path markers resolve against that destination, and extension installation is refused there.
 
 The Claude profile ships the `agent-browser` skill (`profile/claude/skills/agent-browser/`), which expects the CLI from this repository's `agent-browser/` folder on `PATH`. After the profile install:
 
