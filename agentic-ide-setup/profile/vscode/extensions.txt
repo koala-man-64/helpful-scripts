@@ -1,4 +1,4 @@
-openai.chatgpt@26.825.51511
-anthropic.claude-code@2.1.251
+openai.chatgpt
+anthropic.claude-code
 github.copilot
 github.copilot-chat

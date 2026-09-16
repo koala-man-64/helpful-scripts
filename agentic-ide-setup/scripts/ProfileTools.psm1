@@ -1,11 +1,37 @@
+#Requires -Version 7.0
 Set-StrictMode -Version Latest
 
 function Get-ProfileRoots {
+    param([string]$HomeRoot = [Environment]::GetFolderPath('UserProfile'))
     [ordered]@{
-        UserProfile = [Environment]::GetFolderPath('UserProfile')
-        AppData = [Environment]::GetFolderPath('ApplicationData')
-        LocalAppData = [Environment]::GetFolderPath('LocalApplicationData')
+        LocalAppData = Join-Path $HomeRoot 'AppData/Local'
+        AppData = Join-Path $HomeRoot 'AppData/Roaming'
+        UserProfile = $HomeRoot
     }
+}
+
+function Assert-NoReparsePath {
+    param([Parameter(Mandatory)][string]$Path)
+    $cursor = [IO.Path]::GetFullPath($Path)
+    while ($cursor) {
+        if (Test-Path -LiteralPath $cursor) {
+            if ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Reparse point is not an allowed profile path: $cursor"
+            }
+        }
+        $cursor = Split-Path -Parent $cursor
+    }
+}
+
+function Resolve-ProfileChild {
+    param([Parameter(Mandatory)][string]$Root, [Parameter(Mandatory)][string]$Relative)
+    if ([IO.Path]::IsPathRooted($Relative) -or $Relative -match '(^|[\\/])\.\.([\\/]|$)' -or $Relative.Contains(':')) {
+        throw "Unsafe relative profile path: $Relative"
+    }
+    $prefix = [IO.Path]::GetFullPath($Root).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    $child = [IO.Path]::GetFullPath((Join-Path $Root $Relative))
+    if (-not $child.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { throw "Profile path escapes root: $Relative" }
+    return $child
 }
 
 function Get-RestrictedTerms {
@@ -29,25 +55,25 @@ function ConvertTo-PortableText {
     # JSON string values carry doubled separators, so a path inside settings.json
     # never matches the raw profile root. Without -Json a hook command path is
     # exported verbatim and pins the profile to this machine.
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text, [switch]$Json)
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text, [switch]$Json,
+        [string]$SourceHome = [Environment]::GetFolderPath('UserProfile'))
     $result = $Text
-    foreach ($entry in (Get-ProfileRoots).GetEnumerator()) {
+    foreach ($entry in (Get-ProfileRoots -HomeRoot $SourceHome).GetEnumerator()) {
         if ($entry.Value) {
             $key = $entry.Key.ToUpperInvariant()
-            if ($Json) {
-                $escaped = $entry.Value.Replace('\', '\\')
-                $result = $result -replace [regex]::Escape($escaped), "__${key}__"
+            foreach ($form in @($entry.Value.Replace('\', '\\'), $entry.Value, $entry.Value.Replace('\', '/'))) {
+                $result = $result -replace [regex]::Escape($form), "__${key}__"
             }
-            $result = $result -replace [regex]::Escape($entry.Value), "__${key}__"
         }
     }
     $result
 }
 
 function ConvertFrom-PortableText {
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text, [switch]$Json)
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text, [switch]$Json,
+        [string]$DestinationRoot = [Environment]::GetFolderPath('UserProfile'))
     $result = $Text
-    foreach ($entry in (Get-ProfileRoots).GetEnumerator()) {
+    foreach ($entry in (Get-ProfileRoots -HomeRoot $DestinationRoot).GetEnumerator()) {
         $key = $entry.Key.ToUpperInvariant()
         $value = if ($Json) { $entry.Value.Replace('\', '\\') } else { $entry.Value }
         $result = $result.Replace("__${key}__", $value)
@@ -71,22 +97,27 @@ function Test-SafeProfileContent {
 }
 
 function Copy-PortableFile {
-    param([Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Destination)
+    param([Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Destination,
+        [string]$SourceHome = [Environment]::GetFolderPath('UserProfile'))
     if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) { throw "Missing source: $Source" }
-    $text = ConvertTo-PortableText -Text (Get-Content -LiteralPath $Source -Raw) -Json:([IO.Path]::GetExtension($Source) -eq '.json')
+    Assert-NoReparsePath $Source
+    $text = ConvertTo-PortableText -Text (Get-Content -LiteralPath $Source -Raw) -SourceHome $SourceHome -Json:([IO.Path]::GetExtension($Source) -eq '.json')
     Test-SafeProfileContent -Path $Destination -Text $text
     New-Item -ItemType Directory -Path (Split-Path -Parent $Destination) -Force | Out-Null
     Set-Content -LiteralPath $Destination -Value $text -Encoding utf8NoBOM -NoNewline
 }
 
 function Copy-PortableTree {
-    param([Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Destination)
+    param([Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Destination,
+        [string]$SourceHome = [Environment]::GetFolderPath('UserProfile'))
     if (-not (Test-Path -LiteralPath $Source -PathType Container)) { return }
+    Assert-NoReparsePath $Source
+    if (Get-ChildItem -LiteralPath $Source -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }) { throw "Reparse point in source tree: $Source" }
     Get-ChildItem -LiteralPath $Source -Recurse -File | Where-Object {
         $_.Extension -ne '.pyc' -and $_.FullName -notmatch '[\\/]__pycache__[\\/]'
     } | ForEach-Object {
         $relative = $_.FullName.Substring($Source.Length).TrimStart([char[]]@('\', '/'))
-        Copy-PortableFile -Source $_.FullName -Destination (Join-Path $Destination $relative)
+        Copy-PortableFile -Source $_.FullName -Destination (Join-Path $Destination $relative) -SourceHome $SourceHome
     }
 }
 
@@ -120,12 +151,20 @@ function Write-PortableJson {
 function Test-AgenticProfileSnapshot {
     param([Parameter(Mandatory)][string]$ProfileRoot)
     if (-not (Test-Path -LiteralPath $ProfileRoot -PathType Container)) { throw "Profile directory does not exist: $ProfileRoot" }
+    Assert-NoReparsePath $ProfileRoot
+    if (Get-ChildItem -LiteralPath $ProfileRoot -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }) { throw 'Reparse point in profile.' }
     Get-ChildItem -LiteralPath $ProfileRoot -Recurse -File | ForEach-Object {
         if ($_.Extension -eq '.pyc' -or $_.FullName -match '[\\/]__pycache__[\\/]') { throw "Generated artifact present: $($_.FullName)" }
         $text = Get-Content -LiteralPath $_.FullName -Raw
         Test-SafeProfileContent -Path $_.FullName -Text $text
         if ($_.Extension -eq '.json') { $null = $text | ConvertFrom-Json }
+        if ($_.Name -in @('hooks.json', 'config.template.toml', 'settings.template.json', 'mcp.template.json')) {
+            if ($text -match '(?i)[A-Z]:[\\/]|__REVIEW_REQUIRED__|CodexWorkflowHooks|cua_node') { throw "Nonportable executable configuration: $($_.FullName)" }
+            if ($_.Name -eq 'hooks.json') { throw 'Managed hooks must be installed separately.' }
+        }
+        $unknown = [regex]::Matches($text, '__[A-Z][A-Z_]+__') | Where-Object { $_.Value -notin @('__USERPROFILE__', '__APPDATA__', '__LOCALAPPDATA__') }
+        if ($unknown -and $_.Extension -in @('.json', '.toml')) { throw "Unresolved marker in $($_.FullName)" }
     }
 }
 
-Export-ModuleMember -Function Get-ProfileRoots, ConvertTo-PortableText, ConvertFrom-PortableText, Test-RestrictedName, Test-SafeProfileContent, Copy-PortableFile, Copy-PortableTree, ConvertTo-SafeObject, Write-PortableJson, Test-AgenticProfileSnapshot
+Export-ModuleMember -Function Resolve-ProfileChild, Assert-NoReparsePath, Get-ProfileRoots, ConvertTo-PortableText, ConvertFrom-PortableText, Test-RestrictedName, Test-SafeProfileContent, Copy-PortableFile, Copy-PortableTree, ConvertTo-SafeObject, Write-PortableJson, Test-AgenticProfileSnapshot
