@@ -89,6 +89,9 @@
   .stories td:last-child { white-space:nowrap; }
   .stories a { color:var(--acc); }
 
+  .tag { font-family:var(--font-mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--amb); background:var(--amb-bg); border:1px solid var(--amb-bd); border-radius:4px; padding:0 5px; margin-left:6px; white-space:nowrap; font-weight:400; }
+  .steptable td:first-child { white-space:nowrap; }
+
   .note { border-left:3px solid var(--acc); background:var(--surface); border-radius:0 8px 8px 0; padding:14px 18px; margin:16px 0 0; }
   .note p { margin:0; max-width:none; }
   .note b { color:var(--acc); }
@@ -525,7 +528,8 @@
     <tr><td class="mono">id</td><td class="mono">Edm.String (key)</td><td>Source + source id + chunk number. Replaces the title as the key, so two sources can share a title.</td></tr>
     <tr><td class="mono">title</td><td class="mono">Edm.String</td><td>Searchable; becomes the key of the returned dictionary.</td></tr>
     <tr><td class="mono">content</td><td class="mono">Edm.String</td><td>Searchable chunk text; becomes the value.</td></tr>
-    <tr><td class="mono">content_vector</td><td class="mono">Collection(Edm.Single)</td><td>Only if embeddings are adopted.</td></tr>
+    <tr><td class="mono">article_id</td><td class="mono">Edm.String</td><td>Filterable. Source + source id, shared by every chunk of one article, so chunks can be grouped at query time and replaced or deleted per article (&sect;09).</td></tr>
+    <tr><td class="mono">content_vector</td><td class="mono">Collection(Edm.Single)</td><td>Only if embeddings are adopted. Not stored or retrievable &mdash; it is only searched &mdash; which keeps index size down.</td></tr>
     <tr><td class="mono">agents</td><td class="mono">Collection(Edm.String)</td><td>Filterable. Replaces one JSON file per agent.</td></tr>
     <tr><td class="mono">allowed_groups</td><td class="mono">Collection(Edm.String)</td><td>Filterable. Lets ContextFinder enforce <span class="mono">username</span> permissions on every query.</td></tr>
     <tr><td class="mono">source, url, last_modified</td><td class="mono">String / DateTimeOffset</td><td>Filtering, citations and freshness checks.</td></tr>
@@ -556,15 +560,188 @@
 
 <h3>What it costs</h3>
 <ul class="items">
-  <li>A paid search tier for the semantic ranker; vectors also add an Azure OpenAI embedding deployment, called at ingest and at query time.</li>
+  <li>A paid search tier for the semantic ranker; vectors also add an Azure OpenAI embedding deployment in the Foundry project, called by Training at ingest and by the search service at query time.</li>
   <li>Private endpoints from AKS and App Service if the corpus must stay off the public network.</li>
   <li>Ranking will differ from today&rsquo;s scorer &mdash; validate the cut-over as a relevance change, not an infrastructure swap.</li>
 </ul>
 <div class="note"><p><b>Decision needed.</b> Whether the workload may depend on an Azure OpenAI embedding model. Without it, keyword search plus the semantic ranker is still a clear step up from the current scorer; with it, hybrid retrieval also handles questions that share no words with the article that answers them.</p></div>
 </section>
 
+<section id="workflow">
+<h2><span class="num">09</span> Proposed workflow, step by step</h2>
+<p>What happens, and when, once the &sect;08 proposal is built. There are three phases, and they share only the search index and the embedding deployment: <b>deploy</b> runs once per index version, <b>ingest</b> runs inside every Training run, and <b>query</b> runs for every question. Steps tagged <span class="tag">vectors</span> apply only if S8 approves embeddings; without them the same flow runs keyword-only and those steps are skipped.</p>
+
+<h3>Deploy &mdash; once per index version</h3>
+<ol class="steps phase">
+  <li><b>Grant identities.</b> Infrastructure code enables role-based access on the search service and turns on its system-assigned managed identity, then assigns the roles in the table below. Role assignments can take several minutes to take effect; nothing further works until they do.</li>
+  <li><b>Deploy the embedding model.</b><span class="tag">vectors</span> The Foundry project has a <span class="mono">text-embedding-3-large</span> (3072 dimensions) or <span class="mono">text-embedding-3-small</span> (1536) deployment with enough tokens-per-minute quota for a full backfill.</li>
+  <li><b>Create the index.</b> The S2 script creates <span class="mono">articles-v1</span> from the &sect;08 schema. With vectors, the definition also carries the vector field, an HNSW profile and a <b>vectorizer</b> that points at the Foundry deployment, so the search service can embed query text itself. The search service has no model of its own; the model is named only in the index definition. The index starts empty.</li>
+  <li><b>Backfill.</b> One full Training run pushes every article &mdash; the ingest phase below, applied to the whole corpus.</li>
+</ol>
+<details>
+  <summary>vector fragment of the index definition</summary>
+<pre>"fields": [
+  ...,
+  { "name": "content_vector", "type": "Collection(Edm.Single)",
+    "searchable": true, "retrievable": false, "stored": false,
+    "dimensions": 3072, "vectorSearchProfile": "default" }
+],
+"vectorSearch": {
+  "algorithms": [{ "name": "hnsw", "kind": "hnsw" }],
+  "profiles":   [{ "name": "default", "algorithm": "hnsw", "vectorizer": "foundry-embed" }],
+  "vectorizers": [{
+    "name": "foundry-embed",
+    "kind": "azureOpenAI",
+    "azureOpenAIParameters": {
+      "resourceUri": "https://&lt;foundry-resource&gt;.openai.azure.com",
+      "deploymentId": "text-embedding-3-large",
+      "modelName": "text-embedding-3-large"
+    }
+  }]
+}</pre>
+<p>No <span class="mono">apiKey</span>: the search service calls Foundry with its managed identity.</p>
+</details>
+
+<h3>Ingest &mdash; every Training run, per article</h3>
+<p>Runs after the &sect;04 delta-merge, in place of writing <span class="mono">[agent_name]_index.json</span> once cut over (alongside it during dual write).</p>
+<div class="tablewrap">
+<table class="steptable">
+  <thead><tr><th>Step</th><th>What happens</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td><b>1. Delta-merge</b></td><td>The existing &sect;04 step, unchanged: reconciles added, updated and deleted articles against <span class="mono">kb_metadata.json</span> and <span class="mono">delta_links.json</span>.</td><td>Articles to push and articles to delete.</td></tr>
+    <tr><td><b>2. Hash check</b></td><td>Hash the article content, its <span class="mono">agents</span> and <span class="mono">allowed_groups</span>, the chunk settings and the embedding deployment; compare with the hash recorded at the article&rsquo;s last successful push.</td><td>Match: <b>stop</b> &mdash; no embedding or index cost. Otherwise continue.</td></tr>
+    <tr><td><b>3. Chunk</b></td><td>Split on the article&rsquo;s own structure first (headings, paragraphs, table rows), then cap by tokens &mdash; about 800 with 100 overlap.</td><td>Chunk texts.</td></tr>
+    <tr><td><b>4. Embed</b><span class="tag">vectors</span></td><td>Call the Foundry embedding deployment in batches of up to 64 chunks, retrying on HTTP 429 and honoring <span class="mono">retry-after</span>.</td><td>One vector per chunk.</td></tr>
+    <tr><td><b>5. Upsert</b></td><td><span class="mono">mergeOrUpload</span> in batches of about 100. Chunk ids are <span class="mono">&lt;hash of article_id&gt;-&lt;n&gt;</span>, because keys allow only letters, digits, <span class="mono">_ - =</span>. Any failed chunk fails the article.</td><td>Chunks written; <b>searchable within about a second.</b></td></tr>
+    <tr><td><b>6. Delete stale chunks</b></td><td>Query chunk ids by <span class="mono">article_id</span> and delete those not in the new set.</td><td>Leftovers from a longer previous version are gone.</td></tr>
+    <tr><td><b>7. Record the hash</b></td><td>Only after steps 5 and 6 succeed, record the hash in the run state kept with <span class="mono">kb_metadata.json</span>.</td><td>The next run skips the article unless something in the hash changed.</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Upserting before deleting means an edited article is never missing from search mid-update, and deterministic ids make any step safe to repeat.</p>
+
+<h3>What happens in each situation</h3>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Situation</th><th>What runs</th><th>Index afterwards</th></tr></thead>
+  <tbody>
+    <tr><td>New article</td><td>Steps 2&ndash;7; step 6 finds nothing.</td><td>Chunks added.</td></tr>
+    <tr><td>Unchanged article</td><td>Stops at step 2.</td><td>Untouched, at no cost.</td></tr>
+    <tr><td>Edited, same or more chunks</td><td>Steps 2&ndash;7; existing ids are overwritten.</td><td>Replaced in place; never missing from search.</td></tr>
+    <tr><td>Edited, fewer chunks</td><td>Steps 2&ndash;7; step 6 removes the extras.</td><td>Only current chunks. Old extras can still match for about a second.</td></tr>
+    <tr><td>Deleted at source</td><td>Delta-merge reports it; step 6 runs with nothing kept.</td><td>All its chunks removed. <b>The delta-merge is the only deletion signal</b> &mdash; a push index never discovers deletions itself.</td></tr>
+    <tr><td>Agent or tier assignment changed in <span class="mono">snowindex_refactored.json</span></td><td>Steps 2&ndash;7, because <span class="mono">agents</span> and <span class="mono">allowed_groups</span> are part of the hash.</td><td>Filters updated on every chunk. Leave them out of the hash and permission changes never reach the index.</td></tr>
+    <tr><td>Run crashes after step 5, before step 7</td><td>The next run repeats the article.</td><td>Same result; costs one extra embedding pass.</td></tr>
+    <tr><td>Upload partially fails</td><td>The article fails; steps 6 and 7 are skipped.</td><td>Retried next run. Articles that keep failing are reported rather than retried forever.</td></tr>
+    <tr><td>Two Training runs overlap</td><td>Each run&rsquo;s step 6 can delete the other&rsquo;s new chunks.</td><td><b>Chunks missing until the next run.</b> Allow one run at a time &mdash; for example <span class="mono">concurrencyPolicy: Forbid</span> if the workload is a CronJob (&sect;07).</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Query &mdash; every question</h3>
+<ol class="steps">
+  <li><b>Chatbot filters agents and calls ContextFinder</b> with <span class="mono">username</span>, <span class="mono">question</span>, <span class="mono">agent</span> and <span class="mono">top_n</span> &mdash; unchanged from today.</li>
+  <li><b>ContextFinder resolves the user&rsquo;s groups</b> from <span class="mono">username</span> (S3).</li>
+  <li><b>One search request</b> carries the question as keyword text and also as a text vector query<span class="tag">vectors</span>, which the search service embeds through the vectorizer with its own identity. The agent and group filter applies to both halves.</li>
+  <li><b>The search service ranks.</b> Keyword and vector results are fused (Reciprocal Rank Fusion), then the semantic ranker reorders them.</li>
+  <li><b>ContextFinder shapes the answer.</b> It groups chunks by <span class="mono">article_id</span>, keeps the first <span class="mono">top_n</span> articles and returns today&rsquo;s title &rarr; content dictionary. It logs the question, the returned article ids and the index name for S7.</li>
+</ol>
+<pre>"vectorQueries": [
+  { "kind": "text", "text": "&lt;question&gt;", "fields": "content_vector", "k": 50 }
+]</pre>
+<p>Added to the &sect;08 query when vectors are enabled. A question can match an article about a second after its upsert, so the lag from source to answer is set by the Training schedule, not by the search service.</p>
+
+<h3>Identities and roles</h3>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Identity</th><th>Role</th><th>On</th><th>For</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">Training</td><td>Search Index Data Contributor</td><td>Search service</td><td>Upsert and delete chunks.</td></tr>
+    <tr><td class="mono">Training</td><td>Cognitive Services OpenAI User<span class="tag">vectors</span></td><td>Foundry resource</td><td>Embed chunks.</td></tr>
+    <tr><td class="mono">ContextFinder</td><td>Search Index Data Reader</td><td>Search service</td><td>Query only (S1). No Foundry role: the search service embeds the query.</td></tr>
+    <tr><td>Search service managed identity</td><td>Cognitive Services OpenAI User<span class="tag">vectors</span></td><td>Foundry resource</td><td>The vectorizer embeds query text.</td></tr>
+    <tr><td>Deploy pipeline</td><td>Search Service Contributor</td><td>Search service</td><td>Create and update the index (S2).</td></tr>
+  </tbody>
+</table>
+</div>
+<p>If Foundry is on a private network, the search service also needs a shared private link to it; without one, indexing works but vector queries fail.</p>
+
+<h3>Changing the embedding model or chunk settings</h3>
+<ol class="steps phase">
+  <li><b>Create <span class="mono">articles-v2</span></b> with the new model and dimensions.</li>
+  <li><b>Write to both indexes.</b> Training keeps a separate hash per index; because the hash includes the deployment and chunk settings, every article is pushed to v2 while v1 keeps receiving updates. ContextFinder still queries v1.</li>
+  <li><b>Re-run the S7 question set</b> against v2.</li>
+  <li><b>Switch ContextFinder</b> to v2 &mdash; its index name and vectorizer change together.</li>
+  <li><b>Delete v1</b> once the rollback window has passed.</li>
+</ol>
+<div class="note"><p><b>Never mix embedding models in one index.</b> Mismatched dimensions fail on upload; a different model with the same dimensions fails silently, as poor ranking. Adopting vectors for the first time (S8) is the same in miniature: add the field and vectorizer, and the changed hash makes the next run re-push every article. Changing the chat model touches none of this.</p></div>
+
+<details>
+  <summary>ingest step sketch (Python)</summary>
+<pre>import hashlib
+import tiktoken
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+from azure.search.documents import SearchClient
+from openai import OpenAI
+
+ENC = tiktoken.get_encoding("cl100k_base")          # tokenizer of text-embedding-3-*
+CHUNK_TOKENS, OVERLAP, EMBED_BATCH, UPLOAD_BATCH = 800, 100, 64, 100
+
+cred = DefaultAzureCredential()                      # Training's workload identity
+aoai = OpenAI(
+    base_url="https://&lt;foundry-resource&gt;.openai.azure.com/openai/v1/",
+    api_key=get_bearer_token_provider(cred, "https://cognitiveservices.azure.com/.default"),
+    max_retries=6,                                   # backs off on 429, honors retry-after
+)
+search = SearchClient("https://&lt;search&gt;.search.windows.net", "articles-v1", cred)
+
+
+def chunk(text: str) -&gt; list[str]:
+    tokens = ENC.encode(text)                        # split on structure before this
+    if not tokens:
+        return []
+    step = CHUNK_TOKENS - OVERLAP
+    return [ENC.decode(tokens[i:i + CHUNK_TOKENS])
+            for i in range(0, max(len(tokens) - OVERLAP, 1), step)]
+
+
+def embed(texts: list[str]) -&gt; list[list[float]]:
+    vectors = []
+    for i in range(0, len(texts), EMBED_BATCH):
+        resp = aoai.embeddings.create(model="text-embedding-3-large", input=texts[i:i + EMBED_BATCH])
+        vectors.extend(d.embedding for d in sorted(resp.data, key=lambda d: d.index))
+    return vectors
+
+
+def push_article(article) -&gt; None:
+    key = hashlib.sha256(article.article_id.encode()).hexdigest()
+    chunks = chunk(article.content)
+    docs = [
+        {"id": f"{key}-{n}", "article_id": article.article_id, "title": article.title,
+         "content": text, "content_vector": vector, "agents": article.agents,
+         "allowed_groups": article.allowed_groups, "source": article.source,
+         "url": article.url, "last_modified": article.last_modified}
+        for n, (text, vector) in enumerate(zip(chunks, embed(chunks), strict=True))
+    ]
+    for i in range(0, len(docs), UPLOAD_BATCH):
+        failed = [r.key for r in search.merge_or_upload_documents(docs[i:i + UPLOAD_BATCH]) if not r.succeeded]
+        if failed:
+            raise RuntimeError(f"{article.article_id}: {len(failed)} chunks failed to upload")
+    delete_chunks(article.article_id, keep={d["id"] for d in docs})
+
+
+def delete_chunks(article_id: str, keep: set[str]) -&gt; None:
+    safe_id = article_id.replace("'", "''")          # OData string escaping
+    existing = search.search(search_text="*", filter=f"article_id eq '{safe_id}'", select=["id"])
+    stale = [{"id": r["id"]} for r in existing if r["id"] not in keep]
+    if stale:
+        search.delete_documents(stale)</pre>
+<p>A sketch, not run. Check class and parameter names against the pinned <span class="mono">azure-search-documents</span> and <span class="mono">openai</span> versions. <span class="mono">tiktoken</span> is there only for token-accurate chunks, since embedding limits are counted in tokens. Without vectors, drop <span class="mono">embed</span> and <span class="mono">content_vector</span>.</p>
+</details>
+</section>
+
 <section id="stories">
-<h2><span class="num">09</span> Feature and stories</h2>
+<h2><span class="num">10</span> Feature and stories</h2>
 <p>The &sect;08 proposal is delivered as one feature. Its stories follow the migration phases, and each has a testable <b>done when</b> check. These are proposed backlog labels, not Azure Boards IDs; publishing this document does not create work items.</p>
 <div class="note"><p><b>Feature &mdash; Azure AI Search retrieval for ContextFinder.</b> ContextFinder serves every agent&rsquo;s <span class="mono">top_n</span> articles from an Azure AI Search index, with the ContextFinder contract unchanged, permissions enforced on every query, and the per-agent JSON index files retired.</p></div>
 
@@ -589,7 +766,7 @@
 <p><b>Delivery order:</b> S1 and S3 can start in parallel; S2 &rarr; S4 &rarr; S5 builds the index while S6 builds the query side; S7 gates everything after it. S8 needs only a recorded decision before S9; capabilities it leaves off can be enabled after cut-over.</p>
 </section>
 
-<footer>Draft &mdash; &sect;01&ndash;&sect;06 describe the current system, &sect;07 lists what is undecided, &sect;08 is a proposal, &sect;09 breaks it into one feature and its stories.</footer>
+<footer>Draft &mdash; &sect;01&ndash;&sect;06 describe the current system, &sect;07 lists what is undecided, &sect;08 is a proposal, &sect;09 walks through its workflow step by step, &sect;10 breaks it into one feature and its stories.</footer>
 </div>
 </body>
 </html>
