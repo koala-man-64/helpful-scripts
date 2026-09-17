@@ -115,14 +115,14 @@ profile. See [agent-browser/README.md](agent-browser/README.md).
 
 ## Retrieval architecture
 
-`docs/architecture/retrieval-architecture.html` is a single
-self-contained HTML design document for the chatbot's knowledge
+[docs/architecture/foundry-ai-search.html](docs/architecture/foundry-ai-search.html)
+is a single self-contained HTML design document for the chatbot's knowledge
 pipeline: how the AKS training job turns GitHub, SharePoint, ServiceNow and
 Azure Blob content into per-agent JSON indexes stored in Azure Blob Storage
 (and in the DevControlPlane repo when small enough), how the chatbot and
 ContextFinder retrieve from them at query time, and a proposed
-Azure AI Search redesign that keeps the ContextFinder contract unchanged. See
-[docs/architecture/retrieval-architecture.md](docs/architecture/retrieval-architecture.md).
+Azure AI Search redesign that keeps the ContextFinder contract unchanged.
+Open it in any browser; it supports light and dark themes.
 
 ## ServiceNow client
 
