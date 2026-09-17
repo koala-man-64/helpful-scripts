@@ -1,6 +1,6 @@
-# Strider retrieval architecture
+# Retrieval architecture
 
-`strider-retrieval-architecture.html` is a single self-contained design
+`retrieval-architecture.html` is a single self-contained design
 document (open it in any browser; light and dark themes) for the chatbot's
 knowledge pipeline:
 

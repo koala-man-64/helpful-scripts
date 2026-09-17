@@ -113,16 +113,16 @@ continues. Password fields are refused in code, only `http(s)` opens, page text
 never reaches a hint. The Claude Code skill ships in the `agentic-ide-setup`
 profile. See [agent-browser/README.md](agent-browser/README.md).
 
-## Strider retrieval architecture
+## Retrieval architecture
 
-`docs/architecture/strider-retrieval-architecture.html` is a single
-self-contained HTML design document for the Strider chatbot's knowledge
+`docs/architecture/retrieval-architecture.html` is a single
+self-contained HTML design document for the chatbot's knowledge
 pipeline: how the AKS training job turns GitHub, SharePoint, ServiceNow and
 Azure Blob content into per-agent JSON indexes stored in Azure Blob Storage
 (and in the DevControlPlane repo when small enough), how the chatbot and
 ContextFinder retrieve from them at query time, and a proposed
 Azure AI Search redesign that keeps the ContextFinder contract unchanged. See
-[docs/architecture/strider-retrieval-architecture.md](docs/architecture/strider-retrieval-architecture.md).
+[docs/architecture/retrieval-architecture.md](docs/architecture/retrieval-architecture.md).
 
 ## ServiceNow client
 
