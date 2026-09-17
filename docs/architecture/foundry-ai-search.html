@@ -740,8 +740,67 @@ def delete_chunks(article_id: str, keep: set[str]) -&gt; None:
 </details>
 </section>
 
+<section id="resources">
+<h2><span class="num">10</span> Azure resources to provision</h2>
+<p><b>The proposal adds one Azure resource: the search service.</b> Everything else is configuration on resources that already exist &mdash; identities, role assignments, an embedding deployment in the existing Foundry project, monitoring &mdash; plus private networking if S1 keeps the corpus off the public network. Rows tagged <span class="tag">vectors</span> apply only if S8 approves embeddings; rows tagged <span class="tag">private</span> apply only if S1 chooses private access. Provision everything in the same infrastructure-as-code as the rest of the workload.</p>
+
+<h3>Resources and configuration</h3>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Resource</th><th>New or existing</th><th>What to configure</th><th>Story</th></tr></thead>
+  <tbody>
+    <tr><td><b>Azure AI Search service</b></td><td>New</td><td>Tier Basic or Standard S1, sized from the corpus (below). Semantic ranker plan: Free for evaluation, Standard for production. System-assigned managed identity on. API access control set to role-based access, with API keys disabled. At least two replicas in production &mdash; the query availability SLA needs two. Same region as the Foundry resource and App Service; confirm semantic ranker availability in that region.</td><td><a href="#story-1">S1</a></td></tr>
+    <tr><td><b>Embedding deployment</b><span class="tag">vectors</span></td><td>New, in the existing Foundry project</td><td><span class="mono">text-embedding-3-large</span> or <span class="mono">-small</span>. Deployment type: Standard (regional) or Data Zone Standard if content must stay in one geography &mdash; Global Standard may process requests in any region. Tokens-per-minute quota sized for the backfill, not steady state.</td><td><a href="#story-8">S8</a></td></tr>
+    <tr><td><b>Training identity</b></td><td>New, unless Training already has one (&sect;07)</td><td>A user-assigned managed identity with a federated credential for Training&rsquo;s Kubernetes service account. The AKS cluster needs its OIDC issuer and workload identity enabled; that is a cluster setting change if they are off.</td><td><a href="#story-1">S1</a></td></tr>
+    <tr><td><b>ContextFinder identity</b></td><td>Existing App Service</td><td>Managed identity enabled on the App Service, if it is not already.</td><td><a href="#story-1">S1</a></td></tr>
+    <tr><td><b>Deploy pipeline identity</b></td><td>Existing service connection</td><td>Used only to create and update the index definition.</td><td><a href="#story-2">S2</a></td></tr>
+    <tr><td><b>Role assignments</b></td><td>New</td><td>The five assignments in the &sect;09 identities table. Allow several minutes for them to take effect before the first test call.</td><td><a href="#story-1">S1</a>, <a href="#story-8">S8</a></td></tr>
+    <tr><td><b>Diagnostic settings</b></td><td>New, to the existing Log Analytics workspace</td><td>Send the search service&rsquo;s operation logs and all metrics to the workspace ContextFinder already uses.</td><td><a href="#story-9">S9</a></td></tr>
+    <tr><td><b>Alerts</b></td><td>New</td><td>Metric alerts on throttled search queries and search latency, plus ContextFinder query failures in Application Insights.</td><td><a href="#story-9">S9</a></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Private networking<span class="tag">private</span></h3>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Resource</th><th>What it is for</th></tr></thead>
+  <tbody>
+    <tr><td><b>Private endpoint for the search service</b></td><td>In a subnet reachable from AKS and App Service, with the private DNS zone <span class="mono">privatelink.search.windows.net</span> linked to those virtual networks.</td></tr>
+    <tr><td><b>App Service VNet integration</b></td><td>Routes ContextFinder&rsquo;s outbound queries into the virtual network.</td></tr>
+    <tr><td><b>AKS egress rules</b></td><td>If egress goes through a firewall, allow Training to reach the search endpoint and the Foundry endpoint<span class="tag">vectors</span>.</td></tr>
+    <tr><td><b>Private endpoint for Foundry</b><span class="tag">vectors</span></td><td>Training&rsquo;s embedding calls, with the matching private DNS zones linked. Skip it if the Foundry resource already has one reachable from AKS.</td></tr>
+    <tr><td><b>Shared private link, search &rarr; Foundry</b><span class="tag">vectors</span></td><td>The search service&rsquo;s own path to Foundry for the vectorizer (group id <span class="mono">openai_account</span>), approved on the Foundry resource. Without it, indexing works but vector queries fail. Confirm the chosen search tier supports shared private links.</td></tr>
+    <tr><td><b>Public network access off</b></td><td>On the search service, and on Foundry if it is not already, only after DNS resolves to private addresses from an AKS pod and from the App Service.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Sizing the search service</h3>
+<p>Storage is chunk text plus vectors. A float32 vector takes 4 bytes per dimension, so a <span class="mono">text-embedding-3-large</span> chunk carries about 12&nbsp;KB of vector data before graph overhead &mdash; about 12&nbsp;GB per million chunks. <span class="mono">text-embedding-3-small</span> halves that, and scalar quantization cuts it roughly fourfold. Count chunks from one S4 backfill, then choose the tier and partition count against current service limits, which apply separately to total storage and to vector index size.</p>
+
+<h3>Not needed</h3>
+<ul class="items">
+  <li>A standalone Azure OpenAI resource &mdash; the Foundry resource serves the embeddings API.</li>
+  <li>Search indexers, data sources or skillsets &mdash; Training pushes content, so the search service never reads Blob Storage and needs no storage role.</li>
+  <li>Key Vault secrets for search or Foundry keys &mdash; every call is keyless, through Entra ID.</li>
+  <li>A new chat model deployment &mdash; Chatbot&rsquo;s existing model is unchanged.</li>
+  <li>Changes to AKS, App Service or Blob Storage beyond workload identity, managed identity and VNet integration where they are missing.</li>
+</ul>
+
+<h3>Provisioning order</h3>
+<ol class="steps phase">
+  <li><b>Search service</b> with its managed identity, role-based access and diagnostic settings.</li>
+  <li><b>Identities and role assignments</b> for Training, ContextFinder and the deploy pipeline; wait for them to take effect.</li>
+  <li><b>Private networking</b><span class="tag">private</span> &mdash; endpoints, DNS, VNet integration and egress &mdash; then check name resolution from an AKS pod and the App Service before turning public access off.</li>
+  <li><b>Embedding deployment</b><span class="tag">vectors</span>, the search service&rsquo;s Foundry role and the shared private link.</li>
+  <li><b>Index</b> from the S2 script, then the S1 test calls: Training writes, ContextFinder queries, ContextFinder cannot write.</li>
+</ol>
+<div class="note"><p><b>Decisions this section depends on.</b> Search tier, replica count and semantic ranker plan; public or private access (S1); embedding deployment type, which decides where content is processed (S8); and whether Training reuses an existing identity (&sect;07).</p></div>
+</section>
+
 <section id="stories">
-<h2><span class="num">10</span> Feature and stories</h2>
+<h2><span class="num">11</span> Feature and stories</h2>
 <p>The &sect;08 proposal is delivered as one feature. Its stories follow the migration phases, and each has a testable <b>done when</b> check. These are proposed backlog labels, not Azure Boards IDs; publishing this document does not create work items.</p>
 <div class="note"><p><b>Feature &mdash; Azure AI Search retrieval for ContextFinder.</b> ContextFinder serves every agent&rsquo;s <span class="mono">top_n</span> articles from an Azure AI Search index, with the ContextFinder contract unchanged, permissions enforced on every query, and the per-agent JSON index files retired.</p></div>
 
@@ -750,7 +809,7 @@ def delete_chunks(article_id: str, keep: set[str]) -&gt; None:
 <table class="stories">
   <thead><tr><th>Story</th><th>Outcome</th><th>Depends on</th></tr></thead>
   <tbody>
-    <tr id="story-1"><td><span class="sid">S1</span><b>Provision search and access</b><span class="ph">Dual write</span></td><td>Create the Azure AI Search service, decide public or private network access (private endpoints from AKS and App Service if the corpus must stay off the public network), and grant Training write access and ContextFinder query-only access with the chosen identity.<p class="done"><b>Done when:</b> a test call from the AKS workload writes a document and a test call from App Service queries it, each with its own identity; ContextFinder&rsquo;s identity cannot write; network access matches the recorded decision.</p></td><td>&mdash;</td></tr>
+    <tr id="story-1"><td><span class="sid">S1</span><b>Provision search and access</b><span class="ph">Dual write</span></td><td>Create the Azure AI Search service and the identities in &sect;10, decide public or private network access (private endpoints from AKS and App Service if the corpus must stay off the public network), and grant Training write access and ContextFinder query-only access with the chosen identity.<p class="done"><b>Done when:</b> a test call from the AKS workload writes a document and a test call from App Service queries it, each with its own identity; ContextFinder&rsquo;s identity cannot write; network access matches the recorded decision.</p></td><td>&mdash;</td></tr>
     <tr id="story-2"><td><span class="sid">S2</span><b>Define the index schema</b><span class="ph">Dual write</span></td><td>Create the <span class="mono">articles</span> index from the &sect;08 schema, plus a filterable article id (source + source id) so chunks can be grouped and deleted per article. Keep <span class="mono">content_vector</span> out until S8 decides on embeddings.<p class="done"><b>Done when:</b> the index definition lives in source control and a script creates or updates it idempotently; running it twice leaves the index unchanged.</p></td><td><a href="#story-1">S1</a></td></tr>
     <tr id="story-3"><td><span class="sid">S3</span><b>Resolve user groups for filtering</b><span class="ph">Dual write</span></td><td>Answer the &sect;07 permission questions: where a user&rsquo;s permissions come from, and how the user tiers in <span class="mono">snowindex_refactored.json</span> (all / associate / contingent / AD group) map to <span class="mono">allowed_groups</span> values. ContextFinder resolves a <span class="mono">username</span> to those groups itself rather than trusting Chatbot&rsquo;s filter.<p class="done"><b>Done when:</b> the mapping is documented, including precedence when a user matches several tiers; for a test user in each tier, ContextFinder resolves the expected groups, and an unknown user resolves to none.</p></td><td>&mdash;</td></tr>
     <tr id="story-4"><td><span class="sid">S4</span><b>Chunk and push from Training</b><span class="ph">Dual write</span></td><td>Training chunks each article, assigns stable chunk ids, sets <span class="mono">agents</span> and <span class="mono">allowed_groups</span> from the run manifest, and pushes with <span class="mono">mergeOrUpload</span> into a keyword-only (BM25) index. The existing Blob Storage and Git index outputs continue unchanged.<p class="done"><b>Done when:</b> a full run populates the index for every agent; a second run with no source changes changes no indexed content; the JSON index files match those from a run without the push.</p></td><td><a href="#story-2">S2</a>, <a href="#story-3">S3</a></td></tr>
@@ -766,7 +825,7 @@ def delete_chunks(article_id: str, keep: set[str]) -&gt; None:
 <p><b>Delivery order:</b> S1 and S3 can start in parallel; S2 &rarr; S4 &rarr; S5 builds the index while S6 builds the query side; S7 gates everything after it. S8 needs only a recorded decision before S9; capabilities it leaves off can be enabled after cut-over.</p>
 </section>
 
-<footer>Draft &mdash; &sect;01&ndash;&sect;06 describe the current system, &sect;07 lists what is undecided, &sect;08 is a proposal, &sect;09 walks through its workflow step by step, &sect;10 breaks it into one feature and its stories.</footer>
+<footer>Draft &mdash; &sect;01&ndash;&sect;06 describe the current system, &sect;07 lists what is undecided, &sect;08 is a proposal, &sect;09 walks through its workflow step by step, &sect;10 lists the Azure resources to provision, &sect;11 breaks it into one feature and its stories.</footer>
 </div>
 </body>
 </html>
