@@ -80,6 +80,15 @@
   ol.steps.phase li::before { color:var(--mut); background:var(--surface-2); border-color:var(--line-2); }
   ol.steps li b { font-weight:500; }
 
+  .stories td:first-child { min-width:190px; }
+  .stories td b { font-weight:500; }
+  .stories .sid { display:block; font-family:var(--font-mono); font-size:11px; letter-spacing:.06em; color:var(--faint); }
+  .stories .ph { display:block; margin-top:6px; font-family:var(--font-mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--acc); }
+  .stories .done { margin:8px 0 0; font-size:13.5px; color:var(--mut); }
+  .stories .done b { color:var(--ink); }
+  .stories td:last-child { white-space:nowrap; }
+  .stories a { color:var(--acc); }
+
   .note { border-left:3px solid var(--acc); background:var(--surface); border-radius:0 8px 8px 0; padding:14px 18px; margin:16px 0 0; }
   .note p { margin:0; max-width:none; }
   .note b { color:var(--acc); }
@@ -137,7 +146,7 @@
     <div><dt>Status</dt><dd>Draft</dd></div>
     <div><dt>Scope</dt><dd>Training &amp; retrieval path</dd></div>
     <div><dt>Retrieval</dt><dd>Lexical today; AI Search proposed</dd></div>
-    <div><dt>Updated</dt><dd>16 Sep 2026</dd></div>
+    <div><dt>Updated</dt><dd>17 Sep 2026</dd></div>
   </dl>
 </header>
 
@@ -554,7 +563,33 @@
 <div class="note"><p><b>Decision needed.</b> Whether the workload may depend on an Azure OpenAI embedding model. Without it, keyword search plus the semantic ranker is still a clear step up from the current scorer; with it, hybrid retrieval also handles questions that share no words with the article that answers them.</p></div>
 </section>
 
-<footer>Draft &mdash; &sect;01&ndash;&sect;06 describe the current system, &sect;07 lists what is undecided, &sect;08 is a proposal.</footer>
+<section id="stories">
+<h2><span class="num">09</span> Feature and stories</h2>
+<p>The &sect;08 proposal is delivered as one feature. Its stories follow the migration phases, and each has a testable <b>done when</b> check. These are proposed backlog labels, not Azure Boards IDs; publishing this document does not create work items.</p>
+<div class="note"><p><b>Feature &mdash; Azure AI Search retrieval for ContextFinder.</b> ContextFinder serves every agent&rsquo;s <span class="mono">top_n</span> articles from an Azure AI Search index, with the ContextFinder contract unchanged, permissions enforced on every query, and the per-agent JSON index files retired.</p></div>
+
+<h3>Stories</h3>
+<div class="tablewrap">
+<table class="stories">
+  <thead><tr><th>Story</th><th>Outcome</th><th>Depends on</th></tr></thead>
+  <tbody>
+    <tr id="story-1"><td><span class="sid">S1</span><b>Provision search and access</b><span class="ph">Dual write</span></td><td>Create the Azure AI Search service, decide public or private network access (private endpoints from AKS and App Service if the corpus must stay off the public network), and grant Training write access and ContextFinder query-only access with the chosen identity.<p class="done"><b>Done when:</b> a test call from the AKS workload writes a document and a test call from App Service queries it, each with its own identity; ContextFinder&rsquo;s identity cannot write; network access matches the recorded decision.</p></td><td>&mdash;</td></tr>
+    <tr id="story-2"><td><span class="sid">S2</span><b>Define the index schema</b><span class="ph">Dual write</span></td><td>Create the <span class="mono">articles</span> index from the &sect;08 schema, plus a filterable article id (source + source id) so chunks can be grouped and deleted per article. Keep <span class="mono">content_vector</span> out until S8 decides on embeddings.<p class="done"><b>Done when:</b> the index definition lives in source control and a script creates or updates it idempotently; running it twice leaves the index unchanged.</p></td><td><a href="#story-1">S1</a></td></tr>
+    <tr id="story-3"><td><span class="sid">S3</span><b>Resolve user groups for filtering</b><span class="ph">Dual write</span></td><td>Answer the &sect;07 permission questions: where a user&rsquo;s permissions come from, and how the user tiers in <span class="mono">snowindex_refactored.json</span> (all / associate / contingent / AD group) map to <span class="mono">allowed_groups</span> values. ContextFinder resolves a <span class="mono">username</span> to those groups itself rather than trusting Chatbot&rsquo;s filter.<p class="done"><b>Done when:</b> the mapping is documented, including precedence when a user matches several tiers; for a test user in each tier, ContextFinder resolves the expected groups, and an unknown user resolves to none.</p></td><td>&mdash;</td></tr>
+    <tr id="story-4"><td><span class="sid">S4</span><b>Chunk and push from Training</b><span class="ph">Dual write</span></td><td>Training chunks each article, assigns stable chunk ids, sets <span class="mono">agents</span> and <span class="mono">allowed_groups</span> from the run manifest, and pushes with <span class="mono">mergeOrUpload</span> into a keyword-only (BM25) index. The existing Blob Storage and Git index outputs continue unchanged.<p class="done"><b>Done when:</b> a full run populates the index for every agent; a second run with no source changes changes no indexed content; the JSON index files match those from a run without the push.</p></td><td><a href="#story-2">S2</a>, <a href="#story-3">S3</a></td></tr>
+    <tr id="story-5"><td><span class="sid">S5</span><b>Propagate updates and deletions</b><span class="ph">Dual write</span></td><td>Keep the index in step with the delta-merge in &sect;04: updated articles replace all their chunks, and articles removed at source are deleted from the index.<p class="done"><b>Done when:</b> a fixture run that adds, updates, shortens (fewer chunks) and deletes articles leaves exactly the source&rsquo;s current chunks in the index, with no orphaned chunks.</p></td><td><a href="#story-4">S4</a></td></tr>
+    <tr id="story-6"><td><span class="sid">S6</span><b>ContextFinder search backend behind a flag</b><span class="ph">Shadow compare</span></td><td>Add a search backend that sends the filtered query from &sect;08, groups chunks by article id, keeps the first <span class="mono">top_n</span> articles, and returns today&rsquo;s title &rarr; content shape. A flag selects the JSON scorer or the index.<p class="done"><b>Done when:</b> the same contract tests pass against both backends; a user never receives chunks outside their groups or selected agent; two articles sharing a title are handled by a documented, tested rule; with the flag off, behavior is unchanged.</p></td><td><a href="#story-3">S3</a>, <a href="#story-4">S4</a></td></tr>
+    <tr id="story-7"><td><span class="sid">S7</span><b>Shadow compare and cut-over criteria</b><span class="ph">Shadow compare</span></td><td>Run both backends on real, logged questions, record <span class="mono">top_n</span> overlap and latency per agent, and agree the cut-over criteria with the owner. Question logs follow existing retention rules.<p class="done"><b>Done when:</b> a comparison report covers every agent on an agreed question sample, and written cut-over criteria (relevance and latency) are approved.</p></td><td><a href="#story-5">S5</a>, <a href="#story-6">S6</a></td></tr>
+    <tr id="story-8"><td><span class="sid">S8</span><b>Semantic ranker and embeddings decision</b><span class="ph">Cut over</span></td><td>Record the Azure OpenAI embedding decision. Enable the semantic ranker, and vectors if approved, only for agents where the S7 question set shows a measurable improvement, accounting for the paid search tier and the embedding deployment.<p class="done"><b>Done when:</b> the decision and its cost are recorded; each enabled capability has a before-and-after result on the S7 question set that meets the agreed criteria, or is left off.</p></td><td><a href="#story-7">S7</a></td></tr>
+    <tr id="story-9"><td><span class="sid">S9</span><b>Cut over with rollback</b><span class="ph">Cut over</span></td><td>Switch agents to the index per the S7 criteria, with monitoring for query failures and latency, while dual write keeps the JSON path available for rollback.<p class="done"><b>Done when:</b> every agent is served from the index; alerts fire on query failures; rolling back by flag has been exercised in a non-production environment and restored JSON results.</p></td><td><a href="#story-7">S7</a>, <a href="#story-8">S8</a></td></tr>
+    <tr id="story-10"><td><span class="sid">S10</span><b>Retire the index files and scorer</b><span class="ph">Retire the files</span></td><td>Stop writing <span class="mono">[agent_name]_index.json</span> to Git and Blob Storage (or keep an audit snapshot, per decision), remove the lexical scorer and the flag, and update this document to describe the new current state. Keep the delta-sync state files while the build path still uses them.<p class="done"><b>Done when:</b> a training run produces no index JSON commits or writes beyond any agreed snapshot; the scorer code and flag are gone; &sect;01&ndash;&sect;06 describe the search-based system.</p></td><td><a href="#story-9">S9</a></td></tr>
+  </tbody>
+</table>
+</div>
+<p><b>Delivery order:</b> S1 and S3 can start in parallel; S2 &rarr; S4 &rarr; S5 builds the index while S6 builds the query side; S7 gates everything after it. S8 needs only a recorded decision before S9; capabilities it leaves off can be enabled after cut-over.</p>
+</section>
+
+<footer>Draft &mdash; &sect;01&ndash;&sect;06 describe the current system, &sect;07 lists what is undecided, &sect;08 is a proposal, &sect;09 breaks it into one feature and its stories.</footer>
 </div>
 </body>
 </html>
