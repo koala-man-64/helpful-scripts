@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Retrieval Architecture</title>
+<title>Strider retrieval architecture</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
   :root {
@@ -59,12 +59,12 @@
   figure { margin:0; }
   .panel { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:20px 20px 12px; overflow-x:auto; }
   .panel svg { min-width:640px; display:block; }
-  figcaption { font-size:13px; color:var(--mut); margin-top:12px; padding-left:2px; border-left:0; }
+  figcaption { font-size:13px; color:var(--mut); margin-top:12px; padding-left:2px; }
   figcaption b { color:var(--ink); font-weight:500; }
   .legend { display:flex; flex-wrap:wrap; gap:8px 22px; margin:14px 0 0; font-size:13px; color:var(--mut); }
   .legend span { display:inline-flex; align-items:center; gap:8px; }
   .key { width:24px; border-top:2px solid currentColor; }
-  .k-amb { color:var(--amb); } .k-grn { color:var(--grn); } .k-gry { color:var(--line-2); }
+  .k-amb { color:var(--amb); } .k-grn { color:var(--grn); } .k-acc { color:var(--acc); } .k-gry { color:var(--line-2); }
 
   .tablewrap { overflow-x:auto; border:1px solid var(--line); border-radius:10px; background:var(--surface); }
   table { border-collapse:collapse; width:100%; font-size:14px; }
@@ -77,18 +77,21 @@
   ol.steps li { counter-increment:step; position:relative; padding:0 0 0 46px; margin:0 0 16px; }
   ol.steps li::before { content:counter(step); position:absolute; left:0; top:1px; width:26px; height:26px; border-radius:50%; display:grid; place-items:center; font-family:var(--font-mono); font-size:12px; color:var(--acc); background:var(--acc-bg); border:1px solid var(--acc-bd); }
   ol.steps.build li::before { content:counter(step,upper-alpha); color:var(--grn); background:var(--grn-bg); border-color:var(--grn-bd); }
+  ol.steps.phase li::before { color:var(--mut); background:var(--surface-2); border-color:var(--line-2); }
   ol.steps li b { font-weight:500; }
 
   .note { border-left:3px solid var(--acc); background:var(--surface); border-radius:0 8px 8px 0; padding:14px 18px; margin:16px 0 0; }
   .note p { margin:0; max-width:none; }
   .note b { color:var(--acc); }
 
-  ul.q { list-style:none; padding:0; margin:0; max-width:68ch; }
-  ul.q li { padding:12px 0; border-bottom:1px solid var(--line); display:flex; gap:12px; }
-  ul.q li:last-child { border-bottom:0; }
-  ul.q li::before { content:"?"; font-family:var(--font-mono); color:var(--amb); flex:none; }
+  ul.items { list-style:none; padding:0; margin:0; max-width:68ch; }
+  ul.items li { padding:12px 0; border-bottom:1px solid var(--line); display:flex; gap:12px; }
+  ul.items li:last-child { border-bottom:0; }
+  ul.items li::before { content:"\2013"; font-family:var(--font-mono); color:var(--faint); flex:none; }
+  ul.items.q li::before { content:"?"; color:var(--amb); }
 
   pre { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:16px 18px; overflow-x:auto; font-family:var(--font-mono); font-size:12.5px; line-height:1.6; margin:0; }
+  pre + p { margin-top:14px; }
   details { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
   summary { cursor:pointer; font-size:13px; color:var(--acc); font-family:var(--font-mono); }
   summary:focus-visible { outline:2px solid var(--acc); outline-offset:3px; border-radius:3px; }
@@ -99,12 +102,11 @@
   .zone { fill:var(--surface-2); stroke:var(--line-2); stroke-width:1; stroke-dasharray:5 4; }
   .zone-solid { fill:var(--surface-2); stroke:var(--line-2); stroke-width:1; }
   .zlbl { font-size:11px; letter-spacing:.1em; fill:var(--faint); font-family:var(--font-mono); }
-  .lbl { font-size:12px; fill:var(--mut); font-family:var(--font-sans); }
   .th { font-size:14px; font-weight:500; fill:var(--ink); font-family:var(--font-sans); }
   .thn { font-size:13px; font-weight:500; fill:var(--ink); font-family:var(--font-sans); }
   .sub { font-size:12px; fill:var(--mut); font-family:var(--font-sans); }
-  .prm { font-size:11.5px; fill:var(--acc); font-family:var(--font-mono); }
-  .ret { font-size:11.5px; fill:var(--grn); font-family:var(--font-mono); }
+  .prm { font-size:11px; fill:var(--acc); font-family:var(--font-mono); }
+  .ret { font-size:11px; fill:var(--grn); font-family:var(--font-mono); }
   .src { fill:var(--surface); stroke:var(--line-2); stroke-width:1; }
   .ctl { fill:var(--amb-bg); stroke:var(--amb-bd); stroke-width:1; }
   .out { fill:var(--grn-bg); stroke:var(--grn-bd); stroke-width:1; }
@@ -114,28 +116,22 @@
   .biedge { stroke:var(--line-2); stroke-width:1.5; fill:none; marker-end:url(#arrow); marker-start:url(#arrow); }
   .cedge { stroke:var(--amb); stroke-width:1.5; fill:none; marker-end:url(#arrow); }
   .oedge { stroke:var(--grn); stroke-width:1.5; fill:none; marker-end:url(#arrow); }
+  .qedge { stroke:var(--acc); stroke-width:1.5; fill:none; marker-end:url(#arrow); marker-start:url(#arrow); }
   .bus { stroke:var(--line-2); stroke-width:1.5; fill:none; }
-  .obus { stroke:var(--grn); stroke-width:1.5; fill:none; }
   .badge { fill:var(--surface); stroke:var(--acc-bd); stroke-width:1; }
   .badge-b { fill:var(--surface); stroke:var(--grn-bd); stroke-width:1; }
   .bt { font-size:11px; font-family:var(--font-mono); fill:var(--acc); }
   .bt-b { font-size:11px; font-family:var(--font-mono); fill:var(--grn); }
   .new { fill:var(--surface); stroke:var(--acc); stroke-width:2; }
   .ghost { fill:none; stroke:var(--line-2); stroke-width:1; stroke-dasharray:4 4; }
-  .gt { font-size:13px; fill:var(--faint); font-family:var(--font-sans); text-decoration:line-through; }
-  .k-acc { color:var(--acc); }
-  .edge2 { stroke:var(--line-2); stroke-width:1.5; fill:none; marker-end:url(#arrow2); }
-  .biedge2 { stroke:var(--line-2); stroke-width:1.5; fill:none; marker-end:url(#arrow2); marker-start:url(#arrow2); }
-  .cedge2 { stroke:var(--amb); stroke-width:1.5; fill:none; marker-end:url(#arrow2); }
-  .oedge2 { stroke:var(--grn); stroke-width:1.5; fill:none; marker-end:url(#arrow2); }
-  .qedge2 { stroke:var(--acc); stroke-width:1.5; fill:none; marker-end:url(#arrow2); marker-start:url(#arrow2); }
+  .gt { font-size:13px; fill:var(--mut); font-family:var(--font-sans); text-decoration:line-through; }
 </style>
 </head>
 <body>
 <div class="wrap">
 <header class="doc-head">
   <p class="eyebrow">System design</p>
-  <h1>Retrieval Architecture</h1>
+  <h1>Strider retrieval architecture</h1>
   <p class="lede">How ingested ServiceNow, SharePoint and GitHub content becomes the per-agent indexes behind the chatbot, and how a user question travels from the browser to the passages that answer it.</p>
   <dl class="meta">
     <div><dt>Status</dt><dd>Draft</dd></div>
@@ -150,7 +146,7 @@
 <p>Three runtime components sit in Azure. A GitHub repository, <span class="mono">DevControlPlane</span>, is the boundary between them: it holds the configuration the pipeline reads and the artifacts the pipeline writes, and it is the only thing the training job and the chat services have in common.</p>
 <figure>
 <div class="panel">
-<svg width="100%" viewBox="0 0 680 776" role="img" xmlns="http://www.w3.org/2000/svg"><title>Retrieval architecture, system context</title><desc>External sources on the left — GitHub, SharePoint, ServiceNow, and Azure Blob Storage — feed Training, an AKS workload in Azure, which reads snowindex_refactored.json from a local clone of DevControlPlane (git-cloned by the shell wrapper before Python starts) and writes per-agent index files primarily to Azure Blob Storage, with a conditional git write-back only for files under approximately 90 MB. Chatbot reads agents_metadata.json to decide which agents a user may see, and calls ContextFinder, which loads the selected agent's index file, runs a delta-merge with the prior run's blob state, scores lexically, and returns the top_n articles as a title to content dictionary.</desc>
+<svg width="100%" viewBox="0 0 680 720" role="img" xmlns="http://www.w3.org/2000/svg"><title>Retrieval architecture, system context</title><desc>External sources on the left — GitHub, SharePoint, ServiceNow, and Azure Blob Storage — feed Training, an AKS workload in Azure, which reads snowindex_refactored.json from a local clone of DevControlPlane (Git-cloned by the shell wrapper before Python starts) and writes per-agent index files primarily to Azure Blob Storage, with a conditional Git write-back only for files under about 90 MB. Chatbot reads agents_metadata.json to decide which agents a user may see, and calls ContextFinder, which loads the selected agent's index file, runs a delta-merge with the prior run's blob state, scores lexically, and returns the top_n articles as a title to content dictionary.</desc>
 <defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
 
 <text class="zlbl" x="16" y="34">SOURCES</text>
@@ -166,10 +162,10 @@
 <rect class="src" x="16" y="362" width="110" height="48" rx="6"/>
 <text class="th" x="71" y="381" text-anchor="middle">Azure Blob</text>
 <text class="sub" x="71" y="397" text-anchor="middle">content · state</text>
-<rect class="src" x="16" y="620" width="110" height="48" rx="6"/>
-<text class="th" x="71" y="649" text-anchor="middle">User</text>
+<rect class="src" x="16" y="581" width="110" height="48" rx="6"/>
+<text class="th" x="71" y="610" text-anchor="middle">User</text>
 
-<rect class="zone" x="150" y="46" width="270" height="686" rx="10"/>
+<rect class="zone" x="150" y="46" width="270" height="658" rx="10"/>
 <rect class="zone-solid" x="166" y="84" width="238" height="254" rx="8"/>
 <text class="zlbl" x="182" y="106">AKS CLUSTER</text>
 <rect class="node" x="180" y="118" width="210" height="206" rx="6"/>
@@ -181,31 +177,31 @@
 <rect class="step" x="192" y="268" width="186" height="40" rx="5"/>
 <text class="th" x="285" y="293" text-anchor="middle">Normalize</text>
 
-<rect class="node" x="166" y="420" width="238" height="130" rx="6"/>
-<text class="th" x="285" y="446" text-anchor="middle">ContextFinder</text>
-<text class="sub" x="285" y="464" text-anchor="middle">manual lexical scoring &amp; ranking</text>
-<text class="prm" x="285" y="488" text-anchor="middle">username, question, agent, top_n</text>
-<text class="ret" x="285" y="510" text-anchor="middle">returns top_n { title: content }</text>
-<text class="sub" x="285" y="532" text-anchor="middle">App Service</text>
+<rect class="node" x="166" y="372" width="238" height="130" rx="6"/>
+<text class="th" x="285" y="398" text-anchor="middle">ContextFinder</text>
+<text class="sub" x="285" y="416" text-anchor="middle">manual lexical scoring &amp; ranking</text>
+<text class="prm" x="285" y="440" text-anchor="middle">username, question, agent, top_n</text>
+<text class="ret" x="285" y="462" text-anchor="middle">returns top_n { title: content }</text>
+<text class="sub" x="285" y="484" text-anchor="middle">App Service</text>
 
-<rect class="node" x="166" y="580" width="238" height="128" rx="6"/>
-<text class="th" x="285" y="606" text-anchor="middle">Chatbot</text>
-<rect class="step" x="180" y="618" width="210" height="32" rx="5"/>
-<text class="th" x="285" y="639" text-anchor="middle">Permission filter</text>
-<rect class="step" x="180" y="658" width="210" height="32" rx="5"/>
-<text class="th" x="285" y="679" text-anchor="middle">Chat + retrieval</text>
+<rect class="node" x="166" y="552" width="238" height="128" rx="6"/>
+<text class="th" x="285" y="578" text-anchor="middle">Chatbot</text>
+<rect class="step" x="180" y="590" width="210" height="30" rx="5"/>
+<text class="th" x="285" y="610" text-anchor="middle">Permission filter</text>
+<rect class="step" x="180" y="634" width="210" height="30" rx="5"/>
+<text class="th" x="285" y="654" text-anchor="middle">Chat + retrieval</text>
 
-<rect class="zone-solid" x="452" y="46" width="212" height="686" rx="8"/>
+<rect class="zone-solid" x="452" y="46" width="212" height="658" rx="8"/>
 <rect class="ctl" x="464" y="153" width="188" height="64" rx="5"/>
 <text class="thn" x="558" y="179" text-anchor="middle">snowindex_refactored.json</text>
 <text class="sub" x="558" y="198" text-anchor="middle">run manifest · user tiers</text>
-<rect class="out" x="464" y="393" width="188" height="70" rx="5"/>
-<text class="th" x="558" y="413" text-anchor="middle">[agent]_index.json</text>
-<text class="sub" x="558" y="429" text-anchor="middle">one per agent</text>
-<text class="sub" x="558" y="445" text-anchor="middle">blob primary · git &#x2264; 90 MB</text>
-<rect class="ctl" x="464" y="614" width="188" height="64" rx="5"/>
-<text class="th" x="558" y="640" text-anchor="middle">agents_metadata.json</text>
-<text class="sub" x="558" y="659" text-anchor="middle">agent configuration</text>
+<rect class="out" x="464" y="362" width="188" height="70" rx="5"/>
+<text class="thn" x="558" y="382" text-anchor="middle">[agent_name]_index.json</text>
+<text class="sub" x="558" y="398" text-anchor="middle">one per agent · blob primary</text>
+<text class="sub" x="558" y="414" text-anchor="middle">Git copy under about 90 MB</text>
+<rect class="ctl" x="464" y="573" width="188" height="64" rx="5"/>
+<text class="th" x="558" y="599" text-anchor="middle">agents_metadata.json</text>
+<text class="sub" x="558" y="618" text-anchor="middle">agent configuration</text>
 
 <path class="bus" d="M126 176 H 138"/>
 <path class="bus" d="M126 246 H 138"/>
@@ -215,35 +211,35 @@
 <path class="edge" d="M138 234 H 188"/>
 
 <path class="cedge" d="M464 185 H 382"/>
-<path class="cedge" d="M285 200 V 210"/>
+<path class="edge" d="M285 200 V 210"/>
 <path class="edge" d="M285 254 V 264"/>
 
-<path class="oedge" d="M390 288 H 558 V 389"/>
+<path class="oedge" d="M390 288 H 558 V 358"/>
 
-<path class="oedge" d="M558 463 V 474 H 408"/>
-<path class="cedge" d="M464 646 H 448 V 634 H 408"/>
-<path class="edge" d="M285 650 V 654"/>
-<path class="edge" d="M255 580 V 554"/>
-<path class="oedge" d="M315 554 V 576"/>
-<path class="biedge" d="M130 644 H 180"/>
+<path class="oedge" d="M558 432 V 444 H 408"/>
+<path class="cedge" d="M464 605 H 408"/>
+<path class="edge" d="M285 620 V 630"/>
+<path class="edge" d="M255 552 V 506"/>
+<path class="oedge" d="M315 502 V 548"/>
+<path class="biedge" d="M130 605 H 176"/>
 
 <circle class="badge-b" cx="423" cy="185" r="10"/>
 <text class="bt-b" x="423" y="189" text-anchor="middle">A</text>
 <circle class="badge-b" cx="163" cy="234" r="10"/>
 <text class="bt-b" x="163" y="238" text-anchor="middle">B</text>
-<circle class="badge-b" cx="558" cy="373" r="10"/>
-<text class="bt-b" x="558" y="377" text-anchor="middle">C</text>
+<circle class="badge-b" cx="558" cy="323" r="10"/>
+<text class="bt-b" x="558" y="327" text-anchor="middle">C</text>
 
-<circle class="badge" cx="155" cy="644" r="10"/>
-<text class="bt" x="155" y="648" text-anchor="middle">1</text>
-<circle class="badge" cx="448" cy="637" r="10"/>
-<text class="bt" x="448" y="641" text-anchor="middle">2</text>
-<circle class="badge" cx="255" cy="567" r="10"/>
-<text class="bt" x="255" y="571" text-anchor="middle">3</text>
-<circle class="badge" cx="480" cy="474" r="10"/>
-<text class="bt" x="480" y="478" text-anchor="middle">4</text>
-<circle class="badge" cx="315" cy="565" r="10"/>
-<text class="bt" x="315" y="569" text-anchor="middle">5</text>
+<circle class="badge" cx="153" cy="605" r="10"/>
+<text class="bt" x="153" y="609" text-anchor="middle">1</text>
+<circle class="badge" cx="436" cy="605" r="10"/>
+<text class="bt" x="436" y="609" text-anchor="middle">2</text>
+<circle class="badge" cx="255" cy="527" r="10"/>
+<text class="bt" x="255" y="531" text-anchor="middle">3</text>
+<circle class="badge" cx="480" cy="444" r="10"/>
+<text class="bt" x="480" y="448" text-anchor="middle">4</text>
+<circle class="badge" cx="315" cy="527" r="10"/>
+<text class="bt" x="315" y="531" text-anchor="middle">5</text>
 </svg>
 </div>
 <div class="legend">
@@ -251,8 +247,53 @@
   <span><i class="key k-grn"></i>generated artifact</span>
   <span><i class="key k-gry"></i>content pull / user traffic</span>
 </div>
-<figcaption><b>Figure 1.</b> Current system context. Lettered steps <b>A&ndash;C</b> are the build path, run by the training job; numbered steps <b>1&ndash;5</b> are the query path, run for every user question. Azure Blob Storage also serves as the primary index output store and as the state store for incremental sync; its internal role within Azure is described in §04 and is not fully represented in this diagram.</figcaption>
+<figcaption><b>Figure 1.</b> Current system context. Lettered steps <b>A&ndash;C</b> are the build path, run by the training job; numbered steps <b>1&ndash;5</b> are the query path, run for every user question. Azure Blob Storage is also the primary index output store and the state store for incremental sync (&sect;04).</figcaption>
 </figure>
+
+<details>
+  <summary>mermaid source</summary>
+<pre>flowchart TB
+  subgraph DCP["DevControlPlane (GitHub repo)"]
+    CFGFILES["snowindex_refactored.json"]
+    AGENTS["agents_metadata.json"]
+    AIDX["[agent_name]_index.json (conditional · Git under about 90 MB)"]
+  end
+  BLOB["Azure Blob Storage\n(primary output + state)"]
+  GH["GitHub"]
+  SP["SharePoint"]
+  SN["ServiceNow"]
+  subgraph AZ["Azure"]
+    subgraph AKS["AKS Cluster"]
+      subgraph ST["Training"]
+        CFG["Config loader"]
+        ING["Ingest &amp; parse"]
+        NORM["Normalize"]
+        CFG --&gt; ING
+        CFG --&gt; NORM
+        ING --&gt; NORM
+      end
+    end
+    subgraph AI["Chatbot - App Service"]
+      PERM["Permission filter"]
+      CHAT["Chat + retrieval"]
+      PERM --&gt; CHAT
+    end
+    CTX["ContextFinder"]
+  end
+  USER["User"]
+  CFGFILES -- read (local clone) --&gt; CFG
+  GH -- pull --&gt; ING
+  SP -- pull --&gt; ING
+  SN -- pull --&gt; ING
+  BLOB -- content / state --&gt; ING
+  NORM -- always --&gt; BLOB
+  NORM -- conditional: Git under about 90 MB --&gt; AIDX
+  AGENTS -- read --&gt; PERM
+  CHAT -- "username, question, agent, top_n" --&gt; CTX
+  AIDX -- read --&gt; CTX
+  CTX -- "top_n title:content" --&gt; CHAT
+  USER &lt;-- chat --&gt; AI</pre>
+</details>
 </section>
 
 <section>
@@ -262,16 +303,17 @@
   <thead><tr><th>Component</th><th>Hosting</th><th>Responsibility</th></tr></thead>
   <tbody>
     <tr><td class="mono">Training</td><td>AKS workload</td><td>Reads its configuration, pulls the configured sources, and writes the JSON indexes back to the repository.</td></tr>
-    <tr><td class="mono">Chatbot</td><td>App Service</td><td>The chatbot. Decides which agents the signed-in user may use, and assembles the prompt.</td></tr>
+    <tr><td class="mono">Chatbot</td><td>App Service</td><td>Decides which agents the signed-in user may use, and assembles the prompt.</td></tr>
     <tr><td class="mono">ContextFinder</td><td>App Service</td><td>Loads one agent index, scores it against the question, and returns the passages worth putting in the context window.</td></tr>
-    <tr><td class="mono">Azure Blob Storage</td><td>content-storage</td><td>Primary output store for per-agent index files (always written here). Also the state store for <span class="mono">kb_metadata.json</span> and <span class="mono">delta_links.json</span>, which drive incremental sync on every run. One of the eleven content source types the training job can ingest from.</td></tr>
-    <tr><td class="mono">DevControlPlane</td><td>GitHub repository</td><td>Configuration and local source files (<span class="mono">s-training/AI/</span>). The Python process reads it as a local clone; there is no live connection to GitHub during a run. Index files are written back to Git only when the file is under approximately 90 MB; larger indexes remain in blob only.</td></tr>
+    <tr><td class="mono">Azure Blob Storage</td><td>Azure Storage</td><td>Primary output store for per-agent index files (always written here, container <span class="mono">content-storage</span>). Also the state store for <span class="mono">kb_metadata.json</span> and <span class="mono">delta_links.json</span>, which drive incremental sync on every run. One of the eleven content source types the training job can ingest from.</td></tr>
+    <tr><td class="mono">DevControlPlane</td><td>GitHub repository</td><td>Configuration and local source files (<span class="mono">s-training/AI/</span>). The Python process reads it as a local clone; there is no live connection to GitHub during a run. Index files are written back to Git only when the file is under about 90 MB; larger indexes remain in Azure Blob Storage only.</td></tr>
   </tbody>
 </table>
 </div>
 </section>
 
 <section>
+<h2><span class="num">03</span> Files</h2>
 <p>Two files are authored by people and one is generated by the training job. Nothing else couples the build path to the query path.</p>
 <div class="tablewrap">
 <table>
@@ -279,7 +321,7 @@
   <tbody>
     <tr><td class="mono">snowindex_refactored.json</td><td>humans</td><td class="mono">Training</td><td>Master run manifest: defines every agent, the content sources each agent receives, and the user tier (all / associate / contingent / AD group) for each entry. User-tier segmentation determines which index section content lands in.</td></tr>
     <tr><td class="mono">agents_metadata.json</td><td>humans</td><td class="mono">Chatbot</td><td>Agent configuration, filtered against the user&rsquo;s permissions.</td></tr>
-    <tr><td class="mono">[agent_name]_index.json</td><td class="mono">Training</td><td class="mono">ContextFinder</td><td>The slice of the corpus one agent is allowed to answer from. Always written to Azure Blob Storage; conditionally committed to DevControlPlane only when the file is under approximately 90 MB.</td></tr>
+    <tr><td class="mono">[agent_name]_index.json</td><td class="mono">Training</td><td class="mono">ContextFinder</td><td>The slice of the corpus one agent is allowed to answer from. Always written to Azure Blob Storage; conditionally committed to DevControlPlane only when the file is under about 90 MB.</td></tr>
   </tbody>
 </table>
 </div>
@@ -295,9 +337,9 @@
 <h2><span class="num">04</span> Build path</h2>
 <p>Run by <span class="mono">Training</span> in the AKS cluster. Sources and their configuration are defined in <span class="mono">snowindex_refactored.json</span>, so adding a source is a repository change rather than a deployment.</p>
 <ol class="steps build">
-  <li><b>Load configuration.</b> The job reads <span class="mono">snowindex_refactored.json</span> from the local <span class="mono">s-training/</span> directory &mdash; a git clone of DevControlPlane performed by the shell wrapper (<span class="mono">run-script.sh</span> for AKS, <span class="mono">actions/checkout</span> in CI) before the Python process starts. The Python code reads local files only; there is no live connection to GitHub during a run.</li>
+  <li><b>Load configuration.</b> The job reads <span class="mono">snowindex_refactored.json</span> from the local <span class="mono">s-training/</span> directory &mdash; a Git clone of DevControlPlane performed by the shell wrapper (<span class="mono">run-script.sh</span> for AKS, <span class="mono">actions/checkout</span> in CI) before the Python process starts. The Python code reads local files only; there is no live connection to GitHub during a run.</li>
   <li><b>Ingest and parse.</b> Connectors pull content from GitHub, SharePoint, ServiceNow, Azure Blob Storage containers, and local files in <span class="mono">s-training/AI/</span> (CSV, PDF, PowerPoint, plain text, markdown). Eleven source types are supported in total.</li>
-  <li><b>Delta-merge and write back.</b> For each agent section, existing index entries from the prior run (read from Azure Blob Storage: <span class="mono">kb_metadata.json</span> and <span class="mono">delta_links.json</span>) are merged with the new run&rsquo;s results, reconciling added, updated, and deleted entries. Per-agent index files are always written to Azure Blob Storage (<span class="mono">content-storage/agent-indexes/</span>). The git write-back &mdash; a <span class="mono">git add / commit / push</span> in the shell script, outside the Python process &mdash; runs only when the file is under approximately 90 MB; for larger agents, blob storage is the only output.</li>
+  <li><b>Delta-merge and write back.</b> For each agent section, existing index entries from the prior run (read from Azure Blob Storage: <span class="mono">kb_metadata.json</span> and <span class="mono">delta_links.json</span>) are merged with the new run&rsquo;s results, reconciling added, updated, and deleted entries. Per-agent index files are always written to Azure Blob Storage (<span class="mono">content-storage/agent-indexes/</span>). The Git write-back &mdash; a <span class="mono">git add / commit / push</span> in the shell script, outside the Python process &mdash; runs only when the file is under about 90 MB; for larger agents, Azure Blob Storage is the only output.</li>
 </ol>
 </section>
 
@@ -331,9 +373,9 @@
 
 <section>
 <h2><span class="num">07</span> Open questions</h2>
-<ul class="q">
+<ul class="items q">
   <li>Workload kind for the training job &mdash; Deployment, Job or CronJob &mdash; and what triggers a run (schedule, manual, or config change).</li>
-  <li>How the git write-back targets a branch: direct commit or pull request with review. (The mechanism is a shell-script <span class="mono">git add / commit / push</span>; the branch policy is not confirmed.)</li>
+  <li>How the Git write-back targets a branch: direct commit or pull request with review. (The mechanism is a shell-script <span class="mono">git add / commit / push</span>; the branch policy is not confirmed.)</li>
   <li>Where user permissions come from: Entra ID group membership, a token claim, or a list inside <span class="mono">agents_metadata.json</span>.</li>
   <li>Whether ContextFinder re-checks <span class="mono">username</span> permissions, or trusts that Chatbot already filtered.</li>
   <li>How <span class="mono">top_n</span> interacts with the context window budget when articles are long.</li>
@@ -341,61 +383,14 @@
   <li>How Azure Blob Storage is accessed from AKS: managed identity, workload identity, or connection string.</li>
   <li>Collision handling &mdash; the article title is the dictionary key, and two sources can use the same title.</li>
 </ul>
-
-<details>
-  <summary>mermaid source</summary>
-<pre>flowchart TB
-  subgraph DCP["DevControlPlane (GitHub repo)"]
-    CFGFILES["snowindex_refactored.json"]
-    AGENTS["agents_metadata.json"]
-    AIDX["[agent_name]_index.json (conditional · git &lt; 90 MB)"]
-  end
-  BLOB["Azure Blob Storage\n(primary output + state)"]
-  GH["GitHub"]
-  SP["SharePoint"]
-  SN["ServiceNow"]
-  subgraph AZ["Azure"]
-    subgraph AKS["AKS Cluster"]
-      subgraph ST["Training"]
-        CFG["Config loader"]
-        ING["Ingest &amp; parse"]
-        NORM["Normalize"]
-        CFG --&gt; ING
-        CFG --&gt; NORM
-        ING --&gt; NORM
-      end
-    end
-    subgraph AI["Chatbot - App Service"]
-      PERM["Permission filter"]
-      CHAT["Chat + retrieval"]
-      PERM --&gt; CHAT
-    end
-    CTX["ContextFinder"]
-  end
-  USER["User"]
-  CFGFILES -- read (local clone) --&gt; CFG
-  GH -- pull --&gt; ING
-  SP -- pull --&gt; ING
-  SN -- pull --&gt; ING
-  BLOB -- content / state --&gt; ING
-  NORM -- always --&gt; BLOB
-  NORM -- conditional git &lt; 90 MB --&gt; AIDX
-  AGENTS -- read --&gt; PERM
-  CHAT -- "username, question, agent, top_n" --&gt; CTX
-  AIDX -- read --&gt; CTX
-  CTX -- "top_n title:content" --&gt; CHAT
-  USER &lt;-- chat --&gt; AI</pre>
-</details>
 </section>
-
 
 <section id="proposal">
 <h2><span class="num">08</span> Proposed flow: Azure AI Search</h2>
-<p>Sections 01&ndash;06 describe the system as it runs today. This section proposes replacing the index JSON files and the hand-written scorer with an Azure AI Search index. <b>The ContextFinder contract does not change</b> &mdash; Chatbot still sends <span class="mono">username</span>, <span class="mono">question</span>, <span class="mono">agent</span> and <span class="mono">top_n</span>, and still receives a title &rarr; content dictionary.</p>
+<p>&sect;01&ndash;&sect;06 describe the system as it runs today. This section proposes replacing the index JSON files and the hand-written scorer with an Azure AI Search index. <b>The ContextFinder contract does not change</b> &mdash; Chatbot still sends <span class="mono">username</span>, <span class="mono">question</span>, <span class="mono">agent</span> and <span class="mono">top_n</span>, and still receives a title &rarr; content dictionary.</p>
 <figure>
 <div class="panel">
-<svg width="100%" viewBox="0 0 680 818" role="img" xmlns="http://www.w3.org/2000/svg"><title>Proposed Retrieval architecture with Azure AI Search</title><desc>Proposed flow. Training still reads snowindex_refactored.json and pulls from GitHub, SharePoint, ServiceNow, Azure Blob Storage, and local files, but pushes normalized articles into an Azure AI Search index instead of committing index JSON files. Chatbot still filters agents from agents_metadata.json and calls ContextFinder with the same parameters. ContextFinder queries the search index with agent and group filters and returns the top_n results in the same title to content shape.</desc>
-<defs><marker id="arrow2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<svg width="100%" viewBox="0 0 680 824" role="img" xmlns="http://www.w3.org/2000/svg"><title>Proposed retrieval architecture with Azure AI Search</title><desc>Proposed flow. Training still reads snowindex_refactored.json and pulls from GitHub, SharePoint, ServiceNow, Azure Blob Storage, and local files, but pushes normalized articles into an Azure AI Search index instead of committing index JSON files. Chatbot still filters agents from agents_metadata.json and calls ContextFinder with the same parameters. ContextFinder queries the search index with agent and group filters and returns the top_n results in the same title to content shape.</desc>
 
 <text class="zlbl" x="16" y="34">SOURCES</text>
 <text class="zlbl" x="150" y="34">AZURE</text>
@@ -407,10 +402,10 @@
 <text class="th" x="71" y="251" text-anchor="middle">SharePoint</text>
 <rect class="src" x="16" y="292" width="110" height="48" rx="6"/>
 <text class="th" x="71" y="321" text-anchor="middle">ServiceNow</text>
-<rect class="src" x="16" y="678" width="110" height="48" rx="6"/>
-<text class="th" x="71" y="707" text-anchor="middle">User</text>
+<rect class="src" x="16" y="685" width="110" height="48" rx="6"/>
+<text class="th" x="71" y="714" text-anchor="middle">User</text>
 
-<rect class="zone" x="150" y="46" width="282" height="752" rx="10"/>
+<rect class="zone" x="150" y="46" width="282" height="762" rx="10"/>
 <rect class="zone-solid" x="166" y="84" width="238" height="254" rx="8"/>
 <text class="zlbl" x="182" y="106">AKS CLUSTER</text>
 <rect class="node" x="180" y="118" width="210" height="206" rx="6"/>
@@ -422,71 +417,71 @@
 <rect class="step" x="192" y="268" width="186" height="40" rx="5"/>
 <text class="th" x="285" y="293" text-anchor="middle">Normalize &amp; push</text>
 
-<rect class="new" x="166" y="368" width="238" height="106" rx="6"/>
-<text class="th" x="285" y="394" text-anchor="middle">Azure AI Search</text>
-<text class="sub" x="285" y="413" text-anchor="middle">hybrid retrieval &#183; semantic ranker</text>
-<text class="prm" x="285" y="435" text-anchor="middle">agents[] &#183; allowed_groups[]</text>
-<text class="sub" x="285" y="455" text-anchor="middle">stable id per chunk</text>
+<rect class="new" x="166" y="376" width="238" height="106" rx="6"/>
+<text class="th" x="285" y="402" text-anchor="middle">Azure AI Search</text>
+<text class="sub" x="285" y="421" text-anchor="middle">hybrid retrieval &#183; semantic ranker</text>
+<text class="prm" x="285" y="443" text-anchor="middle">agents[] &#183; allowed_groups[]</text>
+<text class="sub" x="285" y="463" text-anchor="middle">stable id per chunk</text>
 
-<rect class="node" x="166" y="506" width="238" height="108" rx="6"/>
-<text class="th" x="285" y="532" text-anchor="middle">ContextFinder</text>
-<text class="sub" x="285" y="551" text-anchor="middle">filtered query &#8212; no local scoring</text>
-<text class="prm" x="285" y="573" text-anchor="middle">username, question, agent, top_n</text>
-<text class="ret" x="285" y="595" text-anchor="middle">returns top_n { title: content }</text>
+<rect class="node" x="166" y="506" width="238" height="100" rx="6"/>
+<text class="th" x="285" y="530" text-anchor="middle">ContextFinder</text>
+<text class="sub" x="285" y="548" text-anchor="middle">filtered query &#8212; no local scoring</text>
+<text class="prm" x="285" y="570" text-anchor="middle">username, question, agent, top_n</text>
+<text class="ret" x="285" y="590" text-anchor="middle">returns top_n { title: content }</text>
 
-<rect class="node" x="166" y="648" width="238" height="128" rx="6"/>
-<text class="th" x="285" y="674" text-anchor="middle">Chatbot</text>
-<rect class="step" x="180" y="686" width="210" height="32" rx="5"/>
-<text class="th" x="285" y="707" text-anchor="middle">Permission filter</text>
-<rect class="step" x="180" y="726" width="210" height="32" rx="5"/>
-<text class="th" x="285" y="747" text-anchor="middle">Chat + retrieval</text>
+<rect class="node" x="166" y="656" width="238" height="128" rx="6"/>
+<text class="th" x="285" y="682" text-anchor="middle">Chatbot</text>
+<rect class="step" x="180" y="694" width="210" height="30" rx="5"/>
+<text class="th" x="285" y="714" text-anchor="middle">Permission filter</text>
+<rect class="step" x="180" y="738" width="210" height="30" rx="5"/>
+<text class="th" x="285" y="758" text-anchor="middle">Chat + retrieval</text>
 
-<rect class="zone-solid" x="452" y="46" width="212" height="752" rx="8"/>
+<rect class="zone-solid" x="452" y="46" width="212" height="762" rx="8"/>
 
-<rect class="ctl" x="464" y="148" width="188" height="64" rx="5"/>
-<text class="thn" x="558" y="174" text-anchor="middle">snowindex_refactored.json</text>
-<text class="sub" x="558" y="193" text-anchor="middle">run manifest · user tiers</text>
-<rect class="ghost" x="464" y="300" width="188" height="100" rx="5"/>
-<text class="gt" x="558" y="338" text-anchor="middle">[agent]_index.json</text>
-<text class="sub" x="558" y="362" text-anchor="middle">retired, or kept only</text>
-<text class="sub" x="558" y="380" text-anchor="middle">as an audit snapshot</text>
-<rect class="ctl" x="464" y="680" width="188" height="64" rx="5"/>
-<text class="th" x="558" y="706" text-anchor="middle">agents_metadata.json</text>
-<text class="sub" x="558" y="725" text-anchor="middle">agent configuration</text>
+<rect class="ctl" x="464" y="153" width="188" height="64" rx="5"/>
+<text class="thn" x="558" y="179" text-anchor="middle">snowindex_refactored.json</text>
+<text class="sub" x="558" y="198" text-anchor="middle">run manifest · user tiers</text>
+<rect class="ghost" x="464" y="388" width="188" height="82" rx="5"/>
+<text class="gt" x="558" y="414" text-anchor="middle">[agent_name]_index.json</text>
+<text class="sub" x="558" y="436" text-anchor="middle">retired, or kept only</text>
+<text class="sub" x="558" y="453" text-anchor="middle">as an audit snapshot</text>
+<rect class="ctl" x="464" y="677" width="188" height="64" rx="5"/>
+<text class="th" x="558" y="703" text-anchor="middle">agents_metadata.json</text>
+<text class="sub" x="558" y="722" text-anchor="middle">agent configuration</text>
 
 <path class="bus" d="M126 176 H 138"/>
 <path class="bus" d="M126 246 H 138"/>
 <path class="bus" d="M126 316 H 138"/>
 <path class="bus" d="M138 176 V 316"/>
-<path class="edge2" d="M138 234 H 188"/>
+<path class="edge" d="M138 234 H 188"/>
 
-<path class="cedge2" d="M464 180 H 382"/>
-<path class="cedge2" d="M285 200 V 210"/>
-<path class="edge2" d="M285 254 V 264"/>
-<path class="oedge2" d="M285 308 V 364"/>
+<path class="cedge" d="M464 185 H 382"/>
+<path class="edge" d="M285 200 V 210"/>
+<path class="edge" d="M285 254 V 264"/>
+<path class="oedge" d="M285 308 V 372"/>
 
-<path class="cedge2" d="M464 712 H 448 V 702 H 408"/>
-<path class="edge2" d="M285 718 V 722"/>
-<path class="edge2" d="M255 648 V 618"/>
-<path class="oedge2" d="M315 618 V 644"/>
-<path class="qedge2" d="M408 558 H 420 V 418 H 408"/>
-<path class="biedge2" d="M130 702 H 162"/>
+<path class="cedge" d="M464 709 H 408"/>
+<path class="edge" d="M285 724 V 734"/>
+<path class="edge" d="M255 656 V 610"/>
+<path class="oedge" d="M315 606 V 652"/>
+<path class="qedge" d="M408 556 H 420 V 429 H 408"/>
+<path class="biedge" d="M130 709 H 176"/>
 
-<circle class="badge-b" cx="423" cy="180" r="10"/>
-<text class="bt-b" x="423" y="184" text-anchor="middle">A</text>
+<circle class="badge-b" cx="423" cy="185" r="10"/>
+<text class="bt-b" x="423" y="189" text-anchor="middle">A</text>
 <circle class="badge-b" cx="163" cy="234" r="10"/>
 <text class="bt-b" x="163" y="238" text-anchor="middle">B</text>
-<circle class="badge-b" cx="285" cy="353" r="10"/>
-<text class="bt-b" x="285" y="357" text-anchor="middle">C</text>
+<circle class="badge-b" cx="285" cy="352" r="10"/>
+<text class="bt-b" x="285" y="356" text-anchor="middle">C</text>
 
-<circle class="badge" cx="146" cy="702" r="10"/>
-<text class="bt" x="146" y="706" text-anchor="middle">1</text>
-<circle class="badge" cx="448" cy="707" r="10"/>
-<text class="bt" x="448" y="711" text-anchor="middle">2</text>
-<circle class="badge" cx="255" cy="633" r="10"/>
-<text class="bt" x="255" y="637" text-anchor="middle">3</text>
-<circle class="badge" cx="420" cy="527" r="10"/>
-<text class="bt" x="420" y="531" text-anchor="middle">4</text>
+<circle class="badge" cx="153" cy="709" r="10"/>
+<text class="bt" x="153" y="713" text-anchor="middle">1</text>
+<circle class="badge" cx="436" cy="709" r="10"/>
+<text class="bt" x="436" y="713" text-anchor="middle">2</text>
+<circle class="badge" cx="255" cy="631" r="10"/>
+<text class="bt" x="255" y="635" text-anchor="middle">3</text>
+<circle class="badge" cx="420" cy="492" r="10"/>
+<text class="bt" x="420" y="496" text-anchor="middle">4</text>
 <circle class="badge" cx="315" cy="631" r="10"/>
 <text class="bt" x="315" y="635" text-anchor="middle">5</text>
 </svg>
@@ -505,7 +500,7 @@
 <table>
   <thead><tr><th>Component</th><th>Today</th><th>Proposed</th></tr></thead>
   <tbody>
-    <tr><td class="mono">Training</td><td>Writes <span class="mono">[agent]_index.json</span> to Azure Blob Storage (always) and conditionally to Git (files under ~90 MB).</td><td>Chunks articles and pushes them to the search index with <span class="mono">mergeOrUpload</span>; deletes articles removed at source.</td></tr>
+    <tr><td class="mono">Training</td><td>Writes <span class="mono">[agent_name]_index.json</span> to Azure Blob Storage (always) and conditionally to Git (files under about 90 MB).</td><td>Chunks articles and pushes them to the search index with <span class="mono">mergeOrUpload</span>; deletes articles removed at source.</td></tr>
     <tr><td class="mono">ContextFinder</td><td>Loads the agent&rsquo;s JSON file and scores it lexically in code.</td><td>Sends one filtered query, merges chunks back into articles, returns <span class="mono">top_n</span>.</td></tr>
     <tr><td class="mono">Chatbot</td><td>Permission filter and chat.</td><td>Unchanged.</td></tr>
     <tr><td class="mono">DevControlPlane</td><td>Configuration and the generated corpus.</td><td>Configuration only. Index files retired, or kept as an audit snapshot.</td></tr>
@@ -533,7 +528,8 @@
 <pre>POST /indexes/articles/docs/search
 {
   "search": "&lt;question&gt;",
-  "filter": "agents/any(a: a eq '&lt;agent&gt;') and allowed_groups/any(g: search.in(g, '&lt;user groups&gt;'))",
+  "filter": "agents/any(a: a eq '&lt;agent&gt;')
+             and allowed_groups/any(g: search.in(g, '&lt;user groups&gt;'))",
   "queryType": "semantic",
   "semanticConfiguration": "default",
   "select": "id, title, content",
@@ -542,15 +538,15 @@
 <p>ContextFinder groups the returned chunks by <span class="mono">title</span>, keeps the first <span class="mono">top_n</span> articles, and returns them in today&rsquo;s shape.</p>
 
 <h3>Migration</h3>
-<ol class="steps build">
+<ol class="steps phase">
   <li><b>Dual write.</b> The training job keeps committing JSON and also pushes a keyword-only (BM25) index.</li>
   <li><b>Shadow compare.</b> ContextFinder queries both behind a flag; compare the <span class="mono">top_n</span> results on real, logged questions.</li>
   <li><b>Cut over.</b> Serve from the index. Add vectors and the semantic ranker only where they measurably improve results.</li>
-  <li><b>Retire the files.</b> Stop committing <span class="mono">[agent]_index.json</span> to Git.</li>
+  <li><b>Retire the files.</b> Stop committing <span class="mono">[agent_name]_index.json</span> to Git.</li>
 </ol>
 
 <h3>What it costs</h3>
-<ul class="q">
+<ul class="items">
   <li>A paid search tier for the semantic ranker; vectors also add an Azure OpenAI embedding deployment, called at ingest and at query time.</li>
   <li>Private endpoints from AKS and App Service if the corpus must stay off the public network.</li>
   <li>Ranking will differ from today&rsquo;s scorer &mdash; validate the cut-over as a relevance change, not an infrastructure swap.</li>
@@ -558,7 +554,7 @@
 <div class="note"><p><b>Decision needed.</b> Whether the workload may depend on an Azure OpenAI embedding model. Without it, keyword search plus the semantic ranker is still a clear step up from the current scorer; with it, hybrid retrieval also handles questions that share no words with the article that answers them.</p></div>
 </section>
 
-<footer>Draft &mdash; sections 01&ndash;06 describe the current system, 07 lists what is undecided, 08 is a proposal.</footer>
+<footer>Draft &mdash; &sect;01&ndash;&sect;06 describe the current system, &sect;07 lists what is undecided, &sect;08 is a proposal.</footer>
 </div>
 </body>
 </html>
