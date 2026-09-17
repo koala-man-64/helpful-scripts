@@ -115,13 +115,13 @@ profile. See [agent-browser/README.md](agent-browser/README.md).
 
 ## Strider retrieval architecture
 
-`strider-retrieval-architecture/` holds a single self-contained HTML design
-document for the Strider chatbot's knowledge pipeline: how the AKS training
-job turns GitHub, SharePoint and ServiceNow content into per-agent JSON
-indexes in the DevControlPlane repo, how Strider.AI and ContextFinder retrieve
-from them at query time, and a proposed Azure AI Search redesign that keeps
-the ContextFinder contract unchanged. See
-[strider-retrieval-architecture/README.md](strider-retrieval-architecture/README.md).
+`docs/architecture/strider-retrieval-architecture.html` is a single
+self-contained HTML design document for the Strider chatbot's knowledge
+pipeline: how the AKS training job turns GitHub, SharePoint and ServiceNow
+content into per-agent JSON indexes in the DevControlPlane repo, how
+Strider.AI and ContextFinder retrieve from them at query time, and a proposed
+Azure AI Search redesign that keeps the ContextFinder contract unchanged. See
+[docs/architecture/strider-retrieval-architecture.md](docs/architecture/strider-retrieval-architecture.md).
 
 ## ServiceNow client
 
