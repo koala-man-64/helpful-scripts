@@ -6,7 +6,7 @@
 @inject IBulkAnalysisPromptProvider PromptProvider
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JSRuntime
-@inject StriderLaunchState LaunchState
+@inject AssistantLaunchState LaunchState
 @implements IDisposable
 
 @{
@@ -621,15 +621,15 @@
                         <h2 id="contextual-prompts-title" class="results-title-inline">
                             <span class="title-tooltip-trigger"
                                   tabindex="0"
-                                  title="Choose the prompt Strider should use with the selected Bulk Analysis results."
-                                  data-tooltip="Choose the prompt Strider should use with the selected Bulk Analysis results."
+                                  title="Choose the prompt the assistant should use with the selected Bulk Analysis results."
+                                  data-tooltip="Choose the prompt the assistant should use with the selected Bulk Analysis results."
                                   aria-describedby="contextual-prompts-tooltip">
                                 Select prompt
                             </span>
                             <span class="results-title-separator" aria-hidden="true"></span>
                             <span class="results-title-count">@($"{selectedDownloadResults.Count} result{(selectedDownloadResults.Count == 1 ? "" : "s")}")</span>
                         </h2>
-                        <span id="contextual-prompts-tooltip" class="sr-only">Choose the prompt Strider should use with the selected Bulk Analysis results.</span>
+                        <span id="contextual-prompts-tooltip" class="sr-only">Choose the prompt the assistant should use with the selected Bulk Analysis results.</span>
                     </div>
                 </div>
 
@@ -652,7 +652,7 @@
                     {
                         <div class="workflow-empty-state">
                             <strong>No prompts available</strong>
-                            <span>Add prompts to the local or ADLS prompt catalog before launching Strider.</span>
+                            <span>Add prompts to the local or ADLS prompt catalog before launching the assistant.</span>
                         </div>
                     }
                     else
@@ -684,7 +684,7 @@
                 {
                     <div class="workflow-empty-state step-preview-empty">
                         <strong>No prompt selected</strong>
-                        <span>Select a prompt from the left panel to prepare the Strider launch.</span>
+                        <span>Select a prompt from the left panel to prepare the assistant launch.</span>
                     </div>
                 }
                 else
@@ -729,10 +729,10 @@
             <div class="result-step-primary-actions">
                 <button type="button"
                         class="workflow-action-button primary"
-                        data-testid="bulk-analysis-launch-strider"
-                        disabled="@(selectedDownloadResults.Count == 0 || string.IsNullOrWhiteSpace(editedPromptText) || isLaunchingStrider)"
-                        @onclick="LaunchWithStrider">
-                    @(isLaunchingStrider ? "Preparing context" : "Launch with Strider")
+                        data-testid="bulk-analysis-launch-assistant"
+                        disabled="@(selectedDownloadResults.Count == 0 || string.IsNullOrWhiteSpace(editedPromptText) || isLaunchingAssistant)"
+                        @onclick="LaunchWithAssistant">
+                    @(isLaunchingAssistant ? "Preparing context" : "Launch with Assistant")
                 </button>
             </div>
         </footer>
@@ -740,7 +740,7 @@
         @if (!string.IsNullOrWhiteSpace(launchErrorMessage))
         {
             <div class="workflow-empty-state preview-empty">
-                <strong>Unable to launch Strider</strong>
+                <strong>Unable to launch the assistant</strong>
                 <span>@launchErrorMessage</span>
             </div>
         }
@@ -771,7 +771,7 @@
     private bool isLoadingDocuments;
     private bool isLoadingPrompts;
     private bool isDownloadingResults;
-    private bool isLaunchingStrider;
+    private bool isLaunchingAssistant;
     private string? activeDocumentId;
     private string? activeAnalysisType;
     private string? activePromptId;
@@ -814,7 +814,7 @@
             WorkflowStep.SelectDocuments => "Select the documents you want to analyze before choosing the bulk review outputs.",
             WorkflowStep.SelectAnalysisTypes => "Choose the analysis outputs to compare across the selected documents.",
             WorkflowStep.Results => "Navigate between selected documents and analysis types, then download the generated results you need.",
-            _ => "Select and edit a contextual prompt, then launch Strider with the selected results."
+            _ => "Select and edit a contextual prompt, then launch the assistant with the selected results."
         };
 
     protected override async Task OnInitializedAsync()
@@ -1288,16 +1288,16 @@
         workflowStep = WorkflowStep.ContextualAnalysis;
     }
 
-    private async Task LaunchWithStrider()
+    private async Task LaunchWithAssistant()
     {
         var results = GetSelectedDownloadResults();
         var promptText = editedPromptText.Trim();
-        if (results.Count == 0 || string.IsNullOrWhiteSpace(promptText) || isLaunchingStrider)
+        if (results.Count == 0 || string.IsNullOrWhiteSpace(promptText) || isLaunchingAssistant)
         {
             return;
         }
 
-        isLaunchingStrider = true;
+        isLaunchingAssistant = true;
         launchErrorMessage = null;
 
         try
@@ -1305,12 +1305,12 @@
             var launchedAt = DateTimeOffset.Now;
             var activePrompt = GetActivePrompt();
             var filesByResultId = new Dictionary<string, BulkAnalysisResultFile>(StringComparer.Ordinal);
-            var contextResults = new List<StriderLaunchResultContext>();
+            var contextResults = new List<AssistantLaunchResultContext>();
             foreach (var result in results)
             {
                 var file = await GetOrLoadResultFileAsync(result);
                 filesByResultId[result.Id] = file;
-                contextResults.Add(new StriderLaunchResultContext(
+                contextResults.Add(new AssistantLaunchResultContext(
                     result.Id,
                     result.DocumentId,
                     result.FolderName,
@@ -1325,11 +1325,11 @@
 
             await JSRuntime.InvokeVoidAsync(
                 "bulkAnalysisDownloads.downloadTextFile",
-                StriderMarkdownDocumentBuilder.GetFileName(results, launchedAt),
-                StriderMarkdownDocumentBuilder.Build(promptText, activePrompt, results, filesByResultId, launchedAt),
+                AssistantMarkdownDocumentBuilder.GetFileName(results, launchedAt),
+                AssistantMarkdownDocumentBuilder.Build(promptText, activePrompt, results, filesByResultId, launchedAt),
                 "text/markdown;charset=utf-8");
 
-            LaunchState.SetPending(new StriderLaunchContext(
+            LaunchState.SetPending(new AssistantLaunchContext(
                 promptText,
                 activePrompt,
                 contextResults,
@@ -1342,7 +1342,7 @@
         }
         finally
         {
-            isLaunchingStrider = false;
+            isLaunchingAssistant = false;
         }
     }
 

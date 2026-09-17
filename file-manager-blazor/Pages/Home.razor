@@ -1,26 +1,26 @@
 @page "/"
-@inject StriderLaunchState LaunchState
+@inject AssistantLaunchState LaunchState
 
-<PageTitle>Strider Assistant</PageTitle>
+<PageTitle>Assistant</PageTitle>
 
-<section class="assistant-landing strider-home" aria-labelledby="landing-title">
-    <header class="strider-hero">
+<section class="assistant-landing assistant-home" aria-labelledby="landing-title">
+    <header class="assistant-hero">
         <h1 id="landing-title">Hello, Rudy</h1>
-        <p class="strider-hero-question">How can I assist you?</p>
-        <p class="strider-hero-copy">
+        <p class="assistant-hero-question">How can I assist you?</p>
+        <p class="assistant-hero-copy">
             I can help you with documentation guidance with internal processes, support inquiries, and more.
         </p>
     </header>
 
-    <section class="composer-card strider-composer" aria-label="Chat composer">
+    <section class="composer-card assistant-composer" aria-label="Chat composer">
         @if (launchContext is not null)
         {
-            <div class="strider-launch-context" aria-label="Bulk Analysis context">
+            <div class="assistant-launch-context" aria-label="Bulk Analysis context">
                 <div>
                     <strong>Bulk Analysis context loaded</strong>
-                    <span>@($"{launchContext.Results.Count} result file{(launchContext.Results.Count == 1 ? "" : "s")} ready for Strider")</span>
+                    <span>@($"{launchContext.Results.Count} result file{(launchContext.Results.Count == 1 ? "" : "s")} ready for the assistant")</span>
                 </div>
-                <div class="strider-launch-context-files" aria-label="Selected Bulk Analysis results">
+                <div class="assistant-launch-context-files" aria-label="Selected Bulk Analysis results">
                     @foreach (var result in launchContext.Results.Take(4))
                     {
                         <span>@($"{result.DocumentTitle} - {result.AnalysisType}")</span>
@@ -32,7 +32,7 @@
                 </div>
             </div>
         }
-        <textarea placeholder="Ask Strider, use @@ to select an agent"
+        <textarea placeholder="Ask the assistant, use @@ to select an agent"
                   rows="3"
                   aria-label="Message composer"
                   @bind="composerValue"
@@ -54,17 +54,17 @@
         </div>
     </section>
 
-    <p class="composer-disclaimer strider-disclaimer">
+    <p class="composer-disclaimer assistant-disclaimer">
         AI can make mistakes. Please verify critical information. <strong>Auto Agent</strong>
     </p>
 
-    <section class="shortcut-section strider-actions" aria-labelledby="shortcut-title">
+    <section class="shortcut-section assistant-actions" aria-labelledby="shortcut-title">
         <div class="section-title-row compact">
             <h2 id="shortcut-title">Recommended Actions for you</h2>
         </div>
 
-        <div class="shortcut-grid strider-action-grid">
-            <button type="button" class="shortcut-card strider-action-card">
+        <div class="shortcut-grid assistant-action-grid">
+            <button type="button" class="shortcut-card assistant-action-card">
                 <span class="shortcut-icon icon-powerpoint" aria-hidden="true">P</span>
                 <span>
                     <strong>PowerPoint</strong>
@@ -72,7 +72,7 @@
                 </span>
             </button>
 
-            <button type="button" class="shortcut-card strider-action-card">
+            <button type="button" class="shortcut-card assistant-action-card">
                 <span class="shortcut-icon icon-goals" aria-hidden="true">G</span>
                 <span>
                     <strong>Goal Setting</strong>
@@ -80,7 +80,7 @@
                 </span>
             </button>
 
-            <button type="button" class="shortcut-card strider-action-card">
+            <button type="button" class="shortcut-card assistant-action-card">
                 <span class="shortcut-icon icon-memo" aria-hidden="true">W</span>
                 <span>
                     <strong>TLT Memo</strong>
@@ -88,7 +88,7 @@
                 </span>
             </button>
 
-            <button type="button" class="shortcut-card strider-action-card">
+            <button type="button" class="shortcut-card assistant-action-card">
                 <span class="shortcut-icon icon-health" aria-hidden="true">H</span>
                 <span>
                     <strong>Health Literacy Review</strong>
@@ -96,7 +96,7 @@
                 </span>
             </button>
 
-            <button type="button" class="shortcut-card strider-action-card">
+            <button type="button" class="shortcut-card assistant-action-card">
                 <span class="shortcut-icon icon-excel" aria-hidden="true">X</span>
                 <span>
                     <strong>Excel/CSV Report</strong>
@@ -104,7 +104,7 @@
                 </span>
             </button>
 
-            <button type="button" class="shortcut-card strider-action-card">
+            <button type="button" class="shortcut-card assistant-action-card">
                 <span class="shortcut-icon icon-epic" aria-hidden="true">E</span>
                 <span>
                     <strong>EPIC Creation</strong>
@@ -112,7 +112,7 @@
                 </span>
             </button>
 
-            <button type="button" class="shortcut-card strider-action-card">
+            <button type="button" class="shortcut-card assistant-action-card">
                 <span class="shortcut-icon icon-voice" aria-hidden="true">V</span>
                 <span>
                     <strong>Turn Your Words into Voice</strong>
@@ -120,7 +120,7 @@
                 </span>
             </button>
 
-            <a class="shortcut-card strider-action-card featured" href="bulk-analysis" data-testid="bulk-analysis-shortcut">
+            <a class="shortcut-card assistant-action-card featured" href="bulk-analysis" data-testid="bulk-analysis-shortcut">
                 <span class="shortcut-icon icon-bulk" aria-hidden="true">
                     <svg viewBox="0 0 24 24">
                         <path d="M8 4h9a2 2 0 0 1 2 2v12" />
@@ -139,7 +139,7 @@
 </section>
 
 @code {
-    private StriderLaunchContext? launchContext;
+    private AssistantLaunchContext? launchContext;
     private string composerValue = string.Empty;
 
     protected override void OnInitialized()
