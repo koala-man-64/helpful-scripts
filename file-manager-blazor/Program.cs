@@ -34,7 +34,7 @@ builder.Services.AddScoped<IBulkAnalysisPromptProvider>(sp =>
 
     return new FallbackBulkAnalysisPromptProvider(apiProvider, new MockBulkAnalysisPromptProvider());
 });
-builder.Services.AddScoped<StriderLaunchState>();
+builder.Services.AddScoped<AssistantLaunchState>();
 
 await builder.Build().RunAsync();
 

@@ -7,7 +7,7 @@ using FileManagerBlazor.Models;
 
 namespace FileManagerBlazor.Services;
 
-public static class StriderMarkdownDocumentBuilder
+public static class AssistantMarkdownDocumentBuilder
 {
     public static string Build(
         string promptText,
@@ -22,7 +22,7 @@ public static class StriderMarkdownDocumentBuilder
         }
 
         var builder = new StringBuilder();
-        builder.AppendLine("# Strider Bulk Analysis Context");
+        builder.AppendLine("# Assistant Bulk Analysis Context");
         builder.AppendLine();
         builder.AppendLine($"Generated: {generatedAt:yyyy-MM-dd HH:mm:ss zzz}");
         builder.AppendLine($"Selected results: {results.Count}");
@@ -55,8 +55,8 @@ public static class StriderMarkdownDocumentBuilder
     public static string GetFileName(IReadOnlyList<BulkAnalysisResult> results, DateTimeOffset generatedAt)
     {
         var name = results.Count == 1
-            ? $"{results[0].DocumentTitle}-{results[0].AnalysisType}-strider-context"
-            : $"strider-bulk-analysis-context-{generatedAt:yyyyMMdd-HHmmss}";
+            ? $"{results[0].DocumentTitle}-{results[0].AnalysisType}-assistant-context"
+            : $"assistant-bulk-analysis-context-{generatedAt:yyyyMMdd-HHmmss}";
 
         return $"{SlugifyFileName(name)}.md";
     }
@@ -288,6 +288,6 @@ public static class StriderMarkdownDocumentBuilder
         }
 
         var slug = builder.ToString().Trim('-');
-        return string.IsNullOrWhiteSpace(slug) ? "strider-bulk-analysis-context" : slug;
+        return string.IsNullOrWhiteSpace(slug) ? "assistant-bulk-analysis-context" : slug;
     }
 }

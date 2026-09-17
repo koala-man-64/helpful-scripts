@@ -2,16 +2,16 @@ using FileManagerBlazor.Models;
 
 namespace FileManagerBlazor.Services;
 
-public sealed class StriderLaunchState
+public sealed class AssistantLaunchState
 {
-    private StriderLaunchContext? pendingContext;
+    private AssistantLaunchContext? pendingContext;
 
-    public void SetPending(StriderLaunchContext context)
+    public void SetPending(AssistantLaunchContext context)
     {
         pendingContext = context;
     }
 
-    public StriderLaunchContext? ConsumePending()
+    public AssistantLaunchContext? ConsumePending()
     {
         var context = pendingContext;
         pendingContext = null;
@@ -19,13 +19,13 @@ public sealed class StriderLaunchState
     }
 }
 
-public sealed record StriderLaunchContext(
+public sealed record AssistantLaunchContext(
     string PromptText,
     BulkAnalysisPrompt? Prompt,
-    IReadOnlyList<StriderLaunchResultContext> Results,
+    IReadOnlyList<AssistantLaunchResultContext> Results,
     DateTimeOffset CreatedAt);
 
-public sealed record StriderLaunchResultContext(
+public sealed record AssistantLaunchResultContext(
     string ResultId,
     string DocumentId,
     string FolderName,

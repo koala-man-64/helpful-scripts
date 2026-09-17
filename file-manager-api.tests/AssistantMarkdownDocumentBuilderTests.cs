@@ -4,7 +4,7 @@ using FileManagerBlazor.Services;
 
 namespace FileManagerApi.Tests;
 
-public sealed class StriderMarkdownDocumentBuilderTests
+public sealed class AssistantMarkdownDocumentBuilderTests
 {
     [Fact]
     public void Build_combines_selected_results_into_delimited_markdown_document()
@@ -36,14 +36,14 @@ public sealed class StriderMarkdownDocumentBuilderTests
                 - Selected result content.
                 """));
 
-        var markdown = Normalize(StriderMarkdownDocumentBuilder.Build(
+        var markdown = Normalize(AssistantMarkdownDocumentBuilder.Build(
             "Use the evidence.",
             prompt,
             [result],
             new Dictionary<string, BulkAnalysisResultFile> { [result.Id] = resultFile },
             generatedAt));
 
-        Assert.Contains("# Strider Bulk Analysis Context", markdown);
+        Assert.Contains("# Assistant Bulk Analysis Context", markdown);
         Assert.Contains("Prompt: Executive synthesis", markdown);
         Assert.Contains("## Prompt\n\nUse the evidence.", markdown);
         Assert.Contains("---\n\n## Result 1: Claims Guide - Executive Summary", markdown);
@@ -57,11 +57,11 @@ public sealed class StriderMarkdownDocumentBuilderTests
     {
         var result = CreateResult("result-1", "Claims Guide", "Executive Summary", DateTime.UtcNow);
 
-        var fileName = StriderMarkdownDocumentBuilder.GetFileName(
+        var fileName = AssistantMarkdownDocumentBuilder.GetFileName(
             [result],
             new DateTimeOffset(2026, 6, 16, 12, 30, 0, TimeSpan.Zero));
 
-        Assert.Equal("claims-guide-executive-summary-strider-context.md", fileName);
+        Assert.Equal("claims-guide-executive-summary-assistant-context.md", fileName);
     }
 
     private static BulkAnalysisResult CreateResult(
