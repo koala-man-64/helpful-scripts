@@ -114,6 +114,8 @@
 
   pre { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:16px 18px; overflow-x:auto; font-family:var(--font-mono); font-size:12.5px; line-height:1.6; margin:0; }
   pre + p { margin-top:14px; }
+  #poc ol.steps { max-width:none; }
+  #poc ol.steps li pre { margin:10px 0; }
   details { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
   summary { cursor:pointer; font-size:13px; color:var(--acc); font-family:var(--font-mono); }
   summary:focus-visible { outline:2px solid var(--acc); outline-offset:3px; border-radius:3px; }
@@ -837,7 +839,162 @@ def delete_chunks(article_id: str, keep: set[str]) -&gt; None:
 <p><b>Delivery order:</b> S1 and S3 can start in parallel; S2 &rarr; S4 &rarr; S5 builds the index while S6 builds the query side; S7 gates everything after it. S8 needs only a recorded decision before S9; capabilities it leaves off can be enabled after cut-over.</p>
 </section>
 
-<footer>Draft &mdash; &sect;01&ndash;&sect;06 describe the current system, &sect;07 lists what is undecided, &sect;08 is a proposal, &sect;09 walks through its workflow step by step, &sect;10 lists the Azure resources to provision, &sect;11 breaks it into one feature and its stories.</footer>
+<section id="poc">
+<h2><span class="num">12</span> Proof of concept: your first search service</h2>
+<p>A barebones, hands-on start before any of &sect;10 is provisioned. In under an hour you create a Free-tier search service, an index shaped like the &sect;08 schema (no chunking or vectors), three made-up articles, and a <span class="mono">context_finder</span> function with today&rsquo;s contract. It shows the two things the real design depends on: keyword ranking, and agent and permission filters applied on every query.</p>
+<div class="note"><p><b>Use a sandbox subscription.</b> The production subscription requires private endpoints, and a Free-tier service has none, so creating it there is likely to fail with <span class="mono">RequestDisallowedByPolicy</span>. Use a sandbox or personal subscription where that policy is not assigned, and only the sample data below. The Free tier costs nothing; each subscription can have one Free service.</p></div>
+
+<h3>Steps</h3>
+<ol class="steps phase">
+  <li><b>Prerequisites.</b> Azure CLI, Python 3.10 or later, and Owner (or Contributor plus User Access Administrator) on the sandbox subscription &mdash; you need to grant yourself roles in step 3. Commands below are PowerShell.</li>
+  <li><b>Create the service.</b> The name must be globally unique: lowercase letters, digits and dashes. If the region has no Free capacity, try another region.
+<pre>az login
+az account set --subscription "&lt;sandbox subscription name or id&gt;"
+$rg = "rg-search-poc"
+$name = "srch-poc-&lt;your initials and a few digits&gt;"
+az group create --name $rg --location eastus2
+az search service create --name $name --resource-group $rg --sku free --disable-local-auth true</pre>
+  <span class="mono">--disable-local-auth true</span> turns API keys off, so every call uses your Entra ID sign-in &mdash; the same keyless model as &sect;10.</li>
+  <li><b>Grant yourself access.</b> Two roles, mirroring &sect;10: <i>Search Service Contributor</i> manages the index definition (the deploy pipeline&rsquo;s job); <i>Search Index Data Contributor</i> uploads and queries documents (Training&rsquo;s job; ContextFinder would get <i>Search Index Data Reader</i>).
+<pre>$me = az ad signed-in-user show --query id -o tsv
+$scope = az search service show --name $name --resource-group $rg --query id -o tsv
+az role assignment create --assignee $me --role "Search Service Contributor" --scope $scope
+az role assignment create --assignee $me --role "Search Index Data Contributor" --scope $scope</pre>
+  Assignments can take several minutes to apply. Until they do, the script fails with <span class="mono">403 Forbidden</span>; wait and rerun.</li>
+  <li><b>Set up Python.</b> In an empty folder:
+<pre>python -m venv .venv
+.venv\Scripts\python -m pip install azure-search-documents azure-identity
+$env:SEARCH_ENDPOINT = "https://$name.search.windows.net"</pre>
+  </li>
+  <li><b>Save and run the script.</b> Save the code below as <span class="mono">poc.py</span> in that folder, then run <span class="mono">.venv\Scripts\python poc.py</span>. It creates the <span class="mono">articles-poc</span> index, uploads three articles, and asks five questions as three users. <span class="mono">DefaultAzureCredential</span> picks up your <span class="mono">az login</span> session.</li>
+  <li><b>Read the results.</b> The document count is 3. Alice (an associate) gets <i>Deploy runbook: Chatbot</i> for &ldquo;deploy the chatbot&rdquo;; Casey asks the same question but is not an associate, so the runbook never comes back &mdash; the filter removes it before ranking. Casey does get the HR onboarding checklist from the <span class="mono">hr</span> agent, and Mallory, an unknown user, gets nothing.</li>
+  <li><b>Look for the two lessons.</b> First, the default analyzer does not stem words: &ldquo;rotate&rdquo; does not match &ldquo;Rotating&rdquo;, and the credential article is found only through the word &ldquo;credential&rdquo;. Setting <span class="mono">analyzer_name="en.microsoft"</span> on the searchable fields adds English stemming. Second, a document matching any single word qualifies, so common words such as &ldquo;the&rdquo; can pull in weak matches &mdash; which is why &sect;11&rsquo;s shadow compare (S7) and the semantic ranker (S8) exist.</li>
+  <li><b>Explore in the portal.</b> Open the service, then <i>Search explorer</i> on <span class="mono">articles-poc</span>. Try a query with a filter, such as <span class="mono">agents/any(a: a eq 'hr')</span>, and look at the <i>Fields</i> tab to see which attributes each field has.</li>
+  <li><b>Clean up.</b> Deleting the resource group removes the service, the index and the role assignments:
+<pre>az group delete --name $rg --yes</pre>
+  </li>
+</ol>
+
+<details>
+  <summary>poc.py</summary>
+<pre>"""Barebones Azure AI Search proof of concept: create an index, load a few
+articles, and answer ContextFinder-style questions with agent and group filters.
+
+Run:  python poc.py            (needs SEARCH_ENDPOINT and an `az login` session)
+"""
+import os
+import time
+
+from azure.identity import DefaultAzureCredential
+from azure.search.documents import SearchClient
+from azure.search.documents.indexes import SearchIndexClient
+from azure.search.documents.indexes.models import (
+    SearchFieldDataType,
+    SearchIndex,
+    SearchableField,
+    SimpleField,
+)
+
+ENDPOINT = os.environ["SEARCH_ENDPOINT"]  # https://&lt;service-name&gt;.search.windows.net
+INDEX_NAME = "articles-poc"
+STRINGS = SearchFieldDataType.Collection(SearchFieldDataType.String)
+
+# One chunk per article keeps the POC small; the real index adds chunking (§08).
+ARTICLES = [
+    {"id": "sn-kb0012-0", "title": "Rotating an expired integration credential",
+     "content": "Raise a change in ServiceNow, generate the new secret, update Key Vault, then restart the consumer.",
+     "agents": ["platform"], "allowed_groups": ["all"]},
+    {"id": "gh-runbook-chatbot-0", "title": "Deploy runbook: Chatbot",
+     "content": "1. Confirm the index file is current. 2. Swap the staging slot. 3. Watch failures for 15 minutes.",
+     "agents": ["platform"], "allowed_groups": ["associate"]},
+    {"id": "sp-onboarding-0", "title": "Contractor onboarding checklist",
+     "content": "Request a badge, a laptop and access to the contingent-worker SharePoint site.",
+     "agents": ["hr"], "allowed_groups": ["contingent", "associate"]},
+]
+
+# Stand-in for S3: in the real system the groups come from Entra ID or the run manifest.
+USER_GROUPS = {
+    "alice": ["all", "associate"],
+    "casey": ["all", "contingent"],
+}
+
+
+def odata_literal(value: str) -&gt; str:
+    """Quote a value for an OData filter; single quotes are escaped by doubling."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def build_filter(agent: str, groups: list[str]) -&gt; str:
+    group_list = ",".join(groups)
+    return (f"agents/any(a: a eq {odata_literal(agent)}) and "
+            f"allowed_groups/any(g: search.in(g, {odata_literal(group_list)}, ','))")
+
+
+def create_index(credential) -&gt; None:
+    fields = [
+        SimpleField(name="id", type=SearchFieldDataType.String, key=True),
+        SearchableField(name="title", type=SearchFieldDataType.String),
+        SearchableField(name="content", type=SearchFieldDataType.String),
+        SimpleField(name="agents", type=STRINGS, filterable=True),
+        SimpleField(name="allowed_groups", type=STRINGS, filterable=True),
+    ]
+    SearchIndexClient(ENDPOINT, credential).create_or_update_index(
+        SearchIndex(name=INDEX_NAME, fields=fields))
+
+
+def load_articles(search: SearchClient) -&gt; None:
+    results = search.merge_or_upload_documents(documents=ARTICLES)
+    failed = [r.key for r in results if not r.succeeded]
+    if failed:
+        raise RuntimeError(f"Upload failed for: {failed}")
+    time.sleep(2)  # new documents take a moment to become searchable
+
+
+def context_finder(search: SearchClient, username: str, question: str, agent: str, top_n: int) -&gt; dict[str, str]:
+    """Same contract as today's ContextFinder: returns {title: content}."""
+    groups = USER_GROUPS.get(username, [])
+    if not groups:
+        return {}  # unknown user sees nothing
+    results = search.search(search_text=question, filter=build_filter(agent, groups),
+                            select=["title", "content"], top=top_n)
+    return {r["title"]: r["content"] for r in results}
+
+
+def main() -&gt; None:
+    credential = DefaultAzureCredential()
+    create_index(credential)
+    search = SearchClient(ENDPOINT, INDEX_NAME, credential)
+    load_articles(search)
+    print(f"Documents in index: {search.get_document_count()}")
+
+    for username, question, agent in [
+        ("alice", "how do I rotate a credential", "platform"),
+        ("alice", "deploy the chatbot", "platform"),
+        ("casey", "deploy the chatbot", "platform"),   # casey is not an associate
+        ("casey", "contractor onboarding", "hr"),
+        ("mallory", "deploy the chatbot", "platform"),  # unknown user
+    ]:
+        answer = context_finder(search, username, question, agent, top_n=3)
+        print(f"\n{username} / {agent}: {question!r}")
+        for title in answer or ["(no results)"]:
+            print(f"  - {title}")
+
+
+if __name__ == "__main__":
+    main()</pre>
+</details>
+<p class="track-note">Checked offline against <span class="mono">azure-search-documents</span> 12.0.0 and Azure CLI 2.84.0: the imports, index model, client method signatures, filter strings and CLI flags. It has not yet been run against a live service.</p>
+
+<h3>What the POC leaves out</h3>
+<ul class="items">
+  <li>Chunking, stable chunk ids and deletions &mdash; S4 and S5. Each sample article is a single document.</li>
+  <li>Real group resolution &mdash; S3. <span class="mono">USER_GROUPS</span> is a hard-coded stand-in.</li>
+  <li>Private networking, managed identities and monitoring &mdash; S1 and &sect;10. The POC uses a public endpoint and your own sign-in.</li>
+  <li>The semantic ranker and vectors &mdash; S8. They are the natural next experiment on the same index once the keyword results make sense.</li>
+</ul>
+</section>
+
+<footer>Draft &mdash; &sect;01&ndash;&sect;06 describe the current system, &sect;07 lists what is undecided, &sect;08 is a proposal, &sect;09 walks through its workflow step by step, &sect;10 lists the Azure resources to provision, &sect;11 breaks it into one feature and its stories, &sect;12 is a hands-on proof of concept.</footer>
 </div>
 <script>
 (() => {
