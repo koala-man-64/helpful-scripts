@@ -80,7 +80,17 @@
   ol.steps.phase li::before { color:var(--mut); background:var(--surface-2); border-color:var(--line-2); }
   ol.steps li b { font-weight:500; }
 
-  .stories td:first-child { min-width:190px; }
+  .stories td:nth-child(2) { min-width:190px; }
+
+  .tracked th.chk, .tracked td.chk { width:1%; padding-right:0; text-align:center; }
+  .tracked td.chk input { width:18px; height:18px; margin:3px 0 0; accent-color:var(--grn); cursor:pointer; }
+  .tracked td.chk input:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+  .tracked tr.is-done td:not(.chk) { color:var(--mut); }
+  .tracked tr.is-done td:nth-child(2) > b { text-decoration:line-through; text-decoration-color:var(--line-2); }
+  .progress { font-family:var(--font-mono); font-size:11px; font-weight:400; letter-spacing:.06em; color:var(--grn); margin-left:8px; }
+  .progress:empty { display:none; }
+  .track-note { font-size:13px; color:var(--mut); }
+  .track-note button { font:inherit; color:var(--acc); background:none; border:0; padding:0; text-decoration:underline; cursor:pointer; }
   .stories td b { font-weight:500; }
   .stories .sid { display:block; font-family:var(--font-mono); font-size:11px; letter-spacing:.06em; color:var(--faint); }
   .stories .ph { display:block; margin-top:6px; font-family:var(--font-mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--acc); }
@@ -743,35 +753,36 @@ def delete_chunks(article_id: str, keep: set[str]) -&gt; None:
 <section id="resources">
 <h2><span class="num">10</span> Azure resources to provision</h2>
 <p><b>The proposal adds one Azure resource: the search service.</b> Everything else is configuration on resources that already exist &mdash; identities, role assignments, an embedding deployment in the existing Foundry project, monitoring &mdash; plus private networking if S1 keeps the corpus off the public network. Rows tagged <span class="tag">vectors</span> apply only if S8 approves embeddings; rows tagged <span class="tag">private</span> apply only if S1 chooses private access. Provision everything in the same infrastructure-as-code as the rest of the workload.</p>
+<p class="track-note">Tick a row when it is provisioned and verified. Ticks are saved in this browser only; they are not written to this file or shared with anyone else.</p>
 
-<h3>Resources and configuration</h3>
+<h3>Resources and configuration <span class="progress" data-for="res-table"></span></h3>
 <div class="tablewrap">
-<table>
-  <thead><tr><th>Resource</th><th>New or existing</th><th>What to configure</th><th>Story</th></tr></thead>
+<table id="res-table" class="tracked">
+  <thead><tr><th class="chk">Done</th><th>Resource</th><th>New or existing</th><th>What to configure</th><th>Story</th></tr></thead>
   <tbody>
-    <tr><td><b>Azure AI Search service</b></td><td>New</td><td>Tier Basic or Standard S1, sized from the corpus (below). Semantic ranker plan: Free for evaluation, Standard for production. System-assigned managed identity on. API access control set to role-based access, with API keys disabled. At least two replicas in production &mdash; the query availability SLA needs two. Same region as the Foundry resource and App Service; confirm semantic ranker availability in that region.</td><td><a href="#story-1">S1</a></td></tr>
-    <tr><td><b>Embedding deployment</b><span class="tag">vectors</span></td><td>New, in the existing Foundry project</td><td><span class="mono">text-embedding-3-large</span> or <span class="mono">-small</span>. Deployment type: Standard (regional) or Data Zone Standard if content must stay in one geography &mdash; Global Standard may process requests in any region. Tokens-per-minute quota sized for the backfill, not steady state.</td><td><a href="#story-8">S8</a></td></tr>
-    <tr><td><b>Training identity</b></td><td>New, unless Training already has one (&sect;07)</td><td>A user-assigned managed identity with a federated credential for Training&rsquo;s Kubernetes service account. The AKS cluster needs its OIDC issuer and workload identity enabled; that is a cluster setting change if they are off.</td><td><a href="#story-1">S1</a></td></tr>
-    <tr><td><b>ContextFinder identity</b></td><td>Existing App Service</td><td>Managed identity enabled on the App Service, if it is not already.</td><td><a href="#story-1">S1</a></td></tr>
-    <tr><td><b>Deploy pipeline identity</b></td><td>Existing service connection</td><td>Used only to create and update the index definition.</td><td><a href="#story-2">S2</a></td></tr>
-    <tr><td><b>Role assignments</b></td><td>New</td><td>The five assignments in the &sect;09 identities table. Allow several minutes for them to take effect before the first test call.</td><td><a href="#story-1">S1</a>, <a href="#story-8">S8</a></td></tr>
-    <tr><td><b>Diagnostic settings</b></td><td>New, to the existing Log Analytics workspace</td><td>Send the search service&rsquo;s operation logs and all metrics to the workspace ContextFinder already uses.</td><td><a href="#story-9">S9</a></td></tr>
-    <tr><td><b>Alerts</b></td><td>New</td><td>Metric alerts on throttled search queries and search latency, plus ContextFinder query failures in Application Insights.</td><td><a href="#story-9">S9</a></td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="res-azure-ai-search-service" aria-label="Done: Azure AI Search service"></td><td><b>Azure AI Search service</b></td><td>New</td><td>Tier Basic or Standard S1, sized from the corpus (below). Semantic ranker plan: Free for evaluation, Standard for production. System-assigned managed identity on. API access control set to role-based access, with API keys disabled. At least two replicas in production &mdash; the query availability SLA needs two. Same region as the Foundry resource and App Service; confirm semantic ranker availability in that region.</td><td><a href="#story-1">S1</a></td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="res-embedding-deployment" aria-label="Done: Embedding deployment"></td><td><b>Embedding deployment</b><span class="tag">vectors</span></td><td>New, in the existing Foundry project</td><td><span class="mono">text-embedding-3-large</span> or <span class="mono">-small</span>. Deployment type: Standard (regional) or Data Zone Standard if content must stay in one geography &mdash; Global Standard may process requests in any region. Tokens-per-minute quota sized for the backfill, not steady state.</td><td><a href="#story-8">S8</a></td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="res-training-identity" aria-label="Done: Training identity"></td><td><b>Training identity</b></td><td>New, unless Training already has one (&sect;07)</td><td>A user-assigned managed identity with a federated credential for Training&rsquo;s Kubernetes service account. The AKS cluster needs its OIDC issuer and workload identity enabled; that is a cluster setting change if they are off.</td><td><a href="#story-1">S1</a></td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="res-contextfinder-identity" aria-label="Done: ContextFinder identity"></td><td><b>ContextFinder identity</b></td><td>Existing App Service</td><td>Managed identity enabled on the App Service, if it is not already.</td><td><a href="#story-1">S1</a></td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="res-deploy-pipeline-identity" aria-label="Done: Deploy pipeline identity"></td><td><b>Deploy pipeline identity</b></td><td>Existing service connection</td><td>Used only to create and update the index definition.</td><td><a href="#story-2">S2</a></td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="res-role-assignments" aria-label="Done: Role assignments"></td><td><b>Role assignments</b></td><td>New</td><td>The five assignments in the &sect;09 identities table. Allow several minutes for them to take effect before the first test call.</td><td><a href="#story-1">S1</a>, <a href="#story-8">S8</a></td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="res-diagnostic-settings" aria-label="Done: Diagnostic settings"></td><td><b>Diagnostic settings</b></td><td>New, to the existing Log Analytics workspace</td><td>Send the search service&rsquo;s operation logs and all metrics to the workspace ContextFinder already uses.</td><td><a href="#story-9">S9</a></td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="res-alerts" aria-label="Done: Alerts"></td><td><b>Alerts</b></td><td>New</td><td>Metric alerts on throttled search queries and search latency, plus ContextFinder query failures in Application Insights.</td><td><a href="#story-9">S9</a></td></tr>
   </tbody>
 </table>
 </div>
 
-<h3>Private networking<span class="tag">private</span></h3>
+<h3>Private networking<span class="tag">private</span> <span class="progress" data-for="net-table"></span></h3>
 <div class="tablewrap">
-<table>
-  <thead><tr><th>Resource</th><th>What it is for</th></tr></thead>
+<table id="net-table" class="tracked">
+  <thead><tr><th class="chk">Done</th><th>Resource</th><th>What it is for</th></tr></thead>
   <tbody>
-    <tr><td><b>Private endpoint for the search service</b></td><td>In a subnet reachable from AKS and App Service, with the private DNS zone <span class="mono">privatelink.search.windows.net</span> linked to those virtual networks.</td></tr>
-    <tr><td><b>App Service VNet integration</b></td><td>Routes ContextFinder&rsquo;s outbound queries into the virtual network.</td></tr>
-    <tr><td><b>AKS egress rules</b></td><td>If egress goes through a firewall, allow Training to reach the search endpoint and the Foundry endpoint<span class="tag">vectors</span>.</td></tr>
-    <tr><td><b>Private endpoint for Foundry</b><span class="tag">vectors</span></td><td>Training&rsquo;s embedding calls, with the matching private DNS zones linked. Skip it if the Foundry resource already has one reachable from AKS.</td></tr>
-    <tr><td><b>Shared private link, search &rarr; Foundry</b><span class="tag">vectors</span></td><td>The search service&rsquo;s own path to Foundry for the vectorizer (group id <span class="mono">openai_account</span>), approved on the Foundry resource. Without it, indexing works but vector queries fail. Confirm the chosen search tier supports shared private links.</td></tr>
-    <tr><td><b>Public network access off</b></td><td>On the search service, and on Foundry if it is not already, only after DNS resolves to private addresses from an AKS pod and from the App Service.</td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="net-private-endpoint-for-the-search-service" aria-label="Done: Private endpoint for the search service"></td><td><b>Private endpoint for the search service</b></td><td>In a subnet reachable from AKS and App Service, with the private DNS zone <span class="mono">privatelink.search.windows.net</span> linked to those virtual networks.</td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="net-app-service-vnet-integration" aria-label="Done: App Service VNet integration"></td><td><b>App Service VNet integration</b></td><td>Routes ContextFinder&rsquo;s outbound queries into the virtual network.</td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="net-aks-egress-rules" aria-label="Done: AKS egress rules"></td><td><b>AKS egress rules</b></td><td>If egress goes through a firewall, allow Training to reach the search endpoint and the Foundry endpoint<span class="tag">vectors</span>.</td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="net-private-endpoint-for-foundry" aria-label="Done: Private endpoint for Foundry"></td><td><b>Private endpoint for Foundry</b><span class="tag">vectors</span></td><td>Training&rsquo;s embedding calls, with the matching private DNS zones linked. Skip it if the Foundry resource already has one reachable from AKS.</td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="net-shared-private-link-search-foundry" aria-label="Done: Shared private link, search to Foundry"></td><td><b>Shared private link, search &rarr; Foundry</b><span class="tag">vectors</span></td><td>The search service&rsquo;s own path to Foundry for the vectorizer (group id <span class="mono">openai_account</span>), approved on the Foundry resource. Without it, indexing works but vector queries fail. Confirm the chosen search tier supports shared private links.</td></tr>
+    <tr><td class="chk"><input type="checkbox" data-track="net-public-network-access-off" aria-label="Done: Public network access off"></td><td><b>Public network access off</b></td><td>On the search service, and on Foundry if it is not already, only after DNS resolves to private addresses from an AKS pod and from the App Service.</td></tr>
   </tbody>
 </table>
 </div>
@@ -802,23 +813,24 @@ def delete_chunks(article_id: str, keep: set[str]) -&gt; None:
 <section id="stories">
 <h2><span class="num">11</span> Feature and stories</h2>
 <p>The &sect;08 proposal is delivered as one feature. Its stories follow the migration phases, and each has a testable <b>done when</b> check. These are proposed backlog labels, not Azure Boards IDs; publishing this document does not create work items.</p>
+<p class="track-note">Tick a story when its <b>done when</b> check passes. Ticks for resources and stories are saved in this browser only. <button type="button" id="track-reset">Clear all ticks</button></p>
 <div class="note"><p><b>Feature &mdash; Azure AI Search retrieval for ContextFinder.</b> ContextFinder serves every agent&rsquo;s <span class="mono">top_n</span> articles from an Azure AI Search index, with the ContextFinder contract unchanged, permissions enforced on every query, and the per-agent JSON index files retired.</p></div>
 
-<h3>Stories</h3>
+<h3>Stories <span class="progress" data-for="story-table"></span></h3>
 <div class="tablewrap">
-<table class="stories">
-  <thead><tr><th>Story</th><th>Outcome</th><th>Depends on</th></tr></thead>
+<table id="story-table" class="tracked stories">
+  <thead><tr><th class="chk">Done</th><th>Story</th><th>Outcome</th><th>Depends on</th></tr></thead>
   <tbody>
-    <tr id="story-1"><td><span class="sid">S1</span><b>Provision search and access</b><span class="ph">Dual write</span></td><td>Create the Azure AI Search service and the identities in &sect;10, decide public or private network access (private endpoints from AKS and App Service if the corpus must stay off the public network), and grant Training write access and ContextFinder query-only access with the chosen identity.<p class="done"><b>Done when:</b> a test call from the AKS workload writes a document and a test call from App Service queries it, each with its own identity; ContextFinder&rsquo;s identity cannot write; network access matches the recorded decision.</p></td><td>&mdash;</td></tr>
-    <tr id="story-2"><td><span class="sid">S2</span><b>Define the index schema</b><span class="ph">Dual write</span></td><td>Create the <span class="mono">articles</span> index from the &sect;08 schema, plus a filterable article id (source + source id) so chunks can be grouped and deleted per article. Keep <span class="mono">content_vector</span> out until S8 decides on embeddings.<p class="done"><b>Done when:</b> the index definition lives in source control and a script creates or updates it idempotently; running it twice leaves the index unchanged.</p></td><td><a href="#story-1">S1</a></td></tr>
-    <tr id="story-3"><td><span class="sid">S3</span><b>Resolve user groups for filtering</b><span class="ph">Dual write</span></td><td>Answer the &sect;07 permission questions: where a user&rsquo;s permissions come from, and how the user tiers in <span class="mono">snowindex_refactored.json</span> (all / associate / contingent / AD group) map to <span class="mono">allowed_groups</span> values. ContextFinder resolves a <span class="mono">username</span> to those groups itself rather than trusting Chatbot&rsquo;s filter.<p class="done"><b>Done when:</b> the mapping is documented, including precedence when a user matches several tiers; for a test user in each tier, ContextFinder resolves the expected groups, and an unknown user resolves to none.</p></td><td>&mdash;</td></tr>
-    <tr id="story-4"><td><span class="sid">S4</span><b>Chunk and push from Training</b><span class="ph">Dual write</span></td><td>Training chunks each article, assigns stable chunk ids, sets <span class="mono">agents</span> and <span class="mono">allowed_groups</span> from the run manifest, and pushes with <span class="mono">mergeOrUpload</span> into a keyword-only (BM25) index. The existing Blob Storage and Git index outputs continue unchanged.<p class="done"><b>Done when:</b> a full run populates the index for every agent; a second run with no source changes changes no indexed content; the JSON index files match those from a run without the push.</p></td><td><a href="#story-2">S2</a>, <a href="#story-3">S3</a></td></tr>
-    <tr id="story-5"><td><span class="sid">S5</span><b>Propagate updates and deletions</b><span class="ph">Dual write</span></td><td>Keep the index in step with the delta-merge in &sect;04: updated articles replace all their chunks, and articles removed at source are deleted from the index.<p class="done"><b>Done when:</b> a fixture run that adds, updates, shortens (fewer chunks) and deletes articles leaves exactly the source&rsquo;s current chunks in the index, with no orphaned chunks.</p></td><td><a href="#story-4">S4</a></td></tr>
-    <tr id="story-6"><td><span class="sid">S6</span><b>ContextFinder search backend behind a flag</b><span class="ph">Shadow compare</span></td><td>Add a search backend that sends the filtered query from &sect;08, groups chunks by article id, keeps the first <span class="mono">top_n</span> articles, and returns today&rsquo;s title &rarr; content shape. A flag selects the JSON scorer or the index.<p class="done"><b>Done when:</b> the same contract tests pass against both backends; a user never receives chunks outside their groups or selected agent; two articles sharing a title are handled by a documented, tested rule; with the flag off, behavior is unchanged.</p></td><td><a href="#story-3">S3</a>, <a href="#story-4">S4</a></td></tr>
-    <tr id="story-7"><td><span class="sid">S7</span><b>Shadow compare and cut-over criteria</b><span class="ph">Shadow compare</span></td><td>Run both backends on real, logged questions, record <span class="mono">top_n</span> overlap and latency per agent, and agree the cut-over criteria with the owner. Question logs follow existing retention rules.<p class="done"><b>Done when:</b> a comparison report covers every agent on an agreed question sample, and written cut-over criteria (relevance and latency) are approved.</p></td><td><a href="#story-5">S5</a>, <a href="#story-6">S6</a></td></tr>
-    <tr id="story-8"><td><span class="sid">S8</span><b>Semantic ranker and embeddings decision</b><span class="ph">Cut over</span></td><td>Record the Azure OpenAI embedding decision. Enable the semantic ranker, and vectors if approved, only for agents where the S7 question set shows a measurable improvement, accounting for the paid search tier and the embedding deployment.<p class="done"><b>Done when:</b> the decision and its cost are recorded; each enabled capability has a before-and-after result on the S7 question set that meets the agreed criteria, or is left off.</p></td><td><a href="#story-7">S7</a></td></tr>
-    <tr id="story-9"><td><span class="sid">S9</span><b>Cut over with rollback</b><span class="ph">Cut over</span></td><td>Switch agents to the index per the S7 criteria, with monitoring for query failures and latency, while dual write keeps the JSON path available for rollback.<p class="done"><b>Done when:</b> every agent is served from the index; alerts fire on query failures; rolling back by flag has been exercised in a non-production environment and restored JSON results.</p></td><td><a href="#story-7">S7</a>, <a href="#story-8">S8</a></td></tr>
-    <tr id="story-10"><td><span class="sid">S10</span><b>Retire the index files and scorer</b><span class="ph">Retire the files</span></td><td>Stop writing <span class="mono">[agent_name]_index.json</span> to Git and Blob Storage (or keep an audit snapshot, per decision), remove the lexical scorer and the flag, and update this document to describe the new current state. Keep the delta-sync state files while the build path still uses them.<p class="done"><b>Done when:</b> a training run produces no index JSON commits or writes beyond any agreed snapshot; the scorer code and flag are gone; &sect;01&ndash;&sect;06 describe the search-based system.</p></td><td><a href="#story-9">S9</a></td></tr>
+    <tr id="story-1"><td class="chk"><input type="checkbox" data-track="story-1" aria-label="Done: S1 Provision search and access"></td><td><span class="sid">S1</span><b>Provision search and access</b><span class="ph">Dual write</span></td><td>Create the Azure AI Search service and the identities in &sect;10, decide public or private network access (private endpoints from AKS and App Service if the corpus must stay off the public network), and grant Training write access and ContextFinder query-only access with the chosen identity.<p class="done"><b>Done when:</b> a test call from the AKS workload writes a document and a test call from App Service queries it, each with its own identity; ContextFinder&rsquo;s identity cannot write; network access matches the recorded decision.</p></td><td>&mdash;</td></tr>
+    <tr id="story-2"><td class="chk"><input type="checkbox" data-track="story-2" aria-label="Done: S2 Define the index schema"></td><td><span class="sid">S2</span><b>Define the index schema</b><span class="ph">Dual write</span></td><td>Create the <span class="mono">articles</span> index from the &sect;08 schema, plus a filterable article id (source + source id) so chunks can be grouped and deleted per article. Keep <span class="mono">content_vector</span> out until S8 decides on embeddings.<p class="done"><b>Done when:</b> the index definition lives in source control and a script creates or updates it idempotently; running it twice leaves the index unchanged.</p></td><td><a href="#story-1">S1</a></td></tr>
+    <tr id="story-3"><td class="chk"><input type="checkbox" data-track="story-3" aria-label="Done: S3 Resolve user groups for filtering"></td><td><span class="sid">S3</span><b>Resolve user groups for filtering</b><span class="ph">Dual write</span></td><td>Answer the &sect;07 permission questions: where a user&rsquo;s permissions come from, and how the user tiers in <span class="mono">snowindex_refactored.json</span> (all / associate / contingent / AD group) map to <span class="mono">allowed_groups</span> values. ContextFinder resolves a <span class="mono">username</span> to those groups itself rather than trusting Chatbot&rsquo;s filter.<p class="done"><b>Done when:</b> the mapping is documented, including precedence when a user matches several tiers; for a test user in each tier, ContextFinder resolves the expected groups, and an unknown user resolves to none.</p></td><td>&mdash;</td></tr>
+    <tr id="story-4"><td class="chk"><input type="checkbox" data-track="story-4" aria-label="Done: S4 Chunk and push from Training"></td><td><span class="sid">S4</span><b>Chunk and push from Training</b><span class="ph">Dual write</span></td><td>Training chunks each article, assigns stable chunk ids, sets <span class="mono">agents</span> and <span class="mono">allowed_groups</span> from the run manifest, and pushes with <span class="mono">mergeOrUpload</span> into a keyword-only (BM25) index. The existing Blob Storage and Git index outputs continue unchanged.<p class="done"><b>Done when:</b> a full run populates the index for every agent; a second run with no source changes changes no indexed content; the JSON index files match those from a run without the push.</p></td><td><a href="#story-2">S2</a>, <a href="#story-3">S3</a></td></tr>
+    <tr id="story-5"><td class="chk"><input type="checkbox" data-track="story-5" aria-label="Done: S5 Propagate updates and deletions"></td><td><span class="sid">S5</span><b>Propagate updates and deletions</b><span class="ph">Dual write</span></td><td>Keep the index in step with the delta-merge in &sect;04: updated articles replace all their chunks, and articles removed at source are deleted from the index.<p class="done"><b>Done when:</b> a fixture run that adds, updates, shortens (fewer chunks) and deletes articles leaves exactly the source&rsquo;s current chunks in the index, with no orphaned chunks.</p></td><td><a href="#story-4">S4</a></td></tr>
+    <tr id="story-6"><td class="chk"><input type="checkbox" data-track="story-6" aria-label="Done: S6 ContextFinder search backend behind a flag"></td><td><span class="sid">S6</span><b>ContextFinder search backend behind a flag</b><span class="ph">Shadow compare</span></td><td>Add a search backend that sends the filtered query from &sect;08, groups chunks by article id, keeps the first <span class="mono">top_n</span> articles, and returns today&rsquo;s title &rarr; content shape. A flag selects the JSON scorer or the index.<p class="done"><b>Done when:</b> the same contract tests pass against both backends; a user never receives chunks outside their groups or selected agent; two articles sharing a title are handled by a documented, tested rule; with the flag off, behavior is unchanged.</p></td><td><a href="#story-3">S3</a>, <a href="#story-4">S4</a></td></tr>
+    <tr id="story-7"><td class="chk"><input type="checkbox" data-track="story-7" aria-label="Done: S7 Shadow compare and cut-over criteria"></td><td><span class="sid">S7</span><b>Shadow compare and cut-over criteria</b><span class="ph">Shadow compare</span></td><td>Run both backends on real, logged questions, record <span class="mono">top_n</span> overlap and latency per agent, and agree the cut-over criteria with the owner. Question logs follow existing retention rules.<p class="done"><b>Done when:</b> a comparison report covers every agent on an agreed question sample, and written cut-over criteria (relevance and latency) are approved.</p></td><td><a href="#story-5">S5</a>, <a href="#story-6">S6</a></td></tr>
+    <tr id="story-8"><td class="chk"><input type="checkbox" data-track="story-8" aria-label="Done: S8 Semantic ranker and embeddings decision"></td><td><span class="sid">S8</span><b>Semantic ranker and embeddings decision</b><span class="ph">Cut over</span></td><td>Record the Azure OpenAI embedding decision. Enable the semantic ranker, and vectors if approved, only for agents where the S7 question set shows a measurable improvement, accounting for the paid search tier and the embedding deployment.<p class="done"><b>Done when:</b> the decision and its cost are recorded; each enabled capability has a before-and-after result on the S7 question set that meets the agreed criteria, or is left off.</p></td><td><a href="#story-7">S7</a></td></tr>
+    <tr id="story-9"><td class="chk"><input type="checkbox" data-track="story-9" aria-label="Done: S9 Cut over with rollback"></td><td><span class="sid">S9</span><b>Cut over with rollback</b><span class="ph">Cut over</span></td><td>Switch agents to the index per the S7 criteria, with monitoring for query failures and latency, while dual write keeps the JSON path available for rollback.<p class="done"><b>Done when:</b> every agent is served from the index; alerts fire on query failures; rolling back by flag has been exercised in a non-production environment and restored JSON results.</p></td><td><a href="#story-7">S7</a>, <a href="#story-8">S8</a></td></tr>
+    <tr id="story-10"><td class="chk"><input type="checkbox" data-track="story-10" aria-label="Done: S10 Retire the index files and scorer"></td><td><span class="sid">S10</span><b>Retire the index files and scorer</b><span class="ph">Retire the files</span></td><td>Stop writing <span class="mono">[agent_name]_index.json</span> to Git and Blob Storage (or keep an audit snapshot, per decision), remove the lexical scorer and the flag, and update this document to describe the new current state. Keep the delta-sync state files while the build path still uses them.<p class="done"><b>Done when:</b> a training run produces no index JSON commits or writes beyond any agreed snapshot; the scorer code and flag are gone; &sect;01&ndash;&sect;06 describe the search-based system.</p></td><td><a href="#story-9">S9</a></td></tr>
   </tbody>
 </table>
 </div>
@@ -827,5 +839,46 @@ def delete_chunks(article_id: str, keep: set[str]) -&gt; None:
 
 <footer>Draft &mdash; &sect;01&ndash;&sect;06 describe the current system, &sect;07 lists what is undecided, &sect;08 is a proposal, &sect;09 walks through its workflow step by step, &sect;10 lists the Azure resources to provision, &sect;11 breaks it into one feature and its stories.</footer>
 </div>
+<script>
+(() => {
+  const KEY = "foundry-ai-search:progress:v1";
+  const boxes = [...document.querySelectorAll("input[data-track]")];
+
+  const load = () => {
+    try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; }
+  };
+  const save = (state) => {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* storage unavailable: ticks last for this visit only */ }
+  };
+
+  const render = () => {
+    boxes.forEach((box) => box.closest("tr").classList.toggle("is-done", box.checked));
+    document.querySelectorAll(".progress[data-for]").forEach((el) => {
+      const inTable = boxes.filter((box) => box.closest("table").id === el.dataset.for);
+      el.textContent = `${inTable.filter((box) => box.checked).length} of ${inTable.length} done`;
+    });
+  };
+
+  const state = load();
+  boxes.forEach((box) => {
+    box.checked = state[box.dataset.track] === true;
+    box.addEventListener("change", () => {
+      const next = load();
+      if (box.checked) next[box.dataset.track] = true; else delete next[box.dataset.track];
+      save(next);
+      render();
+    });
+  });
+
+  document.getElementById("track-reset")?.addEventListener("click", () => {
+    if (!confirm("Clear every resource and story tick saved in this browser?")) return;
+    boxes.forEach((box) => { box.checked = false; });
+    save({});
+    render();
+  });
+
+  render();
+})();
+</script>
 </body>
 </html>
