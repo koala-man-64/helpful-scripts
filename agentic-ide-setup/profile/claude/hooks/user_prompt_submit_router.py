@@ -24,7 +24,7 @@ from hook_utils import (
 
 # Stated once per session (see main); these do not vary by prompt.
 STANDING_POLICY_LINES = (
-    "- Finish authority: when task-owned files change and the user does not explicitly limit scope, the owner completes the git finish workflow (commit, push, PR, merge/completion) before closeout, without waiting for a separate 'finish it' prompt. Delegate finishing only when it is an independent, bounded deliverable the lane permits; never spawn an agent just because work reached the finish stage.",
+    "- Finish authority: when task-owned files change and the user does not explicitly limit scope, the owner completes the git finish workflow (commit, push, PR, merge/completion) before closeout, without waiting for a separate 'finish it' prompt. Delegate finishing only when it is an independent, bounded deliverable the lane permits; never spawn an agent just because work reached the finish stage. When ~/.claude/state/merge-steward.json shows an active steward updated within six hours, the owner instead stops at 'PR opened and steward told'; the steward owns completion. See the merge-steward agent definition.",
     "- Lanes: lite (one owner, no children), standard (solo by default; at most a bounded Haiku reviewer and specialist), critical (Opus owner; one to three bounded specialists; independent review). Select the model directly; no lower-tier attempts are required.",
 )
 
