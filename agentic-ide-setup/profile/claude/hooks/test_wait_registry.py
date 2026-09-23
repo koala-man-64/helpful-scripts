@@ -207,6 +207,13 @@ class DetectorSeamTests(unittest.TestCase):
         self.assertEqual(rows[0]["commit"], "c" * 40)
         self.assertIn("Wait registered", out)
 
+    def test_poll_hint_names_the_sibling_poller(self):
+        """The hooks may run from a release clone, not ~/.claude/hooks."""
+        out = self.run_hook(payload("az repos pr create --title x", {"stdout": AZ_PR_JSON}))
+        context = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+        sibling = Path(detector.__file__).resolve().parent / "wait_poll.py"
+        self.assertIn(f'py "{sibling}" poll ', context)
+
     def test_chained_command_still_registers(self):
         """Codex required the command to be a single segment. This must not."""
         command = "git add -A && git commit -m x && git push && az repos pr create --title x"

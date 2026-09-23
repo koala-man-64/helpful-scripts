@@ -36,6 +36,11 @@ DRY_RUN = re.compile(r"--(?:dry-run|what-if|help)\b|\s-h\b", re.IGNORECASE)
 STATEMENT_SPLIT = re.compile(r"\|\||&&|[;\n|]")
 ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\S*$")
 
+# The poller sits next to this hook, wherever settings.json runs the hooks
+# from. A fixed ~/.claude/hooks path would point at a stale copy once the
+# hooks run from the pinned release clone.
+WAIT_POLL = Path(__file__).resolve().parent / "wait_poll.py"
+
 
 HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
@@ -327,7 +332,7 @@ def _detect_and_register() -> int:
             "\n".join(
                 [
                     f"Wait registered: {kind} {resource_id} ({wait['wait_id']}).",
-                    f"Poll it with: py \"{Path.home()}\\.claude\\hooks\\wait_poll.py\" "
+                    f"Poll it with: py \"{WAIT_POLL}\" "
                     f"poll {wait['wait_id']}",
                     "Registration is not delivery evidence. Wait only if the requested "
                     "outcome depends on this operation: use one monitor for it (a Monitor, or a "

@@ -173,6 +173,13 @@ class OutstandingWaitCapTests(unittest.TestCase):
         self.assertEqual(len(listed), 3)
         self.assertFalse(any("not listed" in line for line in lines))
 
+    def test_poll_command_names_the_sibling_poller(self) -> None:
+        """The hooks may run from a release clone, not ~/.claude/hooks."""
+        self._write(1)
+        poll = session_start.outstanding_waits()[-1]
+        sibling = Path(session_start.__file__).resolve().parent / "wait_poll.py"
+        self.assertIn(f'py "{sibling}" poll --all', poll)
+
 
 if __name__ == "__main__":
     unittest.main()

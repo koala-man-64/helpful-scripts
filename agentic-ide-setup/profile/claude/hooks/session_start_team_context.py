@@ -61,7 +61,9 @@ def outstanding_waits() -> list[str]:
         lines.append(
             f"- ... {len(hidden)} older wait(s) not listed ({past} past timeout)."
         )
-    script = Path.home() / ".claude" / "hooks" / "wait_poll.py"
+    # Resolved from this file, not ~/.claude/hooks: the hooks run from wherever
+    # settings.json points, and a fixed home path would name a stale copy.
+    script = Path(__file__).resolve().parent / "wait_poll.py"
     lines.append(
         f'Poll with: py "{script}" poll --all. '
         "Registration is not delivery evidence; a wait is resolved only by a terminal status."
