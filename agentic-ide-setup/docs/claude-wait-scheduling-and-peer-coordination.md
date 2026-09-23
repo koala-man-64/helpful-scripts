@@ -23,8 +23,9 @@ state. Keep it that way. Do not port the `DeliveryState` ladder.
 
 ## Implementation status
 
-Steps 1-5 of the build order are implemented and live in `~/.claude/hooks`, mirrored into
-`profile/claude/hooks` for the portable installer.
+Steps 1-5 of the build order are implemented. The source is `profile/claude/hooks`, and the live
+hooks run from the pinned release clone `~/.claude/hooks-release` (see the README section "Claude
+hooks: release clone").
 
 | Component | File | State |
 | --- | --- | --- |
@@ -46,7 +47,7 @@ a helper, step 6 `gh pr` support is present in the poller and detector but only 
 detected, and step 7 agentcoord lifecycle hooks for Claude are not installed.
 
 Registry format is `~/.claude/waits/registry.json`; override with `CLAUDE_WAITS_PATH`.
-Check liveness with `py "%USERPROFILE%\.claude\hooks\wait_poll.py" doctor`.
+Check liveness with `py "%USERPROFILE%\.claude\hooks-release\agentic-ide-setup\profile\claude\hooks\wait_poll.py" doctor`.
 
 ## What Claude already has (verified)
 
