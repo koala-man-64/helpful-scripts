@@ -55,6 +55,8 @@ Run from this directory after reviewing local configuration changes:
 
 The exporter follows the manifest and produces templates with portable path markers. It excludes machine-specific project state, hook trust, permission grants, notification executables, and installed MCP commands. The MCP template starts empty; plugins are an inventory for separate reviewed installation. Required skill absence fails export.
 
+The Claude template does carry one kind of permission: `claudeDefaults.permissions.deny`, a list of restrictions rather than grants. It denies discarding work (`git reset --hard`, `git checkout -- …`, `git restore .`, force `git clean`), force pushes other than `--force-with-lease`, and pushes to `main`, `master`, `trunk`, `develop`, `staging` or `production`, for both Bash and PowerShell. Claude Code applies deny rules even when a PreToolUse hook returns `allow` and when a hook times out, so the list is a backstop for the shell guard hook, not a replacement for it. `git branch -D` is deliberately left to the guard: squash merges make `git branch -d` unusable for merged task branches.
+
 ## Install on a new Windows machine
 
 Install Codex, Claude Code, and VS Code first. Review the profile, then preview the actions:
