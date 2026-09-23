@@ -241,9 +241,24 @@ class ParentOrdering(LadderTestCase):
         self.assertDenied(self.run_gate(self.payload(body, parent=None)), "LANE_PARENT_UNKNOWN")
         self.assertRouted(self.run_gate(self.payload(contract(), parent=None)), "haiku")
 
-    def test_fable_parent_counts_as_unknown(self):
+    def test_fable_parent_ranks_above_opus(self):
         body = contract(lane="critical", tier="sonnet")
-        self.assertDenied(self.run_gate(self.payload(body, parent="fable")), "LANE_PARENT_UNKNOWN")
+        self.assertRouted(self.run_gate(self.payload(body, parent="fable")), "sonnet")
+        self.assertRouted(self.run_gate(self.payload(contract(), parent="fable")), "haiku")
+
+    def test_fable_parent_still_obeys_lane_and_child_rules(self):
+        self.assertDenied(
+            self.run_gate(self.payload(contract(tier="sonnet"), parent="fable")),
+            "LANE_TIER_NOT_PERMITTED",
+        )
+        self.assertDenied(
+            self.run_gate(self.payload(contract(lane="critical", tier="opus"), parent="fable")),
+            "LANE_TIER_NOT_PERMITTED",
+        )
+        self.assertDenied(
+            self.run_gate(self.payload(contract(lane="critical", tier="fable"), parent="fable")),
+            "LANE_UNKNOWN_TIER",
+        )
 
     def test_nested_spawn_is_rejected(self):
         data = self.payload(contract())
@@ -253,7 +268,8 @@ class ParentOrdering(LadderTestCase):
     def test_model_family_mapping(self):
         self.assertEqual(agent_ladder.model_family("claude-opus-5"), "opus")
         self.assertEqual(agent_ladder.model_family("claude-haiku-4-5-20251001"), "haiku")
-        self.assertEqual(agent_ladder.model_family("claude-fable-5-1"), "")
+        self.assertEqual(agent_ladder.model_family("claude-fable-5-1"), "fable")
+        self.assertEqual(agent_ladder.model_family("claude-unknown-9"), "")
         self.assertEqual(agent_ladder.model_family(None), "")
 
 

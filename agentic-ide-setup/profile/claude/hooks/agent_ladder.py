@@ -6,9 +6,10 @@ failed or justified lower tier first. The gate checks that the chosen model
 is one the lane permits, that it ranks strictly below the parent, and that the
 task is bounded and verifiable.
 
-Claude exposes ``haiku | sonnet | opus | fable`` as spawn models. Only the
-first three form a capability order; Fable is a different model, not a step
-above Opus, so it is never a routed child and a Fable parent counts as unknown.
+Claude exposes ``haiku | sonnet | opus | fable`` as spawn models. The first
+three form the child capability order. Fable is a parent-only tier ranked above
+Opus: a Fable session may spawn any lane-permitted child, but Fable itself is
+never a routed child.
 
 The module is still named ``agent_ladder`` so the installed hook paths in
 settings.json do not change.
@@ -29,8 +30,10 @@ ENVELOPE_PATTERN = re.compile(
     re.DOTALL,
 )
 
-# Ascending capability; the index is the rank.
+# Ascending capability; the index is the rank. Only these are routable children.
 TIER_ORDER = ("haiku", "sonnet", "opus")
+# Parent-only tiers rank above every child tier and are never spawned.
+PARENT_ONLY_TIERS = ("fable",)
 
 TIER_MODEL = {
     "haiku": "haiku",
@@ -139,7 +142,7 @@ def lane_summary() -> str:
         "and select the model directly; no lower-tier attempts or blocker "
         "justifications are required:\n"
         f"{lanes}\n"
-        "- A child must rank strictly below its parent (haiku < sonnet < opus); "
+        "- A child must rank strictly below its parent (haiku < sonnet < opus < fable); "
         "Fable is never a routed child. Effort is set only by agent-definition "
         "frontmatter, and a lane never changes the running session's model.\n"
         f"- Lead every subagent prompt with a <{ENVELOPE_TAG}> JSON envelope: "
@@ -168,11 +171,15 @@ def strip_envelope(prompt: str) -> str:
 
 
 def model_family(model_id: Any) -> str:
-    """Map a transcript model id (``claude-opus-5``) to a tier name, or ``""``."""
+    """Map a transcript model id (``claude-opus-5``) to a tier name, or ``""``.
+
+    Parent-only tiers (Fable) map too, so a Fable parent is ranked rather than
+    treated as unknown.
+    """
     if not isinstance(model_id, str):
         return ""
     text = model_id.lower()
-    for tier in TIER_ORDER:
+    for tier in (*TIER_ORDER, *PARENT_ONLY_TIERS):
         if tier in text:
             return tier
     return ""
@@ -182,8 +189,8 @@ def parent_model(transcript_path: Any, max_lines: int = 400) -> str:
     """Tier of the session model that issued the spawn, or ``""`` when unknown.
 
     Reads the newest main-thread assistant record. Unknown is a real outcome
-    (no transcript, synthetic records, Fable) and callers must treat it as the
-    most restrictive case rather than guessing.
+    (no transcript, synthetic records) and callers must treat it as the most
+    restrictive case rather than guessing.
     """
     if not isinstance(transcript_path, str) or not transcript_path:
         return ""
@@ -281,7 +288,9 @@ def validate(
         )
 
     child_rank = TIER_ORDER.index(tier)
-    if parent_tier in TIER_ORDER:
+    if parent_tier in PARENT_ONLY_TIERS:
+        pass  # Ranks above every child tier; the lane check above already applied.
+    elif parent_tier in TIER_ORDER:
         if child_rank >= TIER_ORDER.index(parent_tier):
             return (
                 "LANE_CHILD_NOT_LOWER",

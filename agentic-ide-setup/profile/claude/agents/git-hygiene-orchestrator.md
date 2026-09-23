@@ -75,19 +75,48 @@ Always include relevant task and artifact links in status updates and final outp
 When this skill creates or completes a pull request, default to the repository's protected-branch completion path unless the user or repo policy explicitly requires something else:
 
 - Enable squash merge.
-- Enable auto-complete after required policies, checks, and reviews pass.
 - Enable source-branch deletion after completion.
-- In Azure Repos, pass those options when creating the PR:
+- Enable auto-complete, but when depends on risk (below).
+
+### Ordinary changes
+
+Arm auto-complete at creation. In Azure Repos:
 
 ```powershell
 az repos pr create --source-branch <branch> --target-branch <base> --auto-complete true --squash true --delete-source-branch true --transition-work-items true
 ```
 
-- If the PR already exists, set the same defaults immediately:
+If the PR already exists, set the same defaults immediately:
 
 ```powershell
 az repos pr update --id <pr-id> --auto-complete true --squash true --delete-source-branch true --transition-work-items true
 ```
+
+### Risky changes: review first, arm second
+
+A change is risky when it touches any of: `azure-pipelines/**`, `scripts/workflows/**`, database migrations and `deploy/sql/**`, authorization or identity code, content-freshness evidence (`tasks/common/*content_freshness*`), shared contracts, `bicep/**`, `entra/**`, `validation/**`.
+
+Auto-complete merges the moment policies pass, so arming it before the independent review returns lets the merge race the reviewer. For a risky change:
+
+1. Create the PR **without** `--auto-complete`:
+
+```powershell
+az repos pr create --source-branch <branch> --target-branch <base> --squash true --delete-source-branch true
+```
+
+2. Get the independent review. A verdict covers one exact commit. If any commit lands after it, including the reviewer's own requested fix, get the verdict confirmed for the new head before arming.
+3. Arm only when the PR head still equals the reviewed commit:
+
+```powershell
+$head = az repos pr show --id <pr-id> --query "lastMergeSourceCommit.commitId" -o tsv
+if ($head -eq '<reviewed-sha>') { az repos pr update --id <pr-id> --auto-complete true --squash true --delete-source-branch true --transition-work-items true }
+```
+
+If the session has no review capacity left, leave the PR unarmed and say so. An owner-only review is not an independent one.
+
+### Before requeueing a build
+
+A Build policy reading `queued` with no visible run usually means the run exists and cannot start. Check the agent pool (`az pipelines agent list --pool-id <id>`) and the `notStarted` runs before queueing another; a second run for the same commit becomes a duplicate release and a duplicate deploy.
 
 If the repository does not support one of those settings, or policy prevents auto-complete, leave the PR open in the safest available state and report the exact blocker. Do not silently fall back to a merge commit or leave source-branch cleanup unspecified.
 
