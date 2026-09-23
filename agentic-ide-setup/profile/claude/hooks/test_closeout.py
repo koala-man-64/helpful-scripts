@@ -1,158 +1,162 @@
-"""Scenario tests for the Stop closeout hooks.
+"""Scenario tests for the fact-based Stop closeout.
+
+Each scenario writes a small transcript, points the hook at a real temporary
+repository, and checks the one-shot nudge. The closing message's wording never
+matters; only what the turn did and the repository's state.
 
 Run from this directory: py -m pytest test_closeout.py
 """
 
+import itertools
+import json
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import stop_gateway_bookkeeper_recap as recap  # noqa: E402
 import stop_team_closeout as closeout  # noqa: E402
+
+_ids = itertools.count(1)
+SYNCED = "## claude/topic...origin/claude/topic"
+AHEAD = "## claude/topic...origin/claude/topic [ahead 1]"
+
+
+def user(text: str) -> dict:
+    return {"type": "user", "message": {"role": "user", "content": text}}
+
+
+def tool(name: str, **tool_input) -> dict:
+    block = {"type": "tool_use", "id": f"toolu_{next(_ids)}", "name": name, "input": tool_input}
+    return {"type": "assistant", "message": {"role": "assistant", "content": [block]}}
+
+
+def shell(command: str) -> dict:
+    return tool("Bash", command=command)
+
+
+def result(text: str) -> dict:
+    block = {"type": "tool_result", "tool_use_id": "toolu_x", "content": text}
+    return {"type": "user", "message": {"role": "user", "content": [block]}}
+
+
+def say(text: str) -> dict:
+    return {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}
 
 
 class CloseoutHarness(unittest.TestCase):
-    dirty = False
-
     def setUp(self) -> None:
-        self.saved = {}
-        for module in (closeout, recap):
-            self.saved[module] = {
-                name: getattr(module, name)
-                for name in ("workflow_scope_enabled", "turn_did_work", "read_hook_input", "extract_last_message", "emit_json")
-            }
-            module.workflow_scope_enabled = lambda: True
-            module.turn_did_work = lambda payload: True
-            module.read_hook_input = lambda: {}
-        self.saved_git = (closeout.branch_header, closeout.git_status_lines)
-        closeout.branch_header = lambda: "## task-branch...origin/task-branch" + (" [ahead 1]" if self.dirty else "")
-        closeout.git_status_lines = lambda: ["## task-branch"]
+        self._tmp = tempfile.TemporaryDirectory(prefix="closeout-")
+        self.addCleanup(self._tmp.cleanup)
+        base = Path(self._tmp.name).resolve()
+        # The repository must not sit under the temp directory: edits there count as scratch.
+        self.root = Path.home() / f".closeout-test-{next(_ids)}"
+        self.root.mkdir()
+        self.addCleanup(self._remove_root)
+        subprocess.run(["git", "init", "-q", "-b", "claude/topic"], cwd=self.root, check=True)
+        self.transcript = base / "transcript.jsonl"
+        self.header = SYNCED
+        saved = {name: getattr(closeout, name) for name in ("workflow_scope_enabled", "repo_root", "branch_header", "read_hook_input", "emit_json")}
+        self.addCleanup(lambda: [setattr(closeout, k, v) for k, v in saved.items()])
+        closeout.workflow_scope_enabled = lambda: True
+        closeout.repo_root = lambda: self.root
+        closeout.branch_header = lambda root=None: self.header
 
-    def tearDown(self) -> None:
-        for module, attrs in self.saved.items():
-            for name, value in attrs.items():
-                setattr(module, name, value)
-        closeout.branch_header, closeout.git_status_lines = self.saved_git
+    def _remove_root(self) -> None:
+        import shutil
+        shutil.rmtree(self.root, ignore_errors=True)
 
-    def run_hook(self, module, message: str):
+    def stop(self, *records: dict, active: bool = False) -> str | None:
+        self.transcript.write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
         captured = []
-        module.extract_last_message = lambda payload: message
-        module.emit_json = lambda payload: captured.append(payload) or 0
-        module.main()
+        closeout.read_hook_input = lambda: {"transcript_path": str(self.transcript), "stop_hook_active": active}
+        closeout.emit_json = lambda payload: captured.append(payload) or 0
+        closeout.main()
         return captured[-1]["reason"] if captured else None
 
-    def assertPasses(self, module, message: str) -> None:
-        self.assertIsNone(self.run_hook(module, message))
-
-    def assertBlocks(self, module, message: str, fragment: str) -> str:
-        reason = self.run_hook(module, message)
-        self.assertIsNotNone(reason, "expected a block")
-        self.assertIn(fragment, reason)
-        return reason
+    def edit(self, relative: str) -> dict:
+        return tool("Edit", file_path=str(self.root / relative), old_string="a", new_string="b")
 
 
-class TeamCloseoutScenarios(CloseoutHarness):
-    def test_mechanical_edit_needs_no_gate_agents(self) -> None:
-        self.assertPasses(
-            closeout,
-            "Fixed the README typo. Validated by rendering the file. Committed, pushed, "
-            "and opened PR [#5](https://example/pr/5); merged after checks passed.",
-        )
+class ValidationFacts(CloseoutHarness):
+    def test_source_edit_without_validation_nudges(self) -> None:
+        reason = self.stop(user("fix the parser"), self.edit("src/app.py"), say("Done, fully validated."))
+        self.assertIn("F3", reason)
+        self.assertIn("src/app.py", reason)
 
-    def test_bug_fix_finish_does_not_name_specialists(self) -> None:
-        reason = self.run_hook(
-            closeout,
-            "Fixed the pagination off-by-one and added a regression test; tests pass. "
-            "Committed, pushed, opened PR #7, merged.",
-        )
-        self.assertIsNone(reason)
+    def test_validation_after_the_last_edit_passes(self) -> None:
+        self.assertIsNone(self.stop(user("fix it"), self.edit("src/app.py"), shell("py -m pytest -q")))
 
-    def test_change_without_validation_still_blocks(self) -> None:
-        self.assertBlocks(
-            closeout,
-            "Updated the parser. Committed, pushed, opened PR #8.",
-            "validation run or explicit not-run reason",
-        )
+    def test_edit_after_validation_nudges_again(self) -> None:
+        reason = self.stop(user("fix it"), self.edit("src/a.py"), shell("pytest"), self.edit("src/b.py"))
+        self.assertIn("src/b.py", reason)
 
-    def test_security_change_requires_independent_review(self) -> None:
-        reason = self.assertBlocks(
-            closeout,
-            "Changed the authentication middleware token check; tests pass. Committed, "
-            "pushed, opened PR #9.",
-            "independent review",
-        )
-        self.assertNotIn("code-drift-sentinel", reason)
-        self.assertNotIn("software-testing-validation-architect", reason)
+    def test_docs_and_scratch_edits_need_no_validation(self) -> None:
+        scratch = tool("Write", file_path=str(Path(tempfile.gettempdir()) / "notes.py"), content="x")
+        self.assertIsNone(self.stop(user("update docs"), self.edit("README.md"), self.edit("docs/guide/setup.txt"), scratch))
 
-    def test_security_change_with_review_passes(self) -> None:
-        self.assertPasses(
-            closeout,
-            "Changed the authentication middleware token check; tests pass. Independent "
-            "review by a Sonnet security specialist found no issues. Committed, pushed, "
-            "opened PR #9.",
-        )
+    def test_browser_check_counts_as_validation(self) -> None:
+        self.assertIsNone(self.stop(user("fix the page"), self.edit("web/index.html"), tool("mcp__Claude_Browser__navigate", url="http://localhost")))
 
-    def test_critical_request_requires_review_even_if_report_omits_risk_words(self) -> None:
-        import json
-        import tempfile
-
-        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8") as fh:
-            fh.write(json.dumps({"type": "user", "message": {"content": "auth.py compares signatures with ==; make it constant-time"}}))
-            path = fh.name
-        self.addCleanup(Path(path).unlink)
-        closeout.read_hook_input = lambda: {"transcript_path": path}
-        self.assertBlocks(
-            closeout,
-            "Fixed check_signature to use hmac.compare_digest; tests pass. Committed on the task branch; local-only, no push.",
-            "independent review",
-        )
-
-    def test_pending_human_approval_is_a_valid_stop(self) -> None:
-        self.assertPasses(
-            closeout,
-            "Updated the deployment config; validated with the pipeline dry run. Committed, "
-            "pushed, and opened PR #10. Blocked: production approval is pending with Rudy; "
-            "next step is to resume monitoring once approved.",
-        )
-
-    def test_rejected_claim_is_a_valid_blocker(self) -> None:
-        self.assertPasses(
-            closeout,
-            "Updated the shared helper tests; tests pass. Blocked: the agentcoord claim on "
-            "src/shared was rejected, so the dependent write was not made. Next step: wait "
-            "for the claim owner to finish.",
-        )
-
-    def test_blocker_without_next_action_blocks(self) -> None:
-        self.assertBlocks(
-            closeout,
-            "Updated the parser; tests pass. Blocked: could not push.",
-            "exact next action",
-        )
-
-    def test_clean_completion_passes(self) -> None:
-        self.assertPasses(
-            closeout,
-            "Implemented the retry wrapper and verified it with the new unit tests. "
-            "Committed, pushed, opened PR #11, and merged. Claims released; no monitors remain.",
-        )
+    def test_heredoc_mentioning_pytest_is_not_a_test_run(self) -> None:
+        commit = shell("git commit -F - <<'EOF'\nfix: parser (ran pytest)\nEOF")
+        reason = self.stop(user("fix it"), self.edit("src/app.py"), commit, shell("git push -u origin claude/topic"), shell("gh pr create --title x"))
+        self.assertIn("F3", reason)
 
 
-class BookkeeperRecapScenarios(CloseoutHarness):
-    def test_pr_without_tracking_needs_no_recap(self) -> None:
-        self.assertPasses(
-            recap,
-            "Fixed the pagination bug; tests pass. Committed, pushed, opened PR #7.",
-        )
+class FinishFacts(CloseoutHarness):
+    def test_commit_without_push_nudges(self) -> None:
+        self.header = AHEAD
+        reason = self.stop(user("fix it"), self.edit("README.md"), shell("git commit -m fix"))
+        self.assertIn("F1", reason)
 
-    def test_boards_update_needs_recap(self) -> None:
-        self.assertBlocks(
-            recap,
-            "Updated the pipeline YAML and closed work item AB#44.",
-            "Bookkeeper Recap section",
-        )
+    def test_commit_push_and_pr_pass(self) -> None:
+        self.assertIsNone(self.stop(
+            user("fix it"), self.edit("README.md"), shell("git commit -m fix"),
+            shell("git push -u origin claude/topic"), shell("gh pr create --title fix"),
+        ))
+
+    def test_push_without_a_pull_request_nudges(self) -> None:
+        reason = self.stop(user("fix it"), self.edit("README.md"), shell("git commit -m fix"), shell("git push"))
+        self.assertIn("F2", reason)
+
+    def test_pull_request_link_earlier_in_the_session_satisfies_f2(self) -> None:
+        earlier = result("Created https://github.com/o/r/pull/12")
+        self.assertIsNone(self.stop(
+            user("open a PR"), earlier, user("address the review"),
+            self.edit("README.md"), shell("git commit -m review"), shell("git push"),
+        ))
+
+    def test_scope_limited_prompt_switches_off_finish_facts(self) -> None:
+        self.header = AHEAD
+        self.assertIsNone(self.stop(user("fix it locally, no push"), self.edit("README.md"), shell("git commit -m wip")))
+
+
+class ReviewFacts(CloseoutHarness):
+    def test_risky_path_needs_a_reviewer_after_the_change(self) -> None:
+        reason = self.stop(user("fix ci"), self.edit("azure-pipelines/ci.yml"), shell("py -m pytest"))
+        self.assertIn("F4", reason)
+
+    def test_reviewer_after_the_risky_change_passes(self) -> None:
+        self.assertIsNone(self.stop(
+            user("fix ci"), self.edit("azure-pipelines/ci.yml"), shell("py -m pytest"),
+            tool("Agent", subagent_type="Plan", prompt="review the change"),
+        ))
+
+
+class Gates(CloseoutHarness):
+    def test_one_shot_when_the_hook_already_fired(self) -> None:
+        self.assertIsNone(self.stop(user("fix it"), self.edit("src/app.py"), active=True))
+
+    def test_question_turn_passes(self) -> None:
+        self.assertIsNone(self.stop(user("what does the parser do?"), say("It splits statements.")))
+
+    def test_stop_hook_feedback_is_not_a_new_prompt(self) -> None:
+        feedback = {"type": "user", "isMeta": True, "message": {"role": "user", "content": "Stop hook feedback:\nBefore stopping: F3"}}
+        reason = self.stop(user("fix it"), self.edit("src/app.py"), say("done"), feedback, say("still done"))
+        self.assertIn("F3", reason)
 
 
 if __name__ == "__main__":
