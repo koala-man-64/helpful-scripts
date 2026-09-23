@@ -6,6 +6,8 @@ It names specialists only as optional hints; no orchestrator or specialist
 sequence is required for ordinary delivery.
 """
 
+import hashlib
+
 from agent_ladder import TIER_ORDER, parent_model
 from hook_utils import (
     additional_context,
@@ -18,6 +20,7 @@ from hook_utils import (
     requires_finish_workflow,
     requires_tracking,
     session_flag_once,
+    session_value_changed,
     workflow_scope_enabled,
 )
 
@@ -26,6 +29,7 @@ from hook_utils import (
 STANDING_POLICY_LINES = (
     "- Finish authority: when task-owned files change and the user does not explicitly limit scope, the owner completes the git finish workflow (commit, push, PR, merge/completion) before closeout, without waiting for a separate 'finish it' prompt. Delegate finishing only when it is an independent, bounded deliverable the lane permits; never spawn an agent just because work reached the finish stage. When ~/.claude/state/merge-steward.json shows an active steward updated within six hours, the owner instead stops at 'PR opened and steward told'; the steward owns completion. See the merge-steward agent definition.",
     "- Lanes: lite (one owner, no children), standard (solo by default; at most a bounded Haiku reviewer and specialist), critical (Opus owner; one to three bounded specialists; independent review). Select the model directly; no lower-tier attempts are required.",
+    "- Contract routing: before editing shared API, schema, or serialization shapes, classify the work as local-only or contracts-repo-first.",
 )
 
 
@@ -50,12 +54,19 @@ def specialist_hint(prompt: str) -> str:
     return "none"
 
 
-def contract_hint(prompt: str) -> str:
+SHARED_CONTRACT_TERMS = (
+    "api response", "api request", "payload", "schema", "serialization", "contract",
+    "@asset-allocation/contracts", "asset-allocation-contracts",
+)
+CONTRACT_SURFACE_HINT = (
+    "Potential shared contract surface detected. Route authoring through asset-allocation-contracts "
+    "first unless local evidence proves this is repo-private."
+)
+
+
+def mentions_shared_contract(prompt: str) -> bool:
     normalized = prompt.lower()
-    shared_terms = ("api response", "api request", "payload", "schema", "serialization", "contract", "@asset-allocation/contracts", "asset-allocation-contracts")
-    if any(term in normalized for term in shared_terms):
-        return "Potential shared contract surface detected. Route authoring through asset-allocation-contracts first unless local evidence proves this is repo-private."
-    return "Before editing shared API, schema, or serialization shapes, classify the work as local-only or contracts-repo-first."
+    return any(term in normalized for term in SHARED_CONTRACT_TERMS)
 
 
 def delegation_answer(lane: str) -> str:
@@ -80,48 +91,59 @@ def owner_model_lines(lane: str, payload: dict) -> list[str]:
     ]
 
 
+def is_harness_prompt(prompt: str) -> bool:
+    """Prompts the harness injects (task notifications) carry no new request to route."""
+    return prompt.lstrip().startswith("<task-notification>")
+
+
 def main() -> int:
     if not workflow_scope_enabled():
         return emit_json(None)
     payload = read_hook_input()
     session_id = str(payload.get("session_id") or "")
     prompt = extract_prompt(payload)
+    if is_harness_prompt(prompt):
+        return emit_json(None)
     lane, lane_reason = classify_lane(prompt)
     work_kind = classify_work_kind(prompt)
     question = lane == "question"
     finish_required = not question and requires_finish_workflow(prompt)
     tracking_required = not question and requires_tracking(prompt)
 
-    lines = [
-        "Team workflow routing:",
+    routing = [
         f"- Work kind: {work_kind}",
         f"- Suggested lane: {lane} ({lane_reason}); confirm against the actual scope and risk",
     ]
     if question:
-        lines.append("- Answer from evidence; no ticket, branch, or agent spawn.")
+        routing.append("- Answer from evidence; no ticket, branch, or agent spawn.")
     else:
-        lines.extend(
+        routing.extend(
             [
                 f"- Tracking needed: {'yes' if tracking_required else 'no'}",
                 f"- Commit/PR when files change: {'yes' if finish_required else 'no'}",
                 f"- Delegation: {delegation_answer(lane)}",
                 *owner_model_lines(lane, payload),
                 f"- Optional specialist: {specialist_hint(prompt)}",
-                f"- Contract routing: {contract_hint(prompt)}",
             ]
         )
-    # Standing policy is stated once per session and again after compaction
-    # (the session-start hook clears the flags). Every turn's text is re-sent
-    # with every later request, so the per-turn block carries only the facts
-    # that change.
+    # Every emitted line is re-sent with every later request in the session, so
+    # the routing block is emitted only when it differs from the last one this
+    # session saw, and standing text once per session (again after compaction:
+    # the session-start hook clears the flags).
+    digest = hashlib.sha1("\n".join(routing).encode("utf-8")).hexdigest()[:12]
+    routing_changed = session_value_changed(session_id, "router-last-routing", digest)
+    lines = ["Team workflow routing:", *routing] if routing_changed else []
     if session_flag_once(session_id, "router-standing-policy"):
         lines.extend(STANDING_POLICY_LINES)
     if (tracking_required or finish_required) and session_flag_once(
         session_id, "router-azure-devops-authority"
     ):
         lines.extend(azure_devops_agent_authority_lines())
-    context = "\n".join(lines)
-    return emit_json(additional_context("UserPromptSubmit", context))
+    if not question and mentions_shared_contract(prompt):
+        lines.append(f"- Contract routing: {CONTRACT_SURFACE_HINT}")
+    if not lines:
+        return emit_json(None)
+    return emit_json(additional_context("UserPromptSubmit", "\n".join(lines)))
 
 
 if __name__ == "__main__":

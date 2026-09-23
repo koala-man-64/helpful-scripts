@@ -104,6 +104,68 @@ class RouterScenarios(unittest.TestCase):
         self.assertIn("Commit/PR when files change: no", text)
 
 
+class RouterRepetition(unittest.TestCase):
+    """Emitted text is re-sent with every later request, so nothing is emitted twice in a row."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        os.environ["CLAUDE_SESSION_FLAGS_DIR"] = self._tmp.name
+        self._orig = (router.workflow_scope_enabled, router.read_hook_input, router.emit_json)
+        self.captured: list = []
+        router.workflow_scope_enabled = lambda: True
+        router.emit_json = lambda payload: self.captured.append(payload) or 0
+
+    def tearDown(self) -> None:
+        router.workflow_scope_enabled, router.read_hook_input, router.emit_json = self._orig
+        os.environ.pop("CLAUDE_SESSION_FLAGS_DIR", None)
+        self._tmp.cleanup()
+
+    def route(self, prompt: str, session_id: str = "same") -> str:
+        router.read_hook_input = lambda: {"session_id": session_id, "prompt": prompt}
+        router.main()
+        payload = self.captured[-1]
+        return payload["hookSpecificOutput"]["additionalContext"] if payload else ""
+
+    def test_same_routing_in_a_row_is_emitted_once(self) -> None:
+        first = self.route("Fix the off-by-one bug in the pagination helper")
+        self.assertIn("Suggested lane: standard", first)
+        self.assertIn("the owner completes the git finish workflow", first)
+        self.assertEqual(self.route("Fix the off-by-one bug in the sort helper"), "")
+
+    def test_routing_returns_when_the_classification_changes_back(self) -> None:
+        self.route("Fix the off-by-one bug in the pagination helper")
+        self.assertIn("Suggested lane: question", self.route("What does this function do?"))
+        again = self.route("Fix the off-by-one bug in the sort helper")
+        self.assertIn("Suggested lane: standard", again)
+        self.assertNotIn("the owner completes the git finish workflow", again)
+
+    def test_task_notification_emits_nothing_and_keeps_state(self) -> None:
+        self.route("What does this function do?")
+        self.assertEqual(self.route("<task-notification>\n<task-id>b1</task-id>\n</task-notification>"), "")
+        self.assertIsNone(self.captured[-1])
+        self.assertEqual(self.route("What does this other function do?"), "")
+
+    def test_contract_hint_follows_the_prompt_and_the_generic_line_is_standing(self) -> None:
+        first = self.route("Rename a local helper")
+        self.assertIn("classify the work as local-only or contracts-repo-first", first)
+        self.assertNotIn("Potential shared contract surface", first)
+        second = self.route("Add a field to the API response payload")
+        self.assertIn("Potential shared contract surface", second)
+        self.assertNotIn("classify the work as local-only or contracts-repo-first", second)
+        self.assertIn("Potential shared contract surface", self.route("Add another field to the API response payload"))
+
+    def test_cleared_flags_restate_everything(self) -> None:
+        self.route("Fix the off-by-one bug in the pagination helper")
+        hook_utils.clear_session_flags("same")
+        again = self.route("Fix the off-by-one bug in the sort helper")
+        self.assertIn("Suggested lane: standard", again)
+        self.assertIn("the owner completes the git finish workflow", again)
+
+    def test_unknown_session_always_emits(self) -> None:
+        self.assertIn("Suggested lane", self.route("Fix the typo in the README heading", session_id=""))
+        self.assertIn("Suggested lane", self.route("Fix the typo in the README heading", session_id=""))
+
+
 class LaneClassification(unittest.TestCase):
     def test_critical_wins_over_lite(self) -> None:
         self.assertEqual(hook_utils.classify_lane("rename the secret rotation job")[0], "critical")
