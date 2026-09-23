@@ -97,6 +97,12 @@ class ValidationFacts(CloseoutHarness):
         scratch = tool("Write", file_path=str(Path(tempfile.gettempdir()) / "notes.py"), content="x")
         self.assertIsNone(self.stop(user("update docs"), self.edit("README.md"), self.edit("docs/guide/setup.txt"), scratch))
 
+    def test_data_records_and_templates_are_not_source(self) -> None:
+        self.assertIsNone(self.stop(user("record the approval"), self.edit(".codedrift/approvals/ab1-x.json"), self.edit(".env.example")))
+
+    def test_build_config_is_source(self) -> None:
+        self.assertIn("package.json", self.stop(user("bump the dependency"), self.edit("web/package.json")))
+
     def test_browser_check_counts_as_validation(self) -> None:
         self.assertIsNone(self.stop(user("fix the page"), self.edit("web/index.html"), tool("mcp__Claude_Browser__navigate", url="http://localhost")))
 

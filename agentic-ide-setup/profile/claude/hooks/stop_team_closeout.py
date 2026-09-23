@@ -43,7 +43,15 @@ from risky_paths import is_risky
 
 EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
 SHELL_TOOLS = frozenset({"Bash", "PowerShell"})
-DOC_SUFFIXES = frozenset({".md", ".txt", ".rst", ".adoc"})
+# Files a test, build or lint can check. Docs, data records and templates
+# (.md, approval .json files, .env.example) are not source.
+SOURCE_SUFFIXES = frozenset({
+    ".py", ".pyi", ".ps1", ".psm1", ".psd1", ".sh", ".bash", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".vue", ".svelte", ".cs", ".csproj", ".fs", ".go", ".rs", ".java", ".kt", ".scala", ".rb", ".php",
+    ".c", ".h", ".cpp", ".hpp", ".swift", ".sql", ".bicep", ".tf", ".yml", ".yaml", ".toml", ".html",
+    ".css", ".scss", ".ipynb",
+})
+SOURCE_NAMES = frozenset({"dockerfile", "makefile", "package.json", "tsconfig.json"})
 REVIEWERS = frozenset({
     "Explore", "Plan", "cloud-security-vulnerability-expert", "code-drift-sentinel",
     "maintainability-steward", "architecture-review-agent", "qa-release-gate-agent",
@@ -117,17 +125,21 @@ def _classify_command(command: str, dialect: str, step: int, facts: Facts, in_tu
 
 
 def collect_facts(transcript_path: str) -> Facts:
-    facts = Facts()
     try:
         lines = Path(transcript_path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
-        return facts
+        return Facts()
     records = []
     for line in lines:
         try:
             records.append(json.loads(line))
         except json.JSONDecodeError:
             continue
+    return facts_from_records(records)
+
+
+def facts_from_records(records: list[dict]) -> Facts:
+    facts = Facts()
     last_prompt = max((i for i, r in enumerate(records) if _is_real_prompt(r)), default=-1)
     step = 0
     for index, record in enumerate(records):
@@ -172,6 +184,13 @@ def _repo_relative(path: str, root: Path) -> str | None:
         return None
 
 
+def _is_source(relative_path: str) -> bool:
+    path = Path(relative_path)
+    if "docs" in path.parts:
+        return False
+    return path.suffix.lower() in SOURCE_SUFFIXES or path.name.lower() in SOURCE_NAMES
+
+
 def findings(facts: Facts, root: Path, header: str, scope_limited: bool) -> list[str]:
     found = []
     if not scope_limited:
@@ -183,8 +202,7 @@ def findings(facts: Facts, root: Path, header: str, scope_limited: bool) -> list
         if facts.pushes and not facts.pr_in_session and not protected:
             found.append("F2: this turn pushed the branch, and this session shows no pull request for it")
     in_repo = [(step, rel) for step, path in facts.edits if (rel := _repo_relative(path, root))]
-    source = [(step, rel) for step, rel in in_repo
-              if Path(rel).suffix.lower() not in DOC_SUFFIXES and "docs" not in Path(rel).parts]
+    source = [(step, rel) for step, rel in in_repo if _is_source(rel)]
     if source and max(facts.validations, default=0) < max(step for step, _ in source):
         found.append(f"F3: no test, build, lint or browser check ran after the last edit to {source[-1][1]}")
     risky = [(step, rel) for step, rel in in_repo if is_risky(rel, root.name)]
