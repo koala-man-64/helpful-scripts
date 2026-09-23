@@ -80,6 +80,47 @@ python -m pip install --user -e ..\agent-browser
 agent-browser doctor
 ```
 
+## Claude hooks: release clone
+
+The bundle does not install Claude hooks. They run from a pinned release clone of this repository at `%USERPROFILE%\.claude\hooks-release`: a sparse clone, detached at a merged commit, that `settings.json` points at. Nothing is copied, so a hook edited in place shows up in `git status` instead of silently drifting from this repository.
+
+One-time setup:
+
+```powershell
+$clone = "$HOME\.claude\hooks-release"
+git clone --filter=blob:none --no-checkout https://github.com/koala-man-64/helpful-scripts.git $clone
+git -C $clone sparse-checkout set --cone agentic-ide-setup/profile/claude/hooks
+git -C $clone switch --detach origin/main
+```
+
+Back up `settings.json` (it stays host-owned). Then point each Claude hook command at `...\.claude\hooks-release\agentic-ide-setup\profile\claude\hooks\<hook>.py`, and run each command once by hand with a sample payload before relying on it.
+
+Deploy a merged hook change:
+
+```powershell
+git -C $clone status --porcelain    # must print nothing; otherwise upstream or discard the in-place edit first
+git -C $clone rev-parse HEAD        # record it for rollback
+git -C $clone fetch origin
+git -C $clone switch --detach <merged-sha>
+```
+
+Then run the hook tests in the clone's hooks folder: `$env:PYTHONDONTWRITEBYTECODE = 1; py -m pytest -q -p no:cacheprovider`.
+
+Deploy when few sessions are running, because every running session picks up changed hook files immediately. To roll back, run `git -C $clone switch --detach <previous-sha>`.
+
+Check drift between this profile and the installed setup:
+
+```powershell
+py .\scripts\check_claude_drift.py --fetch
+```
+
+The check fails in any of these cases:
+
+- the release clone has local edits
+- the release clone isn't on `origin/main`
+- `settings.json` still runs a copied hook
+- installed agents, skills or `CLAUDE.md` differ from the profile (line endings are ignored)
+
 ## Verify and recover
 
 ```powershell
