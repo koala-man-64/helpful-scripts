@@ -818,10 +818,10 @@ def _session_flag_file(session_id: str) -> Path | None:
     return session_flags_dir() / f"{cleaned}.json"
 
 
-def session_flag_once(session_id: str, name: str) -> bool:
-    """True the first time `name` is asked for in this session, False after.
+def session_value_changed(session_id: str, name: str, value: Any) -> bool:
+    """True when `value` differs from what this session last recorded as `name`.
 
-    Sets the flag as a side effect. An unknown session id or an IO failure
+    Records `value` as a side effect. An unknown session id or an IO failure
     returns True so the caller emits its text.
     """
     path = _session_flag_file(session_id)
@@ -833,14 +833,19 @@ def session_flag_once(session_id: str, name: str) -> bool:
             loaded = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
                 flags = loaded
-        if flags.get(name):
+        if flags.get(name) == value:
             return False
-        flags[name] = True
+        flags[name] = value
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(flags, sort_keys=True), encoding="utf-8")
     except (OSError, ValueError):
         return True
     return True
+
+
+def session_flag_once(session_id: str, name: str) -> bool:
+    """True the first time `name` is asked for in this session, False after."""
+    return session_value_changed(session_id, name, True)
 
 
 def clear_session_flags(session_id: str) -> None:

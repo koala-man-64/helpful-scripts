@@ -81,7 +81,8 @@ class RouterOncePerSessionTests(unittest.TestCase):
     def _run(self, session_id: str, prompt: str) -> str:
         router.read_hook_input = lambda: {"session_id": session_id, "prompt": prompt}
         router.main()
-        return self.captured[-1]["hookSpecificOutput"]["additionalContext"]
+        payload = self.captured[-1]
+        return payload["hookSpecificOutput"]["additionalContext"] if payload else ""
 
     def test_standing_and_authority_text_emitted_once(self) -> None:
         authority = hook_utils.AZURE_DEVOPS_AGENT_AUTHORITY_LINES[0]
@@ -91,11 +92,12 @@ class RouterOncePerSessionTests(unittest.TestCase):
         self.assertNotIn("sonnet-tier", first)
         self.assertNotIn("delivery-orchestrator-agent", first)
         self.assertIn(authority, first)
-        second = self._run("sess-1", "finish it")
-        self.assertIn("- Work kind: finish", second)
-        self.assertNotIn("Finish authority", second)
-        self.assertNotIn(authority, second)
-        self.assertLess(len(second), len(first) - 1000)
+        # Same routing as the previous turn: nothing new to say.
+        self.assertEqual(self._run("sess-1", "finish it"), "")
+        later = self._run("sess-1", "what does this function do?")
+        self.assertIn("- Work kind:", later)
+        self.assertNotIn("Finish authority", later)
+        self.assertNotIn(authority, later)
 
     def test_authority_waits_for_a_turn_that_needs_it(self) -> None:
         authority = hook_utils.AZURE_DEVOPS_AGENT_AUTHORITY_LINES[0]
