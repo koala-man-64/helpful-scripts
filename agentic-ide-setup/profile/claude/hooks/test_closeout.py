@@ -118,6 +118,14 @@ class FinishFacts(CloseoutHarness):
         reason = self.stop(user("fix it"), self.edit("README.md"), shell("git commit -m fix"))
         self.assertIn("F1", reason)
 
+    def test_git_global_options_do_not_hide_the_subcommand(self) -> None:
+        self.header = AHEAD
+        reason = self.stop(user("fix it"), self.edit("README.md"), shell('git -C "C:/repo" -c core.autocrlf=false commit -m fix'))
+        self.assertIn("F1", reason)
+        pushed = self.stop(user("fix it"), self.edit("README.md"), shell("git -C C:/repo commit -m fix"), shell("git -C C:/repo push"))
+        self.assertIn("F2", pushed)
+        self.assertNotIn("F1", pushed)
+
     def test_commit_push_and_pr_pass(self) -> None:
         self.assertIsNone(self.stop(
             user("fix it"), self.edit("README.md"), shell("git commit -m fix"),

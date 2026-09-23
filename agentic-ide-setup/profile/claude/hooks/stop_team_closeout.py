@@ -71,6 +71,7 @@ VALIDATION_SUBCOMMANDS = {
     "make": {"test", "check", "lint", "build"}, "terraform": {"validate", "plan"},
     "mvn": {"test", "verify"}, "gradle": {"test", "check", "build"},
 }
+GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"})
 PYTHON_VALIDATION_MODULES = frozenset({"pytest", "unittest", "mypy", "ruff", "compileall", "py_compile", "pyright"})
 
 
@@ -107,6 +108,19 @@ def _is_validation(statement: shell_parse.Statement) -> bool:
     return False
 
 
+def _git_subcommand(args: list[str]) -> str:
+    """The subcommand after git's global options (`git -C repo -c k=v commit` is a commit)."""
+    skip_value = False
+    for arg in args:
+        if skip_value:
+            skip_value = False
+        elif arg in GIT_VALUE_OPTIONS:
+            skip_value = True
+        elif not arg.startswith("-"):
+            return arg
+    return ""
+
+
 def _classify_command(command: str, dialect: str, step: int, facts: Facts, in_turn: bool) -> None:
     for statement in shell_parse.parse(command, dialect).statements:
         text = " ".join(statement.argv).lower()
@@ -115,10 +129,10 @@ def _classify_command(command: str, dialect: str, step: int, facts: Facts, in_tu
         if not in_turn:
             continue
         if statement.program == "git":
-            words = [a for a in statement.argv[1:] if not a.startswith("-")]
-            if words[:1] == ["commit"]:
+            subcommand = _git_subcommand(statement.argv[1:])
+            if subcommand == "commit":
                 facts.commits.append(step)
-            elif words[:1] == ["push"]:
+            elif subcommand == "push":
                 facts.pushes.append(step)
         if _is_validation(statement):
             facts.validations.append(step)
