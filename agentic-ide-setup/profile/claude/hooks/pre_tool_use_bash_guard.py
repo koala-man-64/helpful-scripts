@@ -68,6 +68,11 @@ PASS_THROUGH = frozenset({
 GREP_PROGRAMS = frozenset({"grep", "egrep", "fgrep", "rg"})
 GREP_SUMMARY_LONG = frozenset({"--count", "--quiet", "--silent", "--files-with-matches", "--files-without-match"})
 SELECT_VALUE_OPTIONS = frozenset({"-first", "-last", "-skip", "-skiplast", "-index"})
+# A sed pattern that strips the value from every NAME=value line: nothing, or any
+# name, before `=.*`. `s/(TOKEN|KEY)=.*//` masks only some names, so it is not one.
+# Like `cut -d= -f1` and `awk -F=`, it cannot mask the continuation lines of a
+# multi-line value; `compgen -e` lists names only.
+SED_MASKS_EVERY_VALUE = re.compile(r"\^?(?:\\\(\[\^=\]\*\\\)|\(\[\^=\]\*\)|\[\^=\]\*)?=\.[*+]\$?")
 
 SECRET_NAME = re.compile(
     r"(?:^|_)(?:PAT|TOKENS?|SECRETS?|PASSWORD|PASSWD|CREDENTIALS?|DSN|APIKEY|SAS)(?:_|$)"
@@ -642,7 +647,7 @@ def stage_passes_values(argv: tuple[str, ...]) -> bool:
     if program == "sed":
         for arg in args:
             if len(arg) > 2 and arg[0] == "s" and not arg[1].isalnum():
-                if re.search(r"=\.[*+]\$?$", arg[2:].split(arg[1])[0]):
+                if SED_MASKS_EVERY_VALUE.fullmatch(arg[2:].split(arg[1])[0]):
                     return False
     if program == "cut" and re.search(r"-d\s*=", joined) and re.search(r"-f\s*1(?![\d,-])", joined):
         return False
@@ -676,7 +681,7 @@ def secret_print(statement: shell_parse.Statement, ctx: Context) -> str | None:
     if statement.dialect != "powershell" and program in {"printenv", "env", "set", "export"} and not args:
         return (
             f"`{program}` with no arguments prints every environment variable, secrets included. "
-            "List names only (`env | cut -d= -f1`), or count matches (`grep -c`)."
+            "List names only (`compgen -e | grep X`), or count matches (`env | grep -c X`)."
         )
     if program == "printenv" and any(SECRET_NAME.search(a) for a in args):
         return "printenv of a secret variable is blocked."
