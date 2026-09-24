@@ -1063,6 +1063,8 @@ DATA_PROGRAMS = frozenset({
     "dotnet", "java", "sqlite3", "psql",
     "git", "gh", "az", "curl", "wget", "invoke-restmethod", "irm", "invoke-webrequest", "iwr",
     "npm", "pnpm", "yarn", "npx", "pip", "uv", "pytest",
+    # bash words whose arguments are values: loop lists, tests, prompts, declarations
+    "for", "select", "test", "[", "[[", "read", "declare", "typeset", "local", "export", "readonly",
 })
 # Programs whose code the parser reads itself, and programs judged by their path arguments.
 KNOWN_PROGRAMS = DATA_PROGRAMS | CD_PROGRAMS | PS_REMOVE | PS_MOVE | frozenset({
@@ -1092,7 +1094,10 @@ def carried_text(statement: shell_parse.Statement, ctx: Context) -> list[str]:
     argv = statement.argv
     if statement.dialect == "powershell" and len(argv) == 1 and (argv[0] == "@here@" or re.search(r"\s", argv[0])):
         # A PowerShell string or here-string on its own is a value. It is code where it is handed
-        # to something that runs it ([scriptblock]::Create), but not where a data cmdlet takes it.
+        # to something that runs it ([scriptblock]::Create), but not where a data cmdlet takes it
+        # or a variable stores it (`$body = @'...'@`, `@{ A = ('Basic ' + $t) }`).
+        if statement.captured:
+            return []
         consumer = shell_parse.program_name(statement.downstream[0][0]) if statement.downstream and statement.downstream[0] else ""
         if consumer in DATA_PROGRAMS or re.fullmatch(r"[a-z]+-[a-z]+", consumer or "x"):
             return []

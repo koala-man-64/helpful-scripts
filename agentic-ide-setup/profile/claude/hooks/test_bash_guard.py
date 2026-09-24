@@ -770,13 +770,18 @@ class ReviewRoundFourTests(GuardTestCase):
             ("Bash", "ssh host 'git push --force origin main'", "ask"),
             ("Bash", f"docker exec box rm -rf {target}/x", "ask"),
             ("Bash", f'schtasks /create /tn x /tr "cmd /c rd /s /q {OUT}\\x"', "ask"),
-            ("PowerShell", f"& ([scriptblock]::Create('Remove-Item -Recurse -Force {OUT}\\x'))", "ask"),
             # Data stays data: known data programs, and harmless text.
             ("Bash", "grep -rn 'git push --force' docs/", "allow"),
             ("Bash", "echo 'git reset --hard'", "allow"),
             ("Bash", "python -c \"print('rm -rf /')\"", "allow"),
             ("Bash", "mytool --message 'chore: update docs'", "allow"),
             ("PowerShell", f"'Remove-Item -Recurse {OUT}' | Set-Content notes.txt", "allow"),
+            # From the replay: loop lists and stored values are data.
+            ("Bash", 'for s in "git reset --hard is blocked" "other"; do grep -c "$s" log.txt; done', "allow"),
+            ("PowerShell", "$body = @'\nApprove the prod deployment with az pipelines approve\n'@; $body.Length", "allow"),
+            ("PowerShell", "$hdr = @{ Authorization = ('Basic ' + 'dXNlcjpwdw==') }; $hdr.Count", "allow"),
+            # Positional parameters can carry a command: `set -- rm ...; "$@"`.
+            ("Bash", f'set -- rm -rf {target}/x; "$@"', "ask"),
         ])
 
     def test_code_fed_to_a_shell_is_read(self) -> None:
@@ -789,6 +794,8 @@ class ReviewRoundFourTests(GuardTestCase):
             ("Bash", f"bash <<< 'rm -rf {target}/x'", "deny"),
             ("PowerShell", f"iex @'\nRemove-Item -Recurse -Force '{OUT}\\x'\n'@", "deny"),
             ("PowerShell", f"'Remove-Item -Recurse -Force {OUT}\\x' | pwsh -Command -", "deny"),
+            ("PowerShell", f"& ([scriptblock]::Create('Remove-Item -Recurse -Force {OUT}\\x'))", "deny"),
+            ("PowerShell", f"$b = [scriptblock]::Create('Remove-Item -Recurse -Force {OUT}\\x'); & $b", "deny"),
             ("Bash", f"case x in x) rm -rf {target}/x;; esac", "deny"),
             ("Bash", f"case x in y) true;; x) rm -rf {target}/x;; esac", "deny"),
             ("Bash", f"coproc N {{ rm -rf {target}/x; }}", "deny"),

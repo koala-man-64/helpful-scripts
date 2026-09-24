@@ -99,6 +99,8 @@ HEREDOC_REFS = "(heredoc-refs)"
 # Pseudo-dialect of a heredoc body or PowerShell here-string: the statement's input
 # or argument text, which is code only when the statement runs it (`bash <<EOF`, `iex @'...'@`).
 STDIN_TEXT = "(stdin-text)"
+# Pseudo-dialect of the argument to [scriptblock]::Create(...) and the like: a string that becomes code.
+SCRIPT_TEXT = "(script-text)"
 _SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh"})
 _SH_VALUE_OPTIONS = frozenset({"-o", "+o", "-O", "+O", "--rcfile", "--init-file"})
 
@@ -216,6 +218,12 @@ def _parse_into(
                 continue
             if code_dialect == STDIN_TEXT:
                 bodies.append(code)
+                continue
+            if code_dialect == SCRIPT_TEXT:
+                # A literal string is parsed as the script block it becomes; one built at run time cannot be.
+                words, _ = _tokenize(code, "powershell")
+                if len(words) == 1 and code.strip()[:1] in {"'", '"'}:
+                    _parse_into(result, words[0], "powershell", None, depth + 1, _enter(scope, BLOCK))
                 continue
             # Everything bash nests runs in a subshell. PowerShell's (...) and $(...) run in place; its
             # {...} blocks run wherever the command they are given to runs them.
@@ -795,6 +803,10 @@ def _split_powershell(text: str, start: int = 0, closer: str | None = None):
                 target, placeholder = _substitution(None)
                 nested.append((inner, "powershell", target))
                 buf.append(placeholder)
+            elif method_call and re.search(r"(?:::create|\.newscriptblock|\.invokescript)$", "".join(buf), re.IGNORECASE):
+                # [scriptblock]::Create('...'): the argument text becomes code.
+                nested.append((inner, SCRIPT_TEXT, None))
+                buf.append(f"({inner})")
             else:
                 # A condition's value is tested, not printed; a script block's output is its own.
                 nested.append((inner, "powershell", CONDITION if condition else None))
