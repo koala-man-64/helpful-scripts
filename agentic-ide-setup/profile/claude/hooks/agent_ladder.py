@@ -45,7 +45,7 @@ LANE_ORDER = ("lite", "standard", "critical")
 
 LANE_SHAPE = {
     "lite": "bounded mechanical work; one owner, no children",
-    "standard": "Sonnet owner, solo by default; at most a bounded Haiku reviewer and a bounded Sonnet or Haiku specialist",
+    "standard": "Sonnet owner, solo by default; at most a bounded Haiku reviewer and a bounded specialist below the session model (Sonnet or Haiku; a Sonnet owner's is Haiku)",
     "critical": "Opus owner; one to three bounded Sonnet or Haiku specialists with independent evidence",
 }
 
