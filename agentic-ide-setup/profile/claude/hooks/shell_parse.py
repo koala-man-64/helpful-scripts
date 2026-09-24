@@ -811,7 +811,11 @@ def _split_powershell(text: str, start: int = 0, closer: str | None = None):
             inner = text[i + 1:end]
             last_word = re.split(r"[\s;|({}]", "".join(buf).rstrip())[-1].lower()
             condition = c == "(" and last_word in _PS_CONDITION_KEYWORDS
-            method_call = c == "(" and not condition and not at_word_start() and "".join(buf)[-1:] not in {"$", "@"}
+            # A method call is member access, `$x.Name(` or `[Type]::Name(`; `a=(...)` and `+(...)` are
+            # grouping expressions whose value the outer statement uses.
+            method_call = (
+                c == "(" and not condition and bool(re.search(r"(?:\.|::)[A-Za-z_]\w*$", "".join(buf)))
+            )
             if c == "(" and not condition and not method_call:
                 # `(expr)`, `$(expr)`, `@(expr)`: a value the outer statement uses or prints,
                 # so it is captured into a placeholder that the outer statement carries.
