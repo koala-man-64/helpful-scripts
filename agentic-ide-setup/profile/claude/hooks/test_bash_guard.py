@@ -381,6 +381,127 @@ class ReplayRegressionTests(GuardTestCase):
         self.assertEqual(self.decide("git push --force-with-lease 2>&1", repo=repo), "allow")
 
 
+class AdversarialReviewTests(GuardTestCase):
+    """Bypasses and false positives from the independent adversarial review of this rewrite."""
+
+    def test_a_program_named_by_a_variable_is_judged_by_its_value(self) -> None:
+        self.assertDecisions([
+            ("Bash", "G=git; $G push --force origin main", "deny"),
+            ("Bash", 'CMD="git push"; $CMD --force origin topic', "deny"),
+            ("PowerShell", "$g = 'git'; & $g push --force origin main", "deny"),
+            ("Bash", f'R=rm; $R -rf "{OUT.as_posix()}"', "deny"),
+            ("Bash", "$UNKNOWN push --force", "ask"),
+            ("Bash", "$PYTHON -m pytest -q", "allow"),
+        ])
+
+    def test_env_does_not_hide_the_command(self) -> None:
+        self.assertDecisions([
+            ("Bash", "env printenv", "deny"),
+            ("Bash", "env git push --force origin main", "deny"),
+            ("Bash", "env -i PATH=/usr/bin git reset --hard", "deny"),
+            ("Bash", f"env rm -rf {OUT.as_posix()}", "deny"),
+            ("Bash", "env PYTHONPATH=. py -m pytest", "allow"),
+        ])
+
+    def test_git_aliases_are_judged_by_what_they_run(self) -> None:
+        repo = make_repo(self.base / "aliases")
+        git(repo, "config", "alias.hardreset", "!git reset --hard")
+        git(repo, "config", "alias.fp", "push --force")
+        git(repo, "config", "alias.st", "status --short")
+        self.assertEqual(self.decide("git hardreset", repo=repo), "deny")
+        self.assertEqual(self.decide("git fp origin claude/topic", repo=repo), "deny")
+        self.assertEqual(self.decide("git st", repo=repo), "allow")
+        self.assertEqual(self.decide("git config alias.nuke '!git clean -fdx'", repo=repo), "deny")
+        self.assertEqual(self.decide("git -c alias.x='!git reset --hard' x", repo=repo), "deny")
+        self.assertEqual(self.decide("git config alias.lg 'log --oneline --graph'", repo=repo), "allow")
+
+    def test_forced_checkout_switch_worktree_and_stash_discards(self) -> None:
+        self.assertDecisions([
+            ("Bash", "git checkout -f", "deny"),
+            ("Bash", "git checkout -f main", "deny"),
+            ("Bash", "git switch -f main", "deny"),
+            ("Bash", "git switch --discard-changes main", "deny"),
+            ("Bash", "git switch -c claude/new-topic", "allow"),
+            ("Bash", "git worktree remove --force ../scratch-wt", "ask"),
+            ("Bash", "git worktree remove ../scratch-wt", "allow"),
+            ("Bash", "git stash clear", "ask"),
+            ("Bash", "git stash drop", "ask"),
+            ("Bash", "git stash pop", "allow"),
+        ])
+
+    def test_comma_joined_powershell_paths_are_each_a_target(self) -> None:
+        self.assertDecisions([
+            ("PowerShell", f"Remove-Item -Path ./bin,{OUT.as_posix()} -Recurse -Force", "deny"),
+            ("PowerShell", "Remove-Item -Path a.txt,b.txt,c.txt", "ask"),
+        ])
+
+    def test_launchers_and_find_do_not_hide_their_commands(self) -> None:
+        self.assertDecisions([
+            ("PowerShell", f"Start-Process powershell -ArgumentList '-Command','Remove-Item {OUT} -Recurse -Force' -Wait", "deny"),
+            ("PowerShell", "Start-Process git -ArgumentList 'push','--force' -NoNewWindow", "deny"),
+            ("Bash", "find . -delete", "deny"),
+            ("Bash", f"find {OUT.as_posix()} -name '*.log' -delete", "deny"),
+            ("Bash", "find build -name '*.pyc' -delete", "allow"),
+            ("Bash", "find /tmp/x -exec rm -rf {} \\;", "ask"),
+            ("Bash", "find . -name '*.py' -exec grep -l TODO {} +", "allow"),
+            ("Bash", "find . -type f | xargs -I {} rm -rf {}", "ask"),
+            ("Bash", "timeout -s KILL 10 git push --force", "deny"),
+        ])
+
+    def test_unresolved_move_destinations_ask(self) -> None:
+        self.assertEqual(self.decide('mv notes.txt "$UNKNOWN_DEST/notes.txt"'), "ask")
+
+    def test_more_credential_readers(self) -> None:
+        self.assertDecisions([
+            ("Bash", "gcloud secrets versions access latest --secret=my-secret", "deny"),
+            ("Bash", "aws secretsmanager get-secret-value --secret-id foo", "deny"),
+            ("Bash", "aws ssm get-parameter --name /x/y --with-decryption", "deny"),
+            ("Bash", "aws ssm get-parameter --name /x/y", "allow"),
+            ("Bash", "op item get MyLogin --fields password", "deny"),
+            ("Bash", "az functionapp config appsettings list -n app -g rg", "deny"),
+            ("Bash", "az webapp config appsettings list -n app -g rg --query [].name -o tsv", "allow"),
+            ("Bash", "tok=$(az keyvault secret show --vault-name kv --name X --query value -o tsv); declare -p tok", "deny"),
+            ("Bash", "declare -p", "deny"),
+            ("Bash", "declare -p BUILD_NUMBER", "allow"),
+            ("PowerShell", "$p = [Environment]::GetEnvironmentVariable('AZURE_DEVOPS_EXT_PAT'); Get-Variable -Name p -ValueOnly", "deny"),
+            ("PowerShell", "$p = [Environment]::GetEnvironmentVariable('AZURE_DEVOPS_EXT_PAT'); (Get-Variable p).Value", "deny"),
+            ("Bash", "cat ~/.kube/config", "deny"),
+            ("PowerShell", "Get-Content ~/.docker/config.json", "deny"),
+            ("Bash", "cat ~/.config/gh/hosts.yml", "deny"),
+            ("Bash", "cat .env2", "deny"),
+            ("Bash", "cat .envrc", "deny"),
+            ("Bash", "cat .env.example", "allow"),
+        ])
+
+    def test_production_approval_through_a_variable_is_denied(self) -> None:
+        self.assertEqual(self.decide('ENV=prod-east; az pipelines release approve --environment "$ENV" --id 123'), "deny")
+
+    def test_protected_branch_names_are_case_folded(self) -> None:
+        self.assertEqual(self.decide("git push origin feature:MAIN"), "deny")
+
+    def test_bulk_deletes_count_across_statements(self) -> None:
+        self.assertDecisions([
+            ("Bash", "rm a.txt; rm b.txt; rm c.txt", "ask"),
+            ("Bash", "rm a.txt && rm b.txt", "allow"),
+        ])
+
+    def test_deleting_the_repository_itself_is_denied(self) -> None:
+        self.assertDecisions([
+            ("Bash", "rm -rf .", "deny"),
+            ("Bash", "rm -rf .git", "deny"),
+            ("PowerShell", "Remove-Item -Recurse -Force .git", "deny"),
+            ("Bash", "rm -rf build", "allow"),
+            ("Bash", "rm .git/index.lock", "allow"),
+        ])
+
+    def test_bash_temp_variables_are_scratch(self) -> None:
+        self.assertDecisions([
+            ("Bash", 'rm -rf "$TEMP/mytempscratch"', "allow"),
+            ("Bash", 'rm -rf "$TMPDIR/x" "$TMP/y" "${TEMP}/z"', "allow"),
+            ("Bash", 'rm -rf "$TEMPLATE_DIR/x"', "ask"),
+        ])
+
+
 class ParserTests(unittest.TestCase):
     def argvs(self, command: str, dialect: str = "bash") -> list[list[str]]:
         return [s.argv for s in shell_parse.parse(command, dialect).statements]

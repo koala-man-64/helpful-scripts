@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +56,7 @@ PS_PATH_PARAMS = frozenset({"-path", "-literalpath", "-lp", "-pspath"})
 FILE_PRINTERS = frozenset({"cat", "head", "tail", "less", "more", "type", "bat", "get-content", "gc", "select-string", "sls"})
 VALUE_PRINTERS = frozenset({"echo", "printf", "print", "write-output", "write", "write-host"})
 ENV_LISTERS = frozenset({"get-childitem", "gci", "dir", "ls", "get-item", "gi"})
+VARIABLE_DUMPERS = frozenset({"declare", "typeset", "export", "readonly", "local"})
 # Pipeline stages that pass their input on to the transcript rather than consuming it.
 PASS_THROUGH = frozenset({
     "cat", "tee", "grep", "egrep", "fgrep", "rg", "findstr", "select-string", "sls", "sed", "awk",
@@ -82,10 +84,16 @@ SECRET_NAME = re.compile(
 VARIABLE_REF = re.compile(r"\$\{?(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}?|%([A-Za-z_][A-Za-z0-9_]*)%", re.IGNORECASE)
 ENV_VARIABLE_CALL = re.compile(r"getenvironmentvariable\(\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
 LENGTH_READ = re.compile(r"\.(?:length|count)\b", re.IGNORECASE)
+# Home and temp spelled as variables in bash, PowerShell or cmd, ending at a path separator.
+KNOWN_ROOT_VARIABLE = re.compile(
+    r"^(?:\$\{?(home|tmpdir|temp|tmp|env:userprofile|env:home|env:temp|env:tmp)\}?|%(userprofile|temp|tmp)%)(?=[\\/]|$)",
+    re.IGNORECASE,
+)
 SECRET_FILE = re.compile(
-    r"(?i)(?:^|[\\/])(?:\.env(?:\.(?!example$|sample$|template$|dist$)[\w.-]+)?"
+    r"(?i)(?:^|[\\/])(?:\.env(?:rc|[-\w]*)(?:\.(?!example$|sample$|template$|dist$)[\w.-]+)?"
     r"|[^\\/]+\.(?:pem|key|pfx|p12)|id_(?:rsa|dsa|ecdsa|ed25519)|\.git-credentials|[._]netrc"
-    r"|credentials\.json|\.npmrc|msal_token_cache[^\\/]*|accesstokens\.json)$"
+    r"|credentials\.json|\.npmrc|\.pypirc|msal_token_cache[^\\/]*|accesstokens\.json|credentials\.tfrc\.json"
+    r"|\.kube[\\/]config|\.docker[\\/]config\.json|gh[\\/]hosts\.yml)$"
 )
 # A data file named for a secret (dsn_relay.txt, access-token.json, secrets.yaml,
 # x.tok) holds one; source and docs named for one (token_audit.py) do not, and
@@ -124,6 +132,10 @@ AZ_SECRET_COMMANDS = (
     ("search", "query-key", "list"),
     ("cognitiveservices", "account", "keys", "list"),
     ("staticwebapp", "secrets", "list"),
+    ("staticwebapp", "appsettings", "list"),
+    ("webapp", "config", "appsettings", "list"),
+    ("webapp", "config", "connection-string", "list"),
+    ("functionapp", "config", "appsettings", "list"),
     ("batch", "account", "keys", "list"),
     ("signalr", "key", "list"),
 )
@@ -134,6 +146,9 @@ OTHER_SECRET_COMMANDS = (
     ("gcloud", "auth", "application-default", "print-access-token"),
     ("aws", "ecr", "get-login-password"),
     ("aws", "sts", "get-session-token"),
+    ("aws", "secretsmanager", "get-secret-value"),
+    ("gcloud", "secrets", "versions", "access"),
+    ("op", "inject"),
     ("npm", "token", "create"),
     ("vault", "kv", "get"),
     ("vault", "read"),
@@ -156,6 +171,12 @@ AZURE_PIPELINE_APPROVAL = re.compile(
 AZURE_ACTIONS = frozenset({"delete", "purge", "create", "update", "scale", "start", "stop", "restart"})
 # Command groups the user has pre-authorized for agents; the ask tier must not undo that.
 AZURE_EXEMPT_GROUPS = frozenset({"boards", "repos", "pipelines", "devops"})
+# Argument words that make a statement worth confirming when its program is unknown.
+DESTRUCTIVE_WORDS = frozenset({
+    "push", "reset", "clean", "checkout", "restore", "switch", "branch", "stash", "worktree", "update-ref",
+    "rm", "rmdir", "remove-item", "del", "delete", "purge", "-rf", "-fr", "-r", "--force", "-f", "--hard",
+    "--mirror", "-recurse",
+})
 UNPARSED_DESTRUCTIVE = re.compile(
     r"\b(?:rm|rmdir|rd|del|erase|remove-item|ri|move-item|mv)\b"
     r"|\bgit\b.*\b(?:reset|clean|checkout|restore|branch|push|update-ref)\b"
@@ -173,6 +194,7 @@ class Context:
     session_cwd: Path
     variables: dict[str, str] = field(default_factory=dict)  # literal values seen so far, lower-cased names
     tainted: set[str] = field(default_factory=set)  # variables holding a secret, lower-cased names
+    delete_targets: list[str] = field(default_factory=list)  # non-scratch targets across the whole command
     _root: Path | None = None
     _status: list[str] | None = None
 
@@ -207,14 +229,10 @@ def resolve_path(raw: str, cwd: Path | None) -> Path | None:
     if not text:
         return None
     home, temp = str(Path.home()), tempfile.gettempdir()
-    lowered = text.lower()
-    for prefix, value in (
-        ("$env:userprofile", home), ("$env:home", home), ("${home}", home), ("$home", home),
-        ("%userprofile%", home), ("$env:temp", temp), ("$env:tmp", temp), ("%temp%", temp), ("%tmp%", temp),
-    ):
-        if lowered.startswith(prefix):
-            text = value + text[len(prefix):]
-            break
+    known = KNOWN_ROOT_VARIABLE.match(text)
+    if known:
+        name = next(group for group in known.groups() if group).lower()
+        text = (home if name in {"home", "userprofile", "env:home", "env:userprofile"} else temp) + text[known.end():]
     if text == "~" or text.startswith(("~/", "~\\")):
         text = home + text[1:]
     drive = re.match(r"^/([a-zA-Z])(?=/|$)", text)
@@ -283,6 +301,49 @@ def git_invocation(argv: list[str]) -> tuple[str, list[str], str | None]:
             continue
         return arg, argv[index + 1:], directory
     return "", [], directory
+
+
+# git ignores an alias that shadows a built-in, so only other names can be aliases.
+KNOWN_GIT_COMMANDS = frozenset({
+    "add", "am", "apply", "archive", "bisect", "blame", "branch", "bundle", "cat-file", "check-ignore",
+    "checkout", "cherry", "cherry-pick", "clean", "clone", "commit", "config", "count-objects", "credential",
+    "describe", "diff", "diff-files", "diff-index", "diff-tree", "difftool", "fetch", "for-each-ref",
+    "format-patch", "fsck", "gc", "grep", "hash-object", "help", "init", "log", "ls-files", "ls-remote",
+    "ls-tree", "maintenance", "merge", "merge-base", "mergetool", "mv", "name-rev", "notes", "prune", "pull",
+    "push", "range-diff", "rebase", "reflog", "remote", "repack", "replace", "rerere", "reset", "restore",
+    "rev-list", "rev-parse", "revert", "rm", "shortlog", "show", "show-branch", "show-ref", "sparse-checkout",
+    "stash", "status", "submodule", "switch", "symbolic-ref", "tag", "update-index", "update-ref", "var",
+    "verify-commit", "version", "whatchanged", "worktree", "lfs",
+})
+MAX_ALIAS_DEPTH = 3
+
+
+def inline_aliases(argv: list[str]) -> dict[str, str]:
+    """Aliases set on the command line: `git -c alias.x='!...' x`."""
+    found = {}
+    for index, arg in enumerate(argv[:-1]):
+        if arg == "-c":
+            key, sep, value = argv[index + 1].partition("=")
+            if sep and key.lower().startswith("alias."):
+                found[key[len("alias."):].lower()] = value
+    return found
+
+
+def alias_definition(sub: str, args: list[str]) -> tuple[str, str] | None:
+    """(name, value) when this `git config` call sets an alias."""
+    if sub != "config":
+        return None
+    positional = operands(args, frozenset({"-f", "--file", "--blob", "--type", "--default"}))
+    if len(positional) >= 2 and positional[0].lower().startswith("alias."):
+        return positional[0][len("alias."):], positional[1]
+    return None
+
+
+def alias_command(value: str, args: list[str]) -> str:
+    """The command line an alias runs: `!cmd` is shell code, anything else is a git subcommand."""
+    rest = " ".join(shlex.quote(a) for a in args)
+    body = value[1:] if value.startswith("!") else f"git {value}"
+    return f"{body} {rest}".strip()
 
 
 def short_flags(args: list[str]) -> set[str]:
@@ -376,6 +437,14 @@ def check_git(args: list[str], sub: str, repo: Path) -> tuple[str, str] | None:
         dry = "n" in letters or "--dry-run" in args
         if force and "d" in letters and not dry:
             return "deny", "git clean with force/delete flags is blocked. Review untracked files and remove only explicit task-owned paths."
+    if sub in {"checkout", "switch"} and "--" not in args and (
+        "f" in letters or "--force" in args or "--discard-changes" in args
+    ):
+        return "deny", f"git {sub} --force/--discard-changes is blocked because it discards uncommitted changes. Commit or stash them first."
+    if sub == "worktree" and operands(args)[:1] == ["remove"] and ("f" in letters or "--force" in args):
+        return "ask", "git worktree remove --force deletes the worktree with any uncommitted work in it. Confirm nothing there is needed."
+    if sub == "stash" and operands(args)[:1] in (["drop"], ["clear"]):
+        return "ask", f"git stash {operands(args)[0]} permanently discards stashed work. Confirm the stash entries are no longer needed."
     if sub == "checkout":
         if any(a in args for a in ("--theirs", "--ours", "-p", "--patch", "-m", "--merge")):
             return None
@@ -431,11 +500,12 @@ def check_push(args: list[str], letters: set[str], repo: Path) -> tuple[str, str
         target = target.removeprefix("refs/heads/")
         if target in {"HEAD", "@"}:
             target = current_branch(repo)
-        if target in PROTECTED_BRANCHES:
+        # Case-folded: on Windows and macOS remotes, MAIN and main can be the same ref.
+        if target.lower() in PROTECTED_BRANCHES:
             return "deny", "Direct pushes to protected branches are blocked. Use a task branch and PR policy path."
     if not refspecs:
         # A bare push sends the current branch to its upstream: check both names.
-        if current_branch(repo) in PROTECTED_BRANCHES or upstream_branch(repo) in PROTECTED_BRANCHES:
+        if current_branch(repo).lower() in PROTECTED_BRANCHES or upstream_branch(repo).lower() in PROTECTED_BRANCHES:
             return "deny", "This push would update a protected branch (current branch or its upstream). Push a task branch instead."
     return None
 
@@ -480,7 +550,17 @@ def delete_and_move_targets(statement: shell_parse.Statement) -> tuple[str, list
             if not arg.startswith("-"):
                 targets.append(arg)
             index += 1
+        # `-Path a,b` is an array: each element is its own target.
+        targets = [part for target in targets for part in target.split(",") if part]
         return ("delete" if program in PS_REMOVE else "move"), targets, recursive
+    if program == "find" and "-delete" in args:
+        # find deletes below its starting points (the arguments before the first expression).
+        roots = []
+        for arg in args:
+            if arg.startswith(("-", "(", "!", ")")):
+                break
+            roots.append(arg)
+        return "delete", roots or ["."], True
     if program == "rm":
         letters = short_flags(args)
         return "delete", operands(args), bool(letters & {"r", "R"}) or "--recursive" in args
@@ -505,18 +585,23 @@ def check_files(statement: shell_parse.Statement, cwd: Path | None, ctx: Context
             f"Recursive delete or move outside the repository root is blocked ({outside[0]}). "
             "Restrict filesystem changes to explicit task-owned paths inside the workspace."
         )
-    if kind != "delete":
-        return None
+    root = ctx.root.resolve(strict=False)
+    whole_repo = [t for t, p in zip(targets, resolved) if p is not None and (p == root or p in root.parents or _under(p, [root / ".git"]))]
+    if whole_repo and (recursive or kind == "move"):
+        return "deny", (
+            f"This would remove or move the repository itself ({whole_repo[0]}): its root, a parent of it, or .git. "
+            "Delete the specific task-owned paths instead."
+        )
     unresolved = [t for t, p in zip(targets, resolved) if p is None]
     if unresolved:
+        verb = "deletes" if kind == "delete" else "moves to or from"
         return "ask", (
-            f"`{program}` deletes an unresolved target ({', '.join(unresolved[:3])}). The guard cannot "
-            "see what this removes until the shell expands it. Confirm the expanded path list first."
+            f"`{program}` {verb} an unresolved target ({', '.join(unresolved[:3])}). The guard cannot "
+            "see which path this is until the shell expands it. Confirm the expanded path list first."
         )
-    in_repo = [t for t, p in zip(targets, resolved) if not is_scratch(p, ctx)]
-    if len(in_repo) >= BULK_DELETE_THRESHOLD:
-        shown = ", ".join(in_repo[:6]) + (f", +{len(in_repo) - 6} more" if len(in_repo) > 6 else "")
-        return "ask", f"`{program}` removes {len(in_repo)} paths in one command ({shown}). Confirm the full list first."
+    if kind == "delete":
+        # Counted across the whole command, so `rm a; rm b; rm c` is the same bulk delete as `rm a b c`.
+        ctx.delete_targets.extend(t for t, p in zip(targets, resolved) if not is_scratch(p, ctx))
     return None
 
 
@@ -600,6 +685,10 @@ def cli_secret_reason(statement: shell_parse.Statement) -> str | None:
         return f"`{program} {' '.join(words)}` prints a credential. Capture it into a variable instead of printing it."
     if program == "aws" and words[:2] == ("configure", "get") and len(words) > 2 and SECRET_FIELD.search(words[2]):
         return f"`aws configure get {words[2]}` prints a credential."
+    if program == "aws" and words[:1] == ("ssm",) and words[1:2] and words[1].startswith("get-parameter") and "--with-decryption" in flags:
+        return "`aws ssm get-parameter --with-decryption` prints a decrypted secret."
+    if program == "op" and words[:2] == ("item", "get") and flags & {"--fields", "--reveal", "--otp"}:
+        return "`op item get --fields/--reveal` prints a stored secret."
     if program == "gh" and words[:2] == ("auth", "status") and flags & {"-t", "--show-token"}:
         return "`gh auth status --show-token` prints the GitHub token."
     if program == "git" and "credential" in args and "fill" in args:
@@ -685,6 +774,18 @@ def secret_print(statement: shell_parse.Statement, ctx: Context) -> str | None:
         )
     if program == "printenv" and any(SECRET_NAME.search(a) for a in args):
         return "printenv of a secret variable is blocked."
+    if statement.dialect != "powershell" and program in VARIABLE_DUMPERS and "-p" in args:
+        names = [a for a in args if not a.startswith("-")]
+        if not names or any(SECRET_NAME.search(n) or n.lower() in ctx.tainted for n in names):
+            return f"`{program} -p` prints variable values, secrets included. Use the value without printing it."
+    if program in {"get-variable", "gv"}:
+        lowered = [a.lower() for a in args]
+        names = [args[i + 1] for i, a in enumerate(lowered[:-1]) if a in {"-name", "-n"}] + [
+            a for i, a in enumerate(args) if not a.startswith("-") and (i == 0 or lowered[i - 1] not in {"-name", "-n", "-scope"})
+        ]
+        names = [n.lstrip("$") for name in names for n in name.split(",") if n]
+        if any(SECRET_NAME.search(n) or n.lower() in ctx.tainted for n in names) or (not names and ctx.tainted):
+            return "Get-Variable prints variable values, secrets included. Use the value without printing it."
     if program in ENV_LISTERS and args:
         target = args[0].lower().rstrip("\\/*")
         if target == "env:" or (target.startswith("env:") and SECRET_NAME.search(target[4:])):
@@ -714,8 +815,8 @@ def azure_write(statement: shell_parse.Statement) -> str | None:
     return f"`az {group} {action}` mutates a live Azure resource. Confirm subscription, resource group, and blast radius first."
 
 
-def prod_approval(statement: shell_parse.Statement) -> str | None:
-    text = " ".join(statement.argv).lower()
+def prod_approval(statement: shell_parse.Statement, ctx: Context) -> str | None:
+    text = " ".join(ctx.expand(a) for a in statement.argv).lower()
     if PROD_DEPLOY_APPROVAL.search(text) and AZURE_PIPELINE_APPROVAL.search(text):
         return (
             "Production deployment approvals are user-owned. Do not approve production "
@@ -764,7 +865,7 @@ def next_cwd(statement: shell_parse.Statement, cwd: Path | None, ctx: Context) -
     return resolve_path(ctx.expand(targets[0]), cwd)
 
 
-def assess(command: str, tool: str, ctx: Context) -> tuple[str, str]:
+def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, str]:
     dialect = "powershell" if tool == "PowerShell" else "bash"
     parsed = shell_parse.parse(command, dialect)
     asks: list[str] = []
@@ -778,6 +879,15 @@ def assess(command: str, tool: str, ctx: Context) -> tuple[str, str]:
                 ctx.tainted.add(name.lower())
         if not statement.argv:
             continue
+        if re.search(r"[$%]", statement.argv[0]) and not (statement.dialect == "powershell" and len(statement.argv) == 1):
+            # A program named by a variable (`G=git; $G push -f`, `& $g ...`) is judged by its value.
+            # A lone PowerShell `$p` is an expression that prints, not a program; secret_print judges it.
+            expanded = ctx.expand(statement.argv[0])
+            if re.search(r"[$%]", expanded):
+                if DESTRUCTIVE_WORDS & {a.lower() for a in statement.argv[1:]}:
+                    asks.append(f"`{statement.argv[0]}` names the program through a variable the guard cannot resolve, and its arguments look destructive. Confirm what it runs.")
+                continue
+            statement.argv[:1] = shell_parse.split_words(expanded, statement.dialect)
         if statement.assigns:
             for name in statement.assigns:
                 ctx.variables.pop(name.lower(), None)  # command output: value unknown here
@@ -790,6 +900,26 @@ def assess(command: str, tool: str, ctx: Context) -> tuple[str, str]:
         if program == "git":
             sub, args, directory = git_invocation(statement.argv)
             repo = resolve_path(ctx.expand(directory), cwd) if directory else cwd
+            alias = None
+            definition = alias_definition(sub, args)
+            if definition:
+                alias = (f"defines the git alias `{definition[0]}`", alias_command(definition[1], []))
+            elif sub and sub not in KNOWN_GIT_COMMANDS:
+                value = inline_aliases(statement.argv).get(sub.lower())
+                if value is None:
+                    code, output = run_git(["config", "--get", f"alias.{sub}"], repo or ctx.session_cwd)
+                    value = output if code == 0 and output else None
+                if value is not None:
+                    alias = (f"runs the git alias `{sub}`", alias_command(value, args))
+            if alias:
+                if depth >= MAX_ALIAS_DEPTH:
+                    asks.append("This git alias expands through several other aliases. Confirm what it runs.")
+                else:
+                    decision, reason = assess(alias[1], "Bash", Context(session_cwd=repo or ctx.session_cwd), depth + 1)
+                    if decision == "deny":
+                        return "deny", f"This command {alias[0]}, which runs `{alias[1]}`: {reason}"
+                    if decision == "ask":
+                        asks.append(f"This command {alias[0]}, which runs `{alias[1]}`: {reason}")
             if repo is None and needs_repo_state(sub, args):
                 asks.append("This git command depends on which repository it runs in, and that is unknown after the preceding cd. Confirm the branch it touches.")
                 continue
@@ -798,7 +928,7 @@ def assess(command: str, tool: str, ctx: Context) -> tuple[str, str]:
                 return verdict
             if verdict:
                 asks.append(verdict[1])
-        for check in (secret_print, lambda s, _c: prod_approval(s)):
+        for check in (secret_print, prod_approval):
             reason = check(statement, ctx)
             if reason:
                 return "deny", reason
@@ -811,6 +941,9 @@ def assess(command: str, tool: str, ctx: Context) -> tuple[str, str]:
         if reason:
             asks.append(reason)
         notes.extend(finish_notes(statement, ctx))
+    if len(ctx.delete_targets) >= BULK_DELETE_THRESHOLD:
+        shown = ", ".join(ctx.delete_targets[:6]) + (f", +{len(ctx.delete_targets) - 6} more" if len(ctx.delete_targets) > 6 else "")
+        asks.append(f"This command removes {len(ctx.delete_targets)} paths ({shown}). Confirm the full list first.")
     if not parsed.complete and UNPARSED_DESTRUCTIVE.search(command):
         asks.append("This command could not be parsed reliably (unbalanced quotes or substitution) and looks destructive. Confirm what it runs.")
     if asks:

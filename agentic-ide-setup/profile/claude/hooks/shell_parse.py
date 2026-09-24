@@ -34,6 +34,21 @@ _BASH_PREFIXES = {"!", "{", "(", "do", "then", "else", "elif", "if", "while", "u
                   "time", "exec", "command", "builtin", "nohup", "sudo"}
 _DECLARATIONS = {"export", "local", "declare", "readonly", "typeset"}
 _PS_CONDITION_KEYWORDS = {"if", "elseif", "while", "until", "switch", "foreach", "for"}
+_ENV_VALUE_OPTIONS = {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}
+# Wrappers that run the command after their options, and which options take a value.
+_WRAPPER_VALUE_OPTIONS = {
+    "timeout": {"-s", "--signal", "-k", "--kill-after"},
+    "nice": {"-n", "--adjustment"},
+    "stdbuf": {"-i", "-o", "-e"},
+    "xargs": {"-I", "-L", "-n", "-P", "-s", "-E", "-d", "-a"},
+}
+_FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
+# Start-Process parameters: tokens that end its -ArgumentList.
+_START_PROCESS_PARAMS = {
+    "-wait", "-nonewwindow", "-passthru", "-workingdirectory", "-windowstyle", "-verb", "-filepath",
+    "-redirectstandardoutput", "-redirectstandarderror", "-redirectstandardinput", "-credential",
+    "-loaduserprofile", "-usenewenvironment", "-environment",
+}
 # Assignment target recorded for code in a PowerShell condition: its value is tested, not printed.
 CONDITION = "(condition)"
 
@@ -66,6 +81,12 @@ class Statement:
 class Parsed:
     statements: list[Statement] = field(default_factory=list)
     complete: bool = True
+
+
+def split_words(text: str, dialect: str = "bash") -> list[str]:
+    """A command word split the way the shell would split an expanded value."""
+    words, _ = _tokenize(text, dialect)
+    return words or [text]
 
 
 def redirects_stdout(args: "list[str] | tuple[str, ...]") -> bool:
@@ -638,10 +659,27 @@ def _strip_prefixes(argv: list[str], dialect: str) -> tuple[list[str], dict[str,
             argv, changed = argv[1:], True
         elif dialect == "powershell" and head in {"&", "."}:
             argv, changed = argv[1:], True
-        elif program_name(head) in {"timeout", "nice", "stdbuf", "xargs"}:
+        elif dialect == "bash" and program_name(head) == "env":
+            # `env [-i] [-u NAME] [NAME=value]... command`: the command is what runs.
+            # A bare `env` (or only options) prints the environment, so it stays.
             rest = argv[1:]
-            while rest and (rest[0].startswith("-") or rest[0].replace(".", "").isdigit()):
-                rest = rest[1:]
+            while rest and (rest[0].startswith("-") or _ASSIGNMENT.match(rest[0])):
+                option, rest = rest[0], rest[1:]
+                if option in _ENV_VALUE_OPTIONS and rest:
+                    if option in {"-S", "--split-string"}:
+                        rest = _tokenize(rest[0], "bash")[0] + rest[1:]
+                        break
+                    rest = rest[1:]
+            if rest:
+                argv, changed = rest, True
+        elif program_name(head) in _WRAPPER_VALUE_OPTIONS:
+            # timeout/nice/stdbuf/xargs run the command after their own options.
+            value_options = _WRAPPER_VALUE_OPTIONS[program_name(head)]
+            rest = argv[1:]
+            while rest and (rest[0].startswith("-") or (program_name(head) == "timeout" and rest[0].replace(".", "").rstrip("smhd").isdigit())):
+                option, rest = rest[0], rest[1:]
+                if option in value_options and rest:
+                    rest = rest[1:]
             argv, changed = rest, True
         elif dialect == "cmd" and head.lower() == "for" and "do" in (a.lower() for a in argv):
             lowered = [a.lower() for a in argv]
@@ -710,4 +748,33 @@ def _shell_payload(statement: Statement) -> tuple[str | None, str] | None:
     if program == "wsl":
         code = args[1:] if lowered[:1] in (["-e"], ["--exec"]) else args
         return " ".join(code), "bash"
+    if program == "find":
+        # `-exec CMD {} ;` runs CMD once per match; `{}` becomes an unresolved target.
+        commands, index = [], 0
+        while index < len(args):
+            if args[index] in _FIND_EXEC:
+                end = index + 1
+                while end < len(args) and args[end] not in {";", "\\;", "+"}:
+                    end += 1
+                commands.append(" ".join("$FIND_MATCH" if a == "{}" else shlex.quote(a) for a in args[index + 1:end]))
+                index = end
+            index += 1
+        return (" ; ".join(commands), "bash") if commands else None
+    if statement.dialect == "powershell" and program in {"start-process", "saps", "start"}:
+        file_path, arguments, index = "", [], 0
+        while index < len(args):
+            low = lowered[index]
+            if low in {"-filepath", "-file", "-fi"} and index + 1 < len(args):
+                file_path, index = args[index + 1], index + 2
+                continue
+            if low in {"-argumentlist", "-args", "-arguments"}:
+                index += 1
+                while index < len(args) and lowered[index] not in _START_PROCESS_PARAMS:
+                    arguments.extend(part for part in args[index].split(",") if part)
+                    index += 1
+                continue
+            if not args[index].startswith("-") and not file_path:
+                file_path = args[index]
+            index += 1
+        return (" ".join([file_path, *arguments]), "powershell") if file_path else None
     return None
