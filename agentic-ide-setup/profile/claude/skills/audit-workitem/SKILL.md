@@ -1,6 +1,6 @@
 ---
 name: audit-workitem
-description: "Audit a software work item and decompose it into small, independent, verifiable implementation tasks that a fast, single-session coding agent can complete with a short feedback loop. Use whenever the user provides an Azure DevOps, Jira, GitHub, or plain-text work item — or points at one by ID — and asks to size it, refine it, audit it, break it down, create child tasks, write agent-ready prompts, or decide which portions fit a quick agent session versus a longer-horizon agent or human decision."
+description: "Audit a work item (Azure DevOps, Jira, GitHub or plain text) and break it into small, verifiable tasks with agent-ready prompts, marking which parts suit a quick agent session."
 ---
 
 # Work-Item Breakdown for Fast Agent Sessions

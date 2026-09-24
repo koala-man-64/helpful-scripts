@@ -98,18 +98,8 @@
     },
     {
       "root": "repo",
-      "source": "agentic-ide-setup/profile/claude/skills/gateway-bookkeeper",
-      "destination": "claude/skills/gateway-bookkeeper"
-    },
-    {
-      "root": "repo",
       "source": "agentic-ide-setup/profile/claude/skills/strict-branch-and-merge-discipline",
       "destination": "claude/skills/strict-branch-and-merge-discipline"
-    },
-    {
-      "root": "repo",
-      "source": "agentic-ide-setup/profile/codex/skills/project-workflow-enforcer-agent",
-      "destination": "claude/skills/project-workflow-enforcer-agent"
     }
   ],
   "dependencies": [
