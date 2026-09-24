@@ -17,15 +17,21 @@ from hook_utils import (
     emit_json,
     extract_command,
     read_hook_input,
-    repo_name,
     repo_root,
     run_git,
 )
+from task_notes import main_repo_name
 
 AZ_PR_CREATE = re.compile(r"\baz(?:\.cmd)?\s+repos\s+pr\s+create\b", re.IGNORECASE)
 AZ_PIPELINE_RUN = re.compile(r"\baz(?:\.cmd)?\s+pipelines\s+run\b", re.IGNORECASE)
 GH_PR_CREATE = re.compile(r"\bgh\s+pr\s+create\b", re.IGNORECASE)
 GH_PR_URL = re.compile(r"https://github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)")
+
+AZ_PR_URL = re.compile(r"/_git/[^/\s]+/pullrequest/(\d+)", re.IGNORECASE)
+# The pull request's own branch, when the command names it; otherwise it is the checkout's.
+AZ_SOURCE_BRANCH = re.compile(r"--source-branch[= ]+(\S+)", re.IGNORECASE)
+GH_HEAD = re.compile(r"(?:--head|\s-H)[= ]+(\S+)")
+TSV_OUTPUT = re.compile(r"(?:\s-o|--output)[= ]+tsv\b", re.IGNORECASE)
 
 AZ_ORGANIZATION = re.compile(r"--organization[= ]+(\S+)", re.IGNORECASE)
 AZ_PROJECT = re.compile(r"--project[= ]+(\S+)", re.IGNORECASE)
@@ -209,6 +215,33 @@ def head_commit(root: Path) -> str:
     return output if code == 0 else ""
 
 
+def branch_commit(root: Path, branch: str) -> str:
+    """The local tip of the pull request's branch, which is what was just pushed."""
+    if not branch:
+        return ""
+    code, output = run_git(["rev-parse", "--verify", "--quiet", f"refs/heads/{branch}"], root)
+    return output if code == 0 else ""
+
+
+def bare_identifier(text: str) -> str:
+    """An id printed alone on a line, as `--query id -o tsv` prints it."""
+    for line in reversed(text.splitlines()):
+        if re.fullmatch(r"\s*\d+\s*", line):
+            return line.strip()
+    return ""
+
+
+def last_field(text: str, *path: str) -> str:
+    """A nested field (`lastMergeSourceCommit.commitId`) from the last JSON payload that has it."""
+    for payload in reversed(json_payloads(text)):
+        value: Any = payload
+        for key in path:
+            value = value.get(key) if isinstance(value, dict) else None
+        if isinstance(value, (str, int)) and str(value).strip():
+            return str(value)
+    return ""
+
+
 def capture(pattern: re.Pattern[str], command: str) -> str:
     match = pattern.search(command)
     return match.group(1).strip("'\"") if match else ""
@@ -220,19 +253,28 @@ def detect(command: str, text: str) -> dict[str, str] | None:
     if not invoked:
         return None
     command = " ; ".join(invoked)
+    tsv = bool(TSV_OUTPUT.search(command))
     if AZ_PR_CREATE.search(command):
+        url = AZ_PR_URL.search(text)
         return {
             "provider": "azure_devops",
             "operation_kind": "pull_request",
             "target_state": "merged",
-            "resource_id": last_identifier(text, "pullRequestId", "pull_request_id"),
+            "resource_id": last_identifier(text, "pullRequestId", "pull_request_id")
+            or (url.group(1) if url else "")
+            or (bare_identifier(text) if tsv else ""),
+            "branch": capture(AZ_SOURCE_BRANCH, command).removeprefix("refs/heads/")
+            or last_field(text, "sourceRefName").removeprefix("refs/heads/"),
+            "commit": last_field(text, "lastMergeSourceCommit", "commitId"),
         }
     if AZ_PIPELINE_RUN.search(command):
         return {
             "provider": "azure_devops",
             "operation_kind": "pipeline",
             "target_state": "succeeded",
-            "resource_id": last_identifier(text, "id", "buildId", "runId"),
+            "resource_id": last_identifier(text, "id", "buildId", "runId") or (bare_identifier(text) if tsv else ""),
+            "branch": last_field(text, "sourceBranch").removeprefix("refs/heads/"),
+            "commit": last_field(text, "sourceVersion"),
         }
     if GH_PR_CREATE.search(command):
         match = GH_PR_URL.search(text)
@@ -242,6 +284,7 @@ def detect(command: str, text: str) -> dict[str, str] | None:
             "target_state": "merged",
             "resource_id": match.group(2) if match else "",
             "repo_slug": match.group(1) if match else "",
+            "branch": capture(GH_HEAD, command),
         }
     return None
 
@@ -311,13 +354,18 @@ def _detect_and_register() -> int:
         )
 
     root = repo_root()
+    # Bind to the pull request's own branch and head, not whatever the checkout
+    # happens to be on; fall back to the checkout only when the command and its
+    # output name neither.
+    branch = detected.get("branch") or current_branch(root)
+    commit = detected.get("commit") or branch_commit(root, branch) or head_commit(root)
     wait = wait_registry.register(
         provider=detected["provider"],
         operation_kind=kind,
         resource_id=resource_id,
-        repository=repo_name(root),
-        branch=current_branch(root),
-        commit=head_commit(root),
+        repository=main_repo_name(root),
+        branch=branch,
+        commit=commit,
         target_state=detected["target_state"],
         session_id=str(payload.get("session_id", "")),
         organization=capture(AZ_ORGANIZATION, command),

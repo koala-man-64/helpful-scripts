@@ -276,6 +276,7 @@ def register(
     Idempotent on (provider, operation_kind, resource_id) so a replayed hook
     event cannot create duplicate monitors for one operation.
     """
+    provider = normalize_provider(provider)
     wait = {
         "wait_id": uuid.uuid4().hex[:24],
         "provider": provider,
@@ -300,7 +301,7 @@ def register(
         for row in data["waits"]:
             same = (
                 isinstance(row, dict)
-                and row.get("provider") == provider
+                and normalize_provider(row.get("provider")) == provider
                 and row.get("operation_kind") == operation_kind
                 and str(row.get("resource_id")) == str(resource_id)
                 and row.get("status") in ACTIVE_STATUSES
@@ -309,6 +310,40 @@ def register(
                 return row
         data["waits"].append(wait)
         return wait
+
+    return _mutate(mutator, path)
+
+
+def normalize_provider(value: Any) -> str:
+    """`azure-devops`, `Azure_DevOps` and `azure_devops` are one provider."""
+    return str(value or "").strip().casefold().replace("-", "_")
+
+
+def rebind(
+    wait_id: str,
+    *,
+    branch: str | None = None,
+    commit: str | None = None,
+    path: Path | None = None,
+) -> dict[str, Any] | None:
+    """Move a wait's binding to what the provider now reports.
+
+    A pull request's source branch cannot change after creation, so a new head
+    on it is the same resource moving forward (review fixes), not a different
+    one. The previous binding is kept for the record.
+    """
+    def mutator(data: dict[str, Any]) -> dict[str, Any] | None:
+        for row in data["waits"]:
+            if isinstance(row, dict) and row.get("wait_id") == wait_id:
+                if branch is not None and branch != row.get("branch"):
+                    row.setdefault("registered_branch", row.get("branch", ""))
+                    row["branch"] = branch
+                if commit is not None and commit != row.get("commit"):
+                    row.setdefault("registered_commit", row.get("commit", ""))
+                    row["commit"] = commit
+                row["updated_at"] = now_iso()
+                return row
+        return None
 
     return _mutate(mutator, path)
 

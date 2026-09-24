@@ -23,6 +23,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -167,7 +168,7 @@ class DetectorSeamTests(unittest.TestCase):
 
         patches = {
             "repo_root": lambda: Path(self.tmp.name),
-            "repo_name": lambda root=None: "helpful-scripts",
+            "main_repo_name": lambda root=None: "helpful-scripts",
             "current_branch": lambda root=None: "claude/topic",
             "head_commit": lambda root: "c" * 40,
         }
@@ -244,6 +245,33 @@ class DetectorSeamTests(unittest.TestCase):
         self.assertEqual(row["provider"], "github")
         self.assertEqual(row["resource_id"], "200")
         self.assertEqual(row["repo_slug"], "koala-man-64/helpful-scripts")
+
+    def test_the_binding_comes_from_the_pull_request_not_the_checkout(self):
+        """WP4.1: the checkout is on claude/topic; the pull request is from its own branch."""
+        created = json.dumps({
+            "pullRequestId": 4243,
+            "sourceRefName": "refs/heads/claude/other",
+            "lastMergeSourceCommit": {"commitId": "e" * 40},
+        })
+        self.run_hook(payload("az repos pr create --title x", {"stdout": created}))
+        row = self.waits()[0]
+        self.assertEqual((row["branch"], row["commit"]), ("claude/other", "e" * 40))
+        self.run_hook(payload("az repos pr create --source-branch refs/heads/claude/named --title y",
+                              {"stdout": json.dumps({"pullRequestId": 4244})}))
+        self.assertEqual(wait_registry.active(self.path)[-1]["branch"], "claude/named")
+        self.run_hook(payload("gh pr create --head claude/gh-head --fill", {"stdout": GH_PR_URL.replace("200", "201")}))
+        self.assertEqual(wait_registry.active(self.path)[-1]["branch"], "claude/gh-head")
+
+    def test_ids_are_read_from_tsv_output_and_pull_request_urls(self):
+        self.run_hook(payload("az repos pr create --title x --query pullRequestId -o tsv", {"stdout": "4245\n"}))
+        url = "https://dev.azure.com/o/P/_git/repo/pullrequest/4246"
+        self.run_hook(payload("az repos pr create --title y", {"stdout": f"Created: {url}"}))
+        self.run_hook(payload("az pipelines run --name ci --query id --output tsv", {"stdout": "992"}))
+        self.assertEqual(sorted(r["resource_id"] for r in self.waits()), ["4245", "4246", "992"])
+
+    def test_the_repository_is_the_primary_checkout_not_the_worktree(self):
+        self.run_hook(payload("az repos pr create --title x", {"stdout": AZ_PR_JSON}))
+        self.assertEqual(self.waits()[0]["repository"], "helpful-scripts")
 
     def test_observed_failure_registers_nothing(self):
         self.run_hook(payload("az repos pr create", {"isError": True, "stdout": "boom"}))
@@ -326,11 +354,24 @@ class BindingVerificationTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertIn("protected_target", result["detail_code"])
 
-    def test_force_pushed_head_is_a_mismatch_not_a_success(self):
+    def test_a_new_head_on_the_same_branch_moves_the_binding(self):
+        """A pull request's identity is its source branch, which the provider never lets change.
+
+        Review fixes pushed after registration are the same pull request moving
+        forward. Failing them was the PR #257 false failure: merged, reported failed.
+        """
         self.stub(self.view(headRefOid="d" * 40))
+        merged = wait_poll.poll_github_pull_request(self.wait)
+        self.assertEqual((merged["status"], merged["rebind_commit"]), ("succeeded", "d" * 40))
+        self.stub(self.view(state="OPEN", headRefOid="d" * 40))
+        open_pr = wait_poll.poll_github_pull_request(self.wait)
+        self.assertEqual((open_pr["status"], open_pr["detail_code"]), ("pending", "head_advanced"))
+
+    def test_a_different_source_branch_is_still_a_mismatch(self):
+        self.stub(self.view(headRefName="claude/other"))
         result = wait_poll.poll_github_pull_request(self.wait)
         self.assertEqual(result["status"], "failed")
-        self.assertIn("source_commit", result["detail_code"])
+        self.assertIn("source_branch", result["detail_code"])
 
     def test_open_pull_request_is_pending(self):
         self.stub(self.view(state="OPEN"))
@@ -379,6 +420,65 @@ class PollLifecycleTests(unittest.TestCase):
         original = wait_poll.run_json
         wait_poll.run_json = lambda args: payload
         self.addCleanup(setattr, wait_poll, "run_json", original)
+
+    def test_a_new_head_is_persisted_as_the_binding(self):
+        self.stub({"state": "OPEN", "headRefName": "claude/topic", "headRefOid": "d" * 40, "baseRefName": "main"})
+        result = wait_poll.poll_one(self.wait["wait_id"])
+        stored = wait_registry.get(self.wait["wait_id"])
+        self.assertEqual((result["status"], result["detail_code"]), ("pending", "head_advanced"))
+        self.assertEqual((stored["commit"], stored["registered_commit"]), ("d" * 40, "c" * 40))
+
+    def test_provider_strings_are_normalized(self):
+        other = wait_registry.register(
+            provider="Azure-DevOps", operation_kind="pull_request", resource_id="77",
+            repository="helpful-scripts", branch="claude/topic", commit="c" * 40, target_state="merged",
+        )
+        self.assertEqual(other["provider"], "azure_devops")
+        self.stub({"status": "completed", "sourceRefName": "refs/heads/claude/topic",
+                   "targetRefName": "refs/heads/main", "lastMergeSourceCommit": {"commitId": "c" * 40}})
+        self.assertEqual(wait_poll.poll_one(other["wait_id"])["status"], "succeeded")
+
+    def test_reresolve_gives_binding_mismatches_their_true_status(self):
+        """The 40 rows that failed only because registration bound the checkout's branch or HEAD."""
+        wait_registry.update_status(self.wait["wait_id"], status="failed",
+                                    detail_code="binding_mismatch:source_branch,source_commit")
+        kept = wait_registry.register(
+            provider="github", operation_kind="pull_request", resource_id="201", repository="helpful-scripts",
+            branch="claude/x", commit="c" * 40, target_state="merged", repo_slug="koala-man-64/helpful-scripts",
+        )
+        wait_registry.update_status(kept["wait_id"], status="failed", detail_code="binding_mismatch:protected_target")
+        self.stub({"state": "MERGED", "headRefName": "claude/real", "headRefOid": "d" * 40, "baseRefName": "main"})
+        results = wait_poll.reresolve()
+        self.assertEqual([(r["wait_id"], r["status"]) for r in results], [(self.wait["wait_id"], "succeeded")])
+        stored = wait_registry.get(self.wait["wait_id"])
+        self.assertEqual((stored["branch"], stored["registered_branch"]), ("claude/real", "claude/topic"))
+        self.assertEqual(wait_registry.get(kept["wait_id"])["status"], "failed")
+
+    def test_reresolve_rebinds_a_pipeline_run_to_its_own_source_version(self):
+        run = wait_registry.register(
+            provider="azure_devops", operation_kind="pipeline", resource_id="991", repository="helpful-scripts",
+            branch="claude/topic", commit="c" * 40, target_state="succeeded", project="P",
+        )
+        wait_registry.update_status(run["wait_id"], status="failed", detail_code="binding_mismatch:source_commit")
+        wait_registry.update_status(self.wait["wait_id"], status="succeeded", detail_code="pr_merged")
+        self.stub({"status": "completed", "result": "succeeded", "sourceVersion": "f" * 40})
+        with unittest.mock.patch.object(wait_poll, "has_pending_approval", return_value=False):
+            results = wait_poll.reresolve()
+        self.assertEqual([(r["wait_id"], r["status"]) for r in results], [(run["wait_id"], "succeeded")])
+        self.assertEqual(wait_registry.get(run["wait_id"])["commit"], "f" * 40)
+
+    def test_session_start_lists_only_this_repositorys_waits(self):
+        import session_start_team_context as start
+
+        wait_registry.register(
+            provider="github", operation_kind="pull_request", resource_id="300", repository="other-repo",
+            branch="b", commit="c" * 40, target_state="merged",
+        )
+        lines = start.outstanding_waits("helpful-scripts")
+        self.assertTrue(any(self.wait["wait_id"] in line for line in lines))
+        self.assertFalse(any("other-repo" in line for line in lines))
+        self.assertTrue(any("1 more in other repositories" in line for line in lines))
+        self.assertIn("in other repositories", start.outstanding_waits("unrelated")[0])
 
     def test_poll_persists_the_terminal_status(self):
         self.stub(
@@ -442,7 +542,7 @@ class AuditRegressionTests(unittest.TestCase):
         self.addCleanup(os.environ.pop, "CLAUDE_WAITS_PATH", None)
         for name, replacement in {
             "repo_root": lambda: Path(self.tmp.name),
-            "repo_name": lambda root=None: "repo",
+            "main_repo_name": lambda root=None: "repo",
             "current_branch": lambda root=None: "claude/topic",
             "head_commit": lambda root: "c" * 40,
         }.items():
@@ -496,8 +596,14 @@ class AuditRegressionTests(unittest.TestCase):
         rows = wait_registry.active(self.path)
         self.assertEqual([r["resource_id"] for r in rows], ["4242"])
 
-    def test_unverifiable_commit_never_resolves_to_succeeded(self):
-        """The reproduced false success: empty commit made the check vacuous."""
+    def test_unverifiable_commit_never_resolves_a_pipeline_to_succeeded(self):
+        """The reproduced false success: an empty commit made the check vacuous.
+
+        A pipeline run is immutable, so its commit binding stays strict. A pull
+        request is bound by its source branch and target instead (see
+        test_a_new_head_on_the_same_branch_moves_the_binding); a missing commit
+        there is filled in from the provider's head.
+        """
         wait = {
             "resource_id": "200",
             "branch": "claude/topic",
@@ -509,16 +615,6 @@ class AuditRegressionTests(unittest.TestCase):
         self.addCleanup(setattr, wait_poll, "run_json", original)
 
         wait_poll.run_json = lambda args: {
-            "state": "MERGED",
-            "headRefName": "claude/topic",
-            "headRefOid": "d" * 40,
-            "baseRefName": "main",
-        }
-        github = wait_poll.poll_github_pull_request(wait)
-        self.assertNotEqual(github["status"], "succeeded")
-        self.assertIn("source_commit", github["detail_code"])
-
-        wait_poll.run_json = lambda args: {
             "status": "completed",
             "sourceVersion": "d" * 40,
             "repository": {"id": "x"},
@@ -528,13 +624,25 @@ class AuditRegressionTests(unittest.TestCase):
 
         wait_poll.run_json = lambda args: {
             "status": "completed",
-            "sourceRefName": "refs/heads/claude/topic",
+            "sourceRefName": "refs/heads/claude/other",
             "targetRefName": "refs/heads/main",
             "lastMergeSourceCommit": {"commitId": "d" * 40},
             "repository": {"id": "x"},
         }
         azure = wait_poll.poll_azure_pull_request(wait)
         self.assertNotEqual(azure["status"], "succeeded")
+        self.assertIn("source_branch", azure["detail_code"])
+
+        wait_poll.run_json = lambda args: {
+            "status": "completed",
+            "sourceRefName": "refs/heads/claude/topic",
+            "targetRefName": "refs/heads/feature-x",
+            "lastMergeSourceCommit": {"commitId": "d" * 40},
+            "repository": {"id": "x"},
+        }
+        retargeted = wait_poll.poll_azure_pull_request(wait)
+        self.assertNotEqual(retargeted["status"], "succeeded")
+        self.assertIn("protected_target", retargeted["detail_code"])
 
     def test_registry_write_failure_does_not_crash_the_hook(self):
         """The hook observes every shell call; it must not take one down."""
