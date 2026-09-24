@@ -411,7 +411,7 @@ class ReadOnlyFromFrontmatter(LadderTestCase):
         return self.run_gate(self.payload(contract(constraints=["Read-only review"]), subagent_type=name))
 
     def test_a_reviewer_without_write_tools_takes_a_read_only_contract(self):
-        self.define(self.user, "db-steward", "disallowedTools: Agent, Edit, Write, NotebookEdit")
+        self.define(self.user, "db-steward", "disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit")
         self.assertRouted(self.spawn_read_only("db-steward"), "haiku")
 
     def test_a_writer_is_refused_a_read_only_contract(self):
@@ -423,12 +423,12 @@ class ReadOnlyFromFrontmatter(LadderTestCase):
         self.assertRouted(self.spawn_read_only("scanner"), "haiku")
 
     def test_yaml_list_frontmatter_is_read(self):
-        self.define(self.user, "lister", "disallowedTools:", "  - Agent", "  - Edit", "  - Write", "  - NotebookEdit")
+        self.define(self.user, "lister", "disallowedTools:", "  - Agent", "  - Edit", "  - Write", "  - NotebookEdit", "  - MultiEdit")
         self.assertRouted(self.spawn_read_only("lister"), "haiku")
 
     def test_a_project_definition_shadows_the_user_one(self):
         self.define(self.project, "qa-release-gate-agent", "disallowedTools: Agent")
-        self.define(self.user, "qa-release-gate-agent", "disallowedTools: Agent, Edit, Write, NotebookEdit")
+        self.define(self.user, "qa-release-gate-agent", "disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit")
         self.assertDenied(self.spawn_read_only("qa-release-gate-agent"), "LANE_READONLY_AGENT_VIOLATION")
 
     def test_undefined_agents_are_not_read_only(self):
@@ -442,25 +442,49 @@ class ReadOnlyFromFrontmatter(LadderTestCase):
             "quoted-block-edit": ["tools:", "  - Read", '  - "Edit"', "  - Bash"],
             "comment-after-edit": ["tools: Read, Grep, Edit  # for doc fixes"],
             "multiedit": ["tools: Read, MultiEdit"],
-            "twice": ["disallowedTools: Agent, Edit, Write, NotebookEdit", "disallowedTools: Agent"],
-            "wrong-case-key": ["DisallowedTools: Agent, Edit, Write, NotebookEdit"],
+            "wrong-case-key": ["DisallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit"],
         }
         for name, fields in writers.items():
             self.define(self.user, name, *fields)
-        (self.user / "unclosed.md").write_text(
-            "---\nname: unclosed\ndisallowedTools: Agent, Edit, Write, NotebookEdit\n\n# body without a closing fence\n",
-            encoding="utf-8",
-        )
-        for name in [*writers, "unclosed"]:
+        for name in writers:
             with self.subTest(agent=name):
                 self.assertDenied(self.spawn_read_only(name), "LANE_READONLY_AGENT_VIOLATION")
+        # Ambiguous definitions are refused before any contract is read.
+        self.define(self.user, "twice", "disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit", "disallowedTools: Agent")
+        (self.user / "unclosed.md").write_text(
+            "---\nname: unclosed\ndisallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit\n\n# body without a closing fence\n",
+            encoding="utf-8",
+        )
+        for name in ("twice", "unclosed"):
+            with self.subTest(agent=name):
+                self.assertDenied(self.spawn_read_only(name), "LANE_AGENT_DEFINITION_UNREADABLE")
 
     def test_quoted_and_commented_read_only_lists_are_read(self):
-        self.define(self.user, "quoted", "disallowedTools:", '  - "Agent"', "  - 'Edit'", '  - "Write"', "  - NotebookEdit")
-        self.define(self.user, "commented", "disallowedTools: Agent, Edit, Write, NotebookEdit  # reviewer")
+        self.define(self.user, "quoted", "disallowedTools:", '  - "Agent"', "  - 'Edit'", '  - "Write"', "  - NotebookEdit", "  - MultiEdit")
+        self.define(self.user, "commented", "disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit  # reviewer")
         for name in ("quoted", "commented"):
             with self.subTest(agent=name):
                 self.assertRouted(self.spawn_read_only(name), "haiku")
+
+    def test_multiedit_and_mcp_tools_count_as_writing(self):
+        self.define(self.user, "no-multiedit", "disallowedTools: Agent, Edit, Write, NotebookEdit")
+        self.define(self.user, "mcp-writer", "tools: Read, Grep, mcp__github__create_or_update_file")
+        for name in ("no-multiedit", "mcp-writer"):
+            with self.subTest(agent=name):
+                self.assertDenied(self.spawn_read_only(name), "LANE_READONLY_AGENT_VIOLATION")
+
+    def test_an_apostrophe_does_not_hide_a_comment(self):
+        self.define(self.user, "apostrophe", "note: it's the reviewer # legacy", "disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit # it's read-only")
+        self.assertRouted(self.spawn_read_only("apostrophe"), "haiku")
+
+    def test_unreadable_definitions_are_not_spawned(self):
+        (self.user / "broken.md").write_text(
+            "---\nname: broken\nmainThreadOnly: true\n\n# no closing fence\n", encoding="utf-8"
+        )
+        self.define(self.user, "doubled", "mainThreadOnly: true", "tools: Read", "tools: Read, Edit")
+        for name in ("broken", "doubled"):
+            with self.subTest(agent=name):
+                self.assertDenied(self.run_gate(self.payload(contract(), subagent_type=name)), "LANE_AGENT_DEFINITION_UNREADABLE")
 
     def test_main_thread_only_follows_the_definition_marker(self):
         self.define(self.user, "renamed-steward", "mainThreadOnly: true", "disallowedTools: Agent")
@@ -488,7 +512,11 @@ class ProfileAgentFrontmatter(unittest.TestCase):
                 self.assertIn(fields.get("model"), {"haiku", "sonnet"})
                 self.assertRegex(str(fields.get("maxTurns") or ""), r"^\d+$")
                 self.assertGreaterEqual(int(str(fields["maxTurns"])), 60)
-                self.assertIn("Agent", fields.get("disallowedTools") or [])
+                disallowed = set(fields.get("disallowedTools") or [])
+                self.assertIn("Agent", disallowed)
+                # A reviewer loses every write tool, never only some of them.
+                if disallowed & agent_ladder.WRITE_TOOLS:
+                    self.assertLessEqual(agent_ladder.WRITE_TOOLS, disallowed)
 
 
 class Scope(LadderTestCase):

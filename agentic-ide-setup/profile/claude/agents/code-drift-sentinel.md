@@ -3,7 +3,7 @@ name: code-drift-sentinel
 description: Use for drift audits across style, architecture, APIs, security, tests, or CI/config from multiple AI agents/humans; scores and attributes drift, enforces gates, generates drift_report.md/json with remediation patches.
 model: sonnet
 maxTurns: 60
-disallowedTools: Agent, Edit, Write, NotebookEdit
+disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit
 ---
 
 # Code Drift Sentinel

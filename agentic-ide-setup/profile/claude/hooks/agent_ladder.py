@@ -65,11 +65,11 @@ TIER_TURN_GUIDANCE = {"haiku": 12, "sonnet": 30, "opus": 60}
 # Spawning a read-only agent keeps a read-only contract structurally honest
 # rather than merely promised in the constraints list. The built-ins are always
 # read-only; a defined agent is when its frontmatter removes every write tool
-# (disallowedTools: ..., Edit, Write, NotebookEdit) or its tools list has none.
+# (disallowedTools: ..., Edit, Write, NotebookEdit, MultiEdit) or its tools
+# allowlist names only built-in tools that cannot write.
 READ_ONLY_AGENTS = frozenset({"Explore", "Plan"})
-WRITE_TOOLS = frozenset({"Edit", "Write", "NotebookEdit"})
-# In an allowlist, any of these grants writing (MultiEdit exists in older Claude Code).
-ALLOWLIST_WRITE_TOOLS = WRITE_TOOLS | {"MultiEdit"}
+# Claude Code's file-writing tools. A read-only agent must lose all of them.
+WRITE_TOOLS = frozenset({"Edit", "Write", "NotebookEdit", "MultiEdit"})
 TOOL_LIST_KEYS = frozenset({"tools", "disallowedTools"})
 
 # These coordinate from the main thread (`claude --agent <name>`, or their own
@@ -227,16 +227,26 @@ def parent_model(transcript_path: Any, max_lines: int = 400) -> str:
 
 
 def _strip_comment(text: str) -> str:
-    """Drop a trailing `# comment` outside quotes, as YAML does."""
-    quote = ""
+    """Drop a trailing `# comment`, as YAML does.
+
+    A quote opens a quoted scalar only at the start of a value or list item, so
+    an apostrophe inside a word (`it's`) does not hide a later comment.
+    """
+    quote, item_start = "", True
     for index, char in enumerate(text):
         if quote:
             if char == quote:
                 quote = ""
-        elif char in "'\"":
+            continue
+        if char in "'\"" and item_start:
             quote = char
-        elif char == "#" and (index == 0 or text[index - 1].isspace()):
+            continue
+        if char == "#" and (index == 0 or text[index - 1].isspace()):
             return text[:index].rstrip()
+        if char in ",[:-":
+            item_start = True
+        elif not char.isspace():
+            item_start = False
     return text
 
 
@@ -247,19 +257,19 @@ def _unquote(text: str) -> str:
     return text
 
 
-def agent_frontmatter(path: Path) -> dict[str, list[str] | str]:
+def agent_frontmatter(path: Path) -> dict[str, list[str] | str] | None:
     """Top-level frontmatter fields of an agent definition; tool lists as lists.
 
-    Keys are exact-case, as Claude Code reads them. Anything ambiguous fails
-    closed by returning {} (the agent then counts as able to write): a block
-    with no closing fence, or a tool list given twice.
+    Keys are exact-case, as Claude Code reads them. None means the definition
+    cannot be read reliably (unreadable file, no frontmatter, no closing fence,
+    or a tool list given twice): callers must not guess what such an agent may do.
     """
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return {}
+        return None
     if not lines or lines[0].strip() != "---":
-        return {}
+        return None
     fields: dict[str, list[str] | str] = {}
     key = ""
     for raw in lines[1:]:
@@ -268,7 +278,7 @@ def agent_frontmatter(path: Path) -> dict[str, list[str] | str]:
         line = _strip_comment(raw.rstrip())
         if not line.strip():
             continue
-        if raw.startswith((" ", "\t")):
+        if raw.startswith((" ", "	")):
             item = line.strip()
             if key in TOOL_LIST_KEYS and item.startswith("-"):
                 fields[key] = [*(fields.get(key) or []), _unquote(item[1:])]
@@ -280,11 +290,11 @@ def agent_frontmatter(path: Path) -> dict[str, list[str] | str]:
             continue
         if key in TOOL_LIST_KEYS:
             if key in fields:
-                return {}  # which of two tool lists applies is not knowable here
+                return None  # which of two tool lists applies is not knowable here
             fields[key] = [_unquote(t) for t in value.strip("[]").split(",") if t.strip()]
         else:
             fields[key] = _unquote(value)
-    return {}  # no closing fence: the body would be read as frontmatter
+    return None  # no closing fence: the body would be read as frontmatter
 
 
 def agent_directories(root: Path | None) -> list[Path]:
@@ -293,27 +303,29 @@ def agent_directories(root: Path | None) -> list[Path]:
     return [Path(root) / ".claude" / "agents", user] if root else [user]
 
 
-def _definitions(directories: list[Path]) -> dict[str, dict[str, list[str] | str]]:
-    """Frontmatter by agent name; the first directory's definition of a name wins."""
-    found: dict[str, dict[str, list[str] | str]] = {}
+def _definitions(directories: list[Path]) -> dict[str, dict[str, list[str] | str] | None]:
+    """Frontmatter by agent name (None when unreadable); the first directory's definition wins."""
+    found: dict[str, dict[str, list[str] | str] | None] = {}
     for directory in directories:
         for path in sorted(directory.glob("*.md")):
             fields = agent_frontmatter(path)
-            found.setdefault(str(fields.get("name") or path.stem), fields)
+            found.setdefault(str((fields or {}).get("name") or path.stem), fields)
     return found
 
 
 def read_only_agents(directories: list[Path]) -> frozenset[str]:
     names = set(READ_ONLY_AGENTS)
     for name, fields in _definitions(directories).items():
+        if fields is None:
+            continue
         disallowed = set(fields.get("disallowedTools") or [])
         tools = fields.get("tools")
-        # A tools allowlist proves read-only only when it names every tool and none can write;
-        # a wildcard ("*", mcp__x__*) could include a write tool.
+        # An allowlist proves read-only only when every entry is a named built-in
+        # tool and none can write: a wildcard or an MCP tool could write.
         allowlist_read_only = (
             isinstance(tools, list)
-            and not any("*" in tool for tool in tools)
-            and not ALLOWLIST_WRITE_TOOLS & set(tools)
+            and not any("*" in tool or tool.startswith("mcp__") for tool in tools)
+            and not WRITE_TOOLS & set(tools)
         )
         if WRITE_TOOLS <= disallowed or allowlist_read_only:
             names.add(name)
@@ -322,8 +334,16 @@ def read_only_agents(directories: list[Path]) -> frozenset[str]:
 
 def main_thread_only_agents(directories: list[Path]) -> frozenset[str]:
     """Named in MAIN_THREAD_ONLY_AGENTS, or marked `mainThreadOnly: true` in their definition."""
-    marked = {name for name, fields in _definitions(directories).items() if str(fields.get("mainThreadOnly", "")).lower() == "true"}
+    marked = {
+        name for name, fields in _definitions(directories).items()
+        if fields is not None and str(fields.get("mainThreadOnly", "")).lower() == "true"
+    }
     return frozenset(MAIN_THREAD_ONLY_AGENTS | marked)
+
+
+def unreadable_agents(directories: list[Path]) -> frozenset[str]:
+    """Agents whose definition cannot be read reliably; the gate refuses to spawn them."""
+    return frozenset(name for name, fields in _definitions(directories).items() if fields is None)
 
 
 def _nonempty_strings(value: Any) -> list[str]:

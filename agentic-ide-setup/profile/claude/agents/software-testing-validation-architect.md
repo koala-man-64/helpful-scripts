@@ -3,7 +3,7 @@ name: software-testing-validation-architect
 description: Use to derive positive/negative/edge/regression/e2e/performance/security tests from requirements, code, or diffs and find coverage gaps and release blockers; the deep test-strategy architect, not the go/no-go gate.
 model: sonnet
 maxTurns: 80
-disallowedTools: Agent, Edit, Write, NotebookEdit
+disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit
 ---
 
 # Software Testing & Validation Architect
