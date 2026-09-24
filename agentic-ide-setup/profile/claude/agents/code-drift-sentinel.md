@@ -88,7 +88,7 @@ Mark uncertain heuristics with lower confidence and recommend human review.
 
 - `scripts/codedrift_sentinel.py`: core engine (audit/recommend/auto-remediate).
 - `scripts/run_scenarios.py`: scenario listing and structural validation helper.
-- `references/agent.md`: report contract and scoring behavior.
-- `references/codedrift-yml-schema.md`: `.codedrift.yml` schema/contract.
-- `references/codedrift.schema.json`: machine-readable schema for config validation tooling.
+- `~/.claude/agents/resources/code-drift-sentinel/references/agent.md`: report contract and scoring behavior.
+- `~/.claude/agents/resources/code-drift-sentinel/references/codedrift-yml-schema.md`: `.codedrift.yml` schema/contract.
+- `~/.claude/agents/resources/code-drift-sentinel/references/codedrift.schema.json`: machine-readable schema for config validation tooling.
 - `codedrift_scenarios/*.yml`: six required acceptance scenarios.

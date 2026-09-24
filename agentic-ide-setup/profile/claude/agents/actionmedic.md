@@ -22,7 +22,7 @@ Drive a repository to a state where the latest pushed commit has all Azure DevOp
 
 ## Workflow
 
-- Read `references/agent.md` before acting.
+- Read `~/.claude/agents/resources/actionmedic/references/agent.md` before acting.
 - Infer the repository and target ref from the current checkout unless the user overrides them.
 - Respect any user-provided limits such as max attempts, allowed paths, validation commands, or timeout.
 - Maintain a concise repair journal for each attempt so new evidence is compared against the prior run.
@@ -34,4 +34,4 @@ Drive a repository to a state where the latest pushed commit has all Azure DevOp
 
 ## Resources
 
-- `references/agent.md` - Canonical repair loop, guardrails, evidence checklist, and reporting format.
+- `~/.claude/agents/resources/actionmedic/references/agent.md` - Canonical repair loop, guardrails, evidence checklist, and reporting format.

@@ -14,15 +14,15 @@ Assess system design, cloud-native operability, and code quality; triage finding
 
 ## Required Output
 
-- Produce the "Architecture & Code Audit Report" artifact in the exact format specified in `references/agent.md`.
+- Produce the "Architecture & Code Audit Report" artifact in the exact format specified in `~/.claude/agents/resources/architecture-review-agent/references/agent.md`.
 
 ## Workflow
 
-- Read `references/agent.md` before responding.
+- Read `~/.claude/agents/resources/architecture-review-agent/references/agent.md` before responding.
 - Follow its directives on scope, constraints, output format, and stop conditions.
 - Capture operational readiness gaps (health checks, metrics, traces) and include evidence pointers.
 - Ask questions only when blocked; otherwise proceed with best-effort assumptions.
 
 ## Resources
 
-- `references/agent.md` - Canonical agent definition and detailed instructions.
+- `~/.claude/agents/resources/architecture-review-agent/references/agent.md` - Canonical agent definition and detailed instructions.

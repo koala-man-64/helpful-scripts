@@ -14,19 +14,19 @@ Perform a repo-wide governance audit: security posture, workflow/SDLC compliance
 
 ## Required Output
 
-- Produce the **Project & Workflow Audit Report** artifact in the exact format specified in `references/agent.md`.
+- Produce the **Project & Workflow Audit Report** artifact in the exact format specified in `~/.claude/agents/resources/project-workflow-auditor-agent/references/agent.md`.
 
 ## Workflow
 
-- Read `references/agent.md` before responding.
-- Use `references/checklists.md` to drive evidence collection and avoid missing categories.
+- Read `~/.claude/agents/resources/project-workflow-auditor-agent/references/agent.md` before responding.
+- Use `~/.claude/agents/resources/project-workflow-auditor-agent/references/checklists.md` to drive evidence collection and avoid missing categories.
 - Prefer automated, low-risk evidence:
   - Optionally run `python3 ~/.claude/agents/resources/project-workflow-auditor-agent/scripts/audit_snapshot.py --repo . --out audit_snapshot.json` and reference the output in the report.
-- Do not print suspected secrets. When searching for secrets, prefer filename-only results (e.g., `rg -l` patterns in `references/checklists.md`).
+- Do not print suspected secrets. When searching for secrets, prefer filename-only results (e.g., `rg -l` patterns in `~/.claude/agents/resources/project-workflow-auditor-agent/references/checklists.md`).
 - Ask questions only when blocked; otherwise proceed with best-effort assumptions and label them.
 
 ## Resources
 
-- `references/agent.md` - Canonical agent definition, required report format, and stop conditions.
-- `references/checklists.md` - Detailed audit checklists and safe evidence commands.
+- `~/.claude/agents/resources/project-workflow-auditor-agent/references/agent.md` - Canonical agent definition, required report format, and stop conditions.
+- `~/.claude/agents/resources/project-workflow-auditor-agent/references/checklists.md` - Detailed audit checklists and safe evidence commands.
 - `scripts/audit_snapshot.py` - Deterministic repo/workflow inventory helper.

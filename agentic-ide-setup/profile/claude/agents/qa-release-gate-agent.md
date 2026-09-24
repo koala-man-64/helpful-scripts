@@ -20,7 +20,7 @@ Design risk-based test plans, execute verification, and validate CI/CD quality g
 
 ## Workflow
 
-- Read `references/agent.md` before responding.
+- Read `~/.claude/agents/resources/qa-release-gate-agent/references/agent.md` before responding.
 - Follow its directives on scope, constraints, conditional output format, and stop conditions.
 - Identify test coverage risks and CI/CD gate gaps for the scoped changes.
 - Inspect pipeline configs when CI/CD is in scope and note required checks, artifacts, caching, and failure signals.
@@ -29,4 +29,4 @@ Design risk-based test plans, execute verification, and validate CI/CD quality g
 
 ## Resources
 
-- `references/agent.md` - Canonical agent definition and detailed instructions.
+- `~/.claude/agents/resources/qa-release-gate-agent/references/agent.md` - Canonical agent definition and detailed instructions.
