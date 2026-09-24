@@ -630,6 +630,203 @@ class ReviewRoundTwoTests(GuardTestCase):
         self.assertIn("could not assess", decision["permissionDecisionReason"])
 
 
+class ReviewRoundFourTests(GuardTestCase):
+    """Round 4: values the command may change unseen, and code the parser did not read."""
+
+    def test_assignments_in_a_child_process_stay_there(self) -> None:
+        target = OUT.as_posix()
+        self.assertDecisions([
+            # The review's case. The alias body runs in a child shell, so $S is still the outside path;
+            # its `S=build` is a mention the guard cannot place, so it asks.
+            ("Bash", f'S="{target}"; git -c alias.wash="!S=build; true" wash; rm -rf "$S/x"', "ask"),
+            ("Bash", f"S=\"{target}\"; sh -c 'S=build'; rm -rf \"$S/x\"", "deny"),
+            ("Bash", f"S=\"{target}\"; bash -c 'S=build; true'; rm -rf \"$S/x\"", "deny"),
+            ("Bash", f'S="{target}"; ( S=build ); rm -rf "$S/x"', "deny"),
+            ("Bash", f'S="{target}"; echo $(S=build); rm -rf "$S/x"', "deny"),
+            ("Bash", f"S=\"{target}\"; find . -maxdepth 0 -exec sh -c 'S=build' \\; ; rm -rf \"$S/x\"", "deny"),
+            ("PowerShell", f"$S='{OUT}'; pwsh -Command '$S=\"build\"'; Remove-Item -Recurse -Force \"$S\\x\"", "deny"),
+            # Inside the child its own assignments hold.
+            ("Bash", f"sh -c 'S={target}; rm -rf \"$S/x\"'", "deny"),
+            ("Bash", "sh -c 'S=build; rm -rf \"$S/x\"'", "allow"),
+            # A group runs in this shell, so its assignment holds here.
+            ("Bash", f'S="{target}"; {{ S=build; }}; rm -rf "$S/x"', "allow"),
+        ])
+
+    def test_a_configured_alias_cannot_change_the_callers_values(self) -> None:
+        repo = make_repo(self.base / "wash")
+        git(repo, "config", "alias.wash", "!S=build; true")
+        target = OUT.as_posix()
+        self.assertEqual(self.decide(f'S="{target}"; git wash; rm -rf "$S/x"', repo=repo), "deny")
+
+    def test_values_the_command_may_change_unseen_are_not_used(self) -> None:
+        target = OUT.as_posix()
+        self.assertDecisions([
+            ("Bash", f'S=build; printf -v S %s "{target}"; rm -rf "$S/x"', "ask"),
+            ("Bash", f'S=build; printf -vS %s "{target}"; rm -rf "$S/x"', "ask"),
+            ("Bash", f'S=build; read S <<< "{target}"; rm -rf "$S/x"', "ask"),
+            ("Bash", f'S=build; for S in "{target}"; do :; done; rm -rf "$S/x"', "ask"),
+            ("Bash", 'S=build; unset S; rm -rf "$S/x"', "ask"),
+            ("Bash", f'S=build; declare -n R=S; R="{target}"; rm -rf "$S/x"', "ask"),
+            ("Bash", f'S=build; mapfile -t S <<< "{target}"; rm -rf "$S/x"', "ask"),
+            ("Bash", 'S=build; S+=/../../..; rm -rf "$S/x"', "ask"),
+            ("Bash", f'S=build; true | S="{target}"; rm -rf "$S/x"', "ask"),
+            ("Bash", f'S="{target}"; f() {{ S=build; }}; rm -rf "$S/x"', "ask"),
+            ("Bash", f"S=build; trap 'S={target}' DEBUG; rm -rf \"$S/x\"", "ask"),
+            ("Bash", f'S=build; V=S; eval "$V={target}"; rm -rf "$S/x"', "ask"),
+            ("Bash", 'S=build; source ./setup.sh; rm -rf "$S/x"', "ask"),
+            ("PowerShell", f"$S='build'; Set-Variable -Name S -Value '{OUT}'; Remove-Item -Recurse -Force \"$S\\x\"", "ask"),
+            ("PowerShell", f"$S='build'; Write-Output '{OUT}' -OutVariable S; Remove-Item -Recurse -Force \"$S\\x\"", "ask"),
+            ("PowerShell", f"$S='build'; Write-Output '{OUT}' -OutV S; Remove-Item -Recurse -Force \"$S\\x\"", "ask"),
+            ("PowerShell", f"$S='build'; foreach ($S in @('{OUT}')) {{ }}; Remove-Item -Recurse -Force \"$S\\x\"", "ask"),
+            ("PowerShell", f"$S='build'; & {{ $S='{OUT}' }}; Remove-Item -Recurse -Force \"$S\\x\"", "ask"),
+            ("PowerShell", f"$S='build'; [string]$S = '{OUT}'; Remove-Item -Recurse -Force \"$S\\x\"", "ask"),
+            ("PowerShell", "$S='build'; . .\\setup.ps1; Remove-Item -Recurse -Force \"$S\\x\"", "ask"),
+            # Seen and applied: literal `eval` code and `$global:` run in this scope.
+            ("Bash", f"S=build; eval 'S={target}'; rm -rf \"$S/x\"", "deny"),
+            ("PowerShell", f"$S='build'; $global:S='{OUT}'; Remove-Item -Recurse -Force \"$S\\x\"", "deny"),
+        ])
+
+    def test_bash_names_are_case_sensitive(self) -> None:
+        target = OUT.as_posix()
+        self.assertDecisions([
+            ("Bash", f'OUT="{target}"; out=build; rm -rf "$OUT/x"', "deny"),
+            ("Bash", f'out="{target}"; OUT=build; rm -rf "$OUT/x"', "allow"),
+        ])
+
+    def test_short_powershell_names_are_not_confused_with_paths(self) -> None:
+        self.assertDecisions([
+            ("PowerShell", '$p = "C:\\tmp\\p"; Remove-Item "$p\\x" -Recurse', "allow"),
+            ("PowerShell", '$d = "C:\\tmp\\d.d"; Remove-Item $d -Recurse', "allow"),
+        ])
+
+    def test_function_bodies_eval_and_trap_are_read(self) -> None:
+        target = OUT.as_posix()
+        self.assertDecisions([
+            ("Bash", f"f() {{ rm -rf {target}/x; }}; f", "deny"),
+            ("Bash", f"function f {{ rm -rf {target}/x; }}; f", "deny"),
+            ("Bash", f"f()\n{{\n  rm -rf {target}/x\n}}\nf", "deny"),
+            ("Bash", f"eval 'rm -rf {target}/x'", "deny"),
+            ("Bash", f"trap 'rm -rf {target}/x' EXIT", "deny"),
+            ("Bash", "f() { rm -rf build; }; f", "allow"),
+            ("Bash", "trap 'rm -f .lock' EXIT", "allow"),
+        ])
+
+    def test_git_runs_code_from_its_options_and_environment(self) -> None:
+        target = OUT.as_posix()
+        self.assertDecisions([
+            ("Bash", f"git -c core.fsmonitor='rm -rf {target}/x' status", "deny"),
+            ("Bash", f"git -c core.pager='rm -rf {target}/x' log", "deny"),
+            ("Bash", f"git -c pager.log='rm -rf {target}/x' log", "deny"),
+            ("Bash", f"git rebase -x 'rm -rf {target}/x' HEAD~1", "deny"),
+            ("Bash", f"git rebase --exec='rm -rf {target}/x' HEAD~1", "deny"),
+            ("Bash", f"git bisect run rm -rf {target}/x", "deny"),
+            ("Bash", f"git submodule foreach 'rm -rf {target}/x'", "deny"),
+            ("Bash", f"git filter-branch --tree-filter 'rm -rf {target}/x' HEAD", "deny"),
+            ("Bash", f"git difftool -x 'rm -rf {target}/x' HEAD~1", "deny"),
+            ("Bash", f"GIT_SEQUENCE_EDITOR='rm -rf {target}/x' git rebase -i HEAD~2", "deny"),
+            ("Bash", f"export GIT_SSH_COMMAND='rm -rf {target}/x'; git fetch", "deny"),
+            # A pager's output reaches the transcript; a credential helper's goes back to git.
+            ("Bash", "git -c core.pager='echo $GITHUB_TOKEN' log", "deny"),
+            ("Bash", "git -c credential.helper='!f() { echo \"password=$GITHUB_TOKEN\"; }; f' fetch", "allow"),
+            ("Bash", "git -c core.pager=cat log -1", "allow"),
+            ("Bash", "GIT_EDITOR=true git rebase --continue", "allow"),
+        ])
+
+    def test_alias_definitions_and_inline_alias_scope(self) -> None:
+        target = OUT.as_posix()
+        repo = make_repo(self.base / "alias-scope")
+        git(repo, "config", "alias.y", f"!rm -rf {target}/x")
+        cases = [
+            (f"git config set alias.z '!rm -rf {target}/x'; git z", "deny"),
+            (f"git config --comment note alias.z '!rm -rf {target}/x'", "deny"),
+            # `-c alias.y=status` holds for that one git process; the next `git y` runs the configured alias.
+            ("git -c alias.y=status status; git y", "deny"),
+            ("git config set alias.lg 'log --oneline'", "allow"),
+        ]
+        for command, expected in cases:
+            with self.subTest(command=command):
+                self.assertEqual(self.decide(command, repo=repo), expected)
+
+    def test_git_configuration_from_the_environment_asks(self) -> None:
+        target = OUT.as_posix()
+        self.assertDecisions([
+            ("Bash", f"GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.y GIT_CONFIG_VALUE_0='!rm -rf {target}/x' git y", "ask"),
+            ("Bash", f"V='!rm -rf {target}/x' git --config-env=alias.y=V y", "ask"),
+        ])
+
+    def test_an_untrusted_variable_cannot_hide_a_production_approval(self) -> None:
+        self.assertDecisions([
+            ("Bash", "E=prod; az pipelines approve --id 1 --environment $E", "deny"),
+            ("Bash", "E=prod; sh -c 'E=dev'; az pipelines approve --id 1 --environment $E", "deny"),
+            ("Bash", "E=prod; read E; az pipelines approve --id 1 --environment $E", "deny"),
+            ("Bash", "az pipelines approve --id 1 --environment staging", "allow"),
+        ])
+
+    def test_unknown_programs_asking_to_run_blocked_text(self) -> None:
+        """The backstop: text an unrecognized program is given, that would be denied as a command, asks."""
+        target = OUT.as_posix()
+        self.assertDecisions([
+            ("Bash", f"watch -n1 'rm -rf {target}/x'", "ask"),
+            ("Bash", "ssh host 'git push --force origin main'", "ask"),
+            ("Bash", f"docker exec box rm -rf {target}/x", "ask"),
+            ("Bash", f'schtasks /create /tn x /tr "cmd /c rd /s /q {OUT}\\x"', "ask"),
+            ("PowerShell", f"& ([scriptblock]::Create('Remove-Item -Recurse -Force {OUT}\\x'))", "ask"),
+            # Data stays data: known data programs, and harmless text.
+            ("Bash", "grep -rn 'git push --force' docs/", "allow"),
+            ("Bash", "echo 'git reset --hard'", "allow"),
+            ("Bash", "python -c \"print('rm -rf /')\"", "allow"),
+            ("Bash", "mytool --message 'chore: update docs'", "allow"),
+            ("PowerShell", f"'Remove-Item -Recurse {OUT}' | Set-Content notes.txt", "allow"),
+        ])
+
+    def test_code_fed_to_a_shell_is_read(self) -> None:
+        target = OUT.as_posix()
+        self.assertDecisions([
+            ("Bash", f"bash <<'EOF'\nrm -rf {target}/x\nEOF", "deny"),
+            ("Bash", f"sh -s <<EOF\nrm -rf {target}/x\nEOF", "deny"),
+            ("Bash", f"echo 'rm -rf {target}/x' | sh", "deny"),
+            ("Bash", f"printf '%s\\n' 'rm -rf {target}/x' | bash -s", "deny"),
+            ("Bash", f"bash <<< 'rm -rf {target}/x'", "deny"),
+            ("PowerShell", f"iex @'\nRemove-Item -Recurse -Force '{OUT}\\x'\n'@", "deny"),
+            ("PowerShell", f"'Remove-Item -Recurse -Force {OUT}\\x' | pwsh -Command -", "deny"),
+            ("Bash", f"case x in x) rm -rf {target}/x;; esac", "deny"),
+            ("Bash", f"case x in y) true;; x) rm -rf {target}/x;; esac", "deny"),
+            ("Bash", f"coproc N {{ rm -rf {target}/x; }}", "deny"),
+            ("Bash", f"alias ll='rm -rf {target}/x'", "deny"),
+            # A script file's input is data, and so is a file written from a heredoc.
+            ("Bash", "bash build.sh <<'EOF'\nrm -rf build\nEOF", "allow"),
+            ("Bash", f"cat > notes.md <<'EOF'\nrm -rf {target}/x\nEOF", "allow"),
+        ])
+
+    def test_a_here_string_never_opens_a_heredoc(self) -> None:
+        """`<<<` once read as a heredoc opener, which hid the lines after it as heredoc data."""
+        target = OUT.as_posix()
+        self.assertEqual(self.decide(f"cat <<< 'x'\nrm -rf {target}/x\nx"), "deny")
+
+    def test_powershell_encoded_command_alias_is_decoded(self) -> None:
+        encoded = base64.b64encode(f"Remove-Item -Recurse -Force {OUT}\\x".encode("utf-16-le")).decode()
+        self.assertEqual(self.decide(f"powershell -ec {encoded}", "PowerShell"), "deny")
+
+
+class ScopeParserTests(unittest.TestCase):
+    def test_statements_record_the_processes_and_blocks_they_run_in(self) -> None:
+        parsed = shell_parse.parse("S=1; eval 'S=5'; sh -c 'S=2'; ( S=3 ); f() { S=4; }")
+        kinds = {s.literals["S"]: tuple(kind for _, kind in s.scope) for s in parsed.statements if "S" in s.literals}
+        self.assertEqual(kinds, {"1": (), "5": (), "2": ("child",), "3": ("child",), "4": ("block",)})
+
+    def test_only_plain_assignments_are_literals(self) -> None:
+        bash = [s.literals for s in shell_parse.parse("A=1; B+=2; C[0]=3; export D=4; E=$(pwd)").statements if s.literals]
+        self.assertEqual(bash, [{"A": "1"}, {"D": "4"}])
+        ps = [s.literals for s in shell_parse.parse("$a = 'x'; $b += 'y'; $c[0] = 'z'; $d.e = 'w'", "powershell").statements if s.literals]
+        self.assertEqual(ps, [{"a": "x"}])
+
+    def test_code_git_runs_from_its_options_is_parsed(self) -> None:
+        argvs = [s.argv for s in shell_parse.parse("git -c core.pager='less -R' -c user.name=x rebase -x 'make test' main").statements]
+        self.assertIn(["less", "-R"], argvs)
+        self.assertIn(["make", "test"], argvs)
+        self.assertNotIn(["x"], argvs)
+
+
 class ParserTests(unittest.TestCase):
     def argvs(self, command: str, dialect: str = "bash") -> list[list[str]]:
         return [s.argv for s in shell_parse.parse(command, dialect).statements]

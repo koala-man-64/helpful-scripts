@@ -11,6 +11,14 @@ as a condition, piped through later stages, or redirected to a file) and which l
 command makes, so rules can follow `SP=...; rm -rf "$SP/x"` and tell printing a
 secret from passing it on. Input that cannot be parsed is reported as
 incomplete rather than guessed at, so the caller can fail safe.
+
+Code other programs run is parsed too: function bodies, `eval` and `trap`
+strings, and what git runs from its own options (`-c core.pager=...`,
+`rebase -x`, `bisect run`, `submodule foreach`) or environment
+(`GIT_SEQUENCE_EDITOR=...`). Each statement records its scope: the chain of
+child processes (whose assignments never reach the shell that started them)
+and blocks (function bodies, script blocks, traps: code that may run later,
+repeatedly, or not at all) it runs in.
 """
 
 from __future__ import annotations
@@ -25,12 +33,44 @@ from pathlib import PureWindowsPath
 
 MAX_DEPTH = 6
 _SUBSTITUTIONS = itertools.count(1)
+_SCOPES = itertools.count(1)
+
+# Scope kinds. A child process (subshell, `sh -c`, an alias) never changes the
+# variables of the shell that started it; a block (function body, script block,
+# trap) runs in that shell, but when, how often and whether at all is unknown.
+CHILD = "child"
+BLOCK = "block"
+# Assignment target for code whose output goes back to git (a credential helper), not to the transcript.
+CONSUMED = "(consumed)"
 
 _HEREDOC = re.compile(
     r"<<(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|\\?([A-Za-z0-9_.-]+))"
 )
-_ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)(\[[^\]]*\])?\+?=")
-_PS_ASSIGNMENT = re.compile(r"^\s*\$([\w:.]+)(?:\[[^\]]*\])?\s*[-+*/]?=(?!=)\s*")
+_ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)(\[[^\]]*\])?(\+?)=")
+_PS_ASSIGNMENT = re.compile(r"^\s*\$([\w:.]+)(\[[^\]]*\])?\s*([-+*/%]?)=(?!=)\s*")
+# Environment variables whose value a program runs as a command, and those whose output goes back to it.
+_EXEC_ENV = frozenset({
+    "GIT_SSH_COMMAND", "GIT_SSH", "GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_PAGER", "GIT_ASKPASS",
+    "SSH_ASKPASS", "GIT_EXTERNAL_DIFF", "GIT_PROXY_COMMAND", "EDITOR", "VISUAL", "PAGER",
+})
+_EXEC_ENV_CONSUMED = frozenset({"GIT_SSH_COMMAND", "GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS", "GIT_PROXY_COMMAND"})
+# git config keys whose value git runs as a command (git-config(1)), by last name segment;
+# `pager.<command>` is one too. Of those, the ones whose output goes back to git.
+_GIT_EXEC_KEYS = frozenset({
+    "fsmonitor", "sshcommand", "gitproxy", "askpass", "pager", "editor", "helper", "external", "command",
+    "cmd", "textconv", "driver", "clean", "smudge", "process", "program", "packobjectshook",
+    "alternaterefscommand", "defaultkeycommand", "tocmd", "cccmd", "uploadpack", "receivepack", "tunnel",
+})
+_GIT_CONSUMED_KEYS = frozenset({
+    "fsmonitor", "sshcommand", "gitproxy", "askpass", "helper", "clean", "smudge", "process", "program",
+    "packobjectshook", "alternaterefscommand", "defaultkeycommand", "tocmd", "cccmd", "uploadpack",
+    "receivepack", "tunnel",
+})
+_GIT_GLOBAL_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"})
+_GIT_FILTER_OPTIONS = frozenset({
+    "--tree-filter", "--index-filter", "--msg-filter", "--env-filter", "--commit-filter", "--parent-filter",
+    "--tag-name-filter", "--setup",
+})
 _STDOUT_REDIRECT = re.compile(r"^(?:1?>>?(?!&)|&>>?)")
 _BASH_PREFIXES = {"!", "{", "(", "do", "then", "else", "elif", "if", "while", "until",
                   "time", "exec", "command", "builtin", "nohup", "sudo"}
@@ -56,6 +96,11 @@ CONDITION = "(condition)"
 # Pseudo-dialect of a nested entry that carries the variable names an unquoted
 # heredoc body expands; they become the statement's heredoc_refs, not code.
 HEREDOC_REFS = "(heredoc-refs)"
+# Pseudo-dialect of a heredoc body or PowerShell here-string: the statement's input
+# or argument text, which is code only when the statement runs it (`bash <<EOF`, `iex @'...'@`).
+STDIN_TEXT = "(stdin-text)"
+_SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh"})
+_SH_VALUE_OPTIONS = frozenset({"-o", "+o", "-O", "+O", "--rcfile", "--init-file"})
 
 Nested = tuple[str, str, "str | None"]  # (code, dialect, variable its output is assigned to)
 
@@ -72,6 +117,10 @@ class Statement:
     downstream: tuple[tuple[str, ...], ...] = ()  # argv of each later stage of the same pipeline
     heredoc_refs: tuple[str, ...] = ()  # variables expanded in an unquoted heredoc fed to this statement
     stdout_redirected: bool = False  # stdout goes to a file (`> f`, `>> f`, `&> f`)
+    scope: tuple[tuple[int, str], ...] = ()  # (id, CHILD or BLOCK) for each process or block it runs inside
+    dot_sourced: bool = False  # PowerShell `. script`: runs in, and can change, the caller's scope
+    bodies: tuple[str, ...] = ()  # heredoc bodies and here-strings given to this statement
+    runs_bodies: bool = False  # it runs them as code (`bash <<EOF`, `iex @'...'@`), parsed as statements too
 
     @property
     def program(self) -> str:
@@ -109,11 +158,17 @@ def program_name(token: str) -> str:
 
 def parse(command: str, dialect: str = "bash") -> Parsed:
     result = Parsed()
-    _parse_into(result, command, dialect, assign_to=None, depth=0)
+    _parse_into(result, command, dialect, assign_to=None, depth=0, scope=())
     return result
 
 
-def _parse_into(result: Parsed, text: str, dialect: str, assign_to: str | None, depth: int) -> None:
+def _enter(scope: tuple[tuple[int, str], ...], kind: str | None) -> tuple[tuple[int, str], ...]:
+    return scope + ((next(_SCOPES), kind),) if kind else scope
+
+
+def _parse_into(
+    result: Parsed, text: str, dialect: str, assign_to: str | None, depth: int, scope: tuple[tuple[int, str], ...]
+) -> None:
     if depth > MAX_DEPTH:
         result.complete = False
         return
@@ -126,6 +181,7 @@ def _parse_into(result: Parsed, text: str, dialect: str, assign_to: str | None, 
     result.complete &= complete
 
     prepared = []
+    in_function = False
     for chunk_text, nested, piped in chunks:
         chunk_assign = assign_to
         literal_ps: dict[str, str] = {}
@@ -133,31 +189,54 @@ def _parse_into(result: Parsed, text: str, dialect: str, assign_to: str | None, 
             match = _PS_ASSIGNMENT.match(chunk_text)
             if match:
                 chunk_text = chunk_text[match.end():]
-                if chunk_text.strip()[:1] in {"'", '"'} and len(_tokenize(chunk_text, dialect)[0]) == 1:
-                    literal_ps[match.group(1)] = _tokenize(chunk_text, dialect)[0][0]
+                value = _tokenize(chunk_text, dialect)[0]
+                # Only `$name = 'text'` sets a known value; `+=`, `$a[0] =` and `$a.b =` do not.
+                plain = not match.group(2) and not match.group(3) and "." not in match.group(1)
+                if plain and chunk_text.strip()[:1] in {"'", '"'} and len(value) == 1:
+                    literal_ps[match.group(1)] = value[0]
                     chunk_text = ""
                 else:
                     chunk_assign = match.group(1)
         raw, ok = _tokenize(chunk_text, dialect)
         result.complete &= ok
-        argv, literals = _strip_prefixes(raw, dialect)
+        header = _function_header(raw) if dialect == "bash" else 0
+        # Whatever follows a function header may be its body, which runs when called, if ever.
+        in_function = in_function or header > 0
+        argv, literals, env, sourced = _strip_prefixes(raw[header:], dialect)
         literals.update(literal_ps)
-        prepared.append((argv, literals, nested, piped, chunk_assign))
+        prepared.append((argv, literals, env, sourced, nested, piped, chunk_assign, in_function))
 
-    for index, (argv, literals, nested, piped, chunk_assign) in enumerate(prepared):
+    previous: Statement | None = None
+    for index, (argv, literals, env, sourced, nested, piped, chunk_assign, in_function) in enumerate(prepared):
         heredoc_refs: list[str] = []
+        bodies: list[str] = []
         for code, code_dialect, nested_assign in nested:
             if code_dialect == HEREDOC_REFS:
                 heredoc_refs.extend(code.split())
                 continue
-            _parse_into(result, code, code_dialect, nested_assign or chunk_assign, depth + 1)
+            if code_dialect == STDIN_TEXT:
+                bodies.append(code)
+                continue
+            # Everything bash nests runs in a subshell. PowerShell's (...) and $(...) run in place; its
+            # {...} blocks run wherever the command they are given to runs them.
+            kind = CHILD if dialect == "bash" else (BLOCK if nested_assign is None else None)
+            _parse_into(result, code, code_dialect, nested_assign or chunk_assign, depth + 1, _enter(scope, kind))
+        in_pipeline = piped or (index > 0 and prepared[index - 1][5])
         if literals and not argv:
-            result.statements.append(Statement([], dialect, literals=literals))
+            # A bare assignment in a pipeline stage or a function body does not reliably reach this shell.
+            kind = BLOCK if in_function or (dialect == "bash" and in_pipeline) else None
+            result.statements.append(Statement([], dialect, literals=literals, scope=_enter(scope, kind)))
+        for name, value in {**env, **literals}.items():
+            variable = name.rsplit(":", 1)[-1].upper()
+            if variable in _EXEC_ENV:
+                # `GIT_SEQUENCE_EDITOR='...' git rebase -i`: the value is a command a program runs.
+                target = CONSUMED if variable in _EXEC_ENV_CONSUMED else chunk_assign
+                _parse_into(result, value, "bash", target, depth + 1, _enter(scope, CHILD))
         if not argv:
             continue
         downstream = []
         stage = index
-        while prepared[stage][3] and stage + 1 < len(prepared):
+        while prepared[stage][5] and stage + 1 < len(prepared):
             downstream.append(tuple(prepared[stage + 1][0]))
             stage += 1
         statement = Statement(
@@ -168,15 +247,120 @@ def _parse_into(result: Parsed, text: str, dialect: str, assign_to: str | None, 
             downstream=tuple(downstream),
             heredoc_refs=tuple(heredoc_refs),
             stdout_redirected=redirects_stdout(argv[1:]),
+            scope=_enter(scope, BLOCK) if in_function else scope,
+            dot_sourced=sourced,
+            bodies=tuple(bodies),
         )
         result.statements.append(statement)
-        payload = _shell_payload(statement)
-        if payload is not None:
-            code, code_dialect = payload
+        for code, code_dialect, kind, consumed in _payloads(statement):
             if code is None:
                 result.complete = False
-            else:
-                _parse_into(result, code, code_dialect, chunk_assign, depth + 1)
+                continue
+            target = CONSUMED if consumed else chunk_assign
+            _parse_into(result, code, code_dialect, target, depth + 1, _enter(statement.scope, kind))
+        # Input the statement runs as code: `bash <<EOF`, `bash <<< cmd`, `echo cmd | sh`, `iex @'...'@`.
+        runner = _stdin_code_dialect(statement)
+        codes = list(bodies) if runner or statement.program in {"invoke-expression", "iex"} else []
+        statement.runs_bodies = bool(codes)
+        if runner:
+            word = _herestring_word(statement.argv)
+            if word:
+                codes.append(word)
+            if previous is not None and index > 0 and prepared[index - 1][5]:
+                upstream = _piped_code(prepared[index - 1][0], prepared[index - 1][4], dialect)
+                if upstream:
+                    codes.append(upstream)
+                    previous.runs_bodies = previous.runs_bodies or bool(previous.bodies)
+        for code in codes:
+            # A shell reading its input is another process; Invoke-Expression runs in this scope.
+            _parse_into(result, code, runner or dialect, chunk_assign, depth + 1, _enter(statement.scope, CHILD if runner else None))
+        previous = statement
+
+
+def _function_header(raw: list[str]) -> int:
+    """Number of tokens in a bash function header opening this statement (`f () {`, `function f {`), else 0."""
+    if raw[:1] == ["function"] and len(raw) > 1:
+        index = 2
+        if raw[index:index + 1] == ["(group)"]:
+            index += 1
+    elif len(raw) > 1 and raw[1] == "(group)":
+        index = 2  # `word ( )` can only open a function definition
+    else:
+        return 0
+    return index + 1 if raw[index:index + 1] == ["{"] else index
+
+
+def _herestring_word(argv: list[str]) -> str | None:
+    """The word after `<<<`: a bash here-string, fed to the statement as its input."""
+    for index, arg in enumerate(argv):
+        if arg == "<<<":
+            return argv[index + 1] if index + 1 < len(argv) else None
+        if arg.startswith("<<<"):
+            return arg[3:]
+    return None
+
+
+def _stdin_code_dialect(statement: Statement) -> str | None:
+    """Dialect of the code a shell reads from its input (`bash <<EOF`, `... | sh -s`), or None when its input is data."""
+    program, args, skip = statement.program, [], False
+    for arg in statement.argv[1:]:
+        if skip or arg.startswith("<<<"):
+            skip = arg == "<<<"
+            continue
+        args.append(arg)
+    args = without_redirections(args)
+    if program in _SHELLS:
+        stdin_flag, index = False, 0
+        while index < len(args):
+            arg = args[index]
+            if arg == "--":
+                return "bash" if stdin_flag or index + 1 >= len(args) else None
+            if arg in _SH_VALUE_OPTIONS:
+                index += 2
+                continue
+            if re.fullmatch(r"[-+][A-Za-z]+", arg):
+                if arg[0] == "-" and "c" in arg:
+                    return None  # the code is an argument: _shell_payload reads it
+                stdin_flag = stdin_flag or (arg[0] == "-" and "s" in arg)
+                index += 1
+                continue
+            if arg.startswith("--"):
+                index += 1
+                continue
+            return "bash" if stdin_flag else None  # a script file runs; its input is data
+        return "bash"
+    if program in {"powershell", "pwsh"}:
+        lowered = [a.lower() for a in args]
+        for index, arg in enumerate(lowered):
+            name = arg.lstrip("-/")
+            if not arg.startswith(("-", "/")) or not name:
+                if arg.endswith(".ps1"):
+                    return None
+                continue
+            if name == "ec" or any(full.startswith(name) and full[0] == name[0] for full in ("command", "file", "encodedcommand")):
+                return "powershell" if lowered[index + 1:index + 2] == ["-"] else None
+        return "powershell"
+    if program == "cmd":
+        return None if any(a.lower() in {"/c", "/k", "/r"} for a in args) else "cmd"
+    return None
+
+
+def _piped_code(argv: list[str], nested: list[Nested], dialect: str) -> str | None:
+    """What a pipeline stage writes, when it is literal text: the code `echo cmd | sh` runs."""
+    program = program_name(argv[0]) if argv else ""
+    args = without_redirections(argv[1:])
+    bodies = [code for code, kind, _ in nested if kind == STDIN_TEXT]
+    if program in {"echo", "write-output", "write", "write-host"}:
+        while args and re.fullmatch(r"-[neE]+", args[0]):
+            args = args[1:]
+        return " ".join(args)
+    if program == "printf":
+        return "\n".join(args)
+    if program in {"cat", "type"} and not args and bodies:
+        return "\n".join(bodies)
+    if dialect == "powershell" and len(argv) == 1:
+        return "\n".join(bodies) if bodies else argv[0]
+    return None
 
 
 # --- bash ---------------------------------------------------------------------
@@ -218,11 +402,13 @@ def _skip_heredoc_bodies(
                 if expands:
                     nested.extend(_body_substitutions(text[body_start:line_start]))
                     nested.extend(_body_variables(text[body_start:line_start]))
+                nested.append((text[body_start:line_start], STDIN_TEXT, None))
                 break
         else:
             if expands:
                 nested.extend(_body_substitutions(text[body_start:]))
                 nested.extend(_body_variables(text[body_start:]))
+            nested.append((text[body_start:], STDIN_TEXT, None))
     return i, parts
 
 
@@ -437,7 +623,12 @@ def _split_bash(text: str, start: int = 0, until_paren: bool = False):
         if c == ")" and until_paren:
             flush()
             return chunks, i, ok
-        if text.startswith("<<", i) and not text.startswith("<<<", i):
+        if text.startswith("<<<", i):
+            # A here-string. Taken whole, so its last two characters never read as a heredoc opener.
+            buf.append("<<<")
+            i += 3
+            continue
+        if text.startswith("<<", i):
             match = _HEREDOC.match(text, i)
             if match:
                 delimiter = next(g for g in match.groups()[1:] if g is not None)
@@ -520,6 +711,7 @@ def _split_powershell(text: str, start: int = 0, closer: str | None = None):
                 break
             if quote == '"':
                 nested.extend(_ps_subexpressions(text[i + 2:end - 2]))
+            nested.append((text[i + 2:end - 2], STDIN_TEXT, None))
             buf.append(" @here@ ")
             i = end
             continue
@@ -760,27 +952,55 @@ def _tokenize(text: str, dialect: str) -> tuple[list[str], bool]:
     return tokens, quote is None
 
 
-def _strip_prefixes(argv: list[str], dialect: str) -> tuple[list[str], dict[str, str]]:
-    """Drop leading assignments, keywords and wrappers; return the literal assignments.
+def _plain_assignment(word: str) -> tuple[str, str] | None:
+    """(name, value) of `NAME=value`; `NAME+=`, `NAME[i]=` and captured values set no known value."""
+    match = _ASSIGNMENT.match(word)
+    if not match or match.group(2) or match.group(3):
+        return None
+    value = word[match.end():]
+    return None if "$(sub)" in value else (match.group(1), value)
 
-    Assignment prefixes on a command (`X=1 cmd`) only set that command's
-    environment, so they are not returned as persistent literals.
+
+def _strip_prefixes(argv: list[str], dialect: str) -> tuple[list[str], dict[str, str], dict[str, str], bool]:
+    """Drop leading assignments, keywords and wrappers.
+
+    Returns (argv, literals, env, dot_sourced). Literals are the plain
+    assignments a bare `X=1` or `export X=1` makes. Assignment prefixes on a
+    command (`X=1 cmd`) only set that command's environment, so they are
+    returned as env instead.
     """
     literals: dict[str, str] = {}
     prefix_assignments: dict[str, str] = {}
+    sourced = False
     changed = True
     while argv and changed:
         changed = False
         head = argv[0]
         match = _ASSIGNMENT.match(head) if dialect == "bash" else None
         if match:
-            value = head[match.end():]
-            if "$(sub)" not in value:
-                prefix_assignments[match.group(1)] = value
+            plain = _plain_assignment(head)
+            if plain:
+                prefix_assignments[plain[0]] = plain[1]
             argv, changed = argv[1:], True
         elif dialect == "bash" and head in _BASH_PREFIXES:
             argv, changed = argv[1:], True
+        elif dialect == "bash" and head == "coproc":
+            # `coproc cmd`, `coproc { cmd; }`, `coproc NAME { cmd; }`: the command runs.
+            argv = argv[2:] if len(argv) > 2 and argv[2] == "{" else argv[1:]
+            changed = True
+        elif dialect == "bash" and head == "case" and "in" in argv[2:]:
+            # `case WORD in PATTERN) cmd`: the branch's command runs.
+            rest = argv[argv.index("in", 2) + 1:]
+            while rest and not rest[0].endswith(")"):
+                rest = rest[1:]
+            argv, changed = rest[1:], True
+        elif dialect == "bash" and len(argv) > 1 and (
+            head == "(group)" or (head.endswith(")") and not head.startswith(("(", "$")))
+        ):
+            # A later case branch (`b) cmd`, `(b) cmd`): a word cannot follow a subshell otherwise.
+            argv, changed = argv[1:], True
         elif dialect == "powershell" and head in {"&", "."}:
+            sourced = sourced or head == "."
             argv, changed = argv[1:], True
         elif dialect == "bash" and program_name(head) == "env":
             # `env [-i] [-u NAME] [NAME=value]... command`: the command is what runs.
@@ -788,6 +1008,9 @@ def _strip_prefixes(argv: list[str], dialect: str) -> tuple[list[str], dict[str,
             rest = argv[1:]
             while rest and (rest[0].startswith("-") or _ASSIGNMENT.match(rest[0])):
                 option, rest = rest[0], rest[1:]
+                plain = _plain_assignment(option)
+                if plain:
+                    prefix_assignments[plain[0]] = plain[1]
                 glued = option[2:] if option.startswith("-S") and len(option) > 2 else (
                     option.split("=", 1)[1] if option.startswith("--split-string=") else None
                 )
@@ -816,14 +1039,14 @@ def _strip_prefixes(argv: list[str], dialect: str) -> tuple[list[str], dict[str,
             argv, changed = argv[lowered.index("do") + 1:], True
     if not argv:
         literals.update(prefix_assignments)
+        prefix_assignments = {}
     elif argv[0].lower() in _DECLARATIONS and all(_ASSIGNMENT.match(a) for a in argv[1:]):
         for arg in argv[1:]:
-            match = _ASSIGNMENT.match(arg)
-            value = arg[match.end():]
-            if "$(sub)" not in value:
-                literals[match.group(1)] = value
+            plain = _plain_assignment(arg)
+            if plain:
+                literals[plain[0]] = plain[1]
         argv = []
-    return argv, literals
+    return argv, literals, prefix_assignments, sourced
 
 
 _REDIRECT = re.compile(r"^(?:\d*|&)(?:>>?|<<?|>&|<&|>\|)")
@@ -862,7 +1085,7 @@ def _shell_payload(statement: Statement) -> tuple[str | None, str] | None:
     if program in {"powershell", "pwsh"}:
         for index, arg in enumerate(lowered):
             name = arg.lstrip("-/")
-            if arg.startswith(("-", "/")) and name and "encodedcommand".startswith(name) and name.startswith("e"):
+            if arg.startswith(("-", "/")) and name and (name == "ec" or ("encodedcommand".startswith(name) and name.startswith("e"))):
                 if index + 1 >= len(args):
                     return None, "powershell"
                 try:
@@ -875,6 +1098,8 @@ def _shell_payload(statement: Statement) -> tuple[str | None, str] | None:
     if program in {"invoke-expression", "iex"}:
         code = [a for a in args if a.lower() not in {"-command", "-c"}]
         return " ".join(code), "powershell"
+    if program == "eval" and statement.dialect == "bash":
+        return " ".join(args), "bash"
     if program == "wsl":
         code = args[1:] if lowered[:1] in (["-e"], ["--exec"]) else args
         return " ".join(code), "bash"
@@ -908,3 +1133,88 @@ def _shell_payload(statement: Statement) -> tuple[str | None, str] | None:
             index += 1
         return (" ".join([file_path, *arguments]), "powershell") if file_path else None
     return None
+
+
+def _payloads(statement: Statement) -> list[tuple[str | None, str, str | None, bool]]:
+    """Code a statement hands on to run: (code, or None if unreadable; dialect; scope kind; output goes back to the program)."""
+    found: list[tuple[str | None, str, str | None, bool]] = []
+    payload = _shell_payload(statement)
+    if payload is not None:
+        # eval and Invoke-Expression run the code in this shell; every other runner starts another process.
+        kind = None if statement.program in {"eval", "invoke-expression", "iex"} else CHILD
+        found.append((payload[0], payload[1], kind, False))
+    if statement.dialect == "bash" and statement.program == "alias":
+        # `alias ll='cmd'`: the value runs wherever the name is used later.
+        for arg in statement.argv[1:]:
+            name, sep, value = arg.partition("=")
+            if sep and name and value.strip():
+                found.append((value, "bash", BLOCK, False))
+    if statement.dialect == "bash" and statement.program == "trap":
+        # `trap 'code' EXIT`: the code runs later, in this shell. -l and -p only list; `-` resets.
+        args = statement.argv[1:]
+        args = args[1:] if args[:1] == ["--"] else ([] if args[:1] and args[0].startswith("-") else args)
+        if len(args) >= 2 and args[0]:
+            found.append((args[0], "bash", BLOCK, False))
+    if statement.program == "git":
+        found.extend((code, "bash", CHILD, consumed) for code, consumed in _git_payloads(statement.argv))
+    return found
+
+
+def _git_payloads(argv: list[str]) -> list[tuple[str, bool]]:
+    """Shell code a git command runs from its own options: (code, whether its output goes back to git)."""
+    args = without_redirections(argv[1:])
+    found: list[tuple[str, bool]] = []
+    index = 0
+    while index < len(args) and args[index].startswith("-"):
+        if args[index] == "-c" and index + 1 < len(args):
+            key, sep, value = args[index + 1].partition("=")
+            code = _git_config_code(key.lower(), value) if sep else None
+            if code:
+                found.append(code)
+        index += 2 if args[index] in _GIT_GLOBAL_VALUE_OPTIONS else 1
+    sub, rest = (args[index].lower(), args[index + 1:]) if index < len(args) else ("", [])
+    if sub == "rebase":
+        found.extend((code, False) for code in _option_values(rest, {"-x", "--exec"}))
+    elif sub in {"difftool", "mergetool"}:
+        found.extend((code, False) for code in _option_values(rest, {"-x", "--extcmd"}))
+    elif sub == "filter-branch":
+        found.extend((code, False) for code in _option_values(rest, _GIT_FILTER_OPTIONS))
+    elif sub == "bisect" and rest[:1] == ["run"] and len(rest) > 1:
+        found.append((" ".join(shlex.quote(a) for a in rest[1:]), False))
+    elif sub == "submodule" and "foreach" in rest:
+        command = [a for a in rest[rest.index("foreach") + 1:] if a != "--recursive"]
+        if command:
+            found.append((" ".join(command), False))
+    for arg in args:
+        if arg.lower().startswith("ext::"):
+            # git-remote-ext runs the URL as a command line; `% ` is a space and `%%` a percent sign.
+            found.append((arg[len("ext::"):].replace("%%", "\0").replace("% ", " ").replace("\0", "%"), False))
+    return found
+
+
+def _git_config_code(key: str, value: str) -> tuple[str, bool] | None:
+    """The command a `-c key=value` makes git run, if the key names one. Aliases are the guard's to judge."""
+    parts = key.split(".")
+    if parts[0] == "alias":
+        return None
+    runs = parts[-1] in _GIT_EXEC_KEYS or parts[0] == "pager" or (parts[-1] == "update" and value.startswith("!"))
+    code = value[1:] if value.startswith("!") else value
+    if not runs or not code.strip():
+        return None
+    return code, parts[-1] in _GIT_CONSUMED_KEYS
+
+
+def _option_values(args: list[str], names: "set[str] | frozenset[str]") -> list[str]:
+    """Values of the named options: `--opt value`, `--opt=value`, and a short option's glued `-xvalue`."""
+    values: list[str] = []
+    for index, arg in enumerate(args):
+        if arg == "--":
+            break
+        name, sep, value = arg.partition("=")
+        if arg in names and index + 1 < len(args):
+            values.append(args[index + 1])
+        elif sep and name.startswith("--") and name in names:
+            values.append(value)
+        elif not arg.startswith("--") and len(arg) > 2 and arg[:2] in names:
+            values.append(arg[2:])
+    return values

@@ -17,7 +17,9 @@ reads a statement's program and arguments, never quoted data or heredoc bodies.
 Precedence is deny, then ask, then allow: an allowed statement never lifts an
 ask raised by another statement in the same command. Literal assignments are
 followed (`SP=...; rm -rf "$SP/x"`), and a variable assigned from a secret
-source is itself a secret.
+source is itself a secret. A child process's assignments stay in the child,
+and a value is used only when nothing else in the command may change it
+(untrusted_names); an unknown value leaves its target unresolved, which asks.
 """
 
 from __future__ import annotations
@@ -185,6 +187,114 @@ UNPARSED_DESTRUCTIVE = re.compile(
 )
 
 
+# --- variables ----------------------------------------------------------------
+
+# `$global:x` and the like name the plain variable within a command's own scope.
+PS_SCOPE_PREFIX = re.compile(r"^(?:global|script|local|private|using|variable):", re.IGNORECASE)
+BASH_EXPANSION = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
+PS_EXPANSION = re.compile(r"\$(?:\{((?:[A-Za-z]+:)?[A-Za-z_][A-Za-z0-9_]*)\}|((?:[A-Za-z]+:)?[A-Za-z_][A-Za-z0-9_]*))")
+# Ways to set a variable by a name the guard never sees: no value the command sets can be trusted.
+OPAQUE_TEXT = re.compile(r"PSVariable|ExecutionContext|\]::Create\b|\.InvokeScript\b|-NoNewScope\b|\bvariable:", re.IGNORECASE)
+# Bash builtins that set a variable named by an argument, and the PowerShell cmdlets that do.
+BASH_NAME_WRITERS = frozenset({
+    "read", "mapfile", "readarray", "getopts", "unset", "wait", "let", "declare", "typeset", "local", "export", "readonly",
+})
+PS_VARIABLE_CMDLETS = frozenset({
+    "set-variable", "sv", "new-variable", "nv", "clear-variable", "clv", "remove-variable", "rv", "get-variable", "gv",
+})
+# git configuration given through the environment, which the guard's own git calls cannot see.
+GIT_ENV_CONFIG = re.compile(r"\bGIT_CONFIG_(?:PARAMETERS|COUNT|KEY_\d+|VALUE_\d+|GLOBAL|SYSTEM)\b|--config-env")
+
+
+def variable_key(name: str, dialect: str) -> str:
+    """Bash names are case-sensitive; PowerShell and cmd names are not."""
+    return name if dialect == "bash" else PS_SCOPE_PREFIX.sub("", name).lower()
+
+
+def in_block(scope: tuple[tuple[int, str], ...]) -> bool:
+    return any(kind == shell_parse.BLOCK for _, kind in scope)
+
+
+def untrusted_names(command: str, statements: list[shell_parse.Statement]) -> set[str]:
+    """Variables this command may set in ways the guard does not follow, so their values stay unknown.
+
+    A value is trusted only when every mention of the name is an assignment the
+    guard applies or a plain `$NAME` read. Any other mention -- `read NAME`,
+    `printf -v NAME`, `for NAME in`, `unset NAME`, `NAME+=`, `declare -n
+    R=NAME`, `Set-Variable NAME`, `-OutVariable NAME`, or an assignment in a
+    function body or in a string another program runs -- may change it.
+    """
+    sites: dict[str, int] = {}
+    folded: set[str] = set()
+    for statement in statements:
+        if not statement.runs_bodies:
+            for body in statement.bodies:
+                # Input no program runs as code cannot set a variable; only `read NAME` (outside it) can.
+                command = command.replace(body, " ", 1)
+        if in_block(statement.scope):
+            continue  # never applied, so not a site: the mention makes the name untrusted
+        for name in statement.literals:
+            key = variable_key(name, statement.dialect)
+            sites[key] = sites.get(key, 0) + 1
+            if statement.dialect != "bash":
+                folded.add(key)
+    if OPAQUE_TEXT.search(command):
+        return set(sites)
+    untrusted = set()
+    for key, count in sites.items():
+        powershell = key in folded
+        flags = re.IGNORECASE if powershell else 0
+        name = re.escape(key.split(":")[-1])
+        prefix = "env:" if key.startswith("env:") else "(?:(?:global|script|local|private|using|variable):)?"
+        after = r"(?![\w:])" if powershell else r"(?!\w)"  # `$x:y` is another PowerShell variable
+        # `$NAME` forms that write: `$x = `, `$x++`, `$a, $b = `, `foreach ($x in`, `[ref]$x`, `[string]$x = `.
+        writes = sum(
+            1
+            for m in re.finditer(rf"\$\{{?{prefix}{name}\}}?{after}", command, flags)
+            if command[max(0, m.start() - 1):m.start()] == "]"
+            or re.match(r"\s*[-+*/%]?=(?!=)|\+\+|--(?![\w-])|\s*,|\s+in\b", command[m.end():])
+        )
+        if powershell:
+            # A bare PowerShell name only reaches a variable through a -*Variable parameter
+            # (any abbreviation of one); cmdlets like Set-Variable make every value unknown.
+            writes += len(re.findall(rf"-[A-Za-z]+(?::|\s+)['\"]?\+?{name}(?![\w\\/:]|\.\w)", command, flags))
+        else:
+            # `read NAME`, `for NAME in`, `unset NAME`, `NAME+=`, `R=NAME`, `{NAME}>`, and `printf -vNAME`;
+            # not `$NAME`, a path segment, a drive letter, a file name or an option letter.
+            writes += len(re.findall(rf"(?<![\w$\\/.:-])(?<!\$\{{){name}(?![\w\\/]|:[\\/]|\.\w)", command))
+            writes += len(re.findall(rf"(?<![\w-])-[A-Za-z]*[apv]{name}(?!\w)", command))
+        if writes != count:
+            untrusted.add(key)
+    return untrusted
+
+
+def changes_any_variable(statement: shell_parse.Statement) -> bool:
+    """Whether this statement may set variables by names the guard cannot read."""
+    program = statement.program
+    args = shell_parse.without_redirections(statement.argv[1:])
+    if statement.dialect == "bash":
+        if program in {"source", "."}:
+            return True
+        if program == "eval":
+            return any("$" in a for a in args)
+        if program == "printf":
+            names = [args[i + 1] for i, a in enumerate(args[:-1]) if a == "-v"]
+            names += [a[2:] for a in args if a.startswith("-v") and len(a) > 2]
+            return any("$" in n for n in names)
+        if program in {"declare", "typeset", "local"} and "n" in short_flags(args):
+            return True  # a nameref writes through to whatever it names
+        return program in BASH_NAME_WRITERS and any("$" in a for a in args)
+    if statement.dialect == "powershell":
+        # Dot-sourcing runs a script in this scope. (What a script file does is outside the
+        # guard either way; it could delete as easily as reassign.)
+        return (
+            program in PS_VARIABLE_CMDLETS
+            or statement.dot_sourced
+            or (program in {"invoke-expression", "iex"} and any("$" in a for a in args))
+        )
+    return False
+
+
 # --- context ------------------------------------------------------------------
 
 @dataclass
@@ -192,10 +302,18 @@ class Context:
     """Session facts, computed lazily: most commands never need git at all."""
 
     session_cwd: Path
-    variables: dict[str, str] = field(default_factory=dict)  # literal values seen so far, lower-cased names
+    variables: dict[str, str] = field(default_factory=dict)  # literal values in this shell, by variable_key
     tainted: set[str] = field(default_factory=set)  # variables holding a secret, lower-cased names
     delete_targets: list[str] = field(default_factory=list)  # non-scratch targets across the whole command
-    inline_aliases: dict[str, str] = field(default_factory=dict)  # `git -c alias.x=...` seen so far, lower-cased names
+    inline_aliases: dict[str, str] = field(default_factory=dict)  # `git -c alias.x=...` in effect, lower-cased names
+    untrusted: set[str] = field(default_factory=set)  # variable_keys the command may change unseen: never resolved
+    literal_values: list[str] = field(default_factory=list)  # every literal value the command assigns
+    env_config: bool = False  # the command gives git configuration through its environment
+    offline: bool = False  # judging carried text as if it ran: no git calls, no finish notes, no further scans
+    scanned: set[str] = field(default_factory=set)  # carried text already judged
+    scope: tuple[tuple[int, str], ...] = ()  # scope of the statement being judged
+    dialect: str = "bash"  # dialect of the statement being judged
+    _tables: dict[tuple[tuple[int, str], ...], dict[str, str]] = field(default_factory=dict)  # values in child scopes
     _root: Path | None = None
     _status: list[str] | None = None
 
@@ -216,12 +334,42 @@ class Context:
         roots = [tempfile.gettempdir(), os.environ.get("TEMP"), os.environ.get("TMP"), *EXTRA_SCRATCH_ROOTS]
         return [Path(root) for root in roots if root]
 
+    def table(self, scope: tuple[tuple[int, str], ...] | None = None) -> dict[str, str]:
+        """Values visible in a scope. A child process starts with a copy of its parent's and keeps its own changes."""
+        scope = self.scope if scope is None else scope
+        if not scope:
+            return self.variables
+        if scope not in self._tables:
+            self._tables[scope] = dict(self.table(scope[:-1]))
+        return self._tables[scope]
+
+    def assign(self, name: str, value: str) -> None:
+        # A block may run later, repeatedly or never, so its assignment is not applied;
+        # untrusted_names has already made such a name unknown.
+        if not in_block(self.scope):
+            self.table()[variable_key(name, self.dialect)] = value
+
+    def forget(self, name: str) -> None:
+        """The variable now holds a value the guard does not know, here and in every enclosing scope."""
+        key = variable_key(name, self.dialect)
+        for depth in range(len(self.scope), -1, -1):
+            self.table(self.scope[:depth]).pop(key, None)
+
+    def forget_all(self) -> None:
+        for depth in range(len(self.scope), -1, -1):
+            self.table(self.scope[:depth]).clear()
+
     def expand(self, text: str) -> str:
-        """Substitute variables whose literal value this command set earlier."""
+        """Substitute variables whose literal value this command set earlier. cmd's %NAME% reads the environment."""
+        if self.dialect == "cmd":
+            return text
+        table = self.table()
+
         def value(match: re.Match) -> str:
-            name = (match.group(1) or match.group(2)).lower()
-            return self.variables.get(name, match.group(0))
-        return VARIABLE_REF.sub(value, text)
+            key = variable_key(match.group(1) or match.group(2), self.dialect)
+            return match.group(0) if key in self.untrusted else table.get(key, match.group(0))
+
+        return (BASH_EXPANSION if self.dialect == "bash" else PS_EXPANSION).sub(value, text)
 
 
 def resolve_path(raw: str, cwd: Path | None) -> Path | None:
@@ -330,11 +478,16 @@ def inline_aliases(argv: list[str]) -> dict[str, str]:
     return found
 
 
+CONFIG_VALUE_OPTIONS = frozenset({"-f", "--file", "--blob", "--type", "--default", "--comment", "--value", "--url"})
+
+
 def alias_definition(sub: str, args: list[str]) -> tuple[str, str] | None:
-    """(name, value) when this `git config` call sets an alias."""
+    """(name, value) when this `git config` call sets an alias: `git config [set] alias.x value`."""
     if sub != "config":
         return None
-    positional = operands(args, frozenset({"-f", "--file", "--blob", "--type", "--default"}))
+    positional = operands(args, CONFIG_VALUE_OPTIONS)
+    if positional[:1] == ["set"]:
+        positional = positional[1:]
     if len(positional) >= 2 and positional[0].lower().startswith("alias."):
         return positional[0][len("alias."):], positional[1]
     return None
@@ -854,7 +1007,11 @@ def azure_write(statement: shell_parse.Statement) -> str | None:
 
 def prod_approval(statement: shell_parse.Statement, ctx: Context) -> str | None:
     text = " ".join(ctx.expand(a) for a in statement.argv).lower()
-    if PROD_DEPLOY_APPROVAL.search(text) and AZURE_PIPELINE_APPROVAL.search(text):
+    if not AZURE_PIPELINE_APPROVAL.search(text):
+        return None
+    # A variable the guard will not resolve must not hide `prod`: any value the command assigns counts.
+    hidden = re.search(r"[$%]", text) and PROD_DEPLOY_APPROVAL.search(" ".join(ctx.literal_values).lower())
+    if PROD_DEPLOY_APPROVAL.search(text) or hidden:
         return (
             "Production deployment approvals are user-owned. Do not approve production "
             "pipeline, environment, or check gates; record the approval as the remaining blocker."
@@ -893,6 +1050,97 @@ def finish_notes(statement: shell_parse.Statement, ctx: Context) -> list[str]:
 
 # --- assessment ---------------------------------------------------------------
 
+SCAN_LIMIT = 24  # pieces of carried text judged per command
+SCAN_MAX_CHARS = 20000
+# Programs whose arguments and input are data, or code in a language other than the shell's.
+# Their text is never judged as a shell command ("data is never a command").
+DATA_PROGRAMS = frozenset({
+    "echo", "printf", "print", "write-output", "write", "write-host", "write-error", "write-warning",
+    "write-verbose", "write-information", "out-file", "out-string", "out-host", "set-content", "sc",
+    "add-content", "ac", "new-item", "ni", "tee", "tee-object", "cat", "type", "get-content", "gc", "more",
+    "less", "head", "tail", "grep", "egrep", "fgrep", "rg", "findstr", "select-string", "sls",
+    "sed", "awk", "jq", "yq", "perl", "python", "python3", "py", "node", "deno", "bun", "ruby", "php",
+    "dotnet", "java", "sqlite3", "psql",
+    "git", "gh", "az", "curl", "wget", "invoke-restmethod", "irm", "invoke-webrequest", "iwr",
+    "npm", "pnpm", "yarn", "npx", "pip", "uv", "pytest",
+})
+# Programs whose code the parser reads itself, and programs judged by their path arguments.
+KNOWN_PROGRAMS = DATA_PROGRAMS | CD_PROGRAMS | PS_REMOVE | PS_MOVE | frozenset({
+    "bash", "sh", "zsh", "dash", "ksh", "cmd", "powershell", "pwsh", "eval", "trap", "alias",
+    "invoke-expression", "iex", "find", "wsl", "start-process", "saps", "start", "cp", "copy",
+})
+# Commands worth finding inside an unknown program's arguments (`docker exec box rm -rf /x`).
+TAIL_COMMANDS = frozenset({
+    "rm", "rmdir", "del", "erase", "rd", "remove-item", "ri", "mv", "move", "move-item", "mi", "git",
+    "bash", "sh", "zsh", "dash", "ksh", "cmd", "powershell", "pwsh", "eval", "find", "xargs",
+    "invoke-expression", "iex",
+})
+
+
+def unknown_program(statement: shell_parse.Statement) -> bool:
+    """A program the guard neither parses nor knows to take data: it may run text it is given."""
+    program = statement.program
+    if program in KNOWN_PROGRAMS:
+        return False
+    # PowerShell cmdlets take data; the ones that run code (Invoke-Expression, script blocks) are parsed.
+    return not (statement.dialect == "powershell" and re.fullmatch(r"[a-z]+-[a-z]+", program))
+
+
+def carried_text(statement: shell_parse.Statement, ctx: Context) -> list[str]:
+    """Text an unknown program is given that it might run: multi-word arguments, a command
+    within its arguments (`ssh host rm -rf /x`), and input it does not run itself."""
+    argv = statement.argv
+    if statement.dialect == "powershell" and len(argv) == 1 and (argv[0] == "@here@" or re.search(r"\s", argv[0])):
+        # A PowerShell string or here-string on its own is a value. It is code where it is handed
+        # to something that runs it ([scriptblock]::Create), but not where a data cmdlet takes it.
+        consumer = shell_parse.program_name(statement.downstream[0][0]) if statement.downstream and statement.downstream[0] else ""
+        if consumer in DATA_PROGRAMS or re.fullmatch(r"[a-z]+-[a-z]+", consumer or "x"):
+            return []
+        return ([argv[0]] if argv[0] != "@here@" else []) + ([] if statement.runs_bodies else list(statement.bodies))
+    if not unknown_program(statement):
+        return []
+    texts = []
+    for index, arg in enumerate(argv[1:], start=1):
+        value = ctx.expand(arg)
+        option = re.match(r"^--?[\w-]+=", value)
+        if option:
+            value = value[option.end():]  # --exec=CMD
+        if re.search(r"\s", value.strip()):
+            texts.append(value)
+        if shell_parse.program_name(arg) in TAIL_COMMANDS:
+            quote = shlex.quote if statement.dialect == "bash" else (lambda a: "'" + a.replace("'", "''") + "'")
+            texts.append(" ".join([argv[index], *(quote(a) for a in argv[index + 1:])]))
+    if not statement.runs_bodies:
+        texts.extend(statement.bodies)
+    return texts
+
+
+def hidden_command(statement: shell_parse.Statement, ctx: Context, depth: int) -> str | None:
+    """Text that would be blocked if a program ran it as a command.
+
+    The parser reads the code known runners are given (`sh -c`, `eval`,
+    `bash <<EOF`, git's `-c core.pager=`...). Any other program may run text
+    too (`watch`, `ssh`, a script generator), so text that would be denied as
+    a command is confirmed with a human rather than trusted as data.
+    """
+    for text in carried_text(statement, ctx):
+        if len(text) > SCAN_MAX_CHARS or text in ctx.scanned or len(ctx.scanned) >= SCAN_LIMIT:
+            continue
+        ctx.scanned.add(text)
+        inner = Context(session_cwd=ctx.session_cwd, tainted=ctx.tainted, offline=True, _root=ctx._root)
+        try:
+            decision, reason = assess(text, "PowerShell" if statement.dialect == "powershell" else "Bash", inner, depth + 1)
+        except Exception:  # noqa: BLE001 - text that does not parse as code is not a finding
+            continue
+        if decision == "deny":
+            snippet = " ".join(text.split())[:80]
+            return (
+                f"`{statement.program}` is given text that would be blocked if it ran as a command "
+                f"(`{snippet}`): {reason} Confirm it is only data."
+            )
+    return None
+
+
 def next_cwd(statement: shell_parse.Statement, cwd: Path | None, ctx: Context) -> Path | None:
     if "-" in statement.argv[1:]:
         return None  # `cd -` returns to a directory this command never named
@@ -905,17 +1153,27 @@ def next_cwd(statement: shell_parse.Statement, cwd: Path | None, ctx: Context) -
 def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, str]:
     dialect = "powershell" if tool == "PowerShell" else "bash"
     parsed = shell_parse.parse(command, dialect)
+    ctx.untrusted.update(untrusted_names(command, parsed.statements))
+    ctx.literal_values.extend(v for s in parsed.statements for v in s.literals.values())
+    ctx.env_config = ctx.env_config or bool(GIT_ENV_CONFIG.search(command))
     asks: list[str] = []
     notes: list[str] = []
-    cwd: Path | None = ctx.session_cwd
+    # Carried text has no working directory of its own: relative targets stay unresolved.
+    cwd: Path | None = None if ctx.offline else ctx.session_cwd
     for statement in parsed.statements:
+        ctx.scope, ctx.dialect = statement.scope, statement.dialect
         for name, value in statement.literals.items():
-            expanded = ctx.expand(value)
-            ctx.variables[name.lower()] = expanded
+            ctx.assign(name, ctx.expand(value))
             if secret_names([value], ctx):
                 ctx.tainted.add(name.lower())
         if not statement.argv:
             continue
+        if changes_any_variable(statement):
+            ctx.forget_all()
+        if not ctx.offline:
+            reason = hidden_command(statement, ctx, depth)
+            if reason:
+                asks.append(reason)
         if re.search(r"[$%]", statement.argv[0]) and not (statement.dialect == "powershell" and len(statement.argv) == 1):
             # A program named by a variable (`G=git; $G push -f`, `& $g ...`) is judged by its value.
             # A lone PowerShell `$p` is an expression that prints, not a program; secret_print judges it.
@@ -930,11 +1188,12 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
                     asks.append(f"`{statement.argv[0]}` runs a program the guard cannot resolve with ${names[0]} as an argument; it may print it. Confirm what it runs.")
                 if DESTRUCTIVE_WORDS & {a.lower() for a in statement.argv[1:]}:
                     asks.append(f"`{statement.argv[0]}` names the program through a variable the guard cannot resolve, and its arguments look destructive. Confirm what it runs.")
+                ctx.forget_all()  # an unknown program may be `source`, `eval` or `read`
                 continue
             statement.argv[:1] = shell_parse.split_words(expanded, statement.dialect)
         if statement.assigns:
             for name in statement.assigns:
-                ctx.variables.pop(name.lower(), None)  # command output: value unknown here
+                ctx.forget(name)  # command output: value unknown here
                 if reads_secret(statement, ctx):
                     ctx.tainted.add(name.lower())
         program = statement.program
@@ -945,30 +1204,41 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
             sub, args, directory = git_invocation(statement.argv)
             repo = resolve_path(ctx.expand(directory), cwd) if directory else cwd
             alias = None
-            # Inline definitions accumulate through the recursion: `-c alias.a=b -c alias.b='!...' a`
-            # needs alias.b when `git b` is judged one level down.
-            ctx.inline_aliases.update(inline_aliases(statement.argv))
+            # `-c alias.x=...` holds for this git process and the ones it starts, never for later commands:
+            # `-c alias.a=b -c alias.b='!...' a` needs alias.b when `git b` is judged one level down.
+            effective = {**ctx.inline_aliases, **inline_aliases(statement.argv)}
             definition = alias_definition(sub, args)
             if definition:
                 alias = (f"defines the git alias `{definition[0]}`", alias_command(definition[1], []))
             elif sub and sub not in KNOWN_GIT_COMMANDS:
-                value = ctx.inline_aliases.get(sub.lower())
-                if value is None:
+                value = effective.get(sub.lower())
+                if value is None and not ctx.offline:
                     code, output = run_git(["config", "--get", f"alias.{sub}"], repo or ctx.session_cwd)
                     value = output if code == 0 and output else None
                 if value is not None:
                     alias = (f"runs the git alias `{sub}`", alias_command(value, args))
+            if ctx.env_config or any(a.startswith("--config-env") for a in statement.argv):
+                asks.append(
+                    "This git command takes configuration from the environment (GIT_CONFIG_*, --config-env), "
+                    "which can make git run commands the guard cannot see. Confirm what it runs."
+                )
             if alias:
                 if depth >= MAX_ALIAS_DEPTH:
                     asks.append("This git alias expands through several other aliases. Confirm what it runs.")
                 else:
-                    # The alias runs as part of this command: it shares the bulk-delete count and inline aliases.
+                    # A shell alias runs in a child process: it reads these values, and nothing it assigns
+                    # comes back. It shares the secret taint and the bulk-delete count.
                     inner = Context(
                         session_cwd=repo or ctx.session_cwd,
-                        variables=ctx.variables,
+                        variables=dict(ctx.table()),
                         tainted=ctx.tainted,
                         delete_targets=ctx.delete_targets,
-                        inline_aliases=ctx.inline_aliases,
+                        inline_aliases=effective,
+                        untrusted=ctx.untrusted,
+                        literal_values=ctx.literal_values,
+                        env_config=ctx.env_config,
+                        offline=ctx.offline,
+                        scanned=ctx.scanned,
                     )
                     decision, reason = assess(alias[1], "Bash", inner, depth + 1)
                     if decision == "deny":
@@ -995,7 +1265,8 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
         reason = azure_write(statement)
         if reason:
             asks.append(reason)
-        notes.extend(finish_notes(statement, ctx))
+        if not ctx.offline:
+            notes.extend(finish_notes(statement, ctx))
     if len(ctx.delete_targets) >= BULK_DELETE_THRESHOLD:
         shown = ", ".join(ctx.delete_targets[:6]) + (f", +{len(ctx.delete_targets) - 6} more" if len(ctx.delete_targets) > 6 else "")
         asks.append(f"This command removes {len(ctx.delete_targets)} paths ({shown}). Confirm the full list first.")
