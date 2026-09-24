@@ -79,6 +79,10 @@ class CloseoutHarness(unittest.TestCase):
     def edit(self, relative: str) -> dict:
         return tool("Edit", file_path=str(self.root / relative), old_string="a", new_string="b")
 
+    def sh(self, command: str, name: str = "Bash") -> dict:
+        """A shell call recorded, as Claude Code records it, with the session's cwd."""
+        return {**tool(name, command=command), "cwd": str(self.root)}
+
 
 class ValidationFacts(CloseoutHarness):
     def test_source_edit_without_validation_nudges(self) -> None:
@@ -97,8 +101,45 @@ class ValidationFacts(CloseoutHarness):
         scratch = tool("Write", file_path=str(Path(tempfile.gettempdir()) / "notes.py"), content="x")
         self.assertIsNone(self.stop(user("update docs"), self.edit("README.md"), self.edit("docs/guide/setup.txt"), scratch))
 
+    def test_shell_writes_are_edits(self) -> None:
+        for command in (
+            "sed -i 's/a/b/' src/app.py",
+            "sed -i.bak -e 's/a/b/' src/app.py",
+            "cat > src/gen.py <<'EOF'\nprint(1)\nEOF",
+            "echo x | tee -a src/app.py",
+        ):
+            with self.subTest(command=command):
+                self.assertIn("F3", self.stop(user("fix it"), self.sh(command)) or "")
+        powershell = self.sh("Set-Content -Path src/app.py -Value 'x'", name="PowerShell")
+        self.assertIn("src/app.py", self.stop(user("fix it"), powershell))
+
+    def test_shell_writes_to_data_scratch_or_unresolved_targets_are_not_source_edits(self) -> None:
+        self.assertIsNone(self.stop(user("fix it"), self.sh("echo x > notes.json"), self.sh("echo x > /dev/null"),
+                                    self.sh('echo x > "$OUT/app.py"'), self.sh("sed 's/a/b/' src/app.py")))
+
+    def test_named_validation_scripts_count(self) -> None:
+        for command in ("py scripts/validate_profile.py", "./scripts/test.sh", "pwsh ./Test-Setup.ps1", "node tools/check-links.js"):
+            with self.subTest(command=command):
+                self.assertIsNone(self.stop(user("fix it"), self.edit("src/app.py"), self.sh(command)))
+        self.assertIn("F3", self.stop(user("fix it"), self.edit("src/app.py"), self.sh("test -f src/app.py")))
+
+    def test_shell_write_to_a_risky_path_needs_a_reviewer(self) -> None:
+        reason = self.stop(user("tune the pipeline"), self.sh("sed -i 's/a/b/' azure-pipelines/ci.yml"), self.sh("./scripts/test.sh"))
+        self.assertIn("F4", reason)
+
+    def test_running_the_edited_script_is_its_check(self) -> None:
+        self.assertIsNone(self.stop(user("count the rows"), self.edit("q.py"), self.sh("py q.py --limit 5")))
+        self.assertIsNone(self.stop(user("fix the runner"), self.edit("tools/run.ps1"), self.sh(".\\tools\\run.ps1", name="PowerShell")))
+        self.assertIn("F3", self.stop(user("fix it"), self.edit("src/app.py"), self.sh("py tools/other.py")))
+        self.assertIn("F3", self.stop(user("fix it"), self.edit("src/app.py"), self.sh("py -c 'import src.app'")))
+
+    def test_bare_assignments_do_not_break_the_hook(self) -> None:
+        reason = self.stop(user("fix it"), self.edit("src/app.py"), self.sh('S="C:/tmp/x"; echo "$S"'), self.sh("OUT=1"))
+        self.assertIn("F3", reason)
+
     def test_data_records_and_templates_are_not_source(self) -> None:
-        self.assertIsNone(self.stop(user("record the approval"), self.edit(".codedrift/approvals/ab1-x.json"), self.edit(".env.example")))
+        self.assertIsNone(self.stop(user("record the approval"), self.edit(".codedrift/approvals/ab1-x.json"),
+                                    self.edit(".codedrift/approvals/ab2-y.yml"), self.edit(".env.example")))
 
     def test_build_config_is_source(self) -> None:
         self.assertIn("package.json", self.stop(user("bump the dependency"), self.edit("web/package.json")))
@@ -158,6 +199,11 @@ class ReviewFacts(CloseoutHarness):
             user("fix ci"), self.edit("azure-pipelines/ci.yml"), shell("py -m pytest"),
             tool("Agent", subagent_type="Plan", prompt="review the change"),
         ))
+
+    def test_tests_of_a_risky_area_are_not_risky_changes(self) -> None:
+        self.assertIsNone(self.stop(user("cover the plan"), self.edit("tests/migrations/test_plan.py"), shell("py -m pytest")))
+        reason = self.stop(user("add the migration"), self.edit("deploy/sql/migrations/0042_grant.sql"), shell("py -m pytest"))
+        self.assertIn("F4", reason)
 
 
 class Gates(CloseoutHarness):

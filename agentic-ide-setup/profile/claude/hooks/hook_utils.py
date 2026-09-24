@@ -522,20 +522,6 @@ def extract_last_user_prompt(payload: dict[str, Any]) -> str:
     return ""
 
 
-MUTATING_TOOLS = frozenset(
-    {"Edit", "Write", "NotebookEdit", "MultiEdit"}
-)
-
-SHELL_TOOLS = frozenset({"Bash", "PowerShell"})
-
-MUTATING_COMMAND_PATTERN = re.compile(
-    r"\bgit\s+(?:add|commit|push|merge|rebase|revert|cherry-pick|tag|am|apply)\b"
-    r"|\bgit\s+(?:branch|checkout|switch|restore|reset|clean|stash)\b"
-    r"|\baz\s+(?:repos|boards|pipelines)\b"
-    r"|\bgh\s+(?:pr|issue|release)\s+(?:create|merge|edit|close|comment)\b"
-)
-
-
 def _is_real_user_turn(record: dict[str, Any]) -> bool:
     """True when this user record is an actual prompt, not a tool result.
 
@@ -552,57 +538,6 @@ def _is_real_user_turn(record: dict[str, Any]) -> bool:
             isinstance(block, dict) and block.get("type") == "text"
             for block in content
         )
-    return False
-
-
-def turn_did_work(payload: dict[str, Any]) -> bool:
-    """Report whether the current turn actually changed anything.
-
-    Walks the transcript backwards to the most recent real user prompt and
-    looks for tool calls that mutate files or git/Azure DevOps state. Pure
-    question-and-answer turns return False, so the closeout hooks can skip
-    enforcement instead of matching on words like "updated" or "changed"
-    that appear in ordinary explanations.
-    """
-    transcript_path = payload.get("transcript_path")
-    if not isinstance(transcript_path, str) or not transcript_path:
-        return True
-
-    try:
-        lines = Path(transcript_path).read_text(
-            encoding="utf-8", errors="replace"
-        ).splitlines()
-    except OSError:
-        return True
-
-    for line in reversed(lines):
-        if '"user"' not in line and '"assistant"' not in line:
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        if _is_real_user_turn(record):
-            return False
-
-        if record.get("type") != "assistant" or record.get("isSidechain"):
-            continue
-        content = (record.get("message") or {}).get("content")
-        if not isinstance(content, list):
-            continue
-        for block in content:
-            if not isinstance(block, dict) or block.get("type") != "tool_use":
-                continue
-            name = block.get("name")
-            if name in MUTATING_TOOLS:
-                return True
-            if name in SHELL_TOOLS:
-                command = (block.get("input") or {}).get("command")
-                if isinstance(command, str) and MUTATING_COMMAND_PATTERN.search(
-                    command.lower()
-                ):
-                    return True
     return False
 
 

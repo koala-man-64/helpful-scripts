@@ -36,7 +36,6 @@ from hook_utils import (
     extract_last_user_prompt,
     read_hook_input,
     repo_root,
-    turn_did_work,
     workflow_scope_enabled,
 )
 from risky_paths import is_risky
@@ -52,6 +51,10 @@ SOURCE_SUFFIXES = frozenset({
     ".css", ".scss", ".ipynb",
 })
 SOURCE_NAMES = frozenset({"dockerfile", "makefile", "package.json", "tsconfig.json"})
+# Directories whose files are docs or tool records, whatever their suffix.
+NOT_SOURCE_DIRS = frozenset({"docs", ".codedrift"})
+TEST_DIRS = frozenset({"tests", "test", "__tests__"})
+TEST_FILE = re.compile(r"(?i)^test_.*\.py$|_test\.(?:py|go)$|\.(?:test|spec)\.[jt]sx?$")
 REVIEWERS = frozenset({
     "Explore", "Plan", "cloud-security-vulnerability-expert", "code-drift-sentinel",
     "maintainability-steward", "architecture-review-agent", "qa-release-gate-agent",
@@ -71,6 +74,15 @@ VALIDATION_SUBCOMMANDS = {
     "make": {"test", "check", "lint", "build"}, "terraform": {"validate", "plan"},
     "mvn": {"test", "verify"}, "gradle": {"test", "check", "build"},
 }
+# A script run by name counts as validation when its name says so
+# (scripts/test.sh, validate_profile.py, Test-Setup.ps1, run_quality_gate.py).
+VALIDATION_SCRIPT = re.compile(r"(?i)(?:^|[-_.])(?:tests?|lint|checks?|validate|validation|verify|smoke|gate|quality)(?:[-_.]|$)")
+INTERPRETERS = frozenset({"py", "python", "python3", "bash", "sh", "pwsh", "powershell", "node"})
+STDOUT_REDIRECT = re.compile(r"^(?:1?>>?|&>>?)(?!&)")
+PS_WRITERS = frozenset({"set-content", "sc", "add-content", "ac", "out-file"})
+PS_PATH_OPTIONS = frozenset({"-path", "-filepath", "-literalpath", "-lp"})
+PS_VALUE_OPTIONS = frozenset({"-value", "-encoding", "-width", "-inputobject", "-stream", "-delimiter"})
+SED_SCRIPT_OPTIONS = frozenset({"-e", "--expression", "-f", "--file"})
 GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"})
 PYTHON_VALIDATION_MODULES = frozenset({"pytest", "unittest", "mypy", "ruff", "compileall", "py_compile", "pyright"})
 
@@ -81,6 +93,7 @@ class Facts:
     commits: list[int] = field(default_factory=list)
     pushes: list[int] = field(default_factory=list)
     validations: list[int] = field(default_factory=list)
+    executions: list[tuple[int, str]] = field(default_factory=list)  # scripts run by path
     reviews: list[int] = field(default_factory=list)
     pr_in_session: bool = False
 
@@ -95,6 +108,8 @@ def _is_real_prompt(record: dict) -> bool:
 
 
 def _is_validation(statement: shell_parse.Statement) -> bool:
+    if not statement.argv:
+        return False  # a bare assignment (`S=...;`) runs nothing
     program, args = statement.program, [a.lower() for a in statement.argv[1:]]
     if program in VALIDATION_PROGRAMS:
         return True
@@ -105,7 +120,60 @@ def _is_validation(statement: shell_parse.Statement) -> bool:
         return args[0] in VALIDATION_SUBCOMMANDS[program]
     if program == "az" and args[:2] == ["bicep", "build"]:
         return True
-    return False
+    if program in INTERPRETERS:
+        script = next((a for a in statement.argv[1:] if not a.startswith("-")), "")
+        return bool(script) and bool(VALIDATION_SCRIPT.search(Path(script.replace("\\", "/")).stem))
+    return bool(VALIDATION_SCRIPT.search(Path(statement.argv[0].replace("\\", "/")).stem)) and "/" in statement.argv[0].replace("\\", "/")
+
+
+def executed_script(statement: shell_parse.Statement) -> str:
+    """The script file a statement runs (`py q.py`, `./run.sh`), or "" for modules, inline code and programs."""
+    if not statement.argv:
+        return ""
+    if statement.program in INTERPRETERS:
+        for arg in statement.argv[1:]:
+            if arg in {"-m", "-c", "-e", "-Command", "-command"}:
+                return ""
+            if not arg.startswith("-"):
+                return arg
+        return ""
+    return statement.argv[0] if re.search(r"[\\/]", statement.argv[0]) else ""
+
+
+def written_files(statement: shell_parse.Statement) -> list[str]:
+    """Files a shell statement writes: stdout redirects, tee, sed -i, Set-Content/Add-Content/Out-File."""
+    program, args = statement.program, statement.argv[1:]
+    written = []
+    for index, arg in enumerate(args):
+        match = STDOUT_REDIRECT.match(arg)
+        if match:
+            written.append(arg[match.end():] or (args[index + 1] if index + 1 < len(args) else ""))
+    if program == "tee":
+        written += [a for a in shell_parse.without_redirections(args) if not a.startswith("-")]
+    elif program == "sed" and any(a.startswith("-i") or a.startswith("--in-place") for a in args):
+        operands, skip_value, scripted = [], False, False
+        for arg in shell_parse.without_redirections(args):
+            if skip_value:
+                skip_value = False
+            elif arg in SED_SCRIPT_OPTIONS:
+                skip_value = scripted = True
+            elif arg and not arg.startswith("-"):
+                operands.append(arg)
+        written += operands if scripted else operands[1:]
+    elif program in PS_WRITERS:
+        lowered = [a.lower() for a in args]
+        named = next((args[i + 1] for i, a in enumerate(lowered[:-1]) if a in PS_PATH_OPTIONS), "")
+        positional, skip_value = [], False
+        for arg, low in zip(args, lowered):
+            if skip_value:
+                skip_value = False
+            elif low in PS_VALUE_OPTIONS or low in PS_PATH_OPTIONS:
+                skip_value = True
+            elif not arg.startswith("-"):
+                positional.append(arg)
+        written.append(named or (positional[0] if positional else ""))
+    # A target the hook cannot resolve ($VAR, %VAR%, /dev/null) is not a file it can judge.
+    return [w for w in written if w and not re.search(r"[$%]", w) and w.lower() not in {"/dev/null", "nul"}]
 
 
 def _git_subcommand(args: list[str]) -> str:
@@ -121,7 +189,7 @@ def _git_subcommand(args: list[str]) -> str:
     return ""
 
 
-def _classify_command(command: str, dialect: str, step: int, facts: Facts, in_turn: bool) -> None:
+def _classify_command(command: str, dialect: str, step: int, facts: Facts, in_turn: bool, cwd: str = "") -> None:
     for statement in shell_parse.parse(command, dialect).statements:
         text = " ".join(statement.argv).lower()
         if re.match(r"^(?:az repos pr create|gh pr create)\b", text):
@@ -136,6 +204,11 @@ def _classify_command(command: str, dialect: str, step: int, facts: Facts, in_tu
                 facts.pushes.append(step)
         if _is_validation(statement):
             facts.validations.append(step)
+        for target in written_files(statement):
+            facts.edits.append((step, str(Path(cwd, target)) if cwd else target))
+        script = executed_script(statement)
+        if script and not re.search(r"[$%]", script):
+            facts.executions.append((step, str(Path(cwd, script)) if cwd else script))
 
 
 def collect_facts(transcript_path: str) -> Facts:
@@ -172,7 +245,7 @@ def facts_from_records(records: list[dict]) -> Facts:
             name, tool_input = str(item.get("name") or ""), item.get("input") or {}
             if name in SHELL_TOOLS:
                 dialect = "powershell" if name == "PowerShell" else "bash"
-                _classify_command(str(tool_input.get("command") or ""), dialect, step, facts, in_turn)
+                _classify_command(str(tool_input.get("command") or ""), dialect, step, facts, in_turn, str(record.get("cwd") or ""))
             if not in_turn:
                 continue
             if name in EDIT_TOOLS:
@@ -200,9 +273,14 @@ def _repo_relative(path: str, root: Path) -> str | None:
 
 def _is_source(relative_path: str) -> bool:
     path = Path(relative_path)
-    if "docs" in path.parts:
+    if NOT_SOURCE_DIRS & set(path.parts):
         return False
     return path.suffix.lower() in SOURCE_SUFFIXES or path.name.lower() in SOURCE_NAMES
+
+
+def _is_test(relative_path: str) -> bool:
+    path = Path(relative_path)
+    return bool(TEST_DIRS & set(path.parts[:-1])) or bool(TEST_FILE.search(path.name))
 
 
 def findings(facts: Facts, root: Path, header: str, scope_limited: bool) -> list[str]:
@@ -217,9 +295,14 @@ def findings(facts: Facts, root: Path, header: str, scope_limited: bool) -> list
             found.append("F2: this turn pushed the branch, and this session shows no pull request for it")
     in_repo = [(step, rel) for step, path in facts.edits if (rel := _repo_relative(path, root))]
     source = [(step, rel) for step, rel in in_repo if _is_source(rel)]
-    if source and max(facts.validations, default=0) < max(step for step, _ in source):
-        found.append(f"F3: no test, build, lint or browser check ran after the last edit to {source[-1][1]}")
-    risky = [(step, rel) for step, rel in in_repo if is_risky(rel, root.name)]
+    if source:
+        last_step, last_rel = source[-1]
+        # Running the file just edited (an analysis script, a CLI) is its check.
+        ran_it = any(step > last_step and _repo_relative(path, root) == last_rel for step, path in facts.executions)
+        if max(facts.validations, default=0) < last_step and not ran_it:
+            found.append(f"F3: no test, build, lint or browser check ran after the last edit to {last_rel}")
+    # A test of a risky area (tests/migrations/test_plan.py) is not itself a risky change.
+    risky = [(step, rel) for step, rel in in_repo if is_risky(rel, root.name) and not _is_test(rel)]
     if risky and max(facts.reviews, default=0) < max(step for step, _ in risky):
         found.append(f"F4: {risky[-1][1]} is a risky path, and no reviewer agent ran after it changed")
     return found
@@ -227,7 +310,7 @@ def findings(facts: Facts, root: Path, header: str, scope_limited: bool) -> list
 
 def main() -> int:
     payload = read_hook_input()
-    if payload.get("stop_hook_active") or not workflow_scope_enabled() or not turn_did_work(payload):
+    if payload.get("stop_hook_active") or not workflow_scope_enabled():
         return 0
     transcript = payload.get("transcript_path")
     if not isinstance(transcript, str) or not transcript:
