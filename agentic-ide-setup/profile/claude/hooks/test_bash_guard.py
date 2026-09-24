@@ -762,6 +762,17 @@ class ReviewRoundFourTests(GuardTestCase):
             ("Bash", "az pipelines approve --id 1 --environment staging", "allow"),
         ])
 
+    def test_changing_a_pipeline_check_asks(self) -> None:
+        """From the replay: a PATCH to an environment's Approval check changes a protected gate."""
+        self.assertDecisions([
+            ("PowerShell", "az devops invoke --org $o --area PipelinesChecks --resource configurations "
+                           "--route-parameters project=$p id=216 --http-method PATCH --in-file C:\\tmp\\a.json", "ask"),
+            ("Bash", "curl -s -X DELETE -u :$PAT https://dev.azure.com/o/p/_apis/pipelines/checks/configurations/216?api-version=7.1", "ask"),
+            ("PowerShell", "Invoke-RestMethod -Method Patch -Uri \"$o/$p/_apis/pipelines/checks/configurations/216\" -Body $b", "ask"),
+            # Reading check configurations changes nothing.
+            ("Bash", "az devops invoke --area PipelinesChecks --resource configurations --route-parameters project=p --http-method GET", "allow"),
+        ])
+
     def test_unknown_programs_asking_to_run_blocked_text(self) -> None:
         """The backstop: text an unrecognized program is given, that would be denied as a command, asks."""
         target = OUT.as_posix()

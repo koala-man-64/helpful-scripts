@@ -1005,6 +1005,22 @@ def azure_write(statement: shell_parse.Statement) -> str | None:
     return f"`az {group} {action}` mutates a live Azure resource. Confirm subscription, resource group, and blast radius first."
 
 
+# Writes to pipeline check configurations: the approvals and gates that protect environments.
+CHECK_CONFIGURATION = re.compile(r"\bpipelineschecks\b|_apis/pipelines/checks/configurations", re.IGNORECASE)
+WRITE_METHOD = re.compile(r"(?:--http-method|-method|-x|--request)[:=\s]+['\"]?(?:patch|put|post|delete)\b", re.IGNORECASE)
+
+
+def gate_change(statement: shell_parse.Statement, ctx: Context) -> str | None:
+    """Changing a check configuration can weaken an approval gate, which is the user's to change."""
+    text = " ".join(ctx.expand(a) for a in statement.argv)
+    if CHECK_CONFIGURATION.search(text) and WRITE_METHOD.search(text):
+        return (
+            "This changes a pipeline check configuration: an approval gate on an environment. "
+            "Protected gates are user-owned; confirm this change was asked for."
+        )
+    return None
+
+
 def prod_approval(statement: shell_parse.Statement, ctx: Context) -> str | None:
     text = " ".join(ctx.expand(a) for a in statement.argv).lower()
     if not AZURE_PIPELINE_APPROVAL.search(text):
@@ -1267,9 +1283,10 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
             return verdict
         if verdict:
             asks.append(verdict[1])
-        reason = azure_write(statement)
-        if reason:
-            asks.append(reason)
+        for check in (azure_write, lambda s: gate_change(s, ctx)):
+            reason = check(statement)
+            if reason:
+                asks.append(reason)
         if not ctx.offline:
             notes.extend(finish_notes(statement, ctx))
     if len(ctx.delete_targets) >= BULK_DELETE_THRESHOLD:
