@@ -965,6 +965,8 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
                     # The alias runs as part of this command: it shares the bulk-delete count and inline aliases.
                     inner = Context(
                         session_cwd=repo or ctx.session_cwd,
+                        variables=ctx.variables,
+                        tainted=ctx.tainted,
                         delete_targets=ctx.delete_targets,
                         inline_aliases=ctx.inline_aliases,
                     )

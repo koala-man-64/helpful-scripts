@@ -192,15 +192,22 @@ def _bash_separator(text: str, i: int) -> str | None:
     return None
 
 
-def _skip_heredoc_bodies(text: str, i: int, pending: list[tuple[str, bool, bool]]) -> tuple[int, list[Nested]]:
-    """Skip the bodies of pending heredocs; return the code an unquoted body runs.
+def _skip_heredoc_bodies(
+    text: str, i: int, pending: list[tuple[str, bool, bool, int]]
+) -> tuple[int, list[tuple[int, list[Nested]]]]:
+    """Skip the bodies of pending heredocs; return, per owning chunk, the code an unquoted body runs.
+
+    The body belongs to the statement that opened the heredoc, which is not
+    always the last one on the line (`cat <<EOF; true`).
 
     A quoted delimiter (<<'EOF', <<"EOF", <<\\EOF) makes the body pure data. An
     unquoted one still runs $(...) and backticks, and the body usually feeds a
     printer (cat), so that code is returned uncaptured.
     """
-    nested: list[Nested] = []
-    for delimiter, strip_tabs, expands in pending:
+    parts: list[tuple[int, list[Nested]]] = []
+    for delimiter, strip_tabs, expands, owner in pending:
+        nested: list[Nested] = []
+        parts.append((owner, nested))
         body_start = i
         while i < len(text):
             end = text.find("\n", i)
@@ -216,7 +223,7 @@ def _skip_heredoc_bodies(text: str, i: int, pending: list[tuple[str, bool, bool]
             if expands:
                 nested.extend(_body_substitutions(text[body_start:]))
                 nested.extend(_body_variables(text[body_start:]))
-    return i, nested
+    return i, parts
 
 
 def _body_variables(body: str) -> list[Nested]:
@@ -330,7 +337,7 @@ def _split_bash(text: str, start: int = 0, until_paren: bool = False):
     chunks: list[tuple[str, list[Nested], bool]] = []
     buf: list[str] = []
     nested: list[Nested] = []
-    pending: list[tuple[str, bool, bool]] = []
+    pending: list[tuple[str, bool, bool, int]] = []
     ok = True
     i, n = start, len(text)
 
@@ -435,14 +442,16 @@ def _split_bash(text: str, start: int = 0, until_paren: bool = False):
             if match:
                 delimiter = next(g for g in match.groups()[1:] if g is not None)
                 expands = match.group(4) is not None and text[match.start(4) - 1] != "\\"
-                pending.append((delimiter, match.group(1) == "-", expands))
+                # The statement being built owns the body; it will be flushed at index len(chunks).
+                pending.append((delimiter, match.group(1) == "-", expands, len(chunks)))
                 buf.append(" <<heredoc ")
                 i = match.end()
                 continue
         if c == "\n":
             flush()
-            i, body_code = _skip_heredoc_bodies(text, i + 1, pending)
-            chunks[-1][1].extend(body_code)
+            i, body_parts = _skip_heredoc_bodies(text, i + 1, pending)
+            for owner, body_code in body_parts:
+                chunks[min(owner, len(chunks) - 1)][1].extend(body_code)
             pending = []
             continue
         sep = _bash_separator(text, i)
