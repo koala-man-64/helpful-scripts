@@ -1,6 +1,9 @@
 ---
 name: project-workflow-auditor-agent
 description: Use to audit a repo's security practices, Azure Pipeline safety, and AGENTS.md/CONTRIBUTING/SECURITY adherence before release; a read-only auditor that reports findings for the owner to act on.
+model: sonnet
+maxTurns: 60
+disallowedTools: Agent, Edit, Write, NotebookEdit
 ---
 
 # Project Workflow Auditor Agent

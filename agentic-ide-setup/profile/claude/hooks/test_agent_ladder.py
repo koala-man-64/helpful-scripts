@@ -384,6 +384,75 @@ class SpawnShape(LadderTestCase):
         body = contract(constraints=["Read-only investigation"])
         self.assertRouted(self.run_gate(self.payload(body, subagent_type="Explore")), "haiku")
 
+    def test_main_thread_only_agents_are_not_spawned(self):
+        for name in sorted(agent_ladder.MAIN_THREAD_ONLY_AGENTS):
+            with self.subTest(agent=name):
+                self.assertDenied(self.run_gate(self.payload(contract(), subagent_type=name)), "LANE_MAIN_THREAD_ONLY")
+
+
+class ReadOnlyFromFrontmatter(LadderTestCase):
+    """Whether an agent can write is read from its definition, not a hardcoded list."""
+
+    def setUp(self):
+        super().setUp()
+        self.project = Path(self.tmp.name) / "project-agents"
+        self.user = Path(self.tmp.name) / "user-agents"
+        self.project.mkdir()
+        self.user.mkdir()
+        saved = gate.agent_directories
+        gate.agent_directories = lambda root: [self.project, self.user]
+        self.addCleanup(setattr, gate, "agent_directories", saved)
+
+    def define(self, directory: Path, name: str, *fields: str) -> None:
+        body = "\n".join(["---", f"name: {name}", "description: test agent", *fields, "---", "", "# body"])
+        (directory / f"{name}.md").write_text(body, encoding="utf-8")
+
+    def spawn_read_only(self, name: str):
+        return self.run_gate(self.payload(contract(constraints=["Read-only review"]), subagent_type=name))
+
+    def test_a_reviewer_without_write_tools_takes_a_read_only_contract(self):
+        self.define(self.user, "db-steward", "disallowedTools: Agent, Edit, Write, NotebookEdit")
+        self.assertRouted(self.spawn_read_only("db-steward"), "haiku")
+
+    def test_a_writer_is_refused_a_read_only_contract(self):
+        self.define(self.user, "delivery-engineer-agent", "disallowedTools: Agent")
+        self.assertDenied(self.spawn_read_only("delivery-engineer-agent"), "LANE_READONLY_AGENT_VIOLATION")
+
+    def test_a_tools_allowlist_without_write_tools_is_read_only(self):
+        self.define(self.user, "scanner", "tools: Read, Grep, Glob, Bash")
+        self.assertRouted(self.spawn_read_only("scanner"), "haiku")
+
+    def test_yaml_list_frontmatter_is_read(self):
+        self.define(self.user, "lister", "disallowedTools:", "  - Agent", "  - Edit", "  - Write", "  - NotebookEdit")
+        self.assertRouted(self.spawn_read_only("lister"), "haiku")
+
+    def test_a_project_definition_shadows_the_user_one(self):
+        self.define(self.project, "qa-release-gate-agent", "disallowedTools: Agent")
+        self.define(self.user, "qa-release-gate-agent", "disallowedTools: Agent, Edit, Write, NotebookEdit")
+        self.assertDenied(self.spawn_read_only("qa-release-gate-agent"), "LANE_READONLY_AGENT_VIOLATION")
+
+    def test_undefined_agents_are_not_read_only(self):
+        self.assertDenied(self.spawn_read_only("no-such-agent"), "LANE_READONLY_AGENT_VIOLATION")
+
+
+class ProfileAgentFrontmatter(unittest.TestCase):
+    """Every spawnable profile agent names its model, caps its turns, and cannot spawn."""
+
+    AGENTS = Path(__file__).resolve().parent.parent / "agents"
+
+    def test_spawnable_agents_carry_model_turns_and_no_agent_tool(self):
+        definitions = sorted(self.AGENTS.glob("*.md"))
+        self.assertTrue(definitions)
+        for path in definitions:
+            fields = agent_ladder.agent_frontmatter(path)
+            name = str(fields.get("name") or path.stem)
+            if name in agent_ladder.MAIN_THREAD_ONLY_AGENTS:
+                continue
+            with self.subTest(agent=name):
+                self.assertIn(fields.get("model"), {"haiku", "sonnet"})
+                self.assertGreaterEqual(int(str(fields.get("maxTurns") or 0)), 60)
+                self.assertIn("Agent", fields.get("disallowedTools") or [])
+
 
 class Scope(LadderTestCase):
     def test_unmanaged_repository_is_untouched(self):

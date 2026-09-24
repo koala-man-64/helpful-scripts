@@ -28,11 +28,14 @@ from agent_ladder import (
     LANE_CHILD_CAP,
     LANE_ORDER,
     LANE_SHAPE,
+    MAIN_THREAD_ONLY_AGENTS,
     MANAGED_ORIGINS,
     TIER_MODEL,
+    agent_directories,
     canonical_origin,
     parent_model,
     parse_envelope,
+    read_only_agents,
     strip_envelope,
     validate,
 )
@@ -190,6 +193,16 @@ def main() -> int:
             "explicit subagent_type and hand it a contract.",
         )
 
+    if subagent_type in MAIN_THREAD_ONLY_AGENTS:
+        return reject(
+            origin,
+            "",
+            "LANE_MAIN_THREAD_ONLY",
+            f"'{subagent_type}' coordinates from the main thread (`claude --agent "
+            f"{subagent_type}`, or its own session); as a spawned child it cannot "
+            "route specialists. Do the work as the owner, or spawn the specialist directly.",
+        )
+
     contract, parse_code = parse_envelope(prompt)
     if parse_code == "LANE_MISSING_ENVELOPE":
         return reject(
@@ -209,7 +222,7 @@ def main() -> int:
         )
 
     parent_tier = parent_model(payload.get("transcript_path"))
-    failure = validate(contract, subagent_type, explicit_model, parent_tier)
+    failure = validate(contract, subagent_type, explicit_model, parent_tier, read_only_agents(agent_directories(root)))
     if failure:
         return reject(origin, str(contract.get("tier") or ""), *failure)
 

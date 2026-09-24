@@ -1,6 +1,9 @@
 ---
 name: azure-devops-cicd-expert
 description: "Use for hands-on Azure Pipelines YAML design, review, and debugging: classic-to-YAML migration, Azure Repos/GitHub integration, service connections, variable groups, templates, branch policies, release promotion."
+model: sonnet
+maxTurns: 130
+disallowedTools: Agent
 ---
 
 # Azure DevOps CI/CD Expert

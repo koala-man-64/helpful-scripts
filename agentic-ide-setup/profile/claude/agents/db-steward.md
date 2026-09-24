@@ -1,6 +1,9 @@
 ---
 name: db-steward
 description: "Use for production database design or review: OLTP and analytics schemas, SQL and index tuning, zero-downtime migrations, backfills, concurrency, backup/replication/failover, reliability runbooks."
+model: sonnet
+maxTurns: 150
+disallowedTools: Agent, Edit, Write, NotebookEdit
 ---
 
 # DB Steward

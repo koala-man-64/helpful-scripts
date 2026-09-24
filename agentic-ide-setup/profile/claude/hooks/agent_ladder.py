@@ -62,9 +62,16 @@ LANE_CHILD_CAP = {"lite": 0, "standard": 2, "critical": 3}
 # agent whose definition already sets them.
 TIER_TURN_GUIDANCE = {"haiku": 12, "sonnet": 30, "opus": 60}
 
-# Spawning one of these keeps a read-only contract structurally honest rather
-# than merely promised in the constraints list.
+# Spawning a read-only agent keeps a read-only contract structurally honest
+# rather than merely promised in the constraints list. The built-ins are always
+# read-only; a defined agent is when its frontmatter removes every write tool
+# (disallowedTools: ..., Edit, Write, NotebookEdit) or its tools list has none.
 READ_ONLY_AGENTS = frozenset({"Explore", "Plan"})
+WRITE_TOOLS = frozenset({"Edit", "Write", "NotebookEdit"})
+
+# These coordinate from the main thread (`claude --agent <name>`, or their own
+# session); spawned as a child they could not route specialists at depth 1.
+MAIN_THREAD_ONLY_AGENTS = frozenset({"delivery-orchestrator-agent", "merge-steward"})
 READ_ONLY_MARKERS = (
     "read-only",
     "read only",
@@ -216,6 +223,60 @@ def parent_model(transcript_path: Any, max_lines: int = 400) -> str:
     return ""
 
 
+def agent_frontmatter(path: Path) -> dict[str, list[str] | str]:
+    """Top-level frontmatter fields of an agent definition; list fields as lists."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+    if not lines or lines[0].strip() != "---":
+        return {}
+    fields: dict[str, list[str] | str] = {}
+    key = ""
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line.startswith((" ", "\t")):
+            item = line.strip()
+            if key and item.startswith("- "):
+                previous = fields.get(key)
+                fields[key] = (previous if isinstance(previous, list) else []) + [item[2:].strip()]
+            continue
+        key, sep, value = line.partition(":")
+        key, value = key.strip(), value.strip()
+        if not sep:
+            key = ""
+            continue
+        if key in {"tools", "disallowedTools"}:
+            fields[key] = [t.strip().strip("'\"") for t in value.strip("[]").split(",") if t.strip()]
+        else:
+            fields[key] = value.strip("'\"")
+    return fields
+
+
+def agent_directories(root: Path | None) -> list[Path]:
+    """Where definitions live; a project definition shadows a user one of the same name."""
+    user = Path.home() / ".claude" / "agents"
+    return [Path(root) / ".claude" / "agents", user] if root else [user]
+
+
+def read_only_agents(directories: list[Path]) -> frozenset[str]:
+    names = set(READ_ONLY_AGENTS)
+    seen: set[str] = set()
+    for directory in directories:
+        for path in sorted(directory.glob("*.md")):
+            fields = agent_frontmatter(path)
+            name = str(fields.get("name") or path.stem)
+            if name in seen:
+                continue
+            seen.add(name)
+            disallowed = set(fields.get("disallowedTools") or [])
+            tools = fields.get("tools")
+            if WRITE_TOOLS <= disallowed or (isinstance(tools, list) and not WRITE_TOOLS & set(tools)):
+                names.add(name)
+    return frozenset(names)
+
+
 def _nonempty_strings(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -227,10 +288,12 @@ def validate(
     subagent_type: str,
     explicit_model: str,
     parent_tier: str,
+    read_only: frozenset[str] = READ_ONLY_AGENTS,
 ) -> tuple[str, str] | None:
     """Return ``(reason_code, message)`` for the first failure, else ``None``.
 
     ``parent_tier`` is the parent's tier name, or ``""`` when unknown.
+    ``read_only`` names the agents that cannot write (see ``read_only_agents``).
     """
     lane = contract.get("lane")
     if not isinstance(lane, str) or lane not in LANE_ORDER:
@@ -319,13 +382,13 @@ def validate(
 
     constraints = " ".join(_nonempty_strings(contract.get("constraints"))).lower()
     if any(marker in constraints for marker in READ_ONLY_MARKERS):
-        if subagent_type not in READ_ONLY_AGENTS:
+        if subagent_type not in read_only:
             return (
                 "LANE_READONLY_AGENT_VIOLATION",
                 "Contract declares a read-only constraint, so spawn a subagent "
                 "that cannot write: {0}. '{1}' carries edit tools, which makes "
                 "the constraint a promise instead of a boundary.".format(
-                    " or ".join(sorted(READ_ONLY_AGENTS)),
+                    ", ".join(sorted(read_only)),
                     subagent_type or "(none)",
                 ),
             )
