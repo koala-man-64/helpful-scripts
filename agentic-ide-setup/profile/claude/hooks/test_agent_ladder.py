@@ -499,6 +499,9 @@ class ProfileAgentFrontmatter(unittest.TestCase):
     AGENTS = Path(__file__).resolve().parent.parent / "agents"
 
     def test_spawnable_agents_carry_model_turns_and_no_agent_tool(self):
+        if not self.AGENTS.is_dir():
+            # The release clone is a sparse checkout of hooks/ only; the profile is checked in the repo.
+            self.skipTest("profile agents are not checked out here (sparse release clone)")
         definitions = sorted(self.AGENTS.glob("*.md"))
         self.assertTrue(definitions)
         for path in definitions:
