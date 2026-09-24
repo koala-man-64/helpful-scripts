@@ -19,14 +19,17 @@ from hook_utils import current_branch, run_git
 
 NOTES_DIR = Path.home() / ".claude" / "task-notes"
 MAX_CHARS = 6000
+# An oversized note keeps its header (the objective) and its newest part (the
+# current state), because notes grow by appending and the newest part matters most.
+HEAD_CHARS = 1000
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 NOTE_GUIDANCE = (
     "Use a note only when durable state materially helps: objective, "
-    "decisions, ownership, evidence locations, blockers, next action. Notes "
-    "and summaries are recovery aids; reconcile them with current "
-    "instructions and live evidence. Neither authorizes new work or "
-    "overrides a newer decision."
+    "decisions, ownership, evidence locations, blockers, next action. Keep it "
+    "as current state: rewrite it, don't append to it. Notes and summaries are "
+    "recovery aids; reconcile them with current instructions and live "
+    "evidence. Neither authorizes new work or overrides a newer decision."
 )
 
 
@@ -42,17 +45,32 @@ def note_path(repo: str, branch: str, notes_dir: Path = NOTES_DIR) -> Path:
     return notes_dir / f"{note_key(repo, branch)}.md"
 
 
-def read_note(path: Path, limit: int = MAX_CHARS) -> str | None:
-    """The note text, or None when there is no usable note."""
+def read_note(path: Path, limit: int = MAX_CHARS, head: int = HEAD_CHARS) -> str | None:
+    """The note text, or None when there is no usable note.
+
+    Over the limit, the note keeps its first ``head`` characters and its last
+    ``limit - head``, each cut at a line boundary, with a marker between them.
+    """
     try:
         text = path.read_text(encoding="utf-8", errors="replace").strip()
     except OSError:
         return None
     if not text:
         return None
-    if len(text) > limit:
-        text = text[:limit].rstrip() + f"\n[note truncated at {limit} chars; trim it]"
-    return text
+    if len(text) <= limit:
+        return text
+    head = min(head, limit // 2)
+    start = text[:head]
+    if "\n" in start:
+        start = start[: start.rindex("\n")]
+    end = text[len(text) - (limit - head):]
+    if "\n" in end:
+        end = end[end.index("\n") + 1:]
+    omitted = len(text) - len(start) - len(end)
+    return (
+        f"{start.rstrip()}\n[... {omitted} chars omitted from the middle; the note is over {limit} chars. "
+        f"Rewrite it as current state instead of appending ...]\n{end.lstrip()}"
+    )
 
 
 def main_repo_name(root: Path) -> str:

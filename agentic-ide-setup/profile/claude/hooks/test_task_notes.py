@@ -62,13 +62,31 @@ class ReadNoteTests(unittest.TestCase):
         path.write_text("  \n", encoding="utf-8")
         self.assertIsNone(read_note(path))
 
-    def test_truncates_long_notes(self):
+    def test_long_notes_keep_the_header_and_the_newest_part(self):
         path = self.dir / "long.md"
-        path.write_text("x" * 100, encoding="utf-8")
-        out = read_note(path, limit=40)
-        self.assertTrue(out.startswith("x" * 40))
-        self.assertIn("truncated at 40", out)
-        self.assertNotIn("x" * 41, out)
+        path.write_text("h" * 30 + "m" * 200 + "t" * 30, encoding="utf-8")
+        out = read_note(path, limit=60, head=30)
+        self.assertTrue(out.startswith("h" * 30))
+        self.assertTrue(out.endswith("t" * 30))
+        self.assertNotIn("m" * 10, out)
+        self.assertIn("200 chars omitted", out)
+
+    def test_a_note_grown_by_appending_injects_its_latest_section(self):
+        path = self.dir / "appended.md"
+        sections = ["# Objective: ship AB#1\n- owner: me"] + [
+            f"## Update {n}\n- status: step {n} done\n- next: step {n + 1}" for n in range(1, 400)
+        ]
+        path.write_text("\n\n".join(sections), encoding="utf-8")
+        out = read_note(path)
+        self.assertLessEqual(len(out), 6000 + 200)
+        self.assertIn("# Objective: ship AB#1", out)
+        self.assertIn("## Update 399\n- status: step 399 done\n- next: step 400", out)
+        self.assertNotIn("## Update 200\n", out)
+        self.assertIn("chars omitted from the middle", out)
+        # Cuts fall on line boundaries: no partial first or last line around the marker.
+        before, _, after = out.partition("[...")
+        self.assertTrue(before.endswith("\n"))
+        self.assertTrue(after.split("]\n", 1)[1].startswith(("#", "-")))
 
     def test_context_lines_without_note_name_the_path(self):
         lines = context_lines("repo", "branch", self.dir)
