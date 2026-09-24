@@ -42,6 +42,27 @@ though the pull request really was merged, and a correctly bound wait for the sa
 registered for is the safety property the whole read-back design exists for, and it is the
 validation the Codex implementation never obtained.
 
+### Binding rules (revised 2026-09-23, AB#3695)
+
+In practice most `binding_mismatch` failures were registration errors, not the resource changing:
+registration bound the branch and HEAD of the checkout the command ran in. Re-checking the 40
+such rows against the providers found 29 merged pull requests and 11 pipeline runs, 8 of which had
+succeeded. The rules are now:
+
+- **Registration binds the resource's own identity.** A pull request's branch comes from
+  `--source-branch`/`--head` or the output's `sourceRefName`, and its commit from
+  `lastMergeSourceCommit` or that branch's tip. A run's commit comes from its `sourceVersion`. Ids
+  are also read from `--query … -o tsv` output and from PR URLs. The repository is the primary
+  checkout's name, not the worktree folder. Provider strings are normalized (`azure-devops` is
+  `azure_devops`).
+- **A pull request is identified by its source branch.** Providers never let that change. A new
+  head on it (review fixes, a rebase) moves the binding and reports `head_advanced`. Only a
+  different source branch, or a target that is not a protected base branch, is a mismatch.
+- **A pipeline run is immutable**, so its commit must match exactly.
+- **`wait_poll.py reresolve`** rebinds historical binding-mismatch rows to the resource's own
+  identity and re-polls them. A target-branch mismatch is left failed.
+- **SessionStart** lists only the current repository's outstanding waits, plus a count of the rest.
+
 Remaining from the build order: step 5 arming via scheduled tasks is documented but not wired into
 a helper, step 6 `gh pr` support is present in the poller and detector but only PR create is
 detected, and step 7 agentcoord lifecycle hooks for Claude are not installed.

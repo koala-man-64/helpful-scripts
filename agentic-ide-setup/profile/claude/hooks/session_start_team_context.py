@@ -16,7 +16,7 @@ from hook_utils import (
     run_git,
     workflow_scope_enabled,
 )
-from task_notes import task_note_lines
+from task_notes import main_repo_name, task_note_lines
 
 # Every line here is re-sent with every request for the rest of the session,
 # so the wait list is capped to the newest entries; the poll command lists all.
@@ -36,7 +36,7 @@ def note_lines(root: Path) -> list[str]:
         return []
 
 
-def outstanding_waits() -> list[str]:
+def outstanding_waits(repository: str = "") -> list[str]:
     """Waits from earlier sessions that have not reached a terminal status.
 
     Without this a wait survives in the registry but nothing tells the next
@@ -49,10 +49,16 @@ def outstanding_waits() -> list[str]:
         return []
     if not rows:
         return []
+    # Only this repository's waits are this session's business; the others are
+    # counted so they stay discoverable without costing context everywhere.
+    here = [row for row in rows if not repository or row.get("repository") == repository]
+    elsewhere = len(rows) - len(here)
+    if not here:
+        return [f"{elsewhere} outstanding delivery wait(s) in other repositories; `wait_poll.py list` shows them."]
     # active() sorts ascending by created_at, so the newest are at the end.
-    shown = rows[-MAX_WAITS_SHOWN:]
-    hidden = rows[:-MAX_WAITS_SHOWN]
-    lines = ["Outstanding delivery waits (from earlier sessions):"]
+    shown = here[-MAX_WAITS_SHOWN:]
+    hidden = here[:-MAX_WAITS_SHOWN]
+    lines = ["Outstanding delivery waits for this repository (from earlier sessions):"]
     for row in shown:
         expired = " - PAST TIMEOUT" if wait_registry.is_expired(row) else ""
         lines.append(f"- {row['wait_id']}: {wait_registry.describe(row)}{expired}")
@@ -61,6 +67,8 @@ def outstanding_waits() -> list[str]:
         lines.append(
             f"- ... {len(hidden)} older wait(s) not listed ({past} past timeout)."
         )
+    if elsewhere:
+        lines.append(f"- {elsewhere} more in other repositories; `wait_poll.py list` shows them.")
     # Resolved from this file, not ~/.claude/hooks: the hooks run from wherever
     # settings.json points, and a fixed home path would name a stale copy.
     script = Path(__file__).resolve().parent / "wait_poll.py"
@@ -82,7 +90,7 @@ def main() -> int:
         clear_session_flags(session_id)
     prune_session_flags()
     root = repo_root()
-    waits = outstanding_waits()
+    waits = outstanding_waits(main_repo_name(root) if current_branch(root) != "not-git" else "")
     notes = note_lines(root)
     if not workflow_scope_enabled(root):
         # Team routing is repository-scoped, but an outstanding wait is not:

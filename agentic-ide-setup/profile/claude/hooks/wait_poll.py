@@ -2,8 +2,12 @@
 
 Every poll re-reads the live provider resource and verifies that it is still
 the thing the wait was registered for before believing any status. A pull
-request that was retargeted, or a branch that was force-pushed underneath the
-wait, resolves to `binding_mismatch` rather than a false success.
+request's identity is its source branch, which the provider never lets change:
+a new head on that branch (review fixes, a rebase) is the same pull request
+moving forward, so the binding follows it (`head_advanced`). A different source
+branch, or a target that is not a protected base branch, resolves to
+`binding_mismatch` rather than a false success. A pipeline run is immutable, so
+its commit must match exactly.
 
 This is the part of the Codex design that was correct and had simply never
 executed against a live resource. Verification belongs here, at read-back,
@@ -13,6 +17,7 @@ cache this process maintains itself.
 Usage:
     py wait_poll.py poll <wait_id>
     py wait_poll.py poll --all
+    py wait_poll.py reresolve    re-check pull request waits that failed only on their binding
     py wait_poll.py list
     py wait_poll.py doctor
 """
@@ -117,30 +122,29 @@ def poll_azure_pull_request(wait: dict[str, Any]) -> dict[str, str]:
         return {"status": "pending", "detail_code": "provider_unreadable"}
 
     source = payload.get("lastMergeSourceCommit")
+    head = str(source.get("commitId") or "") if isinstance(source, dict) else ""
     bad = mismatches(
         [
             (
                 "source_branch",
                 same(payload.get("sourceRefName"), f"refs/heads/{wait.get('branch')}"),
             ),
-            (
-                "source_commit",
-                isinstance(source, dict)
-                and commit_matches(wait, source.get("commitId")),
-            ),
             ("protected_target", is_protected(str(payload.get("targetRefName", "")))),
         ]
     )
     if bad:
         return {"status": "failed", "detail_code": "binding_mismatch:" + ",".join(bad)}
+    rebind = head if head and not commit_matches(wait, head) else ""
 
     status = str(payload.get("status", "")).casefold()
     if status == "completed":
-        return {"status": "succeeded", "detail_code": "pr_completed"}
+        return {"status": "succeeded", "detail_code": "pr_completed", "rebind_commit": rebind}
     if status in {"abandoned", "canceled", "cancelled"}:
-        return {"status": "abandoned", "detail_code": f"pr_{status}"}
+        return {"status": "abandoned", "detail_code": f"pr_{status}", "rebind_commit": rebind}
     if status != "active":
         return {"status": "failed", "detail_code": f"unexpected_pr_status:{status}"}
+    if rebind:
+        return {"status": "pending", "detail_code": "head_advanced", "rebind_commit": rebind}
 
     policies = run_json(
         [executable("az"), "repos", "pr", "policy", "list", "--id", str(wait["resource_id"])]
@@ -240,22 +244,20 @@ def poll_github_pull_request(wait: dict[str, Any]) -> dict[str, str]:
     bad = mismatches(
         [
             ("source_branch", same(payload.get("headRefName"), wait.get("branch"))),
-            (
-                "source_commit",
-                commit_matches(wait, payload.get("headRefOid")),
-            ),
             ("protected_target", is_protected(str(payload.get("baseRefName", "")))),
         ]
     )
     if bad:
         return {"status": "failed", "detail_code": "binding_mismatch:" + ",".join(bad)}
+    head = str(payload.get("headRefOid") or "")
+    rebind = head if head and not commit_matches(wait, head) else ""
 
     state = str(payload.get("state", "")).casefold()
     if state == "merged":
-        return {"status": "succeeded", "detail_code": "pr_merged"}
+        return {"status": "succeeded", "detail_code": "pr_merged", "rebind_commit": rebind}
     if state == "closed":
-        return {"status": "abandoned", "detail_code": "pr_closed"}
-    return {"status": "pending", "detail_code": "pr_open"}
+        return {"status": "abandoned", "detail_code": "pr_closed", "rebind_commit": rebind}
+    return {"status": "pending", "detail_code": "head_advanced" if rebind else "pr_open", "rebind_commit": rebind}
 
 
 POLLERS = {
@@ -275,16 +277,91 @@ def poll_one(wait_id: str) -> dict[str, Any]:
         wait_registry.update_status(wait_id, status="timed_out", detail_code="wait_timeout")
         return {"wait_id": wait_id, "status": "timed_out", "detail_code": "wait_timeout"}
 
-    poller = POLLERS.get((str(wait.get("provider")), str(wait.get("operation_kind"))))
+    return _check(wait)
+
+
+def _check(wait: dict[str, Any], *, rebind_branch: bool = False) -> dict[str, Any]:
+    """Poll the provider, move the binding when the pull request moved, record the status."""
+    wait_id = str(wait["wait_id"])
+    key = (wait_registry.normalize_provider(wait.get("provider")), str(wait.get("operation_kind")))
+    poller = POLLERS.get(key)
     if poller is None:
         wait_registry.update_status(wait_id, status="failed", detail_code="no_poller")
         return {"wait_id": wait_id, "status": "failed", "detail_code": "no_poller"}
 
+    if rebind_branch and wait.get("operation_kind") == "pipeline":
+        # A run is immutable and identified by its id; its own source version is its commit.
+        commit = run_source_version(wait)
+        if commit:
+            wait_registry.rebind(wait_id, commit=commit)
+            wait = {**wait, "commit": commit}
+    elif rebind_branch:
+        branch = source_branch_of(wait)
+        if branch:
+            wait_registry.rebind(wait_id, branch=branch)
+            wait = {**wait, "branch": branch}
     result = poller(wait)
+    rebind = result.pop("rebind_commit", "")
+    if rebind:
+        wait_registry.rebind(wait_id, commit=rebind)
     wait_registry.update_status(
         wait_id, status=result["status"], detail_code=result["detail_code"]
     )
     return {"wait_id": wait_id, **result}
+
+
+def run_source_version(wait: dict[str, Any]) -> str:
+    """The commit a pipeline run built, read from the provider."""
+    payload = run_json(
+        [executable("az"), "pipelines", "runs", "show", "--id", str(wait["resource_id"])]
+        + az_scope(wait)
+        + ["--output", "json"]
+    )
+    return str(payload.get("sourceVersion") or "") if isinstance(payload, dict) else ""
+
+
+def source_branch_of(wait: dict[str, Any]) -> str:
+    """The pull request's own source branch, read from the provider."""
+    provider = wait_registry.normalize_provider(wait.get("provider"))
+    if provider == "azure_devops":
+        payload = run_json(
+            [executable("az"), "repos", "pr", "show", "--id", str(wait["resource_id"])]
+            + az_org_scope(wait)
+            + ["--output", "json"]
+        )
+        ref = payload.get("sourceRefName") if isinstance(payload, dict) else ""
+        return str(ref or "").removeprefix("refs/heads/")
+    if provider == "github":
+        args = [executable("gh"), "pr", "view", str(wait["resource_id"])]
+        if wait.get("repo_slug"):
+            args += ["--repo", str(wait["repo_slug"])]
+        payload = run_json(args + ["--json", "headRefName"])
+        return str(payload.get("headRefName") or "") if isinstance(payload, dict) else ""
+    return ""
+
+
+def reresolve() -> list[dict[str, Any]]:
+    """Re-check waits that failed only on their binding.
+
+    Registration used to bind the branch and HEAD of the checkout the command
+    ran in, not the resource's own. A provider never lets a pull request's
+    source branch change, and a pipeline run is immutable, so every such branch
+    or commit mismatch was a registration error. Rebinding to the resource's
+    own branch (pull request) or source version (run) and re-polling gives
+    these rows their true status. A mismatch on the target branch is kept:
+    that one can be real.
+    """
+    results = []
+    for row in wait_registry.load().get("waits", []):
+        if not isinstance(row, dict):
+            continue
+        detail = str(row.get("detail_code") or "")
+        if row.get("status") != "failed" or row.get("operation_kind") not in {"pull_request", "pipeline"}:
+            continue
+        if not detail.startswith("binding_mismatch:") or "protected_target" in detail:
+            continue
+        results.append(_check(row, rebind_branch=True))
+    return results
 
 
 def main(argv: list[str]) -> int:
@@ -302,6 +379,11 @@ def main(argv: list[str]) -> int:
             return 0
         for row in rows:
             print(f"{row['wait_id']}  {wait_registry.describe(row)}")
+        return 0
+
+    if command == "reresolve":
+        results = reresolve()
+        print(json.dumps(results, indent=2) if results else "No binding-mismatch waits to re-check.")
         return 0
 
     if command == "poll":
