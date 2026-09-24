@@ -269,6 +269,32 @@ class DetectorSeamTests(unittest.TestCase):
         self.run_hook(payload("az pipelines run --name ci --query id --output tsv", {"stdout": "992"}))
         self.assertEqual(sorted(r["resource_id"] for r in self.waits()), ["4245", "4246", "992"])
 
+    def test_ids_come_from_the_shapes_real_creates_print(self):
+        """Each shape is from a real az call in the last week that used to register nothing."""
+        api_url = "https://dev.azure.com/o/abc/_apis/git/repositories/def/pullRequests/3538"
+        cases = [
+            ("az repos pr create --query '{id: pullRequestId, url: url}'", '{"id": 3536, "url": "x"}', "3536"),
+            ("az repos pr create --title t", f' "status": "active", "url": "{api_url}", "workItemRefs": null }}', "3538"),
+            ("az repos pr create -o table", "pullRequestId    status    title\n---------------  --------  -----\n3603             active    AB#1: x", "3603"),
+            ("az repos pr create --query '[pullRequestId,status]' -o tsv", "3620\tactive", "3620"),
+            ("az repos pr create --title t", "To https://x\n * [new branch] a -> a\n3627", "3627"),
+            ("az pipelines run --id 12 --query '{id:id,v:sourceVersion}' -o tsv", "24193\tnotStarted\t" + "a" * 40, "24193"),
+            ("az pipelines run --id 7", "848bbaf4 Merge pull request 3541 from x into main\n24455 notStarted " + "b" * 40, "24455"),
+        ]
+        for command, output, expected in cases:
+            with self.subTest(command=command):
+                self.assertEqual(detector.detect(command, output)["resource_id"], expected)
+
+    def test_ambiguous_output_is_not_guessed(self):
+        nested = json.dumps({"status": "active", "workItemRefs": [{"id": "3683"}]})
+        self.assertEqual(detector.detect("az repos pr create --title t", nested)["resource_id"], "")
+        self.assertEqual(detector.detect("az repos pr create --title t", "PR 12 of 40 done")["resource_id"], "")
+
+    def test_an_az_error_is_a_failure_not_an_unbound_success(self):
+        out = self.run_hook(payload("az repos pr create --title t", {"stdout": "ERROR: TF401179: An active pull request already exists."}))
+        self.assertEqual(out.strip(), "")
+        self.assertEqual(wait_registry.load(self.path).get("diagnostics", []), [])
+
     def test_the_repository_is_the_primary_checkout_not_the_worktree(self):
         self.run_hook(payload("az repos pr create --title x", {"stdout": AZ_PR_JSON}))
         self.assertEqual(self.waits()[0]["repository"], "helpful-scripts")
