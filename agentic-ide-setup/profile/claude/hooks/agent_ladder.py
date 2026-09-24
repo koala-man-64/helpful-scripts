@@ -45,16 +45,32 @@ LANE_ORDER = ("lite", "standard", "critical")
 
 LANE_SHAPE = {
     "lite": "bounded mechanical work; one owner, no children",
-    "standard": "Sonnet owner, solo by default; at most two bounded Haiku children (reviewer, specialist)",
+    "standard": "Sonnet owner, solo by default; at most a bounded Haiku reviewer and a bounded specialist below the session model (Sonnet or Haiku; a Sonnet owner's is Haiku)",
     "critical": "Opus owner; one to three bounded Sonnet or Haiku specialists with independent evidence",
 }
 
-# Which child tiers each lane permits, and how many children per session.
+# Which child tiers each lane permits, and how many children per session. A
+# child still ranks strictly below its parent, so a Sonnet session in the
+# standard lane can spawn only Haiku (D1, 2026-09-23).
 LANE_CHILD_TIERS = {
     "lite": (),
-    "standard": ("haiku",),
+    "standard": ("haiku", "sonnet"),
     "critical": ("haiku", "sonnet"),
 }
+
+# The contract every spawn in a managed repository leads with. Shown verbatim
+# at session start so a first spawn attempt passes the gate.
+ENVELOPE_TEMPLATE = """<claude_subagent_task_v2>
+{
+  "lane": "standard",
+  "tier": "haiku",
+  "objective": "<one precise outcome>",
+  "scope": ["<path or surface the subagent may touch>"],
+  "acceptance_checks": ["<how the parent verifies the result>"],
+  "constraints": ["Do not spawn another agent"],
+  "routing_reason": "<why this lane and model>"
+}
+</claude_subagent_task_v2>"""
 LANE_CHILD_CAP = {"lite": 0, "standard": 2, "critical": 3}
 
 # Turn caps and effort are agent-definition fields, not Agent tool inputs, so
@@ -155,9 +171,9 @@ def lane_summary() -> str:
         "- A child must rank strictly below its parent (haiku < sonnet < opus < fable); "
         "Fable is never a routed child. Effort is set only by agent-definition "
         "frontmatter, and a lane never changes the running session's model.\n"
-        f"- Lead every subagent prompt with a <{ENVELOPE_TAG}> JSON envelope: "
-        "lane, tier, objective, scope, acceptance_checks, constraints, "
-        "routing_reason."
+        f"- Lead every subagent prompt with this <{ENVELOPE_TAG}> envelope, "
+        "filled in (constraints and scope are lists):\n"
+        f"{ENVELOPE_TEMPLATE}"
     )
 
 

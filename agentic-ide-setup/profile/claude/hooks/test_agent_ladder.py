@@ -199,9 +199,16 @@ class LanePermissions(LadderTestCase):
             self.run_gate(self.payload(contract(lane="lite"))), "LANE_LITE_NO_CHILDREN"
         )
 
-    def test_standard_lane_does_not_permit_sonnet(self):
+    def test_standard_lane_permits_a_sonnet_specialist_below_the_parent(self):
+        """D1 (2026-09-23): one Sonnet or Haiku specialist, still strictly below the session model."""
+        self.assertRouted(self.run_gate(self.payload(contract(tier="sonnet"))), "sonnet")
         self.assertDenied(
-            self.run_gate(self.payload(contract(tier="sonnet"))), "LANE_TIER_NOT_PERMITTED"
+            self.run_gate(self.payload(contract(tier="sonnet"), parent="sonnet")), "LANE_CHILD_NOT_LOWER"
+        )
+
+    def test_standard_lane_does_not_permit_opus(self):
+        self.assertDenied(
+            self.run_gate(self.payload(contract(tier="opus"))), "LANE_TIER_NOT_PERMITTED"
         )
 
     def test_opus_is_never_a_child(self):
@@ -248,8 +255,8 @@ class ParentOrdering(LadderTestCase):
 
     def test_fable_parent_still_obeys_lane_and_child_rules(self):
         self.assertDenied(
-            self.run_gate(self.payload(contract(tier="sonnet"), parent="fable")),
-            "LANE_TIER_NOT_PERMITTED",
+            self.run_gate(self.payload(contract(lane="lite"), parent="fable")),
+            "LANE_LITE_NO_CHILDREN",
         )
         self.assertDenied(
             self.run_gate(self.payload(contract(lane="critical", tier="opus"), parent="fable")),
@@ -291,7 +298,7 @@ class ChildCap(LadderTestCase):
 
     def test_denied_spawns_do_not_consume_the_cap(self):
         for _ in range(3):
-            self.run_gate(self.payload(contract(tier="sonnet"), session_id="cap2"))
+            self.run_gate(self.payload(contract(tier="opus"), session_id="cap2"))
         for _ in range(2):
             self.assertRouted(
                 self.run_gate(self.payload(contract(), session_id="cap2")), "haiku"

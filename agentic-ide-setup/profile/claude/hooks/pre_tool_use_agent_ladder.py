@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_ladder import (
+    ENVELOPE_TEMPLATE,
     FORK_AGENT_TYPES,
     LANE_CHILD_CAP,
     LANE_ORDER,
@@ -54,18 +55,6 @@ SUBAGENT_TOOLS = frozenset({"Agent", "Task"})
 
 LOG_PATH = Path.home() / ".claude" / "logs" / "agent-ladder.jsonl"
 LOG_MAX_LINES = 2000
-
-ENVELOPE_TEMPLATE = """<claude_subagent_task_v2>
-{
-  "lane": "standard",
-  "tier": "haiku",
-  "objective": "<one precise outcome>",
-  "scope": ["<path or surface the subagent may touch>"],
-  "acceptance_checks": ["<how the parent verifies the result>"],
-  "constraints": ["Do not spawn another agent"],
-  "routing_reason": "<why this lane and model>"
-}
-</claude_subagent_task_v2>"""
 
 
 def record(origin: str, fields: dict[str, Any]) -> None:
