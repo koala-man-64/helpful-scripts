@@ -68,6 +68,9 @@ TIER_TURN_GUIDANCE = {"haiku": 12, "sonnet": 30, "opus": 60}
 # (disallowedTools: ..., Edit, Write, NotebookEdit) or its tools list has none.
 READ_ONLY_AGENTS = frozenset({"Explore", "Plan"})
 WRITE_TOOLS = frozenset({"Edit", "Write", "NotebookEdit"})
+# In an allowlist, any of these grants writing (MultiEdit exists in older Claude Code).
+ALLOWLIST_WRITE_TOOLS = WRITE_TOOLS | {"MultiEdit"}
+TOOL_LIST_KEYS = frozenset({"tools", "disallowedTools"})
 
 # These coordinate from the main thread (`claude --agent <name>`, or their own
 # session); spawned as a child they could not route specialists at depth 1.
@@ -223,8 +226,34 @@ def parent_model(transcript_path: Any, max_lines: int = 400) -> str:
     return ""
 
 
+def _strip_comment(text: str) -> str:
+    """Drop a trailing `# comment` outside quotes, as YAML does."""
+    quote = ""
+    for index, char in enumerate(text):
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "#" and (index == 0 or text[index - 1].isspace()):
+            return text[:index].rstrip()
+    return text
+
+
+def _unquote(text: str) -> str:
+    text = text.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
+        return text[1:-1]
+    return text
+
+
 def agent_frontmatter(path: Path) -> dict[str, list[str] | str]:
-    """Top-level frontmatter fields of an agent definition; list fields as lists."""
+    """Top-level frontmatter fields of an agent definition; tool lists as lists.
+
+    Keys are exact-case, as Claude Code reads them. Anything ambiguous fails
+    closed by returning {} (the agent then counts as able to write): a block
+    with no closing fence, or a tool list given twice.
+    """
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -233,25 +262,29 @@ def agent_frontmatter(path: Path) -> dict[str, list[str] | str]:
         return {}
     fields: dict[str, list[str] | str] = {}
     key = ""
-    for line in lines[1:]:
-        if line.strip() == "---":
-            break
-        if line.startswith((" ", "\t")):
+    for raw in lines[1:]:
+        if raw.strip() == "---":
+            return fields
+        line = _strip_comment(raw.rstrip())
+        if not line.strip():
+            continue
+        if raw.startswith((" ", "\t")):
             item = line.strip()
-            if key and item.startswith("- "):
-                previous = fields.get(key)
-                fields[key] = (previous if isinstance(previous, list) else []) + [item[2:].strip()]
+            if key in TOOL_LIST_KEYS and item.startswith("-"):
+                fields[key] = [*(fields.get(key) or []), _unquote(item[1:])]
             continue
         key, sep, value = line.partition(":")
         key, value = key.strip(), value.strip()
         if not sep:
             key = ""
             continue
-        if key in {"tools", "disallowedTools"}:
-            fields[key] = [t.strip().strip("'\"") for t in value.strip("[]").split(",") if t.strip()]
+        if key in TOOL_LIST_KEYS:
+            if key in fields:
+                return {}  # which of two tool lists applies is not knowable here
+            fields[key] = [_unquote(t) for t in value.strip("[]").split(",") if t.strip()]
         else:
-            fields[key] = value.strip("'\"")
-    return fields
+            fields[key] = _unquote(value)
+    return {}  # no closing fence: the body would be read as frontmatter
 
 
 def agent_directories(root: Path | None) -> list[Path]:
@@ -260,21 +293,37 @@ def agent_directories(root: Path | None) -> list[Path]:
     return [Path(root) / ".claude" / "agents", user] if root else [user]
 
 
-def read_only_agents(directories: list[Path]) -> frozenset[str]:
-    names = set(READ_ONLY_AGENTS)
-    seen: set[str] = set()
+def _definitions(directories: list[Path]) -> dict[str, dict[str, list[str] | str]]:
+    """Frontmatter by agent name; the first directory's definition of a name wins."""
+    found: dict[str, dict[str, list[str] | str]] = {}
     for directory in directories:
         for path in sorted(directory.glob("*.md")):
             fields = agent_frontmatter(path)
-            name = str(fields.get("name") or path.stem)
-            if name in seen:
-                continue
-            seen.add(name)
-            disallowed = set(fields.get("disallowedTools") or [])
-            tools = fields.get("tools")
-            if WRITE_TOOLS <= disallowed or (isinstance(tools, list) and not WRITE_TOOLS & set(tools)):
-                names.add(name)
+            found.setdefault(str(fields.get("name") or path.stem), fields)
+    return found
+
+
+def read_only_agents(directories: list[Path]) -> frozenset[str]:
+    names = set(READ_ONLY_AGENTS)
+    for name, fields in _definitions(directories).items():
+        disallowed = set(fields.get("disallowedTools") or [])
+        tools = fields.get("tools")
+        # A tools allowlist proves read-only only when it names every tool and none can write;
+        # a wildcard ("*", mcp__x__*) could include a write tool.
+        allowlist_read_only = (
+            isinstance(tools, list)
+            and not any("*" in tool for tool in tools)
+            and not ALLOWLIST_WRITE_TOOLS & set(tools)
+        )
+        if WRITE_TOOLS <= disallowed or allowlist_read_only:
+            names.add(name)
     return frozenset(names)
+
+
+def main_thread_only_agents(directories: list[Path]) -> frozenset[str]:
+    """Named in MAIN_THREAD_ONLY_AGENTS, or marked `mainThreadOnly: true` in their definition."""
+    marked = {name for name, fields in _definitions(directories).items() if str(fields.get("mainThreadOnly", "")).lower() == "true"}
+    return frozenset(MAIN_THREAD_ONLY_AGENTS | marked)
 
 
 def _nonempty_strings(value: Any) -> list[str]:

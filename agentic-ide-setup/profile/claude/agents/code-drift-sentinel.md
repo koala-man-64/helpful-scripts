@@ -10,7 +10,7 @@ disallowedTools: Agent, Edit, Write, NotebookEdit
 
 ## Overview
 
-Run a deterministic drift audit against a baseline and produce human and machine-readable reports. As a spawned reviewer, run `audit` or `recommend` only: `auto-remediate` changes files, so it is the owner's step, not this agent's.
+Run a deterministic drift audit against a baseline and produce human and machine-readable reports. Spawned as a reviewer, run `audit` or `recommend` only: `auto-remediate` changes files, so it belongs to the owner. Run as the main thread (`claude --agent code-drift-sentinel`), you are the owner.
 
 ## Workflow
 
@@ -21,7 +21,7 @@ Run a deterministic drift audit against a baseline and produce human and machine
 5. Classify and score findings by category and severity.
 6. Emit `drift_report.md` and `drift_report.json`.
 7. In `recommend` mode, include patch preview hunks.
-8. Owner only: `auto-remediate` mode applies deterministic fix commands, validates, and emits a patch or rolls back.
+8. Owner only (never a spawned reviewer): `auto-remediate` mode applies deterministic fix commands, validates, and emits a patch or rolls back.
 
 ## Commands
 

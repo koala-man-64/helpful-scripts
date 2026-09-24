@@ -434,6 +434,40 @@ class ReadOnlyFromFrontmatter(LadderTestCase):
     def test_undefined_agents_are_not_read_only(self):
         self.assertDenied(self.spawn_read_only("no-such-agent"), "LANE_READONLY_AGENT_VIOLATION")
 
+    def test_ambiguous_or_wildcard_definitions_fail_closed(self):
+        """From the independent review: each of these is a writer the parser must not call read-only."""
+        writers = {
+            "star": ['tools: "*"'],
+            "mcp-wildcard": ["tools: Read, mcp__files__*"],
+            "quoted-block-edit": ["tools:", "  - Read", '  - "Edit"', "  - Bash"],
+            "comment-after-edit": ["tools: Read, Grep, Edit  # for doc fixes"],
+            "multiedit": ["tools: Read, MultiEdit"],
+            "twice": ["disallowedTools: Agent, Edit, Write, NotebookEdit", "disallowedTools: Agent"],
+            "wrong-case-key": ["DisallowedTools: Agent, Edit, Write, NotebookEdit"],
+        }
+        for name, fields in writers.items():
+            self.define(self.user, name, *fields)
+        (self.user / "unclosed.md").write_text(
+            "---\nname: unclosed\ndisallowedTools: Agent, Edit, Write, NotebookEdit\n\n# body without a closing fence\n",
+            encoding="utf-8",
+        )
+        for name in [*writers, "unclosed"]:
+            with self.subTest(agent=name):
+                self.assertDenied(self.spawn_read_only(name), "LANE_READONLY_AGENT_VIOLATION")
+
+    def test_quoted_and_commented_read_only_lists_are_read(self):
+        self.define(self.user, "quoted", "disallowedTools:", '  - "Agent"', "  - 'Edit'", '  - "Write"', "  - NotebookEdit")
+        self.define(self.user, "commented", "disallowedTools: Agent, Edit, Write, NotebookEdit  # reviewer")
+        for name in ("quoted", "commented"):
+            with self.subTest(agent=name):
+                self.assertRouted(self.spawn_read_only(name), "haiku")
+
+    def test_main_thread_only_follows_the_definition_marker(self):
+        self.define(self.user, "renamed-steward", "mainThreadOnly: true", "disallowedTools: Agent")
+        for name in ("renamed-steward", "Merge-Steward"):
+            with self.subTest(agent=name):
+                self.assertDenied(self.run_gate(self.payload(contract(), subagent_type=name)), "LANE_MAIN_THREAD_ONLY")
+
 
 class ProfileAgentFrontmatter(unittest.TestCase):
     """Every spawnable profile agent names its model, caps its turns, and cannot spawn."""
@@ -446,11 +480,14 @@ class ProfileAgentFrontmatter(unittest.TestCase):
         for path in definitions:
             fields = agent_ladder.agent_frontmatter(path)
             name = str(fields.get("name") or path.stem)
-            if name in agent_ladder.MAIN_THREAD_ONLY_AGENTS:
-                continue
             with self.subTest(agent=name):
+                self.assertTrue(fields, "frontmatter must parse (closed fence, one tool list)")
+                if name in agent_ladder.MAIN_THREAD_ONLY_AGENTS:
+                    self.assertEqual(fields.get("mainThreadOnly"), "true")
+                    continue
                 self.assertIn(fields.get("model"), {"haiku", "sonnet"})
-                self.assertGreaterEqual(int(str(fields.get("maxTurns") or 0)), 60)
+                self.assertRegex(str(fields.get("maxTurns") or ""), r"^\d+$")
+                self.assertGreaterEqual(int(str(fields["maxTurns"])), 60)
                 self.assertIn("Agent", fields.get("disallowedTools") or [])
 
 

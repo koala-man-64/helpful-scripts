@@ -28,11 +28,11 @@ from agent_ladder import (
     LANE_CHILD_CAP,
     LANE_ORDER,
     LANE_SHAPE,
-    MAIN_THREAD_ONLY_AGENTS,
     MANAGED_ORIGINS,
     TIER_MODEL,
     agent_directories,
     canonical_origin,
+    main_thread_only_agents,
     parent_model,
     parse_envelope,
     read_only_agents,
@@ -193,7 +193,8 @@ def main() -> int:
             "explicit subagent_type and hand it a contract.",
         )
 
-    if subagent_type in MAIN_THREAD_ONLY_AGENTS:
+    directories = agent_directories(root)
+    if subagent_type.lower() in {name.lower() for name in main_thread_only_agents(directories)}:
         return reject(
             origin,
             "",
@@ -222,7 +223,7 @@ def main() -> int:
         )
 
     parent_tier = parent_model(payload.get("transcript_path"))
-    failure = validate(contract, subagent_type, explicit_model, parent_tier, read_only_agents(agent_directories(root)))
+    failure = validate(contract, subagent_type, explicit_model, parent_tier, read_only_agents(directories))
     if failure:
         return reject(origin, str(contract.get("tier") or ""), *failure)
 
