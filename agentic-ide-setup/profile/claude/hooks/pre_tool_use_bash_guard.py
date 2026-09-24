@@ -356,8 +356,11 @@ class Context:
             self.table(self.scope[:depth]).pop(key, None)
 
     def forget_all(self) -> None:
+        """No value is known any more in this shell. A child process cannot reach its parent's."""
         for depth in range(len(self.scope), -1, -1):
             self.table(self.scope[:depth]).clear()
+            if depth and self.scope[depth - 1][1] == shell_parse.CHILD:
+                break
 
     def expand(self, text: str) -> str:
         """Substitute variables whose literal value this command set earlier. cmd's %NAME% reads the environment."""
@@ -1007,13 +1010,61 @@ def azure_write(statement: shell_parse.Statement) -> str | None:
 
 # Writes to pipeline check configurations: the approvals and gates that protect environments.
 CHECK_CONFIGURATION = re.compile(r"\bpipelineschecks\b|_apis/pipelines/checks/configurations", re.IGNORECASE)
-WRITE_METHOD = re.compile(r"(?:--http-method|-method|-x|--request)[:=\s]+['\"]?(?:patch|put|post|delete)\b", re.IGNORECASE)
+WRITE_METHODS = frozenset({"patch", "put", "post", "delete"})
+# az devops invoke --http-method, and PowerShell's -Method (any abbreviation, `:` or space).
+NAMED_METHOD = re.compile(r"(?:--http-method|-me\w*)[:=\s]+['\"]?(\w+)", re.IGNORECASE)
+PS_BODY = re.compile(r"(?:^|\s)-(?:bo|inf|fo)\w*", re.IGNORECASE)
+# curl short options that take a value; the value may be glued (`-XPATCH`) or the next argument.
+CURL_VALUE_OPTIONS = frozenset("AbcCdDeEFHKmoPQrtTuUwxXyYz")
+
+
+def curl_request(args: list[str]) -> tuple[str | None, bool]:
+    """(explicit method, whether a body is sent) for curl's arguments, combined short options included."""
+    method, body, get, index = None, False, False, 0
+    while index < len(args):
+        arg = args[index]
+        if arg.startswith("--"):
+            name, sep, value = arg.partition("=")
+            if name == "--request":
+                method = value if sep else (args[index + 1] if index + 1 < len(args) else "")
+                index += 1 if sep else 2
+                continue
+            body = body or name.startswith(("--data", "--form", "--json", "--upload-file"))
+            get = get or name == "--get"
+        elif arg.startswith("-") and len(arg) > 1:
+            for position, letter in enumerate(arg[1:], start=1):
+                get = get or letter == "G"
+                body = body or letter in "dFT"
+                if letter in CURL_VALUE_OPTIONS:
+                    glued = arg[position + 1:]
+                    value = glued or (args[index + 1] if index + 1 < len(args) else "")
+                    if letter == "X":
+                        method = value
+                    index += 0 if glued else 1  # the value was the next argument
+                    break
+        index += 1
+    # -G turns the body into a query string, so the request stays a GET.
+    return method, body and not get
+
+
+def writes_to_url(statement: shell_parse.Statement, text: str) -> bool:
+    """Whether a request writes: an explicit write method, or a body that implies one."""
+    program = statement.program
+    if program == "curl":
+        method, body = curl_request(statement.argv[1:])
+        return (method or ("post" if body else "get")).strip("'\"").lower() in WRITE_METHODS
+    named = NAMED_METHOD.search(text)
+    method = named.group(1).lower() if named else None
+    if program in {"invoke-restmethod", "irm", "invoke-webrequest", "iwr"} and method is None:
+        # A -Body, -InFile or -Form with no -Method sends a POST.
+        return bool(PS_BODY.search(text))
+    return method in WRITE_METHODS
 
 
 def gate_change(statement: shell_parse.Statement, ctx: Context) -> str | None:
     """Changing a check configuration can weaken an approval gate, which is the user's to change."""
     text = " ".join(ctx.expand(a) for a in statement.argv)
-    if CHECK_CONFIGURATION.search(text) and WRITE_METHOD.search(text):
+    if CHECK_CONFIGURATION.search(text) and writes_to_url(statement, text):
         return (
             "This changes a pipeline check configuration: an approval gate on an environment. "
             "Protected gates are user-owned; confirm this change was asked for."
@@ -1082,8 +1133,21 @@ DATA_PROGRAMS = frozenset({
     # bash words whose arguments are values: loop lists, tests, prompts, declarations
     "for", "select", "test", "[", "[[", "read", "declare", "typeset", "local", "export", "readonly",
 })
+# Built-in PowerShell cmdlets that take data, by exact name. A Verb-Noun shape alone proves
+# nothing: any function or script can be named that way. Cmdlets that run code (Invoke-Command,
+# Start-Job, New-ScheduledTaskAction, Add-Type, New-Object) are deliberately absent.
+PS_DATA_CMDLETS = frozenset({
+    "select-object", "where-object", "sort-object", "group-object", "measure-object", "compare-object",
+    "format-table", "format-list", "format-wide", "out-null", "clear-content", "copy-item", "test-path",
+    "join-path", "split-path", "resolve-path", "convert-path", "get-childitem", "get-item", "get-itemproperty",
+    "set-itemproperty", "get-date", "get-process", "get-service", "get-ciminstance", "get-wmiobject",
+    "get-authenticodesignature", "get-filehash", "get-command", "get-help", "get-member", "get-location",
+    "convertto-json", "convertfrom-json", "convertto-csv", "convertfrom-csv", "import-csv", "export-csv",
+    "read-host", "start-sleep", "get-acl", "test-connection", "get-random", "get-unique", "select-xml",
+    "write-debug", "get-variable",
+})
 # Programs whose code the parser reads itself, and programs judged by their path arguments.
-KNOWN_PROGRAMS = DATA_PROGRAMS | CD_PROGRAMS | PS_REMOVE | PS_MOVE | frozenset({
+KNOWN_PROGRAMS = DATA_PROGRAMS | PS_DATA_CMDLETS | CD_PROGRAMS | PS_REMOVE | PS_MOVE | frozenset({
     "bash", "sh", "zsh", "dash", "ksh", "cmd", "powershell", "pwsh", "eval", "trap", "alias",
     "invoke-expression", "iex", "find", "wsl", "start-process", "saps", "start", "cp", "copy",
 })
@@ -1097,11 +1161,7 @@ TAIL_COMMANDS = frozenset({
 
 def unknown_program(statement: shell_parse.Statement) -> bool:
     """A program the guard neither parses nor knows to take data: it may run text it is given."""
-    program = statement.program
-    if program in KNOWN_PROGRAMS:
-        return False
-    # PowerShell cmdlets take data; the ones that run code (Invoke-Expression, script blocks) are parsed.
-    return not (statement.dialect == "powershell" and re.fullmatch(r"[a-z]+-[a-z]+", program))
+    return statement.program not in KNOWN_PROGRAMS
 
 
 def carried_text(statement: shell_parse.Statement, ctx: Context) -> list[str]:
@@ -1115,9 +1175,19 @@ def carried_text(statement: shell_parse.Statement, ctx: Context) -> list[str]:
         if statement.captured:
             return []
         consumer = shell_parse.program_name(statement.downstream[0][0]) if statement.downstream and statement.downstream[0] else ""
-        if consumer in DATA_PROGRAMS or re.fullmatch(r"[a-z]+-[a-z]+", consumer or "x"):
+        if consumer in DATA_PROGRAMS | PS_DATA_CMDLETS:
             return []
         return ([argv[0]] if argv[0] != "@here@" else []) + ([] if statement.runs_bodies else list(statement.bodies))
+    if statement.program == "git":
+        # git takes data, but a -c value is a command under any key that runs one. The parser
+        # judges the keys it knows in full; the values of all other keys get this check.
+        settings = [b.partition("=") for a, b in zip(argv[1:], argv[2:]) if a == "-c"]
+        return [
+            value
+            for key, sep, value in settings
+            if sep and re.search(r"\s", value.strip())
+            and shell_parse.git_config_code(key.lower(), value) is None
+        ]
     if not unknown_program(statement):
         return []
     texts = []

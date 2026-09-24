@@ -826,6 +826,61 @@ class ReviewRoundFourTests(GuardTestCase):
         self.assertEqual(self.decide(f"powershell -ec {encoded}", "PowerShell"), "deny")
 
 
+class ReviewRoundFiveTests(GuardTestCase):
+    """Round 5: git config keys that run commands, cmdlet-shaped names, implicit request methods."""
+
+    def test_every_git_config_command_is_judged(self) -> None:
+        target = OUT.as_posix()
+        self.assertDecisions([
+            ("Bash", f"git -c interactive.diffFilter='!rm -rf {target}' add -p", "deny"),
+            ("Bash", f"git -c interactive.diffFilter='rm -rf {target}' add -p", "deny"),
+            ("Bash", f"git -c gc.recentObjectsHook='rm -rf {target}' gc", "deny"),
+            ("Bash", f"git -c some.key='!rm -rf {target}' status", "deny"),
+            # A key the parser does not know still has its value checked, by the backstop.
+            ("Bash", f"git -c some.futureCommand='rm -rf {target}' status", "ask"),
+            # url.<ext::command>.insteadOf makes git run the base as a command.
+            ("Bash", f"git -c protocol.ext.allow=always -c 'url.ext::sh -c rm% -rf% {target}.insteadOf=https://example.invalid/r' fetch https://example.invalid/r", "deny"),
+            ("Bash", f"git clone 'ext::sh -c rm% -rf% {target}' copy", "deny"),
+            ("Bash", "git -c user.name='Rudy Prokes' log -1", "allow"),
+        ])
+
+    def test_cmdlet_shaped_names_are_not_trusted_as_data(self) -> None:
+        target = OUT.as_posix()
+        self.assertDecisions([
+            ("PowerShell", f'evil-cmd "rm -rf {target}"', "ask"),
+            ("PowerShell", f'do-thing "rm -rf {target}"', "ask"),
+            ("PowerShell", f"'rm -rf {target}' | evil-cmd", "ask"),
+            ("PowerShell", 'Write-Output "git reset --hard"', "allow"),
+            ("PowerShell", 'Select-String -Pattern "git push --force" -Path notes.md', "allow"),
+            ("PowerShell", f"'rm -rf {target}' | Out-File notes.txt", "allow"),
+        ])
+
+    def test_implicit_and_glued_write_methods_to_a_check_configuration_ask(self) -> None:
+        url = "https://dev.azure.com/o/p/_apis/pipelines/checks/configurations/5?api-version=7.1"
+        self.assertDecisions([
+            ("Bash", f'curl -XPATCH "{url}" -d "{{}}"', "ask"),
+            ("Bash", f'curl -sXPATCH "{url}"', "ask"),
+            ("Bash", f'curl -s -d "{{}}" "{url}"', "ask"),
+            ("Bash", f'curl -sd "{{}}" "{url}"', "ask"),
+            ("Bash", f'curl --json "{{}}" "{url}"', "ask"),
+            ("Bash", f'curl --request=DELETE "{url}"', "ask"),
+            ("Bash", f'curl -s "{url}"', "allow"),
+            ("Bash", f'curl -G -d "top=5" "{url}"', "allow"),
+            ("PowerShell", f'Invoke-RestMethod -Uri "{url}" -Body $json -ContentType "application/json"', "ask"),
+            ("PowerShell", f'Invoke-RestMethod -Uri "{url}" -Meth Put -Body $json', "ask"),
+            ("PowerShell", f'Invoke-RestMethod -Uri "{url}" -Method:Patch', "ask"),
+            ("PowerShell", f'Invoke-RestMethod -Uri "{url}" -Method Get', "allow"),
+        ])
+
+    def test_an_opaque_statement_in_a_subshell_leaves_the_parent_values_alone(self) -> None:
+        target = OUT.as_posix()
+        self.assertDecisions([
+            ("Bash", f'S="{target}"; (eval "$X"); rm -rf "$S/y"', "deny"),
+            # In the shell itself, it does make every value unknown.
+            ("Bash", f'S="{target}"; eval "$X"; rm -rf "$S/y"', "ask"),
+        ])
+
+
 class ScopeParserTests(unittest.TestCase):
     def test_statements_record_the_processes_and_blocks_they_run_in(self) -> None:
         parsed = shell_parse.parse("S=1; eval 'S=5'; sh -c 'S=2'; ( S=3 ); f() { S=4; }")

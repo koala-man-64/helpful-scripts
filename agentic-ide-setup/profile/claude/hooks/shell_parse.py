@@ -59,7 +59,8 @@ _EXEC_ENV_CONSUMED = frozenset({"GIT_SSH_COMMAND", "GIT_SSH", "GIT_ASKPASS", "SS
 _GIT_EXEC_KEYS = frozenset({
     "fsmonitor", "sshcommand", "gitproxy", "askpass", "pager", "editor", "helper", "external", "command",
     "cmd", "textconv", "driver", "clean", "smudge", "process", "program", "packobjectshook",
-    "alternaterefscommand", "defaultkeycommand", "tocmd", "cccmd", "uploadpack", "receivepack", "tunnel",
+    "alternaterefscommand", "defaultkeycommand", "tocmd", "cccmd", "headercmd", "sendmailcmd", "smtpserver",
+    "uploadpack", "receivepack", "tunnel", "difffilter", "recentobjectshook", "httpd",
 })
 _GIT_CONSUMED_KEYS = frozenset({
     "fsmonitor", "sshcommand", "gitproxy", "askpass", "helper", "clean", "smudge", "process", "program",
@@ -1199,9 +1200,39 @@ def _git_payloads(argv: list[str]) -> list[tuple[str, bool]]:
             found.append((" ".join(command), False))
     for arg in args:
         if arg.lower().startswith("ext::"):
-            # git-remote-ext runs the URL as a command line; `% ` is a space and `%%` a percent sign.
-            found.append((arg[len("ext::"):].replace("%%", "\0").replace("% ", " ").replace("\0", "%"), False))
+            # git-remote-ext runs the URL as a command line.
+            found.append((_ext_command(arg[len("ext::"):]), False))
     return found
+
+
+def _ext_command(spec: str) -> str:
+    """git-remote-ext's command as shell code: unescaped spaces split arguments, `% ` is a space inside one."""
+    words: list[str] = []
+    current: list[str] = []
+    index = 0
+    while index < len(spec):
+        char = spec[index]
+        if char == "%" and index + 1 < len(spec):
+            following = spec[index + 1]
+            current.append({" ": " ", "%": "%"}.get(following, char + following))
+            index += 2
+            continue
+        if char == " ":
+            if current:
+                words.append("".join(current))
+                current = []
+        else:
+            current.append(char)
+        index += 1
+    if current:
+        words.append("".join(current))
+    return " ".join(shlex.quote(word) for word in words)
+
+
+def git_config_code(key: str, value: str) -> tuple[str, bool] | None:
+    """(command, output goes back to git) that a `-c key=value` makes git run, for the keys the
+    parser knows to run one. None otherwise; aliases are the guard's to judge."""
+    return _git_config_code(key, value)
 
 
 def _git_config_code(key: str, value: str) -> tuple[str, bool] | None:
@@ -1209,7 +1240,12 @@ def _git_config_code(key: str, value: str) -> tuple[str, bool] | None:
     parts = key.split(".")
     if parts[0] == "alias":
         return None
-    runs = parts[-1] in _GIT_EXEC_KEYS or parts[0] == "pager" or (parts[-1] == "update" and value.startswith("!"))
+    if parts[0] == "url" and key.split(".", 1)[1].startswith("ext::"):
+        # url.<base>.insteadOf rewrites URLs to <base>; an ext:: base is a command git-remote-ext runs.
+        base = key.split(".", 1)[1].rsplit(".", 1)[0]
+        return _ext_command(base[len("ext::"):]), False
+    # A `!` value is shell code in every key that takes one (aliases, submodule updates, helpers).
+    runs = parts[-1] in _GIT_EXEC_KEYS or parts[0] == "pager" or value.startswith("!")
     code = value[1:] if value.startswith("!") else value
     if not runs or not code.strip():
         return None
