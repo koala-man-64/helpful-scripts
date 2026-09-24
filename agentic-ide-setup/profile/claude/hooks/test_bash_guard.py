@@ -881,6 +881,25 @@ class ReviewRoundFiveTests(GuardTestCase):
         ])
 
 
+class ReviewRoundSixTests(GuardTestCase):
+    """Round 6: a method call that runs its argument as a command line."""
+
+    def test_a_method_that_may_run_its_argument_is_judged(self) -> None:
+        target = OUT.as_posix()
+        rd = f"cmd /c rd /s /q {OUT}\\x"
+        self.assertDecisions([
+            # The review's case: the command reaches Win32_Process.Create through a variable.
+            ("PowerShell", f'$cmd = "rm -rf {target}"; (Get-WmiObject Win32_Process).Create($cmd)', "ask"),
+            ("PowerShell", f'$cmd = "{rd}"; $r = (Get-WmiObject Win32_Process).Create($cmd)', "ask"),
+            ("PowerShell", f'(Get-WmiObject Win32_Process).Create("{rd}")', "ask"),
+            ("PowerShell", f"Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{CommandLine='{rd}'}}", "ask"),
+            ("PowerShell", f'(New-Object -ComObject WScript.Shell).Run("{rd}")', "ask"),
+            ("PowerShell", f'Get-WmiObject Win32_Process -Filter "name = \'x\'" | ForEach-Object {{ $_.Terminate() }}', "allow"),
+            ("PowerShell", '[Console]::WriteLine("hello world")', "allow"),
+            ("PowerShell", '$parts = "a b".Split(" "); $parts.Count', "allow"),
+        ])
+
+
 class ScopeParserTests(unittest.TestCase):
     def test_statements_record_the_processes_and_blocks_they_run_in(self) -> None:
         parsed = shell_parse.parse("S=1; eval 'S=5'; sh -c 'S=2'; ( S=3 ); f() { S=4; }")

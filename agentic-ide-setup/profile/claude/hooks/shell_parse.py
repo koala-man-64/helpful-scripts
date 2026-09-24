@@ -102,6 +102,8 @@ HEREDOC_REFS = "(heredoc-refs)"
 STDIN_TEXT = "(stdin-text)"
 # Pseudo-dialect of the argument to [scriptblock]::Create(...) and the like: a string that becomes code.
 SCRIPT_TEXT = "(script-text)"
+# Pseudo-dialect of any other PowerShell method call's arguments: parsed as code, and marked.
+METHOD_ARGUMENTS = "(method-arguments)"
 _SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh"})
 _SH_VALUE_OPTIONS = frozenset({"-o", "+o", "-O", "+O", "--rcfile", "--init-file"})
 
@@ -124,6 +126,7 @@ class Statement:
     dot_sourced: bool = False  # PowerShell `. script`: runs in, and can change, the caller's scope
     bodies: tuple[str, ...] = ()  # heredoc bodies and here-strings given to this statement
     runs_bodies: bool = False  # it runs them as code (`bash <<EOF`, `iex @'...'@`), parsed as statements too
+    method_arguments: bool = False  # the arguments of a PowerShell method call, which may run them
 
     @property
     def program(self) -> str:
@@ -170,7 +173,13 @@ def _enter(scope: tuple[tuple[int, str], ...], kind: str | None) -> tuple[tuple[
 
 
 def _parse_into(
-    result: Parsed, text: str, dialect: str, assign_to: str | None, depth: int, scope: tuple[tuple[int, str], ...]
+    result: Parsed,
+    text: str,
+    dialect: str,
+    assign_to: str | None,
+    depth: int,
+    scope: tuple[tuple[int, str], ...],
+    method_arguments: bool = False,
 ) -> None:
     if depth > MAX_DEPTH:
         result.complete = False
@@ -226,6 +235,12 @@ def _parse_into(
                 if len(words) == 1 and code.strip()[:1] in {"'", '"'}:
                     _parse_into(result, words[0], "powershell", None, depth + 1, _enter(scope, BLOCK))
                 continue
+            if code_dialect == METHOD_ARGUMENTS:
+                _parse_into(
+                    result, code, "powershell", nested_assign or chunk_assign, depth + 1,
+                    _enter(scope, BLOCK), method_arguments=True,
+                )
+                continue
             # Everything bash nests runs in a subshell. PowerShell's (...) and $(...) run in place; its
             # {...} blocks run wherever the command they are given to runs them.
             kind = CHILD if dialect == "bash" else (BLOCK if nested_assign is None else None)
@@ -259,6 +274,7 @@ def _parse_into(
             scope=_enter(scope, BLOCK) if in_function else scope,
             dot_sourced=sourced,
             bodies=tuple(bodies),
+            method_arguments=method_arguments,
         )
         result.statements.append(statement)
         for code, code_dialect, kind, consumed in _payloads(statement):
@@ -808,12 +824,16 @@ def _split_powershell(text: str, start: int = 0, closer: str | None = None):
                 # [scriptblock]::Create('...'): the argument text becomes code.
                 nested.append((inner, SCRIPT_TEXT, None))
                 buf.append(f"({inner})")
+            elif method_call:
+                # A method's arguments are parsed as code, and marked: the method may run one as a
+                # command line (Win32_Process.Create, WScript.Shell.Run). The call keeps them visible
+                # in its token too, so a rule can read GetEnvironmentVariable('NAME').
+                nested.append((inner, METHOD_ARGUMENTS, None))
+                buf.append(f"({inner})")
             else:
                 # A condition's value is tested, not printed; a script block's output is its own.
                 nested.append((inner, "powershell", CONDITION if condition else None))
-                # A method call keeps its arguments visible in the token, so a rule can
-                # read GetEnvironmentVariable('NAME'); the arguments are parsed as code too.
-                buf.append(f"({inner})" if method_call else " (block) ")
+                buf.append(" (block) ")
             if not fine:
                 ok = False
                 break

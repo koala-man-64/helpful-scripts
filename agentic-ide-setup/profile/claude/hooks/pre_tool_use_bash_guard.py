@@ -1133,14 +1133,17 @@ DATA_PROGRAMS = frozenset({
     # bash words whose arguments are values: loop lists, tests, prompts, declarations
     "for", "select", "test", "[", "[[", "read", "declare", "typeset", "local", "export", "readonly",
 })
+# A PowerShell hashtable entry, `CommandLine='...'`: the value is what a method would run.
+HASHTABLE_KEY = re.compile(r"^\s*[A-Za-z_][\w.]*\s*=\s*(?!=)")
 # Built-in PowerShell cmdlets that take data, by exact name. A Verb-Noun shape alone proves
 # nothing: any function or script can be named that way. Cmdlets that run code (Invoke-Command,
-# Start-Job, New-ScheduledTaskAction, Add-Type, New-Object) are deliberately absent.
+# Start-Job, New-ScheduledTaskAction, Add-Type, New-Object) are deliberately absent, and so are
+# Get-WmiObject and Get-CimInstance, whose objects have methods that start processes.
 PS_DATA_CMDLETS = frozenset({
     "select-object", "where-object", "sort-object", "group-object", "measure-object", "compare-object",
     "format-table", "format-list", "format-wide", "out-null", "clear-content", "copy-item", "test-path",
     "join-path", "split-path", "resolve-path", "convert-path", "get-childitem", "get-item", "get-itemproperty",
-    "set-itemproperty", "get-date", "get-process", "get-service", "get-ciminstance", "get-wmiobject",
+    "set-itemproperty", "get-date", "get-process", "get-service",
     "get-authenticodesignature", "get-filehash", "get-command", "get-help", "get-member", "get-location",
     "convertto-json", "convertfrom-json", "convertto-csv", "convertfrom-csv", "import-csv", "export-csv",
     "read-host", "start-sleep", "get-acl", "test-connection", "get-random", "get-unique", "select-xml",
@@ -1168,6 +1171,11 @@ def carried_text(statement: shell_parse.Statement, ctx: Context) -> list[str]:
     """Text an unknown program is given that it might run: multi-word arguments, a command
     within its arguments (`ssh host rm -rf /x`), and input it does not run itself."""
     argv = statement.argv
+    if statement.method_arguments:
+        # A method may run an argument as a command line (Win32_Process.Create, WScript.Shell.Run),
+        # given as a literal or through a variable.
+        values = (HASHTABLE_KEY.sub("", ctx.expand(a)) for a in argv)
+        return [value for value in values if re.search(r"\s", value.strip())]
     if statement.dialect == "powershell" and len(argv) == 1 and (argv[0] == "@here@" or re.search(r"\s", argv[0])):
         # A PowerShell string or here-string on its own is a value. It is code where it is handed
         # to something that runs it ([scriptblock]::Create), but not where a data cmdlet takes it
@@ -1177,7 +1185,8 @@ def carried_text(statement: shell_parse.Statement, ctx: Context) -> list[str]:
         consumer = shell_parse.program_name(statement.downstream[0][0]) if statement.downstream and statement.downstream[0] else ""
         if consumer in DATA_PROGRAMS | PS_DATA_CMDLETS:
             return []
-        return ([argv[0]] if argv[0] != "@here@" else []) + ([] if statement.runs_bodies else list(statement.bodies))
+        value = [HASHTABLE_KEY.sub("", argv[0])] if argv[0] != "@here@" else []  # @{CommandLine='...'}
+        return value + ([] if statement.runs_bodies else list(statement.bodies))
     if statement.program == "git":
         # git takes data, but a -c value is a command under any key that runs one. The parser
         # judges the keys it knows in full; the values of all other keys get this check.
