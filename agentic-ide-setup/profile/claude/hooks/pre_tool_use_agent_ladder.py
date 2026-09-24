@@ -30,10 +30,14 @@ from agent_ladder import (
     LANE_SHAPE,
     MANAGED_ORIGINS,
     TIER_MODEL,
+    agent_directories,
     canonical_origin,
+    main_thread_only_agents,
     parent_model,
     parse_envelope,
+    read_only_agents,
     strip_envelope,
+    unreadable_agents,
     validate,
 )
 from hook_utils import (
@@ -190,6 +194,26 @@ def main() -> int:
             "explicit subagent_type and hand it a contract.",
         )
 
+    directories = agent_directories(root)
+    if subagent_type.lower() in {name.lower() for name in unreadable_agents(directories)}:
+        return reject(
+            origin,
+            "",
+            "LANE_AGENT_DEFINITION_UNREADABLE",
+            f"The definition of '{subagent_type}' cannot be read reliably (no frontmatter, no "
+            "closing fence, or a tool list given twice), so the gate cannot tell what it may do. "
+            "Fix the definition before spawning it.",
+        )
+    if subagent_type.lower() in {name.lower() for name in main_thread_only_agents(directories)}:
+        return reject(
+            origin,
+            "",
+            "LANE_MAIN_THREAD_ONLY",
+            f"'{subagent_type}' coordinates from the main thread (`claude --agent "
+            f"{subagent_type}`, or its own session); as a spawned child it cannot "
+            "route specialists. Do the work as the owner, or spawn the specialist directly.",
+        )
+
     contract, parse_code = parse_envelope(prompt)
     if parse_code == "LANE_MISSING_ENVELOPE":
         return reject(
@@ -209,7 +233,7 @@ def main() -> int:
         )
 
     parent_tier = parent_model(payload.get("transcript_path"))
-    failure = validate(contract, subagent_type, explicit_model, parent_tier)
+    failure = validate(contract, subagent_type, explicit_model, parent_tier, read_only_agents(directories))
     if failure:
         return reject(origin, str(contract.get("tier") or ""), *failure)
 

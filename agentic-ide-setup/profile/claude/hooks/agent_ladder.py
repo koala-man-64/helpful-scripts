@@ -62,9 +62,19 @@ LANE_CHILD_CAP = {"lite": 0, "standard": 2, "critical": 3}
 # agent whose definition already sets them.
 TIER_TURN_GUIDANCE = {"haiku": 12, "sonnet": 30, "opus": 60}
 
-# Spawning one of these keeps a read-only contract structurally honest rather
-# than merely promised in the constraints list.
+# Spawning a read-only agent keeps a read-only contract structurally honest
+# rather than merely promised in the constraints list. The built-ins are always
+# read-only; a defined agent is when its frontmatter removes every write tool
+# (disallowedTools: ..., Edit, Write, NotebookEdit, MultiEdit) or its tools
+# allowlist names only built-in tools that cannot write.
 READ_ONLY_AGENTS = frozenset({"Explore", "Plan"})
+# Claude Code's file-writing tools. A read-only agent must lose all of them.
+WRITE_TOOLS = frozenset({"Edit", "Write", "NotebookEdit", "MultiEdit"})
+TOOL_LIST_KEYS = frozenset({"tools", "disallowedTools"})
+
+# These coordinate from the main thread (`claude --agent <name>`, or their own
+# session); spawned as a child they could not route specialists at depth 1.
+MAIN_THREAD_ONLY_AGENTS = frozenset({"delivery-orchestrator-agent", "merge-steward"})
 READ_ONLY_MARKERS = (
     "read-only",
     "read only",
@@ -216,6 +226,126 @@ def parent_model(transcript_path: Any, max_lines: int = 400) -> str:
     return ""
 
 
+def _strip_comment(text: str) -> str:
+    """Drop a trailing `# comment`, as YAML does.
+
+    A quote opens a quoted scalar only at the start of a value or list item, so
+    an apostrophe inside a word (`it's`) does not hide a later comment.
+    """
+    quote, item_start = "", True
+    for index, char in enumerate(text):
+        if quote:
+            if char == quote:
+                quote = ""
+            continue
+        if char in "'\"" and item_start:
+            quote = char
+            continue
+        if char == "#" and (index == 0 or text[index - 1].isspace()):
+            return text[:index].rstrip()
+        if char in ",[:-":
+            item_start = True
+        elif not char.isspace():
+            item_start = False
+    return text
+
+
+def _unquote(text: str) -> str:
+    text = text.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
+        return text[1:-1]
+    return text
+
+
+def agent_frontmatter(path: Path) -> dict[str, list[str] | str] | None:
+    """Top-level frontmatter fields of an agent definition; tool lists as lists.
+
+    Keys are exact-case, as Claude Code reads them. None means the definition
+    cannot be read reliably (unreadable file, no frontmatter, no closing fence,
+    or a tool list given twice): callers must not guess what such an agent may do.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    if not lines or lines[0].strip() != "---":
+        return None
+    fields: dict[str, list[str] | str] = {}
+    key = ""
+    for raw in lines[1:]:
+        if raw.strip() == "---":
+            return fields
+        line = _strip_comment(raw.rstrip())
+        if not line.strip():
+            continue
+        if raw.startswith((" ", "	")):
+            item = line.strip()
+            if key in TOOL_LIST_KEYS and item.startswith("-"):
+                fields[key] = [*(fields.get(key) or []), _unquote(item[1:])]
+            continue
+        key, sep, value = line.partition(":")
+        key, value = key.strip(), value.strip()
+        if not sep:
+            key = ""
+            continue
+        if key in TOOL_LIST_KEYS:
+            if key in fields:
+                return None  # which of two tool lists applies is not knowable here
+            fields[key] = [_unquote(t) for t in value.strip("[]").split(",") if t.strip()]
+        else:
+            fields[key] = _unquote(value)
+    return None  # no closing fence: the body would be read as frontmatter
+
+
+def agent_directories(root: Path | None) -> list[Path]:
+    """Where definitions live; a project definition shadows a user one of the same name."""
+    user = Path.home() / ".claude" / "agents"
+    return [Path(root) / ".claude" / "agents", user] if root else [user]
+
+
+def _definitions(directories: list[Path]) -> dict[str, dict[str, list[str] | str] | None]:
+    """Frontmatter by agent name (None when unreadable); the first directory's definition wins."""
+    found: dict[str, dict[str, list[str] | str] | None] = {}
+    for directory in directories:
+        for path in sorted(directory.glob("*.md")):
+            fields = agent_frontmatter(path)
+            found.setdefault(str((fields or {}).get("name") or path.stem), fields)
+    return found
+
+
+def read_only_agents(directories: list[Path]) -> frozenset[str]:
+    names = set(READ_ONLY_AGENTS)
+    for name, fields in _definitions(directories).items():
+        if fields is None:
+            continue
+        disallowed = set(fields.get("disallowedTools") or [])
+        tools = fields.get("tools")
+        # An allowlist proves read-only only when every entry is a named built-in
+        # tool and none can write: a wildcard or an MCP tool could write.
+        allowlist_read_only = (
+            isinstance(tools, list)
+            and not any("*" in tool or tool.startswith("mcp__") for tool in tools)
+            and not WRITE_TOOLS & set(tools)
+        )
+        if WRITE_TOOLS <= disallowed or allowlist_read_only:
+            names.add(name)
+    return frozenset(names)
+
+
+def main_thread_only_agents(directories: list[Path]) -> frozenset[str]:
+    """Named in MAIN_THREAD_ONLY_AGENTS, or marked `mainThreadOnly: true` in their definition."""
+    marked = {
+        name for name, fields in _definitions(directories).items()
+        if fields is not None and str(fields.get("mainThreadOnly", "")).lower() == "true"
+    }
+    return frozenset(MAIN_THREAD_ONLY_AGENTS | marked)
+
+
+def unreadable_agents(directories: list[Path]) -> frozenset[str]:
+    """Agents whose definition cannot be read reliably; the gate refuses to spawn them."""
+    return frozenset(name for name, fields in _definitions(directories).items() if fields is None)
+
+
 def _nonempty_strings(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -227,10 +357,12 @@ def validate(
     subagent_type: str,
     explicit_model: str,
     parent_tier: str,
+    read_only: frozenset[str] = READ_ONLY_AGENTS,
 ) -> tuple[str, str] | None:
     """Return ``(reason_code, message)`` for the first failure, else ``None``.
 
     ``parent_tier`` is the parent's tier name, or ``""`` when unknown.
+    ``read_only`` names the agents that cannot write (see ``read_only_agents``).
     """
     lane = contract.get("lane")
     if not isinstance(lane, str) or lane not in LANE_ORDER:
@@ -319,13 +451,13 @@ def validate(
 
     constraints = " ".join(_nonempty_strings(contract.get("constraints"))).lower()
     if any(marker in constraints for marker in READ_ONLY_MARKERS):
-        if subagent_type not in READ_ONLY_AGENTS:
+        if subagent_type not in read_only:
             return (
                 "LANE_READONLY_AGENT_VIOLATION",
                 "Contract declares a read-only constraint, so spawn a subagent "
                 "that cannot write: {0}. '{1}' carries edit tools, which makes "
                 "the constraint a promise instead of a boundary.".format(
-                    " or ".join(sorted(READ_ONLY_AGENTS)),
+                    ", ".join(sorted(read_only)),
                     subagent_type or "(none)",
                 ),
             )

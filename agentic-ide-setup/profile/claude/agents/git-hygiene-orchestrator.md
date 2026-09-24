@@ -1,6 +1,9 @@
 ---
 name: git-hygiene-orchestrator
 description: Use to audit and clean git branches, remote refs, and worktrees (stale or merged branches, dirty work), and, when asked to finish work, carry it through validation, commit, push, PR, and merge if gates allow.
+model: sonnet
+maxTurns: 60
+disallowedTools: Agent
 ---
 
 # Git Hygiene Orchestrator

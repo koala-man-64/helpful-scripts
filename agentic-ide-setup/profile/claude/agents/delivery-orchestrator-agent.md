@@ -1,6 +1,7 @@
 ---
 name: delivery-orchestrator-agent
-description: Use only for Critical-lane work whose independently owned activities need coordination across specialists or repositories; scopes the work, routes bounded specialists, and enforces the applicable review/QA/security/devops gates. Not a prerequisite for Lite or Standard work.
+description: Use only for Critical-lane work whose independently owned activities need coordination across specialists or repositories; scopes the work, routes bounded specialists, and enforces the applicable review/QA/security/devops gates. Not a prerequisite for Lite or Standard work. Main thread only (`claude --agent delivery-orchestrator-agent`); never spawned as a subagent.
+mainThreadOnly: true
 ---
 
 # Delivery Orchestrator Agent

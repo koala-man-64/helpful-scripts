@@ -1,6 +1,9 @@
 ---
 name: application-project-analyst-technical-explainer
 description: "Use when asked to explain a codebase, service, or architecture: what it does, how data flows, how it is hosted or deployed, and who depends on it; produces onboarding-ready technical explanations."
+model: sonnet
+maxTurns: 60
+disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit
 ---
 
 # Application Project Analyst & Technical Explainer

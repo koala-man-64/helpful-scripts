@@ -1,13 +1,16 @@
 ---
 name: code-drift-sentinel
 description: Use for drift audits across style, architecture, APIs, security, tests, or CI/config from multiple AI agents/humans; scores and attributes drift, enforces gates, generates drift_report.md/json with remediation patches.
+model: sonnet
+maxTurns: 60
+disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit
 ---
 
 # Code Drift Sentinel
 
 ## Overview
 
-Run a deterministic drift audit against a baseline, produce human and machine-readable reports, and optionally apply safe remediations with rollback on failed verification.
+Run a deterministic drift audit against a baseline and produce human and machine-readable reports. Spawned as a reviewer, run `audit` or `recommend` only: `auto-remediate` changes files, so it belongs to the owner. Run as the main thread (`claude --agent code-drift-sentinel`), you are the owner.
 
 ## Workflow
 
@@ -18,7 +21,7 @@ Run a deterministic drift audit against a baseline, produce human and machine-re
 5. Classify and score findings by category and severity.
 6. Emit `drift_report.md` and `drift_report.json`.
 7. In `recommend` mode, include patch preview hunks.
-8. In `auto-remediate` mode, apply deterministic fix commands, validate, and emit patch or rollback.
+8. Owner only (never a spawned reviewer): `auto-remediate` mode applies deterministic fix commands, validates, and emits a patch or rolls back.
 
 ## Commands
 
@@ -46,7 +49,7 @@ Useful flags:
 
 - `audit`: detect drift and write reports only.
 - `recommend`: detect drift and include patch preview hunks in report/json.
-- `auto-remediate`:
+- `auto-remediate` (owner only, never from a spawned reviewer):
   - require `auto_remediate.enabled: true`
   - require clean working tree
   - allow deterministic fix commands only

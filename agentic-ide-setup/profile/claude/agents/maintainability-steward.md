@@ -1,6 +1,9 @@
 ---
 name: maintainability-steward
 description: Use when reviewing PRs, ADRs, or tech-debt backlogs for over-engineering, on-call risk, unstable interfaces, or weak diagnostics; produces a prioritized P0-P3 maintainability report.
+model: sonnet
+maxTurns: 60
+disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit
 ---
 
 # Maintainability Steward
