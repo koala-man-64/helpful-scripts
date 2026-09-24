@@ -639,16 +639,18 @@ def is_secret_file(arg: str) -> bool:
 
 
 def reads_secret(statement: shell_parse.Statement, ctx: Context) -> bool:
-    """Whether the statement's output carries a secret (so a variable it fills is tainted)."""
-    program, args = statement.program, statement.argv[1:]
+    """Whether the statement's output carries a secret (so a variable it fills is tainted).
+
+    Anything that would be a secret print if it reached the transcript is a source,
+    plus encodings of a secret (base64) and GetEnvironmentVariable of a secret name.
+    """
+    program = statement.program
     if program in VALUE_PRINTERS | FILE_PRINTERS | {"base64"} or not program or len(statement.argv) == 1:
         if secret_names(statement.argv, ctx, statement.dialect):
             return True
-    if program in FILE_PRINTERS and any(is_secret_file(a) for a in args):
+    if ENV_VARIABLE_CALL.search(" ".join(statement.argv)) and secret_names(statement.argv, ctx, statement.dialect):
         return True
-    if program == "printenv" and any(SECRET_NAME.search(a) for a in args):
-        return True
-    return cli_secret_reason(statement) is not None or bool(ENV_VARIABLE_CALL.search(" ".join(statement.argv)) and secret_names(statement.argv, ctx, statement.dialect))
+    return secret_output(statement, ctx) is not None
 
 
 def _option(args: list[str], *names: str) -> str:
@@ -757,8 +759,11 @@ def reaches_transcript(statement: shell_parse.Statement) -> bool:
 
 
 def secret_print(statement: shell_parse.Statement, ctx: Context) -> str | None:
-    if not reaches_transcript(statement):
-        return None
+    return secret_output(statement, ctx) if reaches_transcript(statement) else None
+
+
+def secret_output(statement: shell_parse.Statement, ctx: Context) -> str | None:
+    """Why this statement's output carries a secret, wherever that output then goes."""
     program, argv = statement.program, statement.argv
     args = shell_parse.without_redirections(argv[1:])
     if program in VALUE_PRINTERS | FILE_PRINTERS:
@@ -884,6 +889,11 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
             # A lone PowerShell `$p` is an expression that prints, not a program; secret_print judges it.
             expanded = ctx.expand(statement.argv[0])
             if re.search(r"[$%]", expanded):
+                if statement.dialect == "powershell" and reaches_transcript(statement):
+                    # `$x -join ','`, `$__sub1.Value`: a PowerShell expression prints its value.
+                    names = secret_names(statement.argv, ctx, statement.dialect)
+                    if names:
+                        return "deny", f"This PowerShell expression uses ${names[0]} and prints its value. Use it without printing it."
                 if DESTRUCTIVE_WORDS & {a.lower() for a in statement.argv[1:]}:
                     asks.append(f"`{statement.argv[0]}` names the program through a variable the guard cannot resolve, and its arguments look destructive. Confirm what it runs.")
                 continue

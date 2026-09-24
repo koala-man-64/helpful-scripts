@@ -17,12 +17,14 @@ from __future__ import annotations
 
 import base64
 import binascii
+import itertools
 import re
 import shlex
 from dataclasses import dataclass, field
 from pathlib import PureWindowsPath
 
 MAX_DEPTH = 6
+_SUBSTITUTIONS = itertools.count(1)
 
 _HEREDOC = re.compile(
     r"<<(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|\\?([A-Za-z0-9_.-]+))"
@@ -181,15 +183,56 @@ def _bash_separator(text: str, i: int) -> str | None:
     return None
 
 
-def _skip_heredoc_bodies(text: str, i: int, pending: list[tuple[str, bool]]) -> int:
-    for delimiter, strip_tabs in pending:
+def _skip_heredoc_bodies(text: str, i: int, pending: list[tuple[str, bool, bool]]) -> tuple[int, list[Nested]]:
+    """Skip the bodies of pending heredocs; return the code an unquoted body runs.
+
+    A quoted delimiter (<<'EOF', <<"EOF", <<\\EOF) makes the body pure data. An
+    unquoted one still runs $(...) and backticks, and the body usually feeds a
+    printer (cat), so that code is returned uncaptured.
+    """
+    nested: list[Nested] = []
+    for delimiter, strip_tabs, expands in pending:
+        body_start = i
         while i < len(text):
             end = text.find("\n", i)
             line = text[i:] if end < 0 else text[i:end]
+            line_start = i
             i = len(text) if end < 0 else end + 1
             if (line.lstrip("\t") if strip_tabs else line).rstrip("\r") == delimiter:
+                if expands:
+                    nested.extend(_body_substitutions(text[body_start:line_start]))
                 break
-    return i
+        else:
+            if expands:
+                nested.extend(_body_substitutions(text[body_start:]))
+    return i, nested
+
+
+def _body_substitutions(body: str) -> list[Nested]:
+    found: list[Nested] = []
+    k = 0
+    while k < len(body):
+        if body.startswith("\\", k):
+            k += 2
+            continue
+        if body.startswith("$((", k):
+            end = body.find("))", k + 3)
+            k = len(body) if end < 0 else end + 2
+            continue
+        if body.startswith("$(", k):
+            _, end, _ok = _split_bash(body, start=k + 2, until_paren=True)
+            found.append((body[k + 2:end], "bash", None))
+            k = end + 1
+            continue
+        if body[k] == "`":
+            end = body.find("`", k + 1)
+            if end < 0:
+                break
+            found.append((body[k + 1:end], "bash", None))
+            k = end + 1
+            continue
+        k += 1
+    return found
 
 
 def _assignment_target(buf: list[str]) -> str | None:
@@ -202,39 +245,63 @@ def _assignment_target(buf: list[str]) -> str | None:
     return match.group(1) if match else None
 
 
-def _scan_bash_double(text: str, i: int, assign: str | None) -> tuple[int, list[Nested], bool]:
-    """From the opening quote at i: index of the closing quote, nested code, ok."""
+def _substitution(assign: str | None) -> tuple[str | None, str]:
+    """(where the nested output goes, placeholder for the outer command's text).
+
+    In an assignment the output fills that variable. Anywhere else it becomes
+    part of the outer command's arguments, so it is captured into a fresh
+    placeholder variable: the outer command then decides whether it is printed
+    (`echo "$__sub1"`) or only used (`curl -H "Bearer $__sub1"`).
+    """
+    if assign is not None:
+        return assign, "$(sub)"
+    name = f"__sub{next(_SUBSTITUTIONS)}"
+    return name, f"${name}"
+
+
+def _scan_bash_double(text: str, i: int, assign: str | None) -> tuple[int, list[Nested], bool, str]:
+    """From the opening quote at i: index of the closing quote, nested code, ok, and the
+    quoted text with each substitution replaced by its placeholder."""
     nested: list[Nested] = []
+    out: list[str] = ['"']
     j = i + 1
     while j < len(text):
         c = text[j]
         if c == "\\":
+            out.append(text[j:j + 2])
             j += 2
             continue
         if c == '"':
-            return j, nested, True
+            out.append('"')
+            return j, nested, True, "".join(out)
         if text.startswith("$((", j):
             end = text.find("))", j + 3)
             if end < 0:
-                return len(text), nested, False
+                return len(text), nested, False, "".join(out)
+            out.append("0")
             j = end + 2
             continue
         if text.startswith("$(", j):
             _, end, ok = _split_bash(text, start=j + 2, until_paren=True)
-            nested.append((text[j + 2:end], "bash", assign))
+            target, placeholder = _substitution(assign)
+            nested.append((text[j + 2:end], "bash", target))
+            out.append(placeholder)
             if not ok:
-                return len(text), nested, False
+                return len(text), nested, False, "".join(out)
             j = end + 1
             continue
         if c == "`":
             end = text.find("`", j + 1)
             if end < 0:
-                return len(text), nested, False
-            nested.append((text[j + 1:end], "bash", assign))
+                return len(text), nested, False, "".join(out)
+            target, placeholder = _substitution(assign)
+            nested.append((text[j + 1:end], "bash", target))
+            out.append(placeholder)
             j = end + 1
             continue
+        out.append(c)
         j += 1
-    return len(text), nested, False
+    return len(text), nested, False, "".join(out)
 
 
 def _split_bash(text: str, start: int = 0, until_paren: bool = False):
@@ -246,7 +313,7 @@ def _split_bash(text: str, start: int = 0, until_paren: bool = False):
     chunks: list[tuple[str, list[Nested], bool]] = []
     buf: list[str] = []
     nested: list[Nested] = []
-    pending: list[tuple[str, bool]] = []
+    pending: list[tuple[str, bool, bool]] = []
     ok = True
     i, n = start, len(text)
 
@@ -271,9 +338,9 @@ def _split_bash(text: str, start: int = 0, until_paren: bool = False):
             i = end + 1
             continue
         if c == '"':
-            end, inner, fine = _scan_bash_double(text, i, _assignment_target(buf))
+            end, inner, fine, quoted = _scan_bash_double(text, i, _assignment_target(buf))
             nested.extend(inner)
-            buf.append(text[i:end + 1])
+            buf.append(quoted)
             if not fine:
                 ok = False
                 break
@@ -302,7 +369,19 @@ def _split_bash(text: str, start: int = 0, until_paren: bool = False):
             continue
         # Substitution placeholders take no surrounding spaces, so `X=$(cmd)`
         # stays one assignment word and its command is known to be captured.
-        if text.startswith("$(", i) or text.startswith("<(", i) or text.startswith(">(", i):
+        if text.startswith("$(", i):
+            _, end, fine = _split_bash(text, start=i + 2, until_paren=True)
+            target, placeholder = _substitution(_assignment_target(buf))
+            nested.append((text[i + 2:end], "bash", target))
+            buf.append(placeholder)
+            if not fine:
+                ok = False
+                break
+            i = end + 1
+            continue
+        if text.startswith("<(", i) or text.startswith(">(", i):
+            # Process substitution: the outer command reads or feeds it through a
+            # file, and may print it (`cat <(...)`), so it is not treated as captured.
             _, end, fine = _split_bash(text, start=i + 2, until_paren=True)
             nested.append((text[i + 2:end], "bash", _assignment_target(buf)))
             buf.append("$(sub)")
@@ -317,8 +396,9 @@ def _split_bash(text: str, start: int = 0, until_paren: bool = False):
                 buf.append(text[i:])
                 ok = False
                 break
-            nested.append((text[i + 1:end], "bash", _assignment_target(buf)))
-            buf.append("$(sub)")
+            target, placeholder = _substitution(_assignment_target(buf))
+            nested.append((text[i + 1:end], "bash", target))
+            buf.append(placeholder)
             i = end + 1
             continue
         if c == "(":
@@ -337,13 +417,15 @@ def _split_bash(text: str, start: int = 0, until_paren: bool = False):
             match = _HEREDOC.match(text, i)
             if match:
                 delimiter = next(g for g in match.groups()[1:] if g is not None)
-                pending.append((delimiter, match.group(1) == "-"))
+                expands = match.group(4) is not None and text[match.start(4) - 1] != "\\"
+                pending.append((delimiter, match.group(1) == "-", expands))
                 buf.append(" <<heredoc ")
                 i = match.end()
                 continue
         if c == "\n":
             flush()
-            i = _skip_heredoc_bodies(text, i + 1, pending)
+            i, body_code = _skip_heredoc_bodies(text, i + 1, pending)
+            chunks[-1][1].extend(body_code)
             pending = []
             continue
         sep = _bash_separator(text, i)
@@ -436,24 +518,30 @@ def _split_powershell(text: str, start: int = 0, closer: str | None = None):
             continue
         if c == '"':
             j = i + 1
+            quoted = ['"']
             while j < n and text[j] != '"':
                 if text[j] == "`":
+                    quoted.append(text[j:j + 2])
                     j += 2
                     continue
                 if text.startswith("$(", j):
                     _, end, fine = _split_powershell(text, start=j + 2, closer=")")
-                    nested.append((text[j + 2:end], "powershell", None))
+                    # Part of the string's value: captured into a placeholder the outer command carries.
+                    target, placeholder = _substitution(None)
+                    nested.append((text[j + 2:end], "powershell", target))
+                    quoted.append(placeholder)
                     if not fine:
                         j = n
                         break
                     j = end + 1
                     continue
+                quoted.append(text[j])
                 j += 1
             if j >= n:
                 buf.append(text[i:])
                 ok = False
                 break
-            buf.append(text[i:j + 1])
+            buf.append("".join(quoted) + '"')
             i = j + 1
             continue
         if c == "`":
@@ -480,12 +568,21 @@ def _split_powershell(text: str, start: int = 0, closer: str | None = None):
             inner = text[i + 1:end]
             last_word = re.split(r"[\s;|({}]", "".join(buf).rstrip())[-1].lower()
             condition = c == "(" and last_word in _PS_CONDITION_KEYWORDS
-            # A condition's value is tested, not printed.
-            nested.append((inner, "powershell", CONDITION if condition else None))
             method_call = c == "(" and not condition and not at_word_start() and "".join(buf)[-1:] not in {"$", "@"}
-            # A method call keeps its arguments visible in the token, so a rule can
-            # read GetEnvironmentVariable('NAME'); the arguments are parsed as code too.
-            buf.append(f"({inner})" if method_call else " (block) ")
+            if c == "(" and not condition and not method_call:
+                # `(expr)`, `$(expr)`, `@(expr)`: a value the outer statement uses or prints,
+                # so it is captured into a placeholder that the outer statement carries.
+                if "".join(buf)[-1:] in {"$", "@"}:
+                    buf[-1] = buf[-1][:-1]  # the $ or @ operator becomes part of the placeholder
+                target, placeholder = _substitution(None)
+                nested.append((inner, "powershell", target))
+                buf.append(placeholder)
+            else:
+                # A condition's value is tested, not printed; a script block's output is its own.
+                nested.append((inner, "powershell", CONDITION if condition else None))
+                # A method call keeps its arguments visible in the token, so a rule can
+                # read GetEnvironmentVariable('NAME'); the arguments are parsed as code too.
+                buf.append(f"({inner})" if method_call else " (block) ")
             if not fine:
                 ok = False
                 break

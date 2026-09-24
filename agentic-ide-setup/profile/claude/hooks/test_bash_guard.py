@@ -502,6 +502,41 @@ class AdversarialReviewTests(GuardTestCase):
         ])
 
 
+class SubstitutionTests(GuardTestCase):
+    """A command substitution's output goes where the outer command sends it."""
+
+    def test_substitutions_passed_to_a_consumer_are_not_prints(self) -> None:
+        token = "$(az account get-access-token --query accessToken -o tsv)"
+        self.assertDecisions([
+            ("Bash", 'psql "$(cat "$SECRET_FILE")" -c "select 1"', "allow"),
+            ("Bash", f'curl -s -H "Authorization: Bearer {token}" https://example.invalid', "allow"),
+            ("PowerShell", f'Invoke-RestMethod -Uri https://example.invalid -Headers @{{Authorization = "Bearer {token}"}}', "allow"),
+            ("PowerShell", f'$h = "Bearer {token}"; Invoke-RestMethod -Headers @{{Authorization = $h}} -Uri https://example.invalid', "allow"),
+        ])
+
+    def test_substitutions_passed_to_a_printer_are_prints(self) -> None:
+        token = "$(az account get-access-token --query accessToken -o tsv)"
+        self.assertDecisions([
+            ("Bash", f'echo "{token}"', "deny"),
+            ("Bash", "echo $(cat .env)", "deny"),
+            ("Bash", "echo `cat .env`", "deny"),
+            ("Bash", "diff <(az keyvault secret show --vault-name kv -n x --query value -o tsv) expected.txt", "deny"),
+            ("PowerShell", f"Write-Output ({token[2:-1]})", "deny"),
+            ("PowerShell", f'Write-Host "Token: {token}"', "deny"),
+            ("PowerShell", "(Get-Content .env) -join ','", "deny"),
+            ("PowerShell", f'$h = "Bearer {token}"; Write-Output $h', "deny"),
+        ])
+
+    def test_unquoted_heredoc_bodies_run_their_substitutions(self) -> None:
+        self.assertDecisions([
+            ("Bash", f"cat <<EOF\n$(rm -rf {OUT.as_posix()})\nEOF", "deny"),
+            ("Bash", f"cat <<'EOF'\n$(rm -rf {OUT.as_posix()})\nEOF", "allow"),
+            ("Bash", f"cat <<\\EOF\n$(rm -rf {OUT.as_posix()})\nEOF", "allow"),
+            ("Bash", "cat <<EOF\ntoken: $(az account get-access-token --query accessToken -o tsv)\nEOF", "deny"),
+            ("Bash", "cat > notes.txt <<EOF\nbuilt on $(date)\nEOF", "allow"),
+        ])
+
+
 class ParserTests(unittest.TestCase):
     def argvs(self, command: str, dialect: str = "bash") -> list[list[str]]:
         return [s.argv for s in shell_parse.parse(command, dialect).statements]
