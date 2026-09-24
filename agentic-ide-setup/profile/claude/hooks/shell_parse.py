@@ -53,6 +53,9 @@ _START_PROCESS_PARAMS = {
 }
 # Assignment target recorded for code in a PowerShell condition: its value is tested, not printed.
 CONDITION = "(condition)"
+# Pseudo-dialect of a nested entry that carries the variable names an unquoted
+# heredoc body expands; they become the statement's heredoc_refs, not code.
+HEREDOC_REFS = "(heredoc-refs)"
 
 Nested = tuple[str, str, "str | None"]  # (code, dialect, variable its output is assigned to)
 
@@ -67,6 +70,7 @@ class Statement:
     assigns: tuple[str, ...] = ()  # variables that receive the output
     literals: dict[str, str] = field(default_factory=dict)  # NAME=value assignments with no command
     downstream: tuple[tuple[str, ...], ...] = ()  # argv of each later stage of the same pipeline
+    heredoc_refs: tuple[str, ...] = ()  # variables expanded in an unquoted heredoc fed to this statement
     stdout_redirected: bool = False  # stdout goes to a file (`> f`, `>> f`, `&> f`)
 
     @property
@@ -141,7 +145,11 @@ def _parse_into(result: Parsed, text: str, dialect: str, assign_to: str | None, 
         prepared.append((argv, literals, nested, piped, chunk_assign))
 
     for index, (argv, literals, nested, piped, chunk_assign) in enumerate(prepared):
+        heredoc_refs: list[str] = []
         for code, code_dialect, nested_assign in nested:
+            if code_dialect == HEREDOC_REFS:
+                heredoc_refs.extend(code.split())
+                continue
             _parse_into(result, code, code_dialect, nested_assign or chunk_assign, depth + 1)
         if literals and not argv:
             result.statements.append(Statement([], dialect, literals=literals))
@@ -158,6 +166,7 @@ def _parse_into(result: Parsed, text: str, dialect: str, assign_to: str | None, 
             captured=chunk_assign is not None,
             assigns=(chunk_assign,) if chunk_assign else (),
             downstream=tuple(downstream),
+            heredoc_refs=tuple(heredoc_refs),
             stdout_redirected=redirects_stdout(argv[1:]),
         )
         result.statements.append(statement)
@@ -201,11 +210,19 @@ def _skip_heredoc_bodies(text: str, i: int, pending: list[tuple[str, bool, bool]
             if (line.lstrip("\t") if strip_tabs else line).rstrip("\r") == delimiter:
                 if expands:
                     nested.extend(_body_substitutions(text[body_start:line_start]))
+                    nested.extend(_body_variables(text[body_start:line_start]))
                 break
         else:
             if expands:
                 nested.extend(_body_substitutions(text[body_start:]))
+                nested.extend(_body_variables(text[body_start:]))
     return i, nested
+
+
+def _body_variables(body: str) -> list[Nested]:
+    """Variables an unquoted heredoc body expands, as one HEREDOC_REFS entry for its statement."""
+    names = sorted({m.group(1) for m in re.finditer(r"(?<!\\)\$\{?([A-Za-z_][A-Za-z0-9_]*)", body)})
+    return [(" ".join(names), HEREDOC_REFS, None)] if names else []
 
 
 def _body_substitutions(body: str) -> list[Nested]:
@@ -762,6 +779,13 @@ def _strip_prefixes(argv: list[str], dialect: str) -> tuple[list[str], dict[str,
             rest = argv[1:]
             while rest and (rest[0].startswith("-") or _ASSIGNMENT.match(rest[0])):
                 option, rest = rest[0], rest[1:]
+                glued = option[2:] if option.startswith("-S") and len(option) > 2 else (
+                    option.split("=", 1)[1] if option.startswith("--split-string=") else None
+                )
+                if glued is not None:
+                    # `env -S'cmd args'`: the command is packed into the option itself.
+                    rest = _tokenize(glued, "bash")[0] + rest
+                    break
                 if option in _ENV_VALUE_OPTIONS and rest:
                     if option in {"-S", "--split-string"}:
                         rest = _tokenize(rest[0], "bash")[0] + rest[1:]

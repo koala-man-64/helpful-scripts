@@ -195,6 +195,7 @@ class Context:
     variables: dict[str, str] = field(default_factory=dict)  # literal values seen so far, lower-cased names
     tainted: set[str] = field(default_factory=set)  # variables holding a secret, lower-cased names
     delete_targets: list[str] = field(default_factory=list)  # non-scratch targets across the whole command
+    inline_aliases: dict[str, str] = field(default_factory=dict)  # `git -c alias.x=...` seen so far, lower-cased names
     _root: Path | None = None
     _status: list[str] | None = None
 
@@ -315,7 +316,7 @@ KNOWN_GIT_COMMANDS = frozenset({
     "stash", "status", "submodule", "switch", "symbolic-ref", "tag", "update-index", "update-ref", "var",
     "verify-commit", "version", "whatchanged", "worktree", "lfs",
 })
-MAX_ALIAS_DEPTH = 3
+MAX_ALIAS_DEPTH = 8  # alias cycles stop here; a real chain is never this deep
 
 
 def inline_aliases(argv: list[str]) -> dict[str, str]:
@@ -605,8 +606,14 @@ def check_files(statement: shell_parse.Statement, cwd: Path | None, ctx: Context
             f"Recursive delete or move outside the repository root is blocked ({outside[0]}). "
             "Restrict filesystem changes to explicit task-owned paths inside the workspace."
         )
-    root = ctx.root.resolve(strict=False)
-    whole_repo = [t for t, p in zip(targets, resolved) if p is not None and (p == root or p in root.parents or _under(p, [root / ".git"]))]
+    try:
+        root = ctx.root.resolve(strict=False)
+    except (OSError, ValueError):
+        root = None
+    whole_repo = [
+        t for t, p in zip(targets, resolved)
+        if root is not None and p is not None and (p == root or p in root.parents or _under(p, [root / ".git"]))
+    ]
     if whole_repo and (recursive or kind == "move"):
         return "deny", (
             f"This would remove or move the repository itself ({whole_repo[0]}): its root, a parent of it, or .git. "
@@ -786,6 +793,11 @@ def secret_output(statement: shell_parse.Statement, ctx: Context) -> str | None:
     """Why this statement's output carries a secret, wherever that output then goes."""
     program, argv = statement.program, statement.argv
     args = shell_parse.without_redirections(argv[1:])
+    if statement.heredoc_refs and program in VALUE_PRINTERS | FILE_PRINTERS | PASS_THROUGH:
+        # `cat <<EOF` ... `Bearer $tok` ... `EOF`: the body is expanded, then printed.
+        names = [n for n in statement.heredoc_refs if SECRET_NAME.search(n) or n.lower() in ctx.tainted]
+        if names:
+            return f"The heredoc fed to `{program}` expands ${names[0]}, which prints the secret. Pass it to its consumer without printing it."
     if program in VALUE_PRINTERS | FILE_PRINTERS:
         names = secret_names(args, ctx, statement.dialect)
         if names:
@@ -909,11 +921,13 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
             # A lone PowerShell `$p` is an expression that prints, not a program; secret_print judges it.
             expanded = ctx.expand(statement.argv[0])
             if re.search(r"[$%]", expanded):
-                if statement.dialect == "powershell" and reaches_transcript(statement):
+                names = secret_names(statement.argv, ctx, statement.dialect)
+                if statement.dialect == "powershell" and reaches_transcript(statement) and names:
                     # `$x -join ','`, `$__sub1.Value`: a PowerShell expression prints its value.
-                    names = secret_names(statement.argv, ctx, statement.dialect)
-                    if names:
-                        return "deny", f"This PowerShell expression uses ${names[0]} and prints its value. Use it without printing it."
+                    return "deny", f"This PowerShell expression uses ${names[0]} and prints its value. Use it without printing it."
+                if names and reaches_transcript(statement):
+                    # `$TOOL "$tok"`: the unknown program may be a printer, so a human confirms it.
+                    asks.append(f"`{statement.argv[0]}` runs a program the guard cannot resolve with ${names[0]} as an argument; it may print it. Confirm what it runs.")
                 if DESTRUCTIVE_WORDS & {a.lower() for a in statement.argv[1:]}:
                     asks.append(f"`{statement.argv[0]}` names the program through a variable the guard cannot resolve, and its arguments look destructive. Confirm what it runs.")
                 continue
@@ -931,11 +945,14 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
             sub, args, directory = git_invocation(statement.argv)
             repo = resolve_path(ctx.expand(directory), cwd) if directory else cwd
             alias = None
+            # Inline definitions accumulate through the recursion: `-c alias.a=b -c alias.b='!...' a`
+            # needs alias.b when `git b` is judged one level down.
+            ctx.inline_aliases.update(inline_aliases(statement.argv))
             definition = alias_definition(sub, args)
             if definition:
                 alias = (f"defines the git alias `{definition[0]}`", alias_command(definition[1], []))
             elif sub and sub not in KNOWN_GIT_COMMANDS:
-                value = inline_aliases(statement.argv).get(sub.lower())
+                value = ctx.inline_aliases.get(sub.lower())
                 if value is None:
                     code, output = run_git(["config", "--get", f"alias.{sub}"], repo or ctx.session_cwd)
                     value = output if code == 0 and output else None
@@ -945,7 +962,13 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
                 if depth >= MAX_ALIAS_DEPTH:
                     asks.append("This git alias expands through several other aliases. Confirm what it runs.")
                 else:
-                    decision, reason = assess(alias[1], "Bash", Context(session_cwd=repo or ctx.session_cwd), depth + 1)
+                    # The alias runs as part of this command: it shares the bulk-delete count and inline aliases.
+                    inner = Context(
+                        session_cwd=repo or ctx.session_cwd,
+                        delete_targets=ctx.delete_targets,
+                        inline_aliases=ctx.inline_aliases,
+                    )
+                    decision, reason = assess(alias[1], "Bash", inner, depth + 1)
                     if decision == "deny":
                         return "deny", f"This command {alias[0]}, which runs `{alias[1]}`: {reason}"
                     if decision == "ask":
@@ -989,7 +1012,12 @@ def main() -> int:
     if not command.strip():
         return 0
     ctx = Context(session_cwd=Path(str(payload.get("cwd") or os.getcwd())))
-    decision, reason = assess(command, str(payload.get("tool_name") or "Bash"), ctx)
+    try:
+        decision, reason = assess(command, str(payload.get("tool_name") or "Bash"), ctx)
+    except Exception as exc:  # noqa: BLE001 - deliberately broad: a crashed hook fails open, this fails safe
+        decision, reason = "ask", (
+            f"The shell guard could not assess this command ({type(exc).__name__}: {exc}). Confirm what it runs."
+        )
     builder = {"deny": deny_pre_tool, "ask": ask_pre_tool, "allow": allow_pre_tool}[decision]
     return emit_json(builder(reason))
 
