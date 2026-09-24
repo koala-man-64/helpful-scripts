@@ -27,11 +27,13 @@ AZ_PIPELINE_RUN = re.compile(r"\baz(?:\.cmd)?\s+pipelines\s+run\b", re.IGNORECAS
 GH_PR_CREATE = re.compile(r"\bgh\s+pr\s+create\b", re.IGNORECASE)
 GH_PR_URL = re.compile(r"https://github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)")
 
-AZ_PR_URL = re.compile(r"/_git/[^/\s]+/pullrequest/(\d+)", re.IGNORECASE)
+# The web link (`/_git/<repo>/pullrequest/N`) and the REST url the create prints
+# (`/_apis/git/repositories/<id>/pullRequests/N`); the latter survives `| tail`.
+AZ_PR_URL = re.compile(r"/(?:_git/[^/\s\"]+/pullrequest|_apis/git/repositories/[^/\s\"]+/pullRequests)/(\d+)\b", re.IGNORECASE)
+AZ_ERROR = re.compile(r"(?m)^\s*ERROR:")
 # The pull request's own branch, when the command names it; otherwise it is the checkout's.
 AZ_SOURCE_BRANCH = re.compile(r"--source-branch[= ]+(\S+)", re.IGNORECASE)
 GH_HEAD = re.compile(r"(?:--head|\s-H)[= ]+(\S+)")
-TSV_OUTPUT = re.compile(r"(?:\s-o|--output)[= ]+tsv\b", re.IGNORECASE)
 
 AZ_ORGANIZATION = re.compile(r"--organization[= ]+(\S+)", re.IGNORECASE)
 AZ_PROJECT = re.compile(r"--project[= ]+(\S+)", re.IGNORECASE)
@@ -91,6 +93,23 @@ def invocations(command: str) -> list[str]:
         if program in {"az", "az.cmd", "gh", "gh.exe"}:
             segments.append(" ".join(tokens))
     return segments
+
+
+def _creates(segment: str) -> str:
+    """Which create an invocation is, from its own leading words: az_pr, az_run, gh_pr, or ""."""
+    tokens = segment.split()
+    if not tokens:
+        return ""
+    program = tokens[0].strip("'\"").rsplit("/", 1)[-1].rsplit("\\", 1)[-1].casefold()
+    words = [t.casefold() for t in tokens[1:4]]
+    if program in {"az", "az.cmd"}:
+        if words[:3] == ["repos", "pr", "create"]:
+            return "az_pr"
+        if words[:2] == ["pipelines", "run"]:
+            return "az_run"
+    if program in {"gh", "gh.exe"} and words[:2] == ["pr", "create"]:
+        return "gh_pr"
+    return ""
 
 
 def observed_failure(response: Any) -> bool:
@@ -223,12 +242,43 @@ def branch_commit(root: Path, branch: str) -> str:
     return output if code == 0 else ""
 
 
-def bare_identifier(text: str) -> str:
-    """An id printed alone on a line, as `--query id -o tsv` prints it."""
-    for line in reversed(text.splitlines()):
-        if re.fullmatch(r"\s*\d+\s*", line):
-            return line.strip()
+def top_level_numeric_id(text: str) -> str:
+    """`--query "{id: pullRequestId, url: url}"` prints the id as a top-level `id`.
+
+    Top level only: nested ids are repositories and users (GUIDs) or work item
+    references, which are numbers but not this pull request.
+    """
+    for payload in reversed(json_payloads(text)):
+        if isinstance(payload, dict) and re.fullmatch(r"\d+", str(payload.get("id", ""))):
+            return str(payload["id"])
     return ""
+
+
+def table_value(text: str, column: str) -> str:
+    """The first value under `column` in `-o table` output."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        headers = line.split()
+        if column in headers and index + 2 < len(lines) and set(lines[index + 1].strip()) <= {"-", " "}:
+            cells = lines[index + 2].split()
+            position = headers.index(column)
+            if position < len(cells) and cells[position].isdigit():
+                return cells[position]
+    return ""
+
+
+def last_line_identifier(text: str) -> str:
+    """The id on the output's last line, when it is that line's only number.
+
+    Covers `--query ... -o tsv` rows (`24193 notStarted <sha>`), a bare id, and
+    wrapper prints (`queued build 24620 | ...`). A wrong guess cannot become a
+    false success: the poller still verifies the resource's branch and target.
+    """
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    numbers = [token for token in re.split(r"[\s|,;]+", lines[-1]) if re.fullmatch(r"\d{1,9}", token)]
+    return numbers[0] if len(numbers) == 1 else ""
 
 
 def last_field(text: str, *path: str) -> str:
@@ -252,31 +302,37 @@ def detect(command: str, text: str) -> dict[str, str] | None:
     invoked = invocations(command)
     if not invoked:
         return None
-    command = " ; ".join(invoked)
-    tsv = bool(TSV_OUTPUT.search(command))
-    if AZ_PR_CREATE.search(command):
-        url = AZ_PR_URL.search(text)
+    # Classify by each invocation's own leading words, last one first: a gh
+    # create whose --body mentions `az repos pr create` is still a GitHub PR.
+    command = next((segment for segment in reversed(invoked) if _creates(segment)), "")
+    kind = _creates(command)
+    if not command:
+        return None
+    if kind == "az_pr":
+        urls = AZ_PR_URL.findall(text)
         return {
             "provider": "azure_devops",
             "operation_kind": "pull_request",
             "target_state": "merged",
             "resource_id": last_identifier(text, "pullRequestId", "pull_request_id")
-            or (url.group(1) if url else "")
-            or (bare_identifier(text) if tsv else ""),
+            or top_level_numeric_id(text)
+            or (urls[-1] if urls else "")
+            or table_value(text, "pullRequestId")
+            or last_line_identifier(text),
             "branch": capture(AZ_SOURCE_BRANCH, command).removeprefix("refs/heads/")
             or last_field(text, "sourceRefName").removeprefix("refs/heads/"),
             "commit": last_field(text, "lastMergeSourceCommit", "commitId"),
         }
-    if AZ_PIPELINE_RUN.search(command):
+    if kind == "az_run":
         return {
             "provider": "azure_devops",
             "operation_kind": "pipeline",
             "target_state": "succeeded",
-            "resource_id": last_identifier(text, "id", "buildId", "runId") or (bare_identifier(text) if tsv else ""),
+            "resource_id": last_identifier(text, "id", "buildId", "runId") or last_line_identifier(text),
             "branch": last_field(text, "sourceBranch").removeprefix("refs/heads/"),
             "commit": last_field(text, "sourceVersion"),
         }
-    if GH_PR_CREATE.search(command):
+    if kind == "gh_pr":
         match = GH_PR_URL.search(text)
         return {
             "provider": "github",
@@ -317,7 +373,8 @@ def _detect_and_register() -> int:
     resource_id = detected.get("resource_id", "")
     kind = detected["operation_kind"]
 
-    if observed_failure(response):
+    # az reports a rejected create as `ERROR: ...` even when a wrapper exits 0.
+    if observed_failure(response) or (not resource_id and AZ_ERROR.search(text)):
         if not resource_id:
             return emit_json(None)
         # The command reported failure, yet a resource id came back: the
