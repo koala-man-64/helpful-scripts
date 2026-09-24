@@ -17,6 +17,12 @@ Workers need to know a steward is really running before they hand off their tail
 
 When standing down, write `"status": "stopped"`. A worker treats the steward as present only when the file says `active` and `updatedAt` is under six hours old. Otherwise the worker owns its own tail, as before.
 
+Write the file as UTF-8 without a byte-order mark. PowerShell 5's `Set-Content -Encoding utf8` and `Out-File` add one, which breaks strict JSON readers; use `[IO.File]::WriteAllText($path, $json, [Text.UTF8Encoding]::new($false))`, or Bash `printf '%s\n' "$json" > "$path"`. Readers decode with `utf-8-sig`, so an old file with a BOM still reads.
+
+## Start every pass fresh
+
+Begin each pass from files, not from memory: the heartbeat, this steward's task note, and a fresh PR and run listing. After an hour or more idle, start a new or compacted session for the pass rather than resuming a large context. A resumed context of a few hundred thousand tokens is re-read in full at every step of the pass. Keep what the next pass needs in the task note.
+
 ## What workers stop doing
 
 Voting, arming auto-complete on risky changes, requeueing builds, watching release and deploy, and asking Rudy anything. A worker's finish line is: validate, commit, push, open the PR, request review if the change is risky, claim any new blocker, tell the steward, then return to work or close.
