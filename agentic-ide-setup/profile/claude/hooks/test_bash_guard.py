@@ -422,12 +422,28 @@ class AdversarialReviewTests(GuardTestCase):
             ("Bash", "git switch -f main", "deny"),
             ("Bash", "git switch --discard-changes main", "deny"),
             ("Bash", "git switch -c claude/new-topic", "allow"),
-            ("Bash", "git worktree remove --force ../scratch-wt", "ask"),
             ("Bash", "git worktree remove ../scratch-wt", "allow"),
             ("Bash", "git stash clear", "ask"),
             ("Bash", "git stash drop", "ask"),
             ("Bash", "git stash pop", "allow"),
         ])
+
+    def test_forced_worktree_removal_asks_only_when_work_would_be_lost(self) -> None:
+        repo = make_repo(self.base / "wt-main")
+        clean = self.base / "wt-clean"
+        dirty = self.base / "wt-dirty"
+        git(repo, "worktree", "add", "-q", "-b", "clean-topic", str(clean))
+        git(repo, "worktree", "add", "-q", "-b", "dirty-topic", str(dirty))
+        (clean / ".gitignore").write_text("build/\n", encoding="utf-8")
+        git(clean, "add", ".gitignore")
+        git(clean, "commit", "-q", "-m", "ignore build")
+        (clean / "build").mkdir()
+        (clean / "build" / "out.bin").write_text("x", encoding="utf-8")
+        (dirty / "notes.txt").write_text("unsaved\n", encoding="utf-8")
+        self.assertEqual(self.decide(f"git worktree remove --force {clean.as_posix()}", repo=repo), "allow")
+        self.assertEqual(self.decide(f"git worktree remove --force {dirty.as_posix()}", repo=repo), "ask")
+        self.assertEqual(self.decide(f"git worktree remove -f {(self.base / 'gone').as_posix()}", repo=repo), "allow")
+        self.assertEqual(self.decide('git worktree remove --force "$WT"', repo=repo), "ask")
 
     def test_comma_joined_powershell_paths_are_each_a_target(self) -> None:
         self.assertDecisions([

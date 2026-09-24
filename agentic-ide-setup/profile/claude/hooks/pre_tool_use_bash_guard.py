@@ -420,6 +420,21 @@ def squash_merged(repo: Path, branch: str) -> bool:
     return run_git(["diff", "--quiet", branch, base, "--", *files], repo)[0] == 0
 
 
+def worktree_holds_work(target: str, repo: Path) -> bool:
+    """Whether a forced worktree removal would lose anything: tracked changes or untracked files.
+
+    Ignored files (build output, caches) are not work. A path that is not a
+    directory holds nothing; one git cannot read is treated as holding work.
+    """
+    path = resolve_path(target, repo)
+    if path is None:
+        return True
+    if not path.is_dir():
+        return False
+    code, output = run_git(["status", "--porcelain"], path)
+    return code != 0 or bool(output.strip())
+
+
 def needs_repo_state(sub: str, args: list[str]) -> bool:
     """Checks that must read the repository: a bare push, or force-deleting a branch."""
     letters = short_flags(args)
@@ -442,7 +457,12 @@ def check_git(args: list[str], sub: str, repo: Path) -> tuple[str, str] | None:
     ):
         return "deny", f"git {sub} --force/--discard-changes is blocked because it discards uncommitted changes. Commit or stash them first."
     if sub == "worktree" and operands(args)[:1] == ["remove"] and ("f" in letters or "--force" in args):
-        return "ask", "git worktree remove --force deletes the worktree with any uncommitted work in it. Confirm nothing there is needed."
+        holding = [t for t in operands(args)[1:] if worktree_holds_work(t, repo)]
+        if holding:
+            return "ask", (
+                f"git worktree remove --force would delete uncommitted or untracked work in {holding[0]}. "
+                "Confirm nothing there is needed."
+            )
     if sub == "stash" and operands(args)[:1] in (["drop"], ["clear"]):
         return "ask", f"git stash {operands(args)[0]} permanently discards stashed work. Confirm the stash entries are no longer needed."
     if sub == "checkout":
