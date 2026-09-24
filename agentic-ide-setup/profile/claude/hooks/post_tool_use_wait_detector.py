@@ -95,6 +95,23 @@ def invocations(command: str) -> list[str]:
     return segments
 
 
+def _creates(segment: str) -> str:
+    """Which create an invocation is, from its own leading words: az_pr, az_run, gh_pr, or ""."""
+    tokens = segment.split()
+    if not tokens:
+        return ""
+    program = tokens[0].strip("'\"").rsplit("/", 1)[-1].rsplit("\\", 1)[-1].casefold()
+    words = [t.casefold() for t in tokens[1:4]]
+    if program in {"az", "az.cmd"}:
+        if words[:3] == ["repos", "pr", "create"]:
+            return "az_pr"
+        if words[:2] == ["pipelines", "run"]:
+            return "az_run"
+    if program in {"gh", "gh.exe"} and words[:2] == ["pr", "create"]:
+        return "gh_pr"
+    return ""
+
+
 def observed_failure(response: Any) -> bool:
     """True only for a failure the provider actually reported.
 
@@ -285,8 +302,13 @@ def detect(command: str, text: str) -> dict[str, str] | None:
     invoked = invocations(command)
     if not invoked:
         return None
-    command = " ; ".join(invoked)
-    if AZ_PR_CREATE.search(command):
+    # Classify by each invocation's own leading words, last one first: a gh
+    # create whose --body mentions `az repos pr create` is still a GitHub PR.
+    command = next((segment for segment in reversed(invoked) if _creates(segment)), "")
+    kind = _creates(command)
+    if not command:
+        return None
+    if kind == "az_pr":
         urls = AZ_PR_URL.findall(text)
         return {
             "provider": "azure_devops",
@@ -301,7 +323,7 @@ def detect(command: str, text: str) -> dict[str, str] | None:
             or last_field(text, "sourceRefName").removeprefix("refs/heads/"),
             "commit": last_field(text, "lastMergeSourceCommit", "commitId"),
         }
-    if AZ_PIPELINE_RUN.search(command):
+    if kind == "az_run":
         return {
             "provider": "azure_devops",
             "operation_kind": "pipeline",
@@ -310,7 +332,7 @@ def detect(command: str, text: str) -> dict[str, str] | None:
             "branch": last_field(text, "sourceBranch").removeprefix("refs/heads/"),
             "commit": last_field(text, "sourceVersion"),
         }
-    if GH_PR_CREATE.search(command):
+    if kind == "gh_pr":
         match = GH_PR_URL.search(text)
         return {
             "provider": "github",

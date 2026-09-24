@@ -285,6 +285,15 @@ class DetectorSeamTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(detector.detect(command, output)["resource_id"], expected)
 
+    def test_a_gh_create_whose_body_mentions_az_is_a_github_pr(self):
+        """PR #269 itself: its --body quoted `az repos pr create`, and no wait was registered."""
+        command = ('gh pr create --base main --head claude/AB3695-wait-ids --title t --body "A replay of '
+                   '`az repos pr create` / `az pipelines run` calls"')
+        url = "https://github.com/koala-man-64/helpful-scripts/pull/269"
+        detected = detector.detect(command, f"remote:\n{url}")
+        self.assertEqual((detected["provider"], detected["resource_id"], detected["branch"]),
+                         ("github", "269", "claude/AB3695-wait-ids"))
+
     def test_ambiguous_output_is_not_guessed(self):
         nested = json.dumps({"status": "active", "workItemRefs": [{"id": "3683"}]})
         self.assertEqual(detector.detect("az repos pr create --title t", nested)["resource_id"], "")
