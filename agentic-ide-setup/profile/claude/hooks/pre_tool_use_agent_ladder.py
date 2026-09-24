@@ -195,7 +195,7 @@ def main() -> int:
         )
 
     directories = agent_directories(root)
-    if subagent_type in unreadable_agents(directories):
+    if subagent_type.lower() in {name.lower() for name in unreadable_agents(directories)}:
         return reject(
             origin,
             "",
