@@ -72,6 +72,8 @@ Claude Code applies these rules even when a PreToolUse hook returns `allow`, and
 
 A dry run with the force flag first (`git clean -fdn`) is caught by the deny rules; use `git clean -n -d`.
 
+Shell allow rules on the host (`Bash(...)` and `PowerShell(...)` entries in `permissions.allow`) matter only when the guard returns no decision, for example when its process fails to start or times out. For every command the guard assesses, its own allow, ask or deny decides.
+
 ## Install on a new Windows machine
 
 Install Codex, Claude Code, and VS Code first. Review the profile, then preview the actions:
