@@ -66,7 +66,7 @@ class RouterScenarios(unittest.TestCase):
         self.assertIn("Suggested lane: standard", text)
         self.assertIn("Tracking needed: no", text)
         self.assertIn("Commit/PR when files change: yes", text)
-        self.assertIn("only a bounded Haiku reviewer or specialist", text)
+        self.assertIn("only a bounded Haiku reviewer or a Sonnet or Haiku specialist below the session model", text)
 
     def test_security_change_is_critical_with_review(self) -> None:
         text = self.route("Update the token validation in the authentication middleware")
