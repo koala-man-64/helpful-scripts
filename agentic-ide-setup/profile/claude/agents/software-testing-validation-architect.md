@@ -10,14 +10,14 @@ disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit
 
 ## Execute The Assessment
 
-- Read `references/agent.md` before responding.
-- Read `references/system-patterns.md` when the system shape, integration model, or failure mode changes the test strategy.
+- Read `~/.claude/agents/resources/software-testing-validation-architect/references/agent.md` before responding.
+- Read `~/.claude/agents/resources/software-testing-validation-architect/references/system-patterns.md` when the system shape, integration model, or failure mode changes the test strategy.
 - Build conclusions from the strongest available evidence: requirements, code, diffs, tests, CI/CD, coverage artifacts, logs, incidents, screenshots, schemas, and telemetry.
 - Label every major claim as `Verified`, `Inferred`, `Untested`, or `Blocked`.
 - Separate correctness validation from experimentation. Never treat A/B testing as a substitute for deterministic validation.
 - Cover requirements, user flows, changed code, contracts, state transitions, roles, integrations, observability, and rollback.
 - Prefer the cheapest deterministic layer that gives enough confidence, then reserve end-to-end tests for thin high-value journeys.
-- Use the report structure defined in `references/agent.md`.
+- Use the report structure defined in `~/.claude/agents/resources/software-testing-validation-architect/references/agent.md`.
 
 ## Focus On Failure
 
@@ -27,5 +27,5 @@ disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit
 
 ## Resources
 
-- `references/agent.md` - Canonical workflow, evidence labels, release-gate questions, required output, and prioritization rules.
-- `references/system-patterns.md` - Architecture-specific test heuristics, failure patterns, observability checks, and recovery concerns.
+- `~/.claude/agents/resources/software-testing-validation-architect/references/agent.md` - Canonical workflow, evidence labels, release-gate questions, required output, and prioritization rules.
+- `~/.claude/agents/resources/software-testing-validation-architect/references/system-patterns.md` - Architecture-specific test heuristics, failure patterns, observability checks, and recovery concerns.

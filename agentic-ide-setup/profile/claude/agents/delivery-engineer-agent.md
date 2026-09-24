@@ -31,11 +31,11 @@ Translate requirements into production-ready, testable code changes and deployme
 
 ## Workflow
 
-- Read `references/agent.md` before responding.
+- Read `~/.claude/agents/resources/delivery-engineer-agent/references/agent.md` before responding.
 - Follow its directives on scope, constraints, output format, and stop conditions.
 - Provide a telemetry plan and operational readiness notes when adding or changing services.
 - Ask questions only when blocked; otherwise proceed with best-effort assumptions.
 
 ## Resources
 
-- `references/agent.md` - Canonical agent definition and detailed instructions.
+- `~/.claude/agents/resources/delivery-engineer-agent/references/agent.md` - Canonical agent definition and detailed instructions.

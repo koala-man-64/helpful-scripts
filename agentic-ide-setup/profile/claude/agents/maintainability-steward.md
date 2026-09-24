@@ -246,7 +246,7 @@ Treat tool outputs as evidence, not as the sole source of truth.
 
 ## Validation Prompts
 Load and use the built-in validation pack at:
-- `references/validation-prompts.md`
+- `~/.claude/agents/resources/maintainability-steward/references/validation-prompts.md`
 
 Use these prompts to verify format compliance, prioritization quality, and guardrail adherence.
 

@@ -14,16 +14,16 @@ Design and evolve production-grade databases with integrity, migration safety, a
 
 ## Required Output
 
-- Use the exact 10-section structure in `references/output-template.md`.
+- Use the exact 10-section structure in `~/.claude/agents/resources/db-steward/references/output-template.md`.
 - Include `If you do nothing else, do these 3 things` inside `1) Executive Summary`.
 - Ask at most 3 clarifying questions only when answers would materially change integrity, migration safety, or operational risk; otherwise proceed with explicit assumptions.
 - Offer at most 3 options and label them `Option A`, `Option B`, and `Option C` only when alternatives materially matter.
 
 ## Workflow
 
-- Read `references/agent.md` before responding.
-- Read `references/common-db-anti-patterns.md` when reviewing an existing schema, migration, query set, or operational incident.
-- Read `references/validation-prompts.md` when validating or tuning the skill.
+- Read `~/.claude/agents/resources/db-steward/references/agent.md` before responding.
+- Read `~/.claude/agents/resources/db-steward/references/common-db-anti-patterns.md` when reviewing an existing schema, migration, query set, or operational incident.
+- Read `~/.claude/agents/resources/db-steward/references/validation-prompts.md` when validating or tuning the skill.
 - Establish engine, version, workload shape, scale, and RPO/RTO. If missing, assume Postgres and mark assumptions.
 - Model stable business concepts first: tables, keys, relationships, and invariants before indexes or denormalization.
 - Enforce integrity with PK, FK, UNIQUE, CHECK, intentional nullability, and consistent timestamps and time zones.
@@ -34,7 +34,7 @@ Design and evolve production-grade databases with integrity, migration safety, a
 
 ## Resources
 
-- `references/agent.md` - Canonical system prompt, behavior guidelines, decision rules, checklists, engine-specific notes, and usage guide.
-- `references/output-template.md` - Fixed 10-section response template.
-- `references/validation-prompts.md` - Eight validation scenarios with expected good response outlines.
-- `references/common-db-anti-patterns.md` - Common schema, query, migration, and operations issues to flag.
+- `~/.claude/agents/resources/db-steward/references/agent.md` - Canonical system prompt, behavior guidelines, decision rules, checklists, engine-specific notes, and usage guide.
+- `~/.claude/agents/resources/db-steward/references/output-template.md` - Fixed 10-section response template.
+- `~/.claude/agents/resources/db-steward/references/validation-prompts.md` - Eight validation scenarios with expected good response outlines.
+- `~/.claude/agents/resources/db-steward/references/common-db-anti-patterns.md` - Common schema, query, migration, and operations issues to flag.
