@@ -90,6 +90,39 @@ Apply selected components only after the preview is correct:
 
 Existing files are preserved by default. Use `-Overwrite` only for intentional guidance or skill replacement; each replacement receives a unique sibling backup. Host config, settings, and MCP files are always preserved when present. Use `-DestinationRoot C:\Temp\agentic-home` for a files-only staged install. Embedded path markers resolve against that destination, and extension installation is refused there.
 
+To check the installed Codex guidance and source-owned skills, then preview the
+Codex-only settings needed to remove duplicate `.agents` skill discovery:
+
+```powershell
+python -B .\scripts\check_codex_drift.py
+```
+
+The check compares only `profile/codex/AGENTS.md` and files in
+`profile/codex/skills/`. It intentionally excludes host configuration, secrets,
+backups, and skills owned elsewhere. A duplicate exists only when both
+`.codex/skills/<name>/SKILL.md` and `.agents/skills/<name>/SKILL.md` exist.
+After reviewing the printed config diff, `--apply-dedup` backs up
+`.codex/config.toml` and disables only duplicate `.agents` paths through
+`[[skills.config]]` entries. The `.agents` files remain available to other
+clients. Install updated source guidance separately with the existing installer
+and `-Components Codex -Overwrite -Apply`; it preserves the host config.
+
+Apply refuses missing or different canonical files and differing duplicate skills
+that this profile does not own. The preview names the retained Codex path and each
+differing file. Existing disabled entries stay disabled. Portable markers are
+expanded only in source text, using the installer's `__USERPROFILE__`,
+`__APPDATA__`, and `__LOCALAPPDATA__` markers.
+
+Serialize other config writers, including Desktop trust/settings changes and
+agentcoord updates, before applying. The tool checks fresh raw bytes, file identity,
+permissions, and ancestors immediately before atomic replacement; this detects
+observed edits but cannot provide an OS-level compare-and-swap against an
+uncoordinated writer. Exact-byte sibling backups and replacement files retain the
+original permissions (including the Windows DACL). To roll back, stop other writers,
+review changes made since the backup, then restore the selected backup; blindly
+restoring it after later settings changes would discard those changes. The installer
+separately creates sibling backups for overwritten guidance files.
+
 The Claude profile ships the `agent-browser` skill (`profile/claude/skills/agent-browser/`), which expects the CLI from this repository's `agent-browser/` folder on `PATH`. After the profile install:
 
 ```powershell

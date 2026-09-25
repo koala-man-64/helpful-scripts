@@ -7,13 +7,13 @@ description: Route Codex work directly by task shape and risk to the smallest su
 
 Choose the route from the task itself, not from a fixed escalation ladder.
 
-- Mechanical inventory, formatting, or bounded transformations: Luna at low effort.
-- Investigation, debugging, test execution, and code review: Terra at medium effort.
+- Mechanical inventory, formatting, or bounded transformations: GPT-6 Luna at low effort.
+- Investigation, debugging, test execution, and code review: GPT-6 Sol at medium effort.
 - Architecture, security, incidents, migrations, data integrity, or production risk:
-  Sol at high effort when the parent permits it.
+  GPT-6 Astra at high effort as the owner lane.
 
-A child is never Ultra and must be strictly lower than its parent in both orders:
-`Sol > Terra > Luna` and `ultra > high > medium > low`. A Luna/low parent cannot
+A child is never Astra or Ultra and must be strictly lower than its parent in both orders:
+`Astra > Sol > Luna` and `ultra > high > medium > low`. A Luna/low parent cannot
 delegate. Do not require a cumulative lower-tier blocker ladder: route directly to
 the smallest permitted model that matches the work. Central hooks remain authoritative
 for mutations and evidence.
@@ -25,11 +25,11 @@ routes selected for a task.
 
 For the catalog scenarios, record the parent route and every child route explicitly:
 
-- Narrow text-only coding fix: Spark/low when available; otherwise Luna/low; no children.
-- Routine reversible Standard change: Terra/medium owner and relevant tests; no automatic QA child. Add independent review for significant security, data integrity, interface, concurrency, or production risk, or when project/managed policy requires it. Use a permitted Luna/low reviewer for focused scope; route higher-risk work to the Critical lane.
-- Cross-repo contract change and CI incident: Sol/high owner; Terra/medium
+- Narrow text-only coding fix: Luna/low owner; no children.
+- Routine reversible Standard change: Sol/medium owner and relevant tests; no automatic QA child. Add independent review for significant security, data integrity, interface, concurrency, or production risk, or when project/managed policy requires it. Use a permitted Luna/low reviewer for focused scope; route higher-risk work to the Critical lane.
+- Cross-repo contract change and CI incident: Astra/high owner; Sol/medium
   investigation or QA children only.
-- Production or IaC change: Sol/high owner; Terra/medium security, QA, or
+- Production or IaC change: Astra/high owner; Sol/medium security, QA, or
   deployment-evidence children only.
 
 These examples are routing constraints, not an installation or permission grant.
