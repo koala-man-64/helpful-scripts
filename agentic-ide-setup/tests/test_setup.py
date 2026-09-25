@@ -60,6 +60,17 @@ ConvertFrom-PortableText -Text $portable -DestinationRoot {quote(tmp_path)} -Jso
     assert "source" not in value
 
 
+def test_codex_drift_uses_installer_portable_markers(tmp_path):
+    spec = importlib.util.spec_from_file_location("codex_drift", SCRIPTS / "check_codex_drift.py")
+    drift = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(drift)
+    source = "__USERPROFILE__/tool\n__APPDATA__/tool\n__LOCALAPPDATA__/tool"
+    output = command(f"""Import-Module {quote(SCRIPTS / 'ProfileTools.psm1')}
+ConvertFrom-PortableText -Text '{source}' -DestinationRoot {quote(tmp_path)}
+""")
+    assert drift.normalized(source, tmp_path) == output.strip()
+
+
 def test_install_isolated_and_repeat_preserves_existing(tmp_path):
     destination = tmp_path / "alternate home"
     ps("Install-AgenticIdeSetup.ps1", "-DestinationRoot", destination)
