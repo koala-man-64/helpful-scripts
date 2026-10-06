@@ -24,12 +24,14 @@ and a value is used only when nothing else in the command may change it
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 
 import shell_parse
 from hook_utils import (
@@ -309,6 +311,8 @@ class Context:
     untrusted: set[str] = field(default_factory=set)  # variable_keys the command may change unseen: never resolved
     literal_values: list[str] = field(default_factory=list)  # every literal value the command assigns
     env_config: bool = False  # the command gives git configuration through its environment
+    redefines: bool = False  # the command may change what a program name runs (function, alias, PATH)
+    escapes: bool = False  # PowerShell backtick escapes, which the parser drops (`r`n becomes rn)
     offline: bool = False  # judging carried text as if it ran: no git calls, no finish notes, no further scans
     scanned: set[str] = field(default_factory=set)  # carried text already judged
     scope: tuple[tuple[int, str], ...] = ()  # scope of the statement being judged
@@ -1061,9 +1065,197 @@ def writes_to_url(statement: shell_parse.Statement, text: str) -> bool:
     return method in WRITE_METHODS
 
 
+# --- pull request creation ------------------------------------------------------
+# A pull request's title and description describe later gates ("production approval
+# pending"); creating it approves nothing. Only a provably narrow creation has that prose
+# set aside, and only for the approval and gate rules. Any other shape, an opaque or
+# dynamic body, or one extra field is judged on its full text, exactly as before.
+
+# Options whose values are prose, per CLI create command. A value runs to the next option,
+# because `az repos pr create --description` takes several words.
+CREATE_PROSE_OPTIONS = {
+    ("az", "repos", "pr", "create"): frozenset({"--title", "--description", "-d"}),
+    ("gh", "pr", "create"): frozenset({"--title", "-t", "--body", "-b"}),
+}
+PR_COLLECTION_PATH = re.compile(r"^(?:/[^/%]+){0,2}/_apis/git/repositories/[^/%]+/pullrequests/?$", re.IGNORECASE)
+PR_HOST = re.compile(r"^(?:dev\.azure\.com|[a-z0-9-]+\.visualstudio\.com)$")
+CREATE_REQUIRED = frozenset({"sourceRefName", "targetRefName", "title"})
+CREATE_OPTIONAL = frozenset({"description", "isDraft"})
+SAFE_HEADERS = frozenset({"content-type", "accept", "authorization"})
+# REST options per program: name -> (role, repeatable). Anything else disqualifies.
+REST_OPTIONS = {
+    "curl": {
+        "-X": ("method", False), "--request": ("method", False),
+        "-d": ("body", False), "--data": ("body", False), "--data-raw": ("body", False),
+        "--data-binary": ("body", False), "--json": ("body", False),
+        "-H": ("header", True), "--header": ("header", True),
+        "-u": ("value", False), "--user": ("value", False),
+        "--silent": ("flag", False), "--show-error": ("flag", False), "--fail": ("flag", False),
+        "--fail-with-body": ("flag", False),
+    },
+    "az": {
+        "--method": ("method", False), "-m": ("method", False),
+        "--uri": ("url", False), "--url": ("url", False), "-u": ("url", False),
+        "--body": ("body", False), "-b": ("body", False),
+        "--headers": ("headers", False), "--resource": ("value", False),
+        "--output": ("value", False), "-o": ("value", False), "--query": ("value", False),
+    },
+    "powershell": {
+        "-method": ("method", False), "-uri": ("url", False), "-body": ("body", False),
+        "-contenttype": ("value", False), "-usebasicparsing": ("flag", False),
+    },
+}
+CURL_SHORT_FLAGS = re.compile(r"^-[sSf]+$")
+# The exemption trusts the program's name, so it holds only when nothing in the command can
+# change what that name runs: a function or alias, sourced code, or a changed PATH.
+REDEFINING_PROGRAMS = frozenset({
+    "alias", "unalias", "set-alias", "sal", "new-alias", "nal", "function", "filter", "source", ".",
+    "eval", "iex", "invoke-expression", "import-module", "ipmo", "set-item", "si", "new-item", "ni",
+    "enable", "hash", "declare", "typeset", "export",
+    # PowerShell provider writes reach the Alias: and Function: drives too.
+    "set-content", "sc", "copy-item", "cpi", "copy", "rename-item", "rni", "move-item", "mi",
+    "set-variable", "sv", "new-psdrive", "ndr", "mount",
+})
+REDEFINING_TEXT = re.compile(r"\b(?:function|alias):|\$env:path\b|\bpath\s*\+?=", re.IGNORECASE)
+# A program named by a variable or an expression (`$x az=eval`, `& (gcm Set-Alias)`) could be any of the above.
+LITERAL_PROGRAM = re.compile(r"^[\w.\\/:-]+$")
+
+
+def redefines_commands(command: str, statements: list[shell_parse.Statement]) -> bool:
+    return bool(REDEFINING_TEXT.search(command)) or any(
+        in_block(s.scope) or s.dot_sourced or s.argv[:1] == ["."] or s.program in REDEFINING_PROGRAMS
+        or (s.argv and not LITERAL_PROGRAM.match(s.argv[0]))
+        for s in statements
+    )
+
+
+def creation_prose_removed(argv: list[str], options: frozenset[str]) -> list[str]:
+    kept, skipping = [], False
+    for arg in argv:
+        if arg.startswith("-"):
+            skipping = arg in options
+            if skipping:
+                continue
+        if not skipping:
+            kept.append(arg)
+    return kept
+
+
+def pr_collection_url(url: str) -> bool:
+    # Whitespace, globs, `;` and dot segments are not needed to name one collection.
+    if re.search(r"[\s{}\[\]\\;]", url) or {".", ".."} & set(url.split("?")[0].split("/")):
+        return False
+    try:
+        parts = urlsplit(url)
+        query = parse_qsl(parts.query, keep_blank_values=True, strict_parsing=bool(parts.query))
+    except ValueError:
+        return False
+    return (
+        parts.scheme == "https"
+        and parts.netloc.lower() == (parts.hostname or "")  # no user info, no port
+        and bool(PR_HOST.match(parts.netloc.lower()))
+        and bool(PR_COLLECTION_PATH.match(parts.path))
+        and not parts.fragment and "#" not in url
+        and [key for key, _ in query] in ([], ["api-version"])
+    )
+
+
+def creation_body(text: str) -> bool:
+    """A literal JSON body holding exactly the fields that create a pull request."""
+    def unique(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        keys = [key for key, _ in pairs]
+        if len(keys) != len(set(keys)):
+            raise ValueError("duplicate key")
+        return dict(pairs)
+
+    try:
+        body = json.loads(text, object_pairs_hook=unique)
+    except ValueError:
+        return False
+    if not isinstance(body, dict) or not CREATE_REQUIRED <= body.keys() <= CREATE_REQUIRED | CREATE_OPTIONAL:
+        return False
+    return all(isinstance(v, bool) if k == "isDraft" else isinstance(v, str) for k, v in body.items())
+
+
+def rest_creation(statement: shell_parse.Statement, ctx: Context) -> list[str] | None:
+    """Method and URL of a literal REST POST to the pullRequests collection, or None."""
+    if ctx.escapes:
+        return None
+    argv = [ctx.expand(a) for a in statement.argv]
+    program = statement.program
+    if program == "az" and argv[1:2] == ["rest"]:
+        table, args = REST_OPTIONS["az"], argv[2:]
+    elif program == "curl":
+        table, args = REST_OPTIONS["curl"], argv[1:]
+    elif program in {"invoke-restmethod", "irm", "invoke-webrequest", "iwr"}:
+        table, args = REST_OPTIONS["powershell"], argv[1:]
+    else:
+        return None
+    found: dict[str, list[str]] = {}
+    seen: set[str] = set()
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        name = arg.lower() if table is REST_OPTIONS["powershell"] else arg
+        if program == "curl" and CURL_SHORT_FLAGS.match(arg):
+            index += 1
+            continue
+        if not arg.startswith("-"):
+            if program == "az":
+                return None  # az rest takes no positional arguments
+            found.setdefault("url", []).append(arg)
+            index += 1
+            continue
+        if name not in table:
+            return None
+        role, repeatable = table[name]
+        if name in seen and not repeatable:
+            return None
+        seen.add(name)
+        if role == "flag":
+            index += 1
+            continue
+        if role == "headers":
+            values = []
+            index += 1
+            while index < len(args) and not args[index].startswith("-"):
+                values.append(args[index])
+                index += 1
+            found.setdefault("header", []).extend(v.replace("=", ":", 1) for v in values)
+            continue
+        if index + 1 >= len(args):
+            return None
+        found.setdefault(role, []).append(args[index + 1])
+        index += 2
+    if any(len(found.get(role, [])) != 1 for role in ("url", "body")) or len(found.get("method", [])) > 1:
+        return None
+    method = (found.get("method") or ["post" if program == "curl" else ""])[0].lower()
+    headers = [h.partition(":")[0].strip().lower() for h in found.get("header", [])]
+    url, body = found["url"][0], found["body"][0]
+    if method != "post" or any(h not in SAFE_HEADERS for h in headers):
+        return None
+    # Control characters could inject headers; the body is left to the JSON parser.
+    if any(re.search(r"[\x00-\x1f\x7f`]", a) for a in argv if a is not body):
+        return None
+    if re.search(r"[$`]", url + body) or not pr_collection_url(url) or not creation_body(body):
+        return None
+    return [statement.argv[0], method, url]
+
+
+def judged_argv(statement: shell_parse.Statement, ctx: Context) -> list[str]:
+    """The arguments the approval and gate rules read: creation prose set aside, all else kept."""
+    if ctx.redefines or re.search(r"[\\/]", statement.argv[0]):
+        return [ctx.expand(a) for a in statement.argv]
+    words = (statement.program, *(a.lower() for a in statement.argv[1:4]))
+    for command, options in CREATE_PROSE_OPTIONS.items():
+        if words[: len(command)] == command:
+            return [ctx.expand(a) for a in creation_prose_removed(statement.argv, options)]
+    return rest_creation(statement, ctx) or [ctx.expand(a) for a in statement.argv]
+
+
 def gate_change(statement: shell_parse.Statement, ctx: Context) -> str | None:
     """Changing a check configuration can weaken an approval gate, which is the user's to change."""
-    text = " ".join(ctx.expand(a) for a in statement.argv)
+    text = " ".join(judged_argv(statement, ctx))
     if CHECK_CONFIGURATION.search(text) and writes_to_url(statement, text):
         return (
             "This changes a pipeline check configuration: an approval gate on an environment. "
@@ -1073,7 +1265,7 @@ def gate_change(statement: shell_parse.Statement, ctx: Context) -> str | None:
 
 
 def prod_approval(statement: shell_parse.Statement, ctx: Context) -> str | None:
-    text = " ".join(ctx.expand(a) for a in statement.argv).lower()
+    text = " ".join(judged_argv(statement, ctx)).lower()
     if not AZURE_PIPELINE_APPROVAL.search(text):
         return None
     # A variable the guard will not resolve must not hide `prod`: any value the command assigns counts.
@@ -1256,6 +1448,8 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
     ctx.untrusted.update(untrusted_names(command, parsed.statements))
     ctx.literal_values.extend(v for s in parsed.statements for v in s.literals.values())
     ctx.env_config = ctx.env_config or bool(GIT_ENV_CONFIG.search(command))
+    ctx.redefines = ctx.redefines or redefines_commands(command, parsed.statements)
+    ctx.escapes = ctx.escapes or (dialect == "powershell" and "`" in command)
     asks: list[str] = []
     notes: list[str] = []
     # Carried text has no working directory of its own: relative targets stay unresolved.
