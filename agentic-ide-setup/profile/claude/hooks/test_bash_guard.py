@@ -900,6 +900,180 @@ class ReviewRoundSixTests(GuardTestCase):
         ])
 
 
+class PullRequestCreationProseTests(GuardTestCase):
+    """A pull request's title and description describe later gates; they do not approve them.
+
+    Only a provably narrow creation (the CLI create, or a literal REST POST to the
+    pullRequests collection with refs, title, description and isDraft) has its prose
+    set aside. Anything else is judged on its full text, as before.
+    """
+
+    PROSE = "After merge: az pipelines approve the prod stage; status=completed bypassPolicy=true"
+    TITLE = "Production approval and migration pending"
+    URL = "https://dev.azure.com/o/p/_apis/git/repositories/r/pullRequests?api-version=7.1"
+
+    def body(self, **changes: object) -> str:
+        fields: dict[str, object] = {
+            "sourceRefName": "refs/heads/feature",
+            "targetRefName": "refs/heads/main",
+            "title": self.TITLE,
+            "description": self.PROSE,
+            "isDraft": True,
+        }
+        fields.update(changes)
+        return json.dumps({k: v for k, v in fields.items() if v is not None})
+
+    def curl(self, body: str, url: str | None = None, extra: str = "-X POST") -> str:
+        return f"curl -s {extra} -H 'Content-Type: application/json' -d '{body}' '{url or self.URL}'"
+
+    def az_rest(self, body: str, url: str | None = None, method: str = "post") -> str:
+        return f"az rest --method {method} --uri '{url or self.URL}' --body '{body}'"
+
+    def irm(self, body: str, url: str | None = None, method: str = "Post") -> str:
+        return f"Invoke-RestMethod -Method {method} -Uri '{url or self.URL}' -ContentType 'application/json' -Body '{body}'"
+
+    def test_cli_creation_with_gate_prose_is_allowed(self) -> None:
+        self.assertDecisions([
+            ("Bash", f'az repos pr create --title "{self.TITLE}" --description "{self.PROSE}"', "allow"),
+            ("PowerShell", f'az repos pr create --title "{self.TITLE}" -d "{self.PROSE}" --draft true', "allow"),
+            ("Bash", f'az repos pr create --title "{self.TITLE}" --description "Summary" "{self.PROSE}"', "allow"),
+            ("Bash", f'gh pr create --title "{self.TITLE}" --body "{self.PROSE}"', "allow"),
+            ("PowerShell", f'gh pr create -t "{self.TITLE}" -b "{self.PROSE}"', "allow"),
+        ])
+
+    def test_literal_rest_creation_with_gate_prose_is_allowed(self) -> None:
+        body = self.body()
+        self.assertDecisions([
+            ("Bash", self.curl(body), "allow"),
+            ("Bash", self.curl(body, extra="--request POST"), "allow"),
+            ("Bash", self.curl(body, extra=""), "allow"),  # a body implies POST
+            ("Bash", self.az_rest(body), "allow"),
+            ("PowerShell", self.az_rest(body), "allow"),
+            ("PowerShell", self.irm(body), "allow"),
+            ("PowerShell", self.irm(body).replace("Invoke-RestMethod", "iwr"), "allow"),
+            ("Bash", self.curl(self.body(isDraft=None, description=None)), "allow"),
+            ("Bash", self.curl(body, url="https://org.visualstudio.com/p/_apis/git/repositories/r/pullrequests"), "allow"),
+        ])
+
+    def test_creation_prose_naming_a_check_configuration_does_not_ask(self) -> None:
+        prose = "Documents the _apis/pipelines/checks/configurations gate on prod."
+        self.assertDecisions([
+            ("Bash", self.curl(self.body(description=prose)), "allow"),
+            ("Bash", f'az repos pr create --title x --description "{prose}"', "allow"),
+            # The same prose in anything but a narrow creation still asks.
+            ("Bash", self.curl(self.body(description=prose, status="active")), "ask"),
+        ])
+
+    def test_real_approvals_stay_denied(self) -> None:
+        self.assertDecisions([
+            ("Bash", "az pipelines approve --id 1 --environment prod", "deny"),
+            ("Bash", 'az repos pr create --title x; az pipelines approve --id 1 --environment prod', "deny"),
+            ("Bash", f'az repos pr create --title "{self.TITLE}" && az pipelines approve --id 1 --environment prod', "deny"),
+            ("Bash", f"{self.curl(self.body())}; az pipelines approve --id 1 --environment prod", "deny"),
+            # Prose outside the title and description is still judged.
+            ("Bash", f'az repos pr create --title x --work-items "{self.PROSE}"', "deny"),
+            ("Bash", f'gh pr create --title x --label "{self.PROSE}"', "deny"),
+        ])
+
+    def test_each_disqualifier_alone_restores_full_judgement(self) -> None:
+        """Every case is the allowed creation plus one change; the gate prose then denies it."""
+        good = self.body()
+        url = self.URL
+        base = url.split("?")[0]
+        cases = [
+            # Body fields that carry authority, or are not the narrow shape.
+            self.curl(self.body(reviewers=[{"id": "me", "vote": 10}])),
+            self.curl(self.body(status="completed")),
+            self.curl(self.body(completionOptions={"bypassPolicy": True})),
+            self.curl(self.body(autoCompleteSetBy={"id": "me"})),
+            self.curl(self.body(isDraft="true")),
+            self.curl(self.body(sourceRefName=None)),
+            self.curl(self.body(title=None)),
+            self.curl(good.replace('"title"', '"title": "x", "title"', 1)),  # duplicate key
+            self.curl(good[:-1]),  # invalid JSON
+            self.curl(good.replace(self.TITLE, "costs $AMOUNT")),  # dynamic content
+            # Endpoint.
+            self.curl(good, url=base + "/1?api-version=7.1"),
+            self.curl(good, url=base + "/1/reviewers/me?api-version=7.1"),
+            self.curl(good, url="https://dev.azure.com/o/p/_apis/pipelines/approvals?api-version=7.1"),
+            self.curl(good, url=url.replace("https", "http", 1)),
+            self.curl(good, url=url.replace("dev.azure.com", "dev.azure.com.evil.example", 1)),
+            self.curl(good, url=url + "&bypassPolicy=true"),
+            self.curl(good, url=url + "#x"),
+            # Method.
+            self.curl(good, extra="-X PATCH"),
+            self.curl(good, extra="-X PUT"),
+            self.az_rest(good, method="patch"),
+            # Options.
+            self.curl(good, extra="-X POST --unknown-option x"),
+            self.curl(good, extra="-X POST -X POST"),
+            self.curl(good, extra="-X POST -d '{}'"),
+            self.az_rest(good) + " --uri-parameters x=y",
+        ]
+        self.assertDecisions([("Bash", case, "deny") for case in cases] + [
+            ("PowerShell", self.irm(good, method="Patch"), "deny"),
+            ("PowerShell", self.irm(good) + " -Headers $h", "deny"),
+        ])
+
+    def test_opaque_bodies_are_never_a_narrow_creation(self) -> None:
+        """A body read from a file or a variable has no prose to set aside, and gets no exception."""
+        for tool, command in [
+            ("Bash", self.curl("@payload.json")),
+            ("Bash", f"az rest --method post --uri '{self.URL}' --body @payload.json"),
+            ("Bash", f"curl -X POST -d \"$B\" '{self.URL}'"),
+            ("PowerShell", f"Invoke-RestMethod -Method Post -Uri '{self.URL}' -Body $body"),
+        ]:
+            with self.subTest(command=command):
+                statement = shell_parse.parse(command, tool.lower() if tool == "Bash" else "powershell").statements[-1]
+                self.assertIsNone(guard.rest_creation(statement, guard.Context(session_cwd=self.repo)))
+
+    def test_a_shadowed_program_name_gets_no_exemption(self) -> None:
+        """From the review: a function or alias named `az` would run the prose as a command."""
+        prose = "az pipelines approve --id 1 --environment prod"
+        create = f'az repos pr create --title x --description "{prose}"'
+        self.assertDecisions([
+            ("Bash", f'az() {{ eval "$4"; }}; {create}', "deny"),
+            ("Bash", f"alias az=eval; {create}", "deny"),
+            ("Bash", f'gh() {{ eval "$4"; }}; gh pr create --title x --body "{prose}"', "deny"),
+            ("Bash", f"PATH=/tmp/x:$PATH; {create}", "deny"),
+            ("Bash", f". ./helpers.sh; {create}", "deny"),
+            ("Bash", f"./az repos pr create --title x --description \"{prose}\"", "deny"),
+            ("PowerShell", f"function az {{ iex $args[3] }}; {create}", "deny"),
+            ("PowerShell", f"Set-Alias az Invoke-Expression; {create}", "deny"),
+            ("PowerShell", f"${{function:az}} = 'iex $args[3]'; {create}", "deny"),
+            ("Bash", f"curl() {{ eval \"$1\"; }}; {self.curl(self.body(description=prose))}", "deny"),
+            # Re-review: drive-qualified alias writes and indirectly named programs.
+            ("PowerShell", f'$alias:az = "iex"; {create}', "deny"),
+            ("PowerShell", f"Set-Content Alias:az iex; {create}", "deny"),
+            ("PowerShell", f"sv x 1; {create}", "deny"),
+            ("PowerShell", f'$s = "Set-Alias"; & $s az iex; {create}', "deny"),
+            ("PowerShell", f"& (gcm Set-Alias) az iex; {create}", "deny"),
+            ("Bash", f"x=alias; $x az=eval; {create}", "deny"),
+            ("PowerShell", self.irm(self.body(description=prose)).replace("'application/json'", '"a`r`nX: b"'), "deny"),
+            # Without the definition the same creation is allowed.
+            ("Bash", create, "allow"),
+        ])
+
+    def test_control_characters_globs_and_dot_segments_disqualify(self) -> None:
+        good = self.body()
+        base = self.URL.split("?")[0]
+        self.assertDecisions([("Bash", case, "deny") for case in [
+            self.curl(good, extra="-X POST -H $'Content-Type: a\\r\\nX-HTTP-Method-Override: PATCH'"),
+            self.curl(good, extra="-X POST -H 'Content-Type: a\r\nX-HTTP-Method-Override: PATCH'"),
+            self.curl(good, url=self.URL + "\ta"),
+            self.curl(good, url=base.replace("/r/", "/{r,r2}/")),
+            self.curl(good, url=base.replace("/r/", "/r/../")),
+            self.curl(good, url=base.replace("/o/", "/o/..;/")),
+            self.curl(good, extra="-X POST -H 'X-HTTP-Method-Override: PATCH'"),
+        ]])
+
+    def test_force_push_and_gate_writes_are_unchanged(self) -> None:
+        self.assertDecisions([
+            ("Bash", f"{self.curl(self.body())} && git push --force origin feature", "deny"),
+            ("Bash", "curl -X PATCH -d '{}' https://dev.azure.com/o/p/_apis/pipelines/checks/configurations/5", "ask"),
+        ])
+
+
 class ScopeParserTests(unittest.TestCase):
     def test_statements_record_the_processes_and_blocks_they_run_in(self) -> None:
         parsed = shell_parse.parse("S=1; eval 'S=5'; sh -c 'S=2'; ( S=3 ); f() { S=4; }")
