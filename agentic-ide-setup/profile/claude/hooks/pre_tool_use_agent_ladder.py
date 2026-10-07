@@ -129,7 +129,9 @@ def _locked(path: Path) -> Iterator[bool]:
             lock.parent.mkdir(parents=True, exist_ok=True)
             os.close(os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
             held = True
-        except FileExistsError:
+        except (FileExistsError, PermissionError):
+            # Windows reports a lock file that another hook is deleting as
+            # PermissionError: that is contention too, not an IO fault.
             try:
                 if time.time() - lock.stat().st_mtime > LOCK_STALE_SECONDS:
                     lock.unlink()
@@ -203,6 +205,22 @@ def reject(origin: str, tier: str, code: str, message: str) -> int:
     return emit_json(deny_pre_tool(guidance))
 
 
+def session_root(payload: dict[str, Any]) -> Path:
+    """Repository the session is working in when it spawns.
+
+    The payload's ``cwd`` follows Claude through ``cd`` and into worktrees; the
+    hook process's own directory stays where the session started, so a session
+    started outside a managed repository would otherwise never be gated there.
+    """
+    cwd = payload.get("cwd")
+    if isinstance(cwd, str) and cwd and Path(cwd).is_dir():
+        code, top = run_git(["rev-parse", "--show-toplevel"], Path(cwd))
+        if code == 0 and top.strip():
+            return Path(top.strip())
+        return Path(cwd)
+    return repo_root()
+
+
 def spawn_profile(payload: dict[str, Any]) -> tuple[str, str]:
     """``(tier, effort)`` of the spawning session: the payload's effort is the
     one in force now; the transcript's is that of the last finished request."""
@@ -266,7 +284,7 @@ def main() -> int:
     if str(payload.get("tool_name") or "") not in SUBAGENT_TOOLS:
         return emit_json(None)
 
-    root = repo_root()
+    root = session_root(payload)
     origin = canonical_origin(root, run_git)
     if origin not in MANAGED_ORIGINS:
         return unmanaged_spawn(origin, root, payload)

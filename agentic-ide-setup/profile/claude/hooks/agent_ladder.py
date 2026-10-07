@@ -699,7 +699,7 @@ def validate(
 
     constraints = " ".join(_nonempty_strings(contract.get("constraints"))).lower()
     if any(marker in constraints for marker in READ_ONLY_MARKERS):
-        if subagent_type not in read_only:
+        if subagent_type.lower() not in {name.lower() for name in read_only}:
             return (
                 "LANE_READONLY_AGENT_VIOLATION",
                 "Contract declares a read-only constraint, so spawn a subagent "

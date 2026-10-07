@@ -646,6 +646,10 @@ class SpawnShape(LadderTestCase):
         body = contract(constraints=["Read-only investigation"])
         self.assertRouted(self.run_gate(self.payload(body, subagent_type="Explore")), "haiku")
 
+    def test_read_only_agent_names_match_without_case(self):
+        body = contract(constraints=["Read-only investigation"])
+        self.assertRouted(self.run_gate(self.payload(body, subagent_type="explore")), "haiku")
+
     def test_main_thread_only_agents_are_not_spawned(self):
         for name in sorted(agent_ladder.MAIN_THREAD_ONLY_AGENTS):
             with self.subTest(agent=name):
@@ -796,6 +800,42 @@ class Scope(LadderTestCase):
     def test_repository_without_a_remote_is_untouched(self):
         gate.run_git = lambda args, cwd=None: (1, "")
         self.assertIsNone(self.run_gate(self.payload()))
+
+    def use_repositories(self, managed: Path, unmanaged: Path) -> None:
+        """Fake git: two repositories, identified by the directory git runs in."""
+        managed.mkdir()
+        unmanaged.mkdir()
+
+        def run_git(args, cwd=None):
+            where = Path(cwd) if cwd else Path(self.tmp.name)
+            if args[:2] == ["rev-parse", "--show-toplevel"]:
+                return 0, str(where)
+            return 0, MANAGED if where == managed else UNMANAGED
+
+        gate.run_git = run_git
+
+    def test_the_payload_cwd_decides_the_repository(self):
+        """A session started outside a managed repository is gated once it works in one."""
+        managed, unmanaged = Path(self.tmp.name) / "managed", Path(self.tmp.name) / "elsewhere"
+        self.use_repositories(managed, unmanaged)
+        gate.repo_root = lambda: unmanaged
+        data = self.payload()
+        data["cwd"] = str(managed)
+        self.assertDenied(self.run_gate(data), "LANE_MISSING_ENVELOPE")
+
+    def test_leaving_a_managed_repository_leaves_its_gate(self):
+        managed, unmanaged = Path(self.tmp.name) / "managed", Path(self.tmp.name) / "elsewhere"
+        self.use_repositories(managed, unmanaged)
+        gate.repo_root = lambda: managed
+        data = self.payload(subagent_type="Explore", model="haiku")
+        data["cwd"] = str(unmanaged)
+        self.assertIsNone(self.run_gate(data))
+        self.assertEqual(self.log_entries()[-1]["scope"], "unmanaged")
+
+    def test_a_missing_cwd_falls_back_to_the_hook_directory(self):
+        data = self.payload()
+        data["cwd"] = str(Path(self.tmp.name) / "gone")
+        self.assertDenied(self.run_gate(data), "LANE_MISSING_ENVELOPE")
 
     def test_non_subagent_tools_are_untouched(self):
         self.assertIsNone(self.run_gate(self.payload(contract(), tool_name="Bash")))
