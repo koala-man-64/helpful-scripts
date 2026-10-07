@@ -33,12 +33,16 @@ from agent_ladder import (
     MANAGED_ORIGINS,
     TIER_MODEL,
     agent_directories,
+    beaten_failure,
     canonical_origin,
     child_effort,
+    definition_model,
     main_thread_only_agents,
     payload_effort,
     parse_envelope,
+    rank_failure,
     read_only_agents,
+    resolve_child_model,
     session_profile,
     strip_envelope,
     unreadable_agents,
@@ -148,6 +152,64 @@ def reject(origin: str, tier: str, code: str, message: str) -> int:
     return emit_json(deny_pre_tool(guidance))
 
 
+def spawn_profile(payload: dict[str, Any]) -> tuple[str, str]:
+    """``(tier, effort)`` of the spawning session: the payload's effort is the
+    one in force now; the transcript's is that of the last finished request."""
+    tier, transcript_effort = session_profile(payload.get("transcript_path"))
+    return tier, payload_effort(payload) or transcript_effort
+
+
+def unmanaged_spawn(origin: str, root: Path, payload: dict[str, Any]) -> int:
+    """Outside managed repositories enforce only two rules, with no envelope,
+    rewrite, or cap: no beaten model and effort pair, and a child scoring
+    strictly below its parent (Rudy, 2026-10-07).
+
+    A spawn whose model cannot be resolved to a known tier is let through: the
+    rules cannot be applied to it, and this is a cost guard, not a boundary.
+    """
+    if payload.get("agent_id"):
+        return emit_json(None)
+    tool_input = payload.get("tool_input")
+    tool_input = tool_input if isinstance(tool_input, dict) else {}
+    # An omitted subagent_type spawns general-purpose, which inherits.
+    subagent_type = str(tool_input.get("subagent_type") or "general-purpose").strip()
+    directories = agent_directories(root)
+    parent_tier, parent_effort = spawn_profile(payload)
+    tier = resolve_child_model(
+        str(tool_input.get("model") or ""),
+        definition_model(subagent_type, directories),
+        os.environ.get("CLAUDE_CODE_SUBAGENT_MODEL", ""),
+        parent_tier,
+    )
+    effort, effort_source = child_effort(
+        subagent_type, directories, parent_effort, os.environ.get("CLAUDE_CODE_EFFORT_LEVEL", "")
+    )
+    facts = {
+        "scope": "unmanaged",
+        "tier": tier or "unknown",
+        "parent_tier": parent_tier or "unknown",
+        "parent_effort": parent_effort or "unknown",
+        "effort": effort or "unknown",
+        "effort_source": effort_source,
+        "subagent_type": subagent_type,
+    }
+    if not tier:
+        record(origin, {"decision": "unchecked", **facts, "reason_code": "LANE_MODEL_UNRESOLVED"})
+        return emit_json(None)
+    failure = beaten_failure(tier, effort) or rank_failure(tier, effort, parent_tier, parent_effort)
+    if failure:
+        code, message = failure
+        record(origin, {"decision": "denied", **facts, "reason_code": code})
+        return emit_json(
+            deny_pre_tool(
+                "{0} [{1}]\n\nSet the child's model with the Agent tool's `model`, or "
+                "pick an agent whose definition sets a lower `effort`.".format(message, code)
+            )
+        )
+    record(origin, {"decision": "allowed", **facts, "reason_code": "LANE_OK"})
+    return emit_json(None)
+
+
 def main() -> int:
     payload = read_hook_input()
     if str(payload.get("tool_name") or "") not in SUBAGENT_TOOLS:
@@ -156,7 +218,7 @@ def main() -> int:
     root = repo_root()
     origin = canonical_origin(root, run_git)
     if origin not in MANAGED_ORIGINS:
-        return emit_json(None)
+        return unmanaged_spawn(origin, root, payload)
 
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
@@ -224,15 +286,18 @@ def main() -> int:
             "parse on its own, before any prose.",
         )
 
-    parent_tier, transcript_effort = session_profile(payload.get("transcript_path"))
-    # The payload carries the effort in force now; the transcript holds the
-    # effort of the last finished request, which a mid-session change outdates.
-    parent_effort = payload_effort(payload) or transcript_effort
+    parent_tier, parent_effort = spawn_profile(payload)
     effort, effort_source = child_effort(
         subagent_type, directories, parent_effort, os.environ.get("CLAUDE_CODE_EFFORT_LEVEL", "")
     )
     failure = validate(
-        contract, subagent_type, explicit_model, parent_tier, read_only_agents(directories), effort
+        contract,
+        subagent_type,
+        explicit_model,
+        parent_tier,
+        read_only_agents(directories),
+        effort,
+        parent_effort,
     )
     if failure:
         return reject(origin, str(contract.get("tier") or ""), *failure)
