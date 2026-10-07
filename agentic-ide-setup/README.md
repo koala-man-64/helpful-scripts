@@ -59,7 +59,7 @@ The Claude template does carry restrictions: `claudeDefaults.permissions.deny` a
 
 - **Deny:**
   - discarding work: `git reset --hard`, `git checkout -- …` and `checkout .`, `git restore .`, and force `git clean` with directories
-  - force pushes other than `--force-with-lease`, including `-f`, bundled `-uf` and `+ref`
+  - every force push, including `--force-with-lease`, `--force-if-includes`, `-f`, bundled `-uf` and `+ref`
   - pushes to `main`, `master`, `trunk`, `develop`, `staging` or `production`
 
   Each rule also has a `git -C <path>` twin, for both Bash and PowerShell.
