@@ -1171,6 +1171,101 @@ class PullRequestRestWriteTests(GuardTestCase):
         ])
 
 
+class PullRequestRestReviewTests(GuardTestCase):
+    """From the independent review: requests read the way each client reads its options."""
+
+    PR = "https://dev.azure.com/o/p/_apis/git/repositories/r/pullRequests/5"
+    VOTES = PR + "/reviewers/me"
+
+    def test_az_global_options_prefixes_and_glued_values(self) -> None:
+        vote = "'{\"vote\":10}'"
+        self.assertDecisions([("Bash", case, "deny") for case in [
+            "az --debug repos pr update --id 5 --bypass-policy true",
+            "az --only-show-errors repos pr update --id 5 --bypass-policy true",
+            "az -o none repos pr update --id 5 --bypass-policy true",
+            "az --subscription s repos pr update --id 5 --bypass-policy true",
+            "az --only-show-errors devops invoke --area git --resource pullRequestReviewers --http-method PUT",
+            f"az --debug rest --method put --url {self.VOTES} --body {vote}",
+            f"az -o json rest --method put --url {self.VOTES} --body {vote}",
+            "az devops invoke --area git --resource=pullRequestReviewers --http-method PUT",
+            "az devops invoke --area git --resource=pullRequestReviewers --http-method=PUT",
+            "az devops invoke --area git --res pullRequestReviewers --http-method PUT",
+            "az devops invoke --area git --resource pullRequestReviewers --http PUT",
+            f"az rest --met put --url {self.VOTES} --body {vote}",
+            f"az rest --method=put --url={self.VOTES} --body={vote}",
+            f"wget --meth=PUT --body-data={vote} {self.VOTES}",
+        ]] + [
+            # The last --resource is the one az uses.
+            ("Bash", "az devops invoke --area git --resource pullRequestThreads --http-method PATCH --in-file b.json --resource pullRequests", "ask"),
+            ("Bash", "az devops invoke --area git --resource $R --http-method PUT --in-file b.json", "ask"),
+            ("Bash", "az devops invoke --area git --resource pullRequests --http-method $M --in-file b.json", "ask"),
+            ("Bash", "az devops invoke --area git --resource pullRequests --http-method POST --in-file b.json", "ask"),
+        ])
+
+    def test_implied_and_overridden_methods(self) -> None:
+        self.assertDecisions([
+            ("Bash", f"curl -T v.json {self.VOTES}", "deny"),  # an upload is a PUT
+            ("Bash", f"curl --upload-file v.json {self.PR}", "ask"),
+            ("Bash", f"curl -K cfg {self.PR}", "ask"),
+            ("Bash", f"curl --config cfg {self.PR}", "ask"),
+            ("Bash", f"curl -d @v.json -H 'X-HTTP-Method-Override: PUT' {self.VOTES}", "deny"),
+            ("Bash", f"curl -d @b.json -H 'X-HTTP-Method-Override: PATCH' {self.PR}", "ask"),
+            ("Bash", f"az rest --method post --url {self.PR} --headers X-HTTP-Method-Override=PATCH --body @b.json", "ask"),
+            ("PowerShell", f"irm {self.VOTES} -Method Post -Headers @{{'X-HTTP-Method-Override'='PUT'}} -InFile v.json", "deny"),
+        ])
+
+    def test_split_and_file_bodies(self) -> None:
+        self.assertDecisions([
+            ("Bash", f"curl -X PATCH {self.PR} --json '{{\"sta' --json 'tus\":\"completed\"}}'", "deny"),
+            ("Bash", f"curl -X PATCH {self.PR} -d 'status=completed'", "deny"),
+            ("Bash", f"curl -X PATCH {self.PR} -d@b.json", "ask"),
+            ("Bash", f"curl -X PATCH {self.PR} --data-urlencode name@b.json", "ask"),
+            ("Bash", f"curl -X PATCH {self.PR} -F 'f=@b.json'", "ask"),
+            ("Bash", f"curl -X PATCH {self.PR} -F 'status=<b.txt'", "ask"),
+        ])
+
+    def test_unresolved_and_escaped_routes(self) -> None:
+        completed = "'{\"status\":\"completed\"}'"
+        self.assertDecisions([
+            ("Bash", f"curl -X PATCH https://dev.azure.com/o/p/_apis/git/repositories/r/pull$x/5 -d {completed}", "ask"),
+            ("Bash", f"curl -X PATCH https://dev.azure.com/o/p/_apis/git/repositories/r/pull${{x}}Requests/5 -d {completed}", "ask"),
+            ("Bash", f"curl -X PATCH https://dev.azure.com/o/p/_apis/$x/repositories/r/pullRequests/5 -d {completed}", "ask"),
+            ("Bash", "xargs -I{} curl -X PUT {} -d '{\"vote\":10}'", "ask"),
+            ("Bash", 'curl -X PATCH "$URL" -d "$BODY"', "ask"),
+            ("Bash", f"curl -X PATCH https://dev.azure.com/o/p/_apis/git/repositories/r/pull\\Requests/5 -d {completed}", "deny"),
+            # A GET, or a POST to an unknown URL, stays allowed.
+            ("Bash", 'curl -s "$URL"', "allow"),
+            ("Bash", 'curl -X POST "$HOOK" -d "$MSG"', "allow"),
+        ])
+
+    def test_opaque_writes_to_reviewers_ask(self) -> None:
+        self.assertDecisions([
+            ("Bash", f"curl -X POST {self.VOTES} -d @v.json", "ask"),
+            ("Bash", f"curl -X POST {self.PR}/reviewers -d @v.json", "ask"),
+            ("Bash", f"az rest --method POST --url {self.VOTES} --body @v.json", "ask"),
+            ("Bash", "az devops invoke --resource pullRequestReviewers --http-method POST --in-file b.json", "ask"),
+            ("Bash", f"wget --post-file=v.json {self.VOTES}", "ask"),
+            ("PowerShell", f"irm {self.VOTES} -Method Post -Body $v", "ask"),
+            ("Bash", f"curl -X POST {self.PR.rsplit('/', 1)[0]} -d '{{\"title\":\"x\",\"reviewers\":[{{\"id\":\"x\",\"vote\":10}}]}}'", "deny"),
+            # vote 0 is "no vote".
+            ("Bash", f"curl -X POST {self.PR.rsplit('/', 1)[0]} -d '{{\"title\":\"x\",\"reviewers\":[{{\"id\":\"x\",\"vote\":0}}]}}'", "allow"),
+        ])
+
+    def test_powershell_hashtables_are_read_by_their_keys(self) -> None:
+        collection = self.PR.rsplit("/", 1)[0]
+        self.assertDecisions([
+            ("PowerShell", f"irm -Method Post -Uri {collection} -Body @{{title='t';description='status: completed vote bypassPolicy'}}", "allow"),
+            ("PowerShell", f"$body = @{{ comments=@(@{{content='status: completed'}}) }} | ConvertTo-Json -Depth 5; irm -Method Post -Uri {self.PR}/threads -Body $body", "allow"),
+            ("PowerShell", f"irm -Uri {self.PR} -Method Patch -Body @{{title='x'}}", "allow"),
+            ("PowerShell", f"irm -Uri {self.PR} -Method Patch -Body @{{status='abandoned'}}", "allow"),
+            ("PowerShell", f"irm -Uri {self.PR} -Method Patch -Body (@{{status='completed'}} | ConvertTo-Json)", "deny"),
+            ("PowerShell", f"irm -Uri {self.PR} -Method Patch -Body @{{autoCompleteSetBy=@{{id='x'}}}}", "deny"),
+            ("PowerShell", f"irm {self.VOTES} -Method Put -Body (ConvertTo-Json @{{vote=10}})", "deny"),
+            # A variable body to the collection may arm completion: a human confirms it.
+            ("PowerShell", f"$body = @{{ title='t'; description='bypassPolicy' }} | ConvertTo-Json; irm -Method Post -Uri {collection} -Body $body", "ask"),
+        ])
+
+
 class ScopeParserTests(unittest.TestCase):
     def test_statements_record_the_processes_and_blocks_they_run_in(self) -> None:
         parsed = shell_parse.parse("S=1; eval 'S=5'; sh -c 'S=2'; ( S=3 ); f() { S=4; }")

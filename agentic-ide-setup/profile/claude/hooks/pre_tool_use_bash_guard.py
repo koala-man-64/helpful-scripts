@@ -1281,41 +1281,314 @@ def gate_change(statement: shell_parse.Statement, ctx: Context) -> str | None:
 # --- pull request votes, completion and policy bypass ---------------------------
 # Votes and completion go through `az repos pr set-vote` and `az repos pr update`, where the
 # finish notes and the repository's branch policies apply. The REST routes that do the same
-# are denied, and bypassing branch policy is denied by every route.
+# are denied, and bypassing branch policy is denied by every route. Requests are read the way
+# each client reads them: unambiguous option prefixes, `--opt=value`, the last of a repeated
+# option, az global options before the command, and methods implied by bodies or headers.
 
 PR_PATH = re.compile(r"/_apis/git/(?:repositories/[^/]+/)?pullrequests(?:/(.*))?$")
-# az devops invoke --resource names: a pull request itself, and its reviewers (votes).
-INVOKE_PR_RESOURCES = {"pullrequests": "id", "pullrequestreviewers": "id/reviewers"}
-COMPLETION_KEYS = frozenset({"completionoptions", "autocompletesetby"})
-BYPASS_KEYS = frozenset({"bypasspolicy", "bypassreason"})
-# The same fields as text, for bodies that are not JSON: hashtables, form fields, query strings.
-COMPLETION_TEXT = re.compile(r"completionoptions|autocompletesetby|\bstatus['\"]?\s*[:=]\s*['\"]?(?:completed|3)\b")
-BYPASS_TEXT = re.compile(r"bypasspolicy|bypassreason|bypass-policy")
-VOTE_TEXT = re.compile(r"\bvote\b")
-# Body options per program: (literal values, bodies read from somewhere else).
-CURL_BODY_LONG = frozenset({"--data", "--data-raw", "--data-binary", "--data-urlencode", "--data-ascii", "--json", "--form", "--form-string"})
-CURL_OPAQUE_LONG = frozenset({"--upload-file", "--config"})
-WGET_BODY = frozenset({"--body-data", "--post-data"})
-WGET_OPAQUE = frozenset({"--body-file", "--post-file"})
+UNRESOLVED = re.compile(r"[$`]|\{\}|%[A-Za-z_]\w*%")
+# az devops invoke --resource names: the collection or one pull request (by its route
+# parameters, which are not read), and its reviewers (votes).
+INVOKE_PR_RESOURCES = {"pullrequests": ["", "id"], "pullrequestreviewers": ["id/reviewers"]}
+METHOD_OVERRIDE = re.compile(r"x-http-method-override|x-http-method\b|x-method-override", re.IGNORECASE)
+PR_FIELDS = ("completionoptions", "autocompletesetby", "bypasspolicy", "bypassreason", "vote", "status")
+AZ_GLOBAL_VALUES = ("--output", "--query", "--subscription")
+AZ_GLOBAL_FLAGS = ("--debug", "--verbose", "--only-show-errors", "--help")
+
+# Option tables: canonical name -> role. "flag" takes no value; "multi" takes values up to the next option.
+CURL_LONG = {
+    "--request": "method", "--url": "url", "--data": "data", "--data-raw": "data", "--data-binary": "data",
+    "--data-ascii": "data", "--data-urlencode": "form", "--json": "json", "--form": "form",
+    "--form-string": "data", "--upload-file": "upload", "--config": "config", "--next": "config",
+    "--header": "header", "--get": "get", "--output": "value", "--user": "value", "--max-time": "value",
+    "--connect-timeout": "value", "--retry": "value", "--write-out": "value", "--cacert": "value",
+    "--cert": "value", "--key": "value", "--proxy": "value", "--referer": "value", "--user-agent": "value",
+    "--oauth2-bearer": "value", "--variable": "config", "--expand-data": "config", "--expand-url": "config",
+}
+CURL_SHORT = {"X": "method", "d": "data", "F": "form", "T": "upload", "K": "config", "H": "header", "G": "get"}
+WGET_LONG = {
+    "--method": "method", "--body-data": "data", "--body-file": "upload", "--post-data": "post",
+    "--post-file": "upload", "--header": "header", "--execute": "config", "--input-file": "config",
+    "--output-document": "value", "--output-file": "value", "--user": "value", "--password": "value",
+}
+WGET_SHORT = {"e": "config", "i": "config", "O": "value", "o": "value", "U": "value", "t": "value", "T": "value"}
+AZ_REST = {
+    "--method": "method", "--uri": "url", "--url": "url", "--body": "data", "--headers": "multi-header",
+    "--resource": "value", "--output": "value", "--query": "value", "--subscription": "value",
+    "--uri-parameters": "multi", "--url-parameters": "multi", "--skip-authorization-header": "flag",
+    "--debug": "flag", "--verbose": "flag", "--only-show-errors": "flag",
+}
+AZ_REST_SHORT = {"-m": "method", "-u": "url", "-b": "data", "-o": "value"}
+AZ_INVOKE = {
+    "--area": "value", "--resource": "resource", "--route-parameters": "multi", "--query-parameters": "multi",
+    "--api-version": "value", "--http-method": "method", "--in-file": "upload", "--out-file": "value",
+    "--media-type": "value", "--accept-media-type": "value", "--encoding": "value", "--organization": "value",
+    "--org": "value", "--detect": "value", "--output": "value", "--query": "value", "--subscription": "value",
+    "--debug": "flag", "--verbose": "flag", "--only-show-errors": "flag",
+}
+AZ_INVOKE_SHORT = {"-o": "value"}
+PS_REQUEST = {
+    "-method": "method", "-custommethod": "method", "-uri": "url", "-body": "data", "-infile": "upload",
+    "-form": "upload", "-headers": "header", "-contenttype": "value", "-outfile": "value",
+    "-websession": "value", "-sessionvariable": "value", "-credential": "value", "-certificatethumbprint": "value",
+    "-certificate": "value", "-useragent": "value", "-timeoutsec": "value", "-maximumredirection": "value",
+    "-proxy": "value", "-proxycredential": "value", "-transferencoding": "value", "-authentication": "value",
+    "-token": "value", "-sslprotocol": "value", "-responseheadersvariable": "value",
+    "-statuscodevariable": "value", "-retryintervalsec": "value", "-maximumretrycount": "value",
+    "-httpversion": "value", "-maximumfollowrellink": "value",
+    "-usebasicparsing": "flag", "-usedefaultcredentials": "flag", "-disablekeepalive": "flag",
+    "-proxyusedefaultcredentials": "flag", "-passthru": "flag", "-skipcertificatecheck": "flag",
+    "-allowunencryptedauthentication": "flag", "-noproxy": "flag", "-preserveauthorizationonredirect": "flag",
+    "-skipheadervalidation": "flag", "-followrellink": "flag", "-resume": "flag", "-skiphttperrorcheck": "flag",
+}
 
 
-def normalized(text: str) -> str:
-    """Lower-cased, percent- and JSON-unescaped, so `%2F`, `\\u0073tatus` and case hide nothing."""
-    text = unquote(text).replace("\\\\", "\\")
-    text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), text)
-    return text.replace("\\", "/").lower()
+@dataclass
+class HttpRequest:
+    method: str | None = None  # explicit, lower-cased; "?" when it cannot be read
+    implied: str = "get"  # what the body or an upload implies when no method is given
+    urls: list[str] = field(default_factory=list)
+    data: list[str] = field(default_factory=list)  # literal bodies, in order
+    json: list[str] = field(default_factory=list)  # curl --json fragments, concatenated by curl
+    opaque: bool = False  # a body the guard cannot read: a file, a variable, stdin
+    scan: bool = False  # the body is written elsewhere in the command (a PowerShell hashtable)
+    config: bool = False  # options read from a file or expanded later: method and target unknown
+    resource: str | None = None  # az devops invoke --resource
+    headers: list[str] = field(default_factory=list)
+
+    @property
+    def verb(self) -> str:
+        """The method sent: "?" when unknown, which may be any write."""
+        if any(METHOD_OVERRIDE.search(h) for h in self.headers):
+            return "?"
+        return self.method or self.implied
 
 
-def json_names(text: str) -> tuple[set[str], set[str]] | None:
-    """(keys, `status` values) anywhere in a JSON document, lower-cased; None when not JSON."""
-    keys: set[str] = set()
-    values: set[str] = set()
+def resolve_option(name: str, table: dict[str, str], minimum: int = 3) -> str | None:
+    """The option a client reads for `name`: an exact name, or a prefix only one known option has."""
+    if name in table:
+        return name
+    hits = [option for option in table if option.startswith(name)] if len(name) >= minimum else []
+    return hits[0] if len(hits) == 1 else None
+
+
+def az_command(argv: list[str]) -> tuple[list[str], int]:
+    """(command words, index of the first argument after them), past az's global options."""
+    words: list[str] = []
+    index = 1
+    while index < len(argv):
+        arg = argv[index]
+        if arg.startswith("-"):
+            name = arg.partition("=")[0].lower()
+            if name == "-o" or resolve_option(name, dict.fromkeys(AZ_GLOBAL_VALUES, "")):
+                index += 1 if "=" in arg else 2
+                continue
+            if resolve_option(name, dict.fromkeys(AZ_GLOBAL_FLAGS, "")):
+                index += 1
+                continue
+            break
+        words.append(arg.lower())
+        index += 1
+    return words, index
+
+
+def read_options(req: HttpRequest, args: list[str], long: dict[str, str], short: dict[str, str],
+                 short_values: str = "", case_fold: bool = False, colon: bool = False) -> None:
+    """Fill `req` from arguments; a later option wins, as each client reads it."""
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        nxt = args[index + 1] if index + 1 < len(args) else None
+        if arg.startswith("--") or (colon and arg.startswith("-") and len(arg) > 1):
+            name, sep, glued = arg.partition(":" if colon else "=")
+            role = long.get(resolve_option(name.lower() if case_fold else name, long) or "")
+            if role is None:
+                index += 1  # unknown: read as a flag, so its value is judged as a positional
+                continue
+            if role in {"flag", "get"}:
+                req.implied = "get" if role == "get" else req.implied
+                index += 1
+                continue
+            if role.startswith("multi"):
+                values = [glued] if sep else []
+                index += 1
+                while not sep and index < len(args) and not args[index].startswith("-"):
+                    values.append(args[index])
+                    index += 1
+                if role == "multi-header":
+                    req.headers.extend(values)
+                continue
+            value = glued if sep else nxt
+            index += 1 if sep else 2
+            apply_role(req, role, value)
+            continue
+        if arg.startswith("-") and len(arg) > 1 and short:
+            if arg in short:  # az-style short options: a whole word
+                apply_role(req, short[arg], nxt)
+                index += 2
+                continue
+            consumed = False
+            for position, letter in enumerate(arg[1:], start=1):
+                role = short.get(letter)
+                if role == "get":
+                    req.implied = "get"
+                    continue
+                if role or letter in short_values:
+                    glued = arg[position + 1:]
+                    if role:
+                        apply_role(req, role, glued or nxt)
+                    consumed = not glued
+                    break
+            index += 2 if consumed else 1
+            continue
+        req.urls.append(arg)
+        index += 1
+
+
+def apply_role(req: HttpRequest, role: str, value: str | None) -> None:
+    value = value or ""
+    if role == "method":
+        req.method = "?" if UNRESOLVED.search(value) else value.strip("'\"").lower()
+    elif role == "url":
+        req.urls.append(value)
+    elif role in {"data", "json", "post"}:
+        (req.json if role == "json" else req.data).append(value)
+        req.implied = "post"
+    elif role == "form":
+        req.implied = "post"
+        name, sep, rest = value.partition("=")
+        if value.startswith(("@", "<")) or rest.startswith(("@", "<")) or "@" in name:
+            req.opaque = True  # name@file, name=@file, name=<file
+        else:
+            req.data.append(value)
+    elif role == "upload":
+        req.opaque = True
+        req.implied = "put" if req.implied == "get" else req.implied
+    elif role == "config":
+        req.config = True
+    elif role == "header":
+        req.headers.append(value)
+    elif role == "resource":
+        req.resource = value
+
+
+def http_request(statement: shell_parse.Statement, argv: list[str], ctx: Context) -> HttpRequest | None:
+    """The request a REST client sends, or None for any other program."""
+    program = statement.program
+    req = HttpRequest()
+    if program == "curl":
+        read_options(req, argv[1:], CURL_LONG, CURL_SHORT, short_values=CURL_VALUE_OPTIONS)
+        if req.implied == "post" and any(a == "-G" or a == "--get" for a in argv):
+            req.implied = "get"
+    elif program == "wget":
+        read_options(req, argv[1:], WGET_LONG, WGET_SHORT, short_values="".join(WGET_SHORT))
+    elif program in PS_REQUESTS:
+        read_options(req, argv[1:], PS_REQUEST, {}, case_fold=True, colon=True)
+        req.urls = req.urls[:1] if req.urls else []
+        if id(statement) in ctx.piped:
+            req.opaque = True  # -Body from the pipeline
+    elif program == "az":
+        words, start = az_command(argv)
+        if words[:1] == ["rest"]:
+            read_options(req, argv[start:], AZ_REST, AZ_REST_SHORT)
+        elif words[:2] == ["devops", "invoke"]:
+            read_options(req, argv[start:], AZ_INVOKE, AZ_INVOKE_SHORT)
+        else:
+            return None
+        req.urls = [u for u in req.urls if "://" in u or "_apis" in u.lower()]
+        if program == "az" and words[:1] == ["rest"]:
+            req.implied = "get"  # az rest sends GET unless --method says otherwise
+    else:
+        return None
+    if program in PS_REQUESTS:
+        # A hashtable body (`@ (block)`) and hashtable headers are statements of their own: read the command.
+        req.scan = any(d in {"@", "(block)"} for d in req.data)
+        if METHOD_OVERRIDE.search(ctx.command):
+            req.headers.append("x-http-method-override")
+    if req.implied == "put" and program != "curl":
+        req.implied = "post"  # only curl's upload implies PUT; -InFile and --post-file send a POST
+    hashtable = {"@", "(block)"} if program in PS_REQUESTS else set()
+    bodies = [d for d in req.data + req.json if d not in hashtable]
+    req.opaque = req.opaque or any(d.startswith("@") or UNRESOLVED.search(d) for d in bodies)
+    req.data = [d for d in req.data if d not in hashtable and not d.startswith("@")]
+    return req
+
+
+def route_variants(url: str, dialect: str) -> list[str]:
+    """The paths a URL may reach: percent- and backslash-decoded, dot segments resolved."""
+    variants = {url.replace("\\", "/")}
+    if dialect == "bash":
+        variants.add(re.sub(r"\\(.)", r"\1", url))  # an unquoted `\R` is `R`
+    paths = []
+    for variant in variants:
+        text = normalized(variant)
+        if "_apis" not in text:
+            continue
+        path = re.split(r"[?#]", text.partition("_apis")[2], maxsplit=1)[0]
+        paths.append(posixpath.normpath("/_apis" + path))
+    return paths
+
+
+def pull_request_targets(req: HttpRequest, dialect: str) -> tuple[list[str], bool]:
+    """(sub-paths under a pullRequests collection the request names, whether its target is unknown).
+
+    "" is the collection, "5" a pull request, "5/reviewers/me" a vote."""
+    if req.resource is not None:
+        resource = req.resource.lower()
+        if UNRESOLVED.search(resource):
+            return [], True
+        return INVOKE_PR_RESOURCES.get(resource, []), req.config
+    targets = []
+    for url in req.urls:
+        for path in route_variants(url, dialect):
+            match = PR_PATH.search(path)
+            if match:
+                targets.append(match.group(1) or "")
+    unknown = req.config or not req.urls or any(UNRESOLVED.search(u) for u in req.urls)
+    return targets, unknown
+
+
+def body_fields(req: HttpRequest, dialect: str, ctx: Context) -> dict[str, set[str]]:
+    """Pull request fields a request's body sets, by lower-cased name, with their values.
+
+    A JSON body is judged by its fields, so prose in a value is data. Any other body, and the
+    command text when the body is opaque, is read for `name=value` (and `name: value` outside
+    PowerShell, whose hashtables use `=`)."""
+    fields: dict[str, set[str]] = {}
+    texts = list(req.data)
+    if req.json:
+        texts.append("".join(req.json))  # curl concatenates --json fragments
+    if req.data and all(json_names(d) is None for d in req.data):
+        texts.append("&".join(req.data))  # curl joins -d values with &
+    unread = []
+    for text in texts:
+        parsed = json_names(text)
+        if parsed is None:
+            unread.append(text)
+            continue
+        for key, values in parsed.items():
+            fields.setdefault(key, set()).update(values)
+    if req.opaque or req.config or req.scan:
+        unread.append(ctx.command)  # an assignment elsewhere may build the body
+    separator = "=" if dialect == "powershell" else "[:=]"
+    pattern = re.compile(
+        rf"(?:^|[^\w-])['\"]?({'|'.join(PR_FIELDS)})['\"]?\s*{separator}\s*['\"]?([\w.-]*)"
+    )
+    for text in unread:
+        for name, value in pattern.findall(normalized(text)):
+            fields.setdefault(name, set()).add(value)
+    return fields
+
+
+def json_names(text: str) -> dict[str, set[str]] | None:
+    """Every key anywhere in a JSON document, lower-cased, with its scalar values; None when not JSON."""
+    fields: dict[str, set[str]] = {}
 
     def walk(node: object) -> None:
         if isinstance(node, dict):
             for key, value in node.items():
-                keys.add(str(key).lower())
-                if str(key).lower() == "status":
+                values = fields.setdefault(str(key).lower(), set())
+                if not isinstance(value, (dict, list)):
                     values.add(str(value).lower())
                 walk(value)
         elif isinstance(node, list):
@@ -1326,147 +1599,88 @@ def json_names(text: str) -> tuple[set[str], set[str]] | None:
         walk(json.loads(text))
     except ValueError:
         return None
-    return keys, values
+    return fields
 
 
-def request_bodies(statement: shell_parse.Statement, argv: list[str], piped: bool) -> tuple[list[str], bool]:
-    """(literal bodies a request sends, whether it may also send one the guard cannot read)."""
-    program = statement.program
-    bodies: list[str] = []
-    opaque = piped and program in PS_REQUESTS  # Invoke-RestMethod takes -Body from the pipeline
-    index = 1
-    while index < len(argv):
-        arg = argv[index]
-        following = argv[index + 1] if index + 1 < len(argv) else ""
-        name, glued, value = arg.partition("=") if arg.startswith("--") else (arg, "", "")
-        lowered = name.lower()
-        if program == "curl" and arg.startswith("--"):
-            if lowered in CURL_BODY_LONG:
-                bodies.append(value if glued else following)
-            opaque = opaque or lowered in CURL_OPAQUE_LONG
-        elif program == "curl" and arg.startswith("-") and len(arg) > 1:
-            for position, letter in enumerate(arg[1:], start=1):
-                if letter in CURL_VALUE_OPTIONS:
-                    rest = arg[position + 1:]
-                    if letter in "dF":
-                        bodies.append(rest or following)
-                    opaque = opaque or letter in "TK"
-                    break
-        elif program == "wget":
-            if lowered in WGET_BODY:
-                bodies.append(value if glued else following)
-            opaque = opaque or lowered in WGET_OPAQUE
-        elif program == "az":
-            if lowered in {"--body", "-b"}:
-                bodies.append(value if glued else following)
-            opaque = opaque or lowered == "--in-file"
-        elif program in PS_REQUESTS and arg.startswith("-"):
-            ps_name, colon, ps_value = arg.partition(":")
-            ps_name = ps_name.lower()
-            if len(ps_name) >= 3 and "-body".startswith(ps_name):
-                bodies.append(ps_value if colon else following)
-            opaque = opaque or (len(ps_name) >= 4 and "-infile".startswith(ps_name)) or (len(ps_name) >= 3 and "-form".startswith(ps_name))
-        index += 1
-    # A file (`@body.json`, `@-`), an unresolved variable or an escape is a body the guard cannot read.
-    opaque = opaque or any(b.startswith("@") or re.search(r"[$`]", b) for b in bodies)
-    return [b for b in bodies if not b.startswith("@")], opaque
+def normalized(text: str) -> str:
+    """Lower-cased, percent- and JSON-unescaped, so `%2F`, `\\u0073tatus` and case hide nothing."""
+    text = unquote(text).replace("\\\\", "\\")
+    text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), text)
+    return text.lower()
 
 
-def pull_request_targets(statement: shell_parse.Statement, argv: list[str]) -> tuple[list[str], bool]:
-    """(sub-paths under a pullRequests collection a request names, whether its target is unknown).
+BYPASS_REASON = (
+    "Bypassing branch policy is never part of the finish workflow. Leave the pull request for its "
+    "policies and required checks, or report the failing policy as the blocker."
+)
+VOTE_REASON = (
+    "This votes on a pull request through the REST API. Vote with `az repos pr set-vote`, "
+    "where the finish workflow and branch policies apply."
+)
+COMPLETION_REASON = (
+    "This completes a pull request, or sets it to complete, through the REST API. Use "
+    "`az repos pr update --auto-complete` or `--status completed`, where the finish workflow and "
+    "branch policies apply."
+)
 
-    "" is the collection, "5" a pull request, "5/reviewers/me" a vote."""
-    if statement.program == "az" and [a.lower() for a in argv[1:3]] == ["devops", "invoke"]:
-        resource = _option(argv, "--resource").lower()
-        if re.search(r"[$%`]", resource):
-            return [], True
-        return ([INVOKE_PR_RESOURCES[resource]] if resource in INVOKE_PR_RESOURCES else []), False
-    targets = []
-    for arg in argv[1:]:
-        text = normalized(arg)
-        if "_apis" not in text:
-            continue
-        path = re.split(r"[?#]", text.partition("_apis")[2], maxsplit=1)[0]
-        path = posixpath.normpath("/_apis" + path)
-        match = PR_PATH.search(path)
-        if match:
-            targets.append(match.group(1) or "")
-    unknown = not any("_apis" in normalized(a) for a in argv[1:]) and any(re.search(r"[$%`]", a) for a in argv[1:])
-    return targets, unknown
+
+def cli_policy_bypass(argv: list[str]) -> bool:
+    words, start = az_command(argv)
+    if words[:2] != ["repos", "pr"]:
+        return False
+    # az accepts an unambiguous prefix of an option name; only --bypass-policy* starts `--b`.
+    names = (a.partition("=")[0].lower() for a in argv[start:])
+    return any(len(n) >= 3 and "--bypass-policy-reason".startswith(n) for n in names)
 
 
 def pull_request_write(statement: shell_parse.Statement, ctx: Context) -> tuple[str, str] | None:
     """REST votes and completion, and policy bypass by any route: ("deny"|"ask", reason) or None."""
-    program = statement.program
     argv = [ctx.expand(a) for a in statement.argv]
-    words = [a.lower() for a in argv[1:4]]
-    if program == "az" and words[:2] == ["repos", "pr"]:
-        for arg in argv[3:]:
-            name = arg.partition("=")[0].lower()
-            # az accepts an unambiguous prefix of an option name; only --bypass-policy* starts `--b`.
-            if len(name) >= 3 and "--bypass-policy-reason".startswith(name):
-                return "deny", (
-                    "Bypassing branch policy is never part of the finish workflow. Leave the pull request "
-                    "for policies and required checks to pass, or report the failing policy as the blocker."
-                )
+    if statement.program == "az" and cli_policy_bypass(argv):
+        return "deny", BYPASS_REASON
+    # A narrow creation (#276) has its prose set aside: it carries no other field by construction.
+    if rest_creation(statement, ctx) and not ctx.redefines:
         return None
-    rest = program in PS_REQUESTS | {"curl", "wget"} or (program == "az" and words[:1] == ["rest"]) or (
-        program == "az" and words[:2] == ["devops", "invoke"]
-    )
-    if not rest:
+    req = http_request(statement, argv, ctx)
+    if req is None:
         return None
-    text = " ".join(judged_argv(statement, ctx))
-    method = request_method(statement, text)
-    if method not in WRITE_METHODS:
+    verb = "?" if req.config else req.verb
+    if verb not in WRITE_METHODS | {"?"}:
         return None
-    targets, unknown = pull_request_targets(statement, argv)
-    bodies, opaque = request_bodies(statement, argv, id(statement) in ctx.piped)
-    # A narrow creation's prose is set aside; any other request is judged on all of its text.
-    seen = normalized(text)
-    keys: set[str] = set()
-    statuses: set[str] = set()
-    if text == " ".join(argv):
-        for body in bodies:
-            names = json_names(body)
-            if names:
-                # A JSON body is judged by its fields, so prose in a value (`"content": "status: completed"`) is data.
-                keys |= names[0]
-                statuses |= names[1]
-                seen = seen.replace(normalized(body), " ")
+    targets, unknown = pull_request_targets(req, statement.dialect)
     if not targets and not unknown:
         return None
-    if opaque:
-        seen += " " + normalized(ctx.command)  # an assignment elsewhere may build the body
-    if BYPASS_KEYS & keys or BYPASS_TEXT.search(seen):
-        return "deny", (
-            "This request bypasses branch policy on a pull request. Bypassing policy is never part of the "
-            "finish workflow; leave the pull request for its policies, or report the failing policy as the blocker."
-        )
-    votes = any("/reviewers" in f"/{t}" for t in targets)
-    vote_body = "vote" in keys or bool(VOTE_TEXT.search(seen))
-    vote_reason = (
-        "This votes on a pull request through the REST API. Vote with `az repos pr set-vote`, "
-        "where the finish workflow and branch policies apply."
+    fields = body_fields(req, statement.dialect, ctx)
+    if fields.keys() & {"bypasspolicy", "bypassreason"}:
+        return "deny", f"This request bypasses branch policy on a pull request. {BYPASS_REASON}"
+    reviewers = any("/reviewers" in f"/{t}" for t in targets)
+    sets_vote = "vote" in fields and fields["vote"] != {"0"}  # 0 is "no vote"
+    completes = bool(fields.keys() & {"completionoptions", "autocompletesetby"}) or bool(
+        fields.get("status", set()) & {"completed", "3"}
     )
-    if votes and (method in {"put", "patch"} or vote_body):
-        return "deny", vote_reason
-    pr_fields = COMPLETION_KEYS & keys or re.search(r"completionoptions|autocompletesetby", seen)
-    status = statuses & {"completed", "3"} or COMPLETION_TEXT.search(seen)
-    completion_reason = (
-        "This completes a pull request, or sets it to complete, through the REST API. Use "
-        "`az repos pr update --auto-complete` or `--status completed`, where the finish workflow and "
-        "branch policies apply."
-    )
-    if pr_fields or (status and targets):
-        return "deny", completion_reason
-    if unknown and (status or (vote_body and method in {"put", "patch"})):
-        # `status` and `vote` are not unique to pull requests; the target decides, and it is unresolved.
-        return "ask", f"This request's URL is unresolved and its body may vote on or complete a pull request. {vote_reason if vote_body else completion_reason}"
-    item = any(re.fullmatch(r"[^/]+/?", t) for t in targets)
-    if item and opaque and method in {"patch", "put"}:
+    may_put = verb in {"put", "patch", "?"}
+    unread = req.opaque or req.config or verb == "?"
+    if targets:
+        if (reviewers and may_put) or sets_vote:
+            return "deny", VOTE_REASON
+        if completes:
+            return "deny", COMPLETION_REASON
+        item = any(re.fullmatch(r"[^/]+/?", t) for t in targets)
+        # A creation (POST to the collection) can arm completion as well as an update can.
+        creates = "" in targets and verb in {"post", "?"}
+        if unread and (reviewers or creates or (item and may_put)):
+            return "ask", (
+                "This writes to a pull request through the REST API, and the guard cannot read its body "
+                "or method. REST votes, completion and policy bypass are not allowed; confirm it does none of them."
+            )
+        return None
+    # The target is unresolved: it may be any pull request.
+    if fields.keys() & {"completionoptions", "autocompletesetby"}:
+        return "deny", COMPLETION_REASON
+    if completes or (sets_vote and may_put) or (unread and may_put):
         return "ask", (
-            "This updates a pull request through the REST API with a body the guard cannot read. REST "
-            "votes, completion and policy bypass are not allowed; confirm the body does none of them."
+            "This request's URL is unresolved, and it may vote on or complete a pull request. "
+            "REST votes and completion are not allowed; use `az repos pr`. Confirm what it sends where."
         )
     return None
 
