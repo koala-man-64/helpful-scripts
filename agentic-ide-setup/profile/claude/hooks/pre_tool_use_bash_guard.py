@@ -3,11 +3,11 @@
 The command is parsed into the statements it runs (shell_parse), and every rule
 reads a statement's program and arguments, never quoted data or heredoc bodies.
 
-- Tier 1 denies, whoever asks: discarding work, force pushes, pushes to a
-  protected branch, recursive deletes or moves outside the repository,
-  printing secrets into the transcript, approving production gates, voting on
-  or completing an Azure DevOps pull request through the REST API, and
-  bypassing branch policy by any route.
+- Tier 1 denies, whoever asks: discarding work, force pushes (--force-with-lease
+  included), pushes to a protected branch, recursive deletes or moves outside
+  the repository, printing secrets into the transcript, approving production
+  gates, voting on or completing an Azure DevOps pull request through the REST
+  API, and bypassing branch policy by any route.
 - Tier 2 asks: force-deleting an unmerged branch, deletes whose targets are
   unresolved or many, Azure resource writes outside boards/repos/pipelines/
   devops, `checkout <rev> -- <paths>`, and destructive-looking commands that
@@ -666,21 +666,54 @@ def check_git(args: list[str], sub: str, repo: Path) -> tuple[str, str] | None:
         unmerged = [r for r in refs if branch_exists(repo, r) and not squash_merged(repo, r)]
         if unmerged:
             return "ask", f"Deleting {', '.join(unmerged)} with update-ref would delete unmerged work. Approve only if it is abandoned."
-    if sub == "push":
+    if sub in {"push", "send-pack"}:
         return check_push(args, letters, repo)
     return None
 
 
+FORCE_PUSH_REASON = (
+    "Force pushes are blocked, --force-with-lease and --force-if-includes included, so an approved pull "
+    "request always covers exactly what merges. Once a branch is pushed, merge the base branch into it instead of rebasing."
+)
+
+
+def long_option(names: list[str], full: str, minimum: int = 3) -> bool:
+    """Whether git reads one of `names` as `full`: git accepts any unambiguous prefix of a long option.
+    An ambiguous prefix counts too; git refuses it, so judging it as `full` costs nothing."""
+    return any(len(n) >= minimum and full.startswith(n) for n in names)
+
+
+def configured_force(repo: Path, remote: str | None) -> bool:
+    """Whether existing configuration makes a plain push to `remote` (None: whichever git picks) force."""
+    code, output = run_git(["config", "--includes", "--get-regexp", r"^remote\..*\.(push|mirror)$"], repo)
+    if code != 0:
+        return False
+    for line in output.splitlines():
+        key, _, value = line.partition(" ")
+        name = key.lower()[len("remote."):].rsplit(".", 1)[0]
+        if forcing_config(key, value or "true") and (remote is None or name == remote.lower()):
+            return True
+    return False
+
+
 def check_push(args: list[str], letters: set[str], repo: Path) -> tuple[str, str] | None:
-    if "--mirror" in args:
+    names = [a.partition("=")[0] for a in args if a.startswith("--")]
+    if long_option(names, "--mirror"):
         return "deny", "git push --mirror is blocked: it overwrites and deletes every remote ref, protected branches included."
-    if "f" in letters or "--force" in args:
-        return "deny", "git push --force is blocked. Use --force-with-lease on your own task branch."
-    refspecs = operands(args, PUSH_OPTIONS_WITH_VALUE)[1:]
+    # Every long option that forces starts `--force`.
+    if "f" in letters or any(n.startswith("--force") for n in names):
+        return "deny", FORCE_PUSH_REASON
+    if long_option(names, "--prune"):
+        return "deny", "git push --prune is blocked: it deletes every remote branch that has no local counterpart."
+    found = operands(args, PUSH_OPTIONS_WITH_VALUE)
+    refspecs = found[1:]
     if any(r.startswith("+") for r in refspecs):
-        return "deny", "A +refspec force push is blocked. Use --force-with-lease on your own task branch."
-    if "--all" in args or "--branches" in args:
+        return "deny", FORCE_PUSH_REASON
+    if long_option(names, "--all") or long_option(names, "--branches"):
         return "deny", "git push --all is blocked: it pushes every local branch, protected branches included."
+    # A `+` push refspec or mirror mode already configured makes a plain push force.
+    if configured_force(repo, found[0] if found else None):
+        return "deny", f"This remote is configured to force (a `+` push refspec or mirror mode). {FORCE_PUSH_REASON}"
     for refspec in refspecs:
         target = refspec.split(":", 1)[1] if ":" in refspec else refspec
         target = target.removeprefix("refs/heads/")
@@ -693,7 +726,51 @@ def check_push(args: list[str], letters: set[str], repo: Path) -> tuple[str, str
         # A bare push sends the current branch to its upstream: check both names.
         if current_branch(repo).lower() in PROTECTED_BRANCHES or upstream_branch(repo).lower() in PROTECTED_BRANCHES:
             return "deny", "This push would update a protected branch (current branch or its upstream). Push a task branch instead."
+    deleting = "d" in letters or long_option(names, "--delete", 4)
+    deleted = [r.removeprefix("refs/heads/") for r in refspecs] if deleting else [
+        r[1:].removeprefix("refs/heads/") for r in refspecs if r.startswith(":")
+    ]
+    # A task's own branch is the one checked out here, or one already merged into the base branch.
+    foreign = [
+        b for b in deleted
+        if b != current_branch(repo) and not (branch_exists(repo, b) and squash_merged(repo, b))
+    ]
+    if foreign:
+        return "ask", (
+            f"This deletes the remote branch {foreign[0]}, which is neither checked out here nor merged into the "
+            "base branch. It may be another agent's work; confirm it is this task's branch."
+        )
     return None
+
+
+def forcing_config(key: str, value: str) -> bool:
+    """Configuration that makes a plain `git push` force: a `+` push refspec, or mirror mode."""
+    key = key.lower()
+    if re.fullmatch(r"remote\..+\.push", key):
+        return value.strip().startswith("+")
+    if re.fullmatch(r"remote\..+\.mirror", key):
+        return value.strip().lower() not in {"false", "no", "off", "0", ""}
+    return False
+
+
+def push_config_force(argv: list[str], sub: str, args: list[str]) -> bool:
+    """`git -c remote.x.push=+...`, or `git config remote.x.push +...` for later pushes."""
+    for option, setting in zip(argv[1:], argv[2:]):
+        if setting == sub:
+            break
+        key, sep, value = setting.partition("=")
+        # `-c key` with no value is boolean true.
+        if option == "-c" and forcing_config(key, value if sep else "true"):
+            return True
+    if sub == "remote" and operands(args)[:1] == ["add"]:
+        # `git remote add --mirror[=push]` writes remote.<name>.mirror; a fetch mirror pushes nothing.
+        modes = [a.partition("=")[2] for a in args if a.startswith("--") and long_option([a.partition("=")[0]], "--mirror", 4)]
+        return any(mode != "fetch" for mode in modes)
+    if sub == "config":
+        words = operands(args, CONFIG_VALUE_OPTIONS)
+        words = words[1:] if words[:1] in (["set"], ["--add"]) else words
+        return len(words) >= 2 and forcing_config(words[0], words[1])
+    return False
 
 
 # --- files --------------------------------------------------------------------
@@ -1967,6 +2044,8 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
             if repo is None and needs_repo_state(sub, args):
                 asks.append("This git command depends on which repository it runs in, and that is unknown after the preceding cd. Confirm the branch it touches.")
                 continue
+            if push_config_force(statement.argv, sub, args):
+                return "deny", FORCE_PUSH_REASON
             verdict = check_git(args, sub, repo or ctx.session_cwd)
             if verdict and verdict[0] == "deny":
                 return verdict

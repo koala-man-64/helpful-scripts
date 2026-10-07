@@ -16,8 +16,8 @@ description: Git safety for code-changing work. Preflight before the first edit,
 ## While working
 
 - Keep commits small and task-scoped, with the work item id when there is one.
-- Sync with `git fetch --all --prune` plus an explicit `git rebase origin/<base>`. Never use plain `git pull`.
-- Use `--force-with-lease` only on your own unmerged branch after a rebase. Never use `--force`.
+- Sync with `git fetch --all --prune`. Rebase onto `origin/<base>` only commits that were never pushed; once a branch is pushed, merge `origin/<base>` into it instead. Never use plain `git pull`.
+- Never force-push, `--force-with-lease` and `--force-if-includes` included, so an approved PR always covers exactly what merges. The shell guard denies it.
 - Rerun the relevant tests after the final sync, before pushing.
 - If a conflict would need guesses about code you don't own, stop and report it.
 

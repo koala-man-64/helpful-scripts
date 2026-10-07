@@ -115,10 +115,10 @@ class AuditCaseTests(GuardTestCase):
             ("Bash", "git push --all origin", "deny"),
             ("Bash", "git push --mirror origin", "deny"),
             ("Bash", "git push -uf origin my-branch", "deny"),
-            ("Bash", "git push --force-with-lease origin my-branch", "allow"),
-            ("Bash", "git push --force-if-includes --force-with-lease origin my-branch", "allow"),
+            ("Bash", "git push --force-with-lease origin my-branch", "deny"),
+            ("Bash", "git push --force-if-includes --force-with-lease origin my-branch", "deny"),
             ("Bash", "git push -u origin claude/topic", "allow"),
-            ("Bash", "git push origin --delete claude/topic", "allow"),
+            ("Bash", "git push origin --delete claude/topic", "ask"),  # not checked out here, not merged
         ])
 
     def test_discarding_work(self) -> None:
@@ -382,7 +382,102 @@ class ReplayRegressionTests(GuardTestCase):
     def test_redirections_are_not_git_arguments(self) -> None:
         repo = make_repo(self.base / "redirect")
         git(repo, "switch", "-q", "-c", "claude/topic")
-        self.assertEqual(self.decide("git push --force-with-lease 2>&1", repo=repo), "allow")
+        self.assertEqual(self.decide("git push -u origin claude/topic 2>&1", repo=repo), "allow")
+        self.assertEqual(self.decide("git push --force-with-lease 2>&1", repo=repo), "deny")
+
+
+class NoForcePushTests(GuardTestCase):
+    """Rudy, 2026-10-07: never force-push, --force-with-lease included; merge the base branch in instead."""
+
+    def test_every_force_form_is_denied(self) -> None:
+        self.assertDecisions([("Bash", case, "deny") for case in [
+            "git push --force origin claude/topic",
+            "git push -f origin claude/topic",
+            "git push -uf origin claude/topic",
+            "git push --force-with-lease",
+            "git push --force-with-lease origin claude/topic",
+            "git push --force-with-lease=claude/topic origin claude/topic",
+            "git push --force-with-lease=claude/topic:abc123 origin claude/topic",
+            "git push --force-if-includes origin claude/topic",
+            "git push --force-w origin claude/topic",  # git accepts an unambiguous prefix
+            "git push origin +claude/topic",
+            "git push origin +HEAD:refs/heads/claude/topic",
+            "git push --mirror origin",
+            "git push --prune origin",
+            "git push --pru origin 'refs/heads/*:refs/heads/*'",
+            f"git -C {self.repo} push --force-with-lease origin claude/topic",
+            "git -c remote.origin.push=+refs/heads/*:refs/heads/* push origin",
+            "git -c remote.origin.mirror=true push origin",
+            "git config remote.origin.push +HEAD:refs/heads/claude/topic",
+            "git config --add remote.origin.push '+refs/heads/*:refs/heads/*'",
+            "git config remote.origin.mirror true",
+            # Aliases and indirection the parser already reads.
+            "git -c alias.fp='push --force-with-lease' fp origin claude/topic",
+            "git -c alias.p='!git push --force-with-lease' p",
+            "G=git; $G push --force-with-lease origin claude/topic",
+            "sh -c 'git push --force-with-lease origin claude/topic'",
+        ]] + [
+            ("PowerShell", "git push --force-with-lease origin claude/topic", "deny"),
+            ("PowerShell", "& git push --force-if-includes origin claude/topic", "deny"),
+        ])
+
+    def test_abbreviated_and_valueless_forms_are_denied(self) -> None:
+        """From the independent review: git reads unambiguous prefixes, and `-c key` alone is true."""
+        self.assertDecisions([("Bash", case, "deny") for case in [
+            "git push --mirro origin",
+            "git push --mi origin",
+            "git push --al origin",
+            "git push --bra origin",
+            "git push --prun origin",
+            "git -c remote.origin.mirror push origin",
+            "git -c Remote.Origin.Push=+HEAD:refs/heads/x push origin",
+            "git remote add --mirror=push m https://example.com/r.git",
+            "git remote add --mirror m https://example.com/r.git",
+            "git send-pack --force origin refs/heads/x",
+            "git send-pack origin +refs/heads/x",
+        ]] + [
+            ("Bash", "git remote add --mirror=fetch m https://example.com/r.git", "allow"),
+        ])
+
+    def test_configuration_already_in_place_is_read(self) -> None:
+        repo = make_repo(self.base / "configured-force")
+        git(repo, "switch", "-q", "-c", "claude/topic")
+        self.assertEqual(self.decide("git push -u origin claude/topic", repo=repo), "allow")
+        git(repo, "config", "remote.origin.push", "+refs/heads/*:refs/heads/*")
+        for command in ("git push", "git push origin", "git push origin HEAD", "git push -u origin claude/topic"):
+            with self.subTest(command=command):
+                self.assertEqual(self.decide(command, repo=repo), "deny")
+        git(repo, "config", "--unset", "remote.origin.push")
+        git(repo, "remote", "add", "m", str(repo))
+        git(repo, "config", "remote.m.mirror", "true")
+        self.assertEqual(self.decide("git push m", repo=repo), "deny")
+        self.assertEqual(self.decide("git push origin claude/topic", repo=repo), "allow")  # another remote
+
+    def test_a_configured_alias_that_forces_is_denied(self) -> None:
+        repo = make_repo(self.base / "lease-alias")
+        git(repo, "config", "alias.pl", "push --force-with-lease")
+        self.assertEqual(self.decide("git pl origin claude/topic", repo=repo), "deny")
+
+    def test_plain_pushes_and_own_branch_deletes_are_allowed(self) -> None:
+        repo = make_repo(self.base / "plain-push")
+        git(repo, "switch", "-q", "-c", "claude/topic")
+        self.assertEqual(self.decide("git push -u origin claude/topic", repo=repo), "allow")
+        self.assertEqual(self.decide("git push", repo=repo), "allow")
+        self.assertEqual(self.decide("git push origin HEAD", repo=repo), "allow")
+        self.assertEqual(self.decide("git push --no-force-with-lease origin claude/topic", repo=repo), "allow")
+        self.assertEqual(self.decide("git push origin --delete claude/topic", repo=repo), "allow")  # checked out here
+        self.assertEqual(self.decide("git push origin :claude/topic", repo=repo), "allow")
+        self.assertEqual(self.decide("git config remote.origin.push refs/heads/claude/topic", repo=repo), "allow")
+        self.assertEqual(self.decide("git -c remote.origin.mirror=false push origin claude/topic", repo=repo), "allow")
+
+    def test_deleting_other_branches(self) -> None:
+        repo = make_repo(self.base / "delete-push")
+        git(repo, "branch", "claude/merged")  # at main: merged
+        self.assertEqual(self.decide("git push origin --delete claude/merged", repo=repo), "allow")
+        self.assertEqual(self.decide("git push origin -d agent/other-task", repo=repo), "ask")
+        self.assertEqual(self.decide("git push origin :agent/other-task", repo=repo), "ask")
+        self.assertEqual(self.decide("git push origin --delete main", repo=repo), "deny")
+        self.assertEqual(self.decide("git push origin :main", repo=repo), "deny")
 
 
 class AdversarialReviewTests(GuardTestCase):
