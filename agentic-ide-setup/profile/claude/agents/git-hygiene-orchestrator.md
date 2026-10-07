@@ -2,6 +2,7 @@
 name: git-hygiene-orchestrator
 description: Use to audit and clean git branches, remote refs, and worktrees (stale or merged branches, dirty work). Finishes a task (validate, commit, push, PR, merge if gates allow) only when the owner explicitly delegates that finish.
 model: sonnet
+effort: low
 maxTurns: 60
 disallowedTools: Agent
 ---

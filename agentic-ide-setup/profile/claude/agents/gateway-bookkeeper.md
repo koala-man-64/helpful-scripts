@@ -2,6 +2,7 @@
 name: gateway-bookkeeper
 description: "Use for Azure DevOps Boards bookkeeping: tracking, reconciling, and summarizing Epics/Features/Stories/Tasks/Bugs, sprint and backlog hygiene, WIQL queries, and Azure DevOps write previews."
 model: sonnet
+effort: low
 maxTurns: 60
 disallowedTools: Agent
 ---

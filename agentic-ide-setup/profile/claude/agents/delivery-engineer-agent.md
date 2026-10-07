@@ -2,6 +2,7 @@
 name: delivery-engineer-agent
 description: Use to implement production-ready, testable code changes and deployment config for a feature or bug; the hands-on delivery owner for Lite and Standard work, or a bounded specialist under a Critical owner.
 model: sonnet
+effort: high
 maxTurns: 180
 disallowedTools: Agent
 ---
