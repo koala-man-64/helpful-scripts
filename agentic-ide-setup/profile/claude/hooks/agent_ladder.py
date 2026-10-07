@@ -41,6 +41,32 @@ TIER_MODEL = {
     "opus": "opus",
 }
 
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+# Capability and cost come from a model *and* its effort, so routing scores the
+# pair. Artificial Analysis Intelligence Index and cost per task (USD), read
+# from its 2026-10 chart of the "with fallback" runs. Haiku is not on the chart:
+# it stays unscored and ranks below every scored pair.
+PROFILE_SCORES = {
+    ("opus", "max"): 57.6,
+    ("opus", "xhigh"): 56.0,
+    ("opus", "high"): 53.7,
+    ("opus", "medium"): 51.3,
+    ("opus", "low"): 42.3,
+    ("sonnet", "max"): 56.0,
+    ("sonnet", "xhigh"): 52.0,
+    ("sonnet", "high"): 46.8,
+    ("sonnet", "medium"): 40.9,
+    ("sonnet", "low"): 35.9,
+}
+
+# Pairs another pair beats on both score and cost, with the one to use instead.
+BEATEN_PROFILES = {
+    ("sonnet", "medium"): ("opus", "low"),  # 40.9 at $0.59 vs 42.3 at $0.55
+    ("sonnet", "xhigh"): ("opus", "high"),  # 52.0 at $2.80 vs 53.7 at $1.80
+    ("sonnet", "max"): ("opus", "xhigh"),  # 56.0 at $7.60 vs 56.0 at $3.50
+}
+
 LANE_ORDER = ("lite", "standard", "critical")
 
 LANE_SHAPE = {
@@ -211,21 +237,22 @@ def model_family(model_id: Any) -> str:
     return ""
 
 
-def parent_model(transcript_path: Any, max_lines: int = 400) -> str:
-    """Tier of the session model that issued the spawn, or ``""`` when unknown.
+def session_profile(transcript_path: Any, max_lines: int = 400) -> tuple[str, str]:
+    """``(tier, effort)`` of the session that issued the spawn; ``""`` for either when unknown.
 
-    Reads the newest main-thread assistant record. Unknown is a real outcome
-    (no transcript, synthetic records) and callers must treat it as the most
-    restrictive case rather than guessing.
+    Reads the newest main-thread assistant record, whose top-level ``effort``
+    is the reasoning effort that request ran at. Unknown is a real outcome (no
+    transcript, synthetic records, an older client) and callers must treat it
+    as the most restrictive case rather than guessing.
     """
     if not isinstance(transcript_path, str) or not transcript_path:
-        return ""
+        return "", ""
     try:
         lines = Path(transcript_path).read_text(
             encoding="utf-8", errors="replace"
         ).splitlines()[-max_lines:]
     except OSError:
-        return ""
+        return "", ""
     for line in reversed(lines):
         if '"assistant"' not in line:
             continue
@@ -238,8 +265,61 @@ def parent_model(transcript_path: Any, max_lines: int = 400) -> str:
         model = (record.get("message") or {}).get("model")
         if not isinstance(model, str) or model.startswith("<"):
             continue
-        return model_family(model)
-    return ""
+        effort = record.get("effort")
+        return model_family(model), effort if effort in EFFORT_LEVELS else ""
+    return "", ""
+
+
+def parent_model(transcript_path: Any, max_lines: int = 400) -> str:
+    """Tier of the session model that issued the spawn, or ``""`` when unknown."""
+    return session_profile(transcript_path, max_lines)[0]
+
+
+def profile_score(tier: str, effort: str) -> float | None:
+    """Index score of ``tier`` at ``effort``; None when the pair is not scored.
+
+    An unknown effort scores as the model's strongest charted effort, the most
+    restrictive reading when that score must stay below a parent's.
+    """
+    if effort:
+        return PROFILE_SCORES.get((tier, effort))
+    scores = [score for (model, _), score in PROFILE_SCORES.items() if model == tier]
+    return max(scores) if scores else None
+
+
+def payload_effort(payload: dict[str, Any]) -> str:
+    """The session's current effort from the hook payload (``effort.level``), or ``""``."""
+    effort = payload.get("effort")
+    level = effort.get("level") if isinstance(effort, dict) else None
+    return level if level in EFFORT_LEVELS else ""
+
+
+def child_effort(
+    subagent_type: str,
+    directories: list[Path],
+    parent_effort: str,
+    environment_effort: str = "",
+) -> tuple[str, str]:
+    """``(effort, source)`` a spawned child runs at.
+
+    The Agent tool takes no effort. ``CLAUDE_CODE_EFFORT_LEVEL`` overrides
+    everything; otherwise a child runs at its definition's ``effort``
+    frontmatter, or inherits the session's when the definition sets none
+    (every built-in agent does). Source is ``environment``, ``definition``,
+    ``inherited``, or ``unknown`` when inheriting an unknown session effort.
+    """
+    environment_effort = environment_effort.strip().lower()
+    if environment_effort in EFFORT_LEVELS:
+        return environment_effort, "environment"
+    wanted = subagent_type.lower()
+    for name, fields in _definitions(directories).items():
+        if name.lower() != wanted or fields is None:
+            continue
+        effort = str(fields.get("effort") or "").lower()
+        if effort in EFFORT_LEVELS:
+            return effort, "definition"
+        break
+    return (parent_effort, "inherited") if parent_effort else ("", "unknown")
 
 
 def _strip_comment(text: str) -> str:
@@ -368,17 +448,39 @@ def _nonempty_strings(value: Any) -> list[str]:
     return [item.strip() for item in value if isinstance(item, str) and item.strip()]
 
 
+def beaten_failure(tier: str, effort: str) -> tuple[str, str] | None:
+    """Refuse a model and effort pair another pair beats on both score and cost.
+
+    An unknown effort is not refused here: nothing proves the child lands on a
+    beaten pair, and the ranking rule already reads unknown as the strongest.
+    """
+    better = BEATEN_PROFILES.get((tier, effort))
+    if not better:
+        return None
+    return (
+        "LANE_BEATEN_PROFILE",
+        "'{0}' at {1} effort is beaten on both score and cost by '{2}' at {3} "
+        "effort. The child's effort comes from its agent definition's `effort` "
+        "frontmatter, or the session's effort when the definition sets none. Pick "
+        "tier '{2}', or an agent whose definition sets an effort that is not beaten "
+        "(Sonnet runs only at low or high).".format(tier, effort, *better),
+    )
+
+
 def validate(
     contract: dict[str, Any],
     subagent_type: str,
     explicit_model: str,
     parent_tier: str,
     read_only: frozenset[str] = READ_ONLY_AGENTS,
+    effort: str = "",
 ) -> tuple[str, str] | None:
     """Return ``(reason_code, message)`` for the first failure, else ``None``.
 
     ``parent_tier`` is the parent's tier name, or ``""`` when unknown.
     ``read_only`` names the agents that cannot write (see ``read_only_agents``).
+    ``effort`` is the effort the child will run at (see ``child_effort``), or
+    ``""`` when unknown.
     """
     lane = contract.get("lane")
     if not isinstance(lane, str) or lane not in LANE_ORDER:
@@ -413,6 +515,10 @@ def validate(
                 lane, ", ".join(LANE_CHILD_TIERS[lane])
             ),
         )
+
+    beaten = beaten_failure(tier, effort)
+    if beaten:
+        return beaten
 
     if not _nonempty_strings(contract.get("scope")):
         return (

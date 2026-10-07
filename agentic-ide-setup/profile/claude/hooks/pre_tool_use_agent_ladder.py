@@ -18,6 +18,7 @@ permission authority it should not hold.
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -33,10 +34,12 @@ from agent_ladder import (
     TIER_MODEL,
     agent_directories,
     canonical_origin,
+    child_effort,
     main_thread_only_agents,
-    parent_model,
+    payload_effort,
     parse_envelope,
     read_only_agents,
+    session_profile,
     strip_envelope,
     unreadable_agents,
     validate,
@@ -221,8 +224,16 @@ def main() -> int:
             "parse on its own, before any prose.",
         )
 
-    parent_tier = parent_model(payload.get("transcript_path"))
-    failure = validate(contract, subagent_type, explicit_model, parent_tier, read_only_agents(directories))
+    parent_tier, transcript_effort = session_profile(payload.get("transcript_path"))
+    # The payload carries the effort in force now; the transcript holds the
+    # effort of the last finished request, which a mid-session change outdates.
+    parent_effort = payload_effort(payload) or transcript_effort
+    effort, effort_source = child_effort(
+        subagent_type, directories, parent_effort, os.environ.get("CLAUDE_CODE_EFFORT_LEVEL", "")
+    )
+    failure = validate(
+        contract, subagent_type, explicit_model, parent_tier, read_only_agents(directories), effort
+    )
     if failure:
         return reject(origin, str(contract.get("tier") or ""), *failure)
 
@@ -247,6 +258,9 @@ def main() -> int:
             "tier": tier,
             "model": model,
             "parent_tier": parent_tier or "unknown",
+            "parent_effort": parent_effort or "unknown",
+            "effort": effort or "unknown",
+            "effort_source": effort_source,
             "selection_source": "explicit_model" if explicit_model else "contract_tier",
             "subagent_type": subagent_type,
             "reason_code": "LANE_OK",

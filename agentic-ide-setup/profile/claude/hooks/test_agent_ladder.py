@@ -76,13 +76,14 @@ class LadderTestCase(unittest.TestCase):
     def set_origin(self, url: str) -> None:
         gate.run_git = lambda args, cwd=None: (0, url)
 
-    def transcript(self, parent: str | None) -> str:
-        path = Path(self.tmp.name) / f"transcript-{parent}.jsonl"
+    def transcript(self, parent: str | None, effort: str | None = None) -> str:
+        path = Path(self.tmp.name) / f"transcript-{parent}-{effort}.jsonl"
         records = [{"type": "user", "message": {"content": "hi"}}]
         if parent is not None:
-            records.append(
-                {"type": "assistant", "message": {"model": PARENT_MODELS[parent], "content": []}}
-            )
+            record = {"type": "assistant", "message": {"model": PARENT_MODELS[parent], "content": []}}
+            if effort:
+                record["effort"] = effort
+            records.append(record)
         records.append(
             {"type": "assistant", "message": {"model": "<synthetic>", "content": []}}
         )
@@ -98,6 +99,8 @@ class LadderTestCase(unittest.TestCase):
         raw_prompt=None,
         parent="default",
         session_id=None,
+        effort=None,
+        payload_effort=None,
     ):
         if raw_prompt is not None:
             prompt = raw_prompt
@@ -114,12 +117,17 @@ class LadderTestCase(unittest.TestCase):
             # Fresh session per payload unless a test is exercising the cap.
             self.session_counter += 1
             session_id = f"sess-{self.session_counter}"
-        return {
+        data = {
             "tool_name": tool_name,
             "tool_input": tool_input,
             "session_id": session_id,
-            "transcript_path": self.transcript(self.parent if parent == "default" else parent),
+            "transcript_path": self.transcript(
+                self.parent if parent == "default" else parent, effort
+            ),
         }
+        if payload_effort:
+            data["effort"] = {"level": payload_effort}
+        return data
 
     def run_gate(self, data):
         stdin = io.StringIO(json.dumps(data))
@@ -313,6 +321,89 @@ class ChildCap(LadderTestCase):
         self.assertDenied(
             self.run_gate(self.payload(contract(), session_id="compact")), "LANE_CHILD_CAP"
         )
+
+
+class EffortProfiles(LadderTestCase):
+    """A child's capability is its model at its effort; beaten pairs are refused."""
+
+    def setUp(self):
+        super().setUp()
+        self.agents = Path(self.tmp.name) / "agents"
+        self.agents.mkdir()
+        saved = gate.agent_directories
+        gate.agent_directories = lambda root: [self.agents]
+        self.addCleanup(setattr, gate, "agent_directories", saved)
+        saved_env = os.environ.pop("CLAUDE_CODE_EFFORT_LEVEL", None)
+        if saved_env is not None:
+            self.addCleanup(os.environ.__setitem__, "CLAUDE_CODE_EFFORT_LEVEL", saved_env)
+        self.addCleanup(os.environ.pop, "CLAUDE_CODE_EFFORT_LEVEL", None)
+
+    def define(self, name: str, effort: str | None) -> None:
+        fields = ["---", f"name: {name}", "description: test agent", "model: sonnet"]
+        if effort:
+            fields.append(f"effort: {effort}")
+        (self.agents / f"{name}.md").write_text("\n".join([*fields, "---", "", "# body"]), encoding="utf-8")
+
+    def sonnet(self, **kwargs):
+        return self.run_gate(self.payload(contract(lane="critical", tier="sonnet"), **kwargs))
+
+    def test_session_profile_reads_model_and_effort(self):
+        self.assertEqual(agent_ladder.session_profile(self.transcript("opus", "xhigh")), ("opus", "xhigh"))
+        self.assertEqual(agent_ladder.session_profile(self.transcript("opus")), ("opus", ""))
+        self.assertEqual(agent_ladder.session_profile(self.transcript("opus", "turbo")), ("opus", ""))
+        self.assertEqual(agent_ladder.session_profile(None), ("", ""))
+
+    def test_inherited_medium_lands_sonnet_on_a_beaten_pair(self):
+        result = self.sonnet(effort="medium")
+        self.assertDenied(result, "LANE_BEATEN_PROFILE")
+        self.assertIn("'opus' at low", result["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_sonnet_xhigh_and_max_are_beaten(self):
+        for effort in ("xhigh", "max"):
+            with self.subTest(effort=effort):
+                self.assertDenied(self.sonnet(effort=effort), "LANE_BEATEN_PROFILE")
+
+    def test_sonnet_low_and_high_route(self):
+        for effort in ("low", "high"):
+            with self.subTest(effort=effort):
+                self.assertRouted(self.sonnet(effort=effort), "sonnet")
+
+    def test_definition_effort_overrides_the_session(self):
+        self.define("delivery-engineer-agent", "high")
+        self.assertRouted(self.sonnet(effort="medium"), "sonnet")
+        self.assertEqual(self.log_entries()[-1]["effort"], "high")
+        self.assertEqual(self.log_entries()[-1]["effort_source"], "definition")
+
+    def test_definition_without_effort_inherits(self):
+        self.define("delivery-engineer-agent", None)
+        self.assertDenied(self.sonnet(effort="medium"), "LANE_BEATEN_PROFILE")
+
+    def test_payload_effort_wins_over_the_transcript(self):
+        self.assertRouted(self.sonnet(effort="medium", payload_effort="high"), "sonnet")
+        self.assertDenied(self.sonnet(effort="high", payload_effort="medium"), "LANE_BEATEN_PROFILE")
+
+    def test_environment_effort_overrides_the_definition(self):
+        self.define("delivery-engineer-agent", "high")
+        os.environ["CLAUDE_CODE_EFFORT_LEVEL"] = "max"
+        self.assertDenied(self.sonnet(effort="high"), "LANE_BEATEN_PROFILE")
+
+    def test_unknown_effort_is_not_called_beaten(self):
+        self.assertRouted(self.sonnet(), "sonnet")
+        entry = self.log_entries()[-1]
+        self.assertEqual((entry["effort"], entry["effort_source"]), ("unknown", "unknown"))
+
+    def test_haiku_is_never_beaten(self):
+        self.assertRouted(self.run_gate(self.payload(contract(), effort="medium")), "haiku")
+
+    def test_every_beaten_pair_has_a_cheaper_stronger_alternative(self):
+        for pair, better in agent_ladder.BEATEN_PROFILES.items():
+            with self.subTest(pair=pair):
+                self.assertGreaterEqual(agent_ladder.PROFILE_SCORES[better], agent_ladder.PROFILE_SCORES[pair])
+
+    def test_unknown_effort_scores_as_the_strongest(self):
+        self.assertEqual(agent_ladder.profile_score("opus", ""), 57.6)
+        self.assertEqual(agent_ladder.profile_score("opus", "low"), 42.3)
+        self.assertIsNone(agent_ladder.profile_score("haiku", "low"))
 
 
 class ContractShape(LadderTestCase):
@@ -620,6 +711,9 @@ class Redaction(LadderTestCase):
                 "tier",
                 "model",
                 "parent_tier",
+                "parent_effort",
+                "effort",
+                "effort_source",
                 "selection_source",
                 "subagent_type",
                 "reason_code",
