@@ -696,7 +696,7 @@ def validate(
         return ranked
 
     expected_model = TIER_MODEL[tier]
-    if explicit_model and explicit_model != expected_model:
+    if explicit_model and model_family(explicit_model) != expected_model:
         return (
             "LANE_MODEL_CONFLICT",
             "Explicit model '{0}' conflicts with tier '{1}', which routes to "
