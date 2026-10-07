@@ -421,6 +421,38 @@ class NoForcePushTests(GuardTestCase):
             ("PowerShell", "& git push --force-if-includes origin claude/topic", "deny"),
         ])
 
+    def test_abbreviated_and_valueless_forms_are_denied(self) -> None:
+        """From the independent review: git reads unambiguous prefixes, and `-c key` alone is true."""
+        self.assertDecisions([("Bash", case, "deny") for case in [
+            "git push --mirro origin",
+            "git push --mi origin",
+            "git push --al origin",
+            "git push --bra origin",
+            "git push --prun origin",
+            "git -c remote.origin.mirror push origin",
+            "git -c Remote.Origin.Push=+HEAD:refs/heads/x push origin",
+            "git remote add --mirror=push m https://example.com/r.git",
+            "git remote add --mirror m https://example.com/r.git",
+            "git send-pack --force origin refs/heads/x",
+            "git send-pack origin +refs/heads/x",
+        ]] + [
+            ("Bash", "git remote add --mirror=fetch m https://example.com/r.git", "allow"),
+        ])
+
+    def test_configuration_already_in_place_is_read(self) -> None:
+        repo = make_repo(self.base / "configured-force")
+        git(repo, "switch", "-q", "-c", "claude/topic")
+        self.assertEqual(self.decide("git push -u origin claude/topic", repo=repo), "allow")
+        git(repo, "config", "remote.origin.push", "+refs/heads/*:refs/heads/*")
+        for command in ("git push", "git push origin", "git push origin HEAD", "git push -u origin claude/topic"):
+            with self.subTest(command=command):
+                self.assertEqual(self.decide(command, repo=repo), "deny")
+        git(repo, "config", "--unset", "remote.origin.push")
+        git(repo, "remote", "add", "m", str(repo))
+        git(repo, "config", "remote.m.mirror", "true")
+        self.assertEqual(self.decide("git push m", repo=repo), "deny")
+        self.assertEqual(self.decide("git push origin claude/topic", repo=repo), "allow")  # another remote
+
     def test_a_configured_alias_that_forces_is_denied(self) -> None:
         repo = make_repo(self.base / "lease-alias")
         git(repo, "config", "alias.pl", "push --force-with-lease")
