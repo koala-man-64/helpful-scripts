@@ -50,12 +50,16 @@ justifications for skipped tiers.
 - **Delegate only bounded, verifiable activities.** One concrete deliverable and
   non-overlapping ownership per child. A task the owner cannot verify is not
   delegable.
-- **Critical lane:** Opus owner; one to three Sonnet (or Haiku) specialists
-  where needed; independent evidence for every relevant stage.
-- **Children rank strictly below the parent** (haiku < sonnet < opus). Fable is
-  never a routed child. Effort is enforceable only through a definition's
-  `effort` frontmatter, and a lane never changes the running session's model:
-  if this session is below Opus, report that rather than claiming the lane.
+- **Critical lane:** owner at Opus xhigh or stronger; one to three
+  specialists (Haiku, Sonnet low or high, Opus low to xhigh) where needed;
+  independent evidence for every relevant stage.
+- **Children score strictly below the parent** on model at effort (Opus max
+  57.6, xhigh 56.0, high 53.7, medium 51.3, low 42.3; Sonnet high 46.8, low
+  35.9; Haiku lowest). Fable is never a routed child; Sonnet at medium, xhigh
+  or max is beaten and denied. A child's effort is its definition's `effort`
+  frontmatter, or this session's when it sets none, and a lane never changes
+  the running session's model or effort: if this session is below Opus xhigh,
+  report that rather than claiming the lane.
 - **Lead every subagent prompt with the contract** (the PreToolUse gate requires
   it in managed repositories):
 
