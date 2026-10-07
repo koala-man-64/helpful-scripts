@@ -6,7 +6,9 @@ tier for the lane, a child strictly below its parent, a per-session child cap,
 and structural read-only enforcement. It never asks for lower-tier blockers:
 lanes are alternatives, not a sequence to climb.
 
-Outside managed repositories the hook emits nothing at all.
+Outside managed repositories the hook enforces only two rules: no beaten
+model and effort pair, and a child scoring below its parent (see
+``unmanaged_spawn``).
 
 The gate rewrites only the model and prompt, and only through ``updatedInput``
 with no permission decision attached -- Claude applies ``updatedInput`` from a
@@ -64,6 +66,7 @@ SUBAGENT_TOOLS = frozenset({"Agent", "Task"})
 
 LOG_PATH = Path.home() / ".claude" / "logs" / "agent-ladder.jsonl"
 LOG_MAX_LINES = 2000
+SUBAGENT_TYPE_LOG_CHARS = 64
 
 
 def record(origin: str, fields: dict[str, Any]) -> None:
@@ -71,8 +74,11 @@ def record(origin: str, fields: dict[str, Any]) -> None:
 
     Task text never reaches this file: no prompt, objective, scope, acceptance
     check, constraint, routing reason, or tool output. Only the routing
-    decision and why.
+    decision and why. ``subagent_type`` is model-supplied free text, so it is
+    cut to a name's length rather than trusted to be one.
     """
+    if isinstance(fields.get("subagent_type"), str):
+        fields = {**fields, "subagent_type": fields["subagent_type"][:SUBAGENT_TYPE_LOG_CHARS]}
     entry = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "repository": origin.rsplit("/", 1)[-1],
@@ -175,7 +181,8 @@ def claim_child_slot(session_id: str, lane: str) -> str:
                 if isinstance(loaded, dict):
                     counts = loaded
             used = {name: counts.get(name, 0) for name in LANE_ORDER}
-            used = {name: n if isinstance(n, int) else 0 for name, n in used.items()}
+            # A count edited below zero must not buy extra children.
+            used = {name: max(n, 0) if isinstance(n, int) else 0 for name, n in used.items()}
             if used[lane] >= LANE_CHILD_CAP.get(lane, 0):
                 return "lane"
             if sum(used.values()) >= SESSION_CHILD_CAP:
@@ -219,6 +226,21 @@ def session_root(payload: dict[str, Any]) -> Path:
             return Path(top.strip())
         return Path(cwd)
     return repo_root()
+
+
+def gated_root(payload: dict[str, Any]) -> tuple[Path, str]:
+    """``(root, origin)`` the gate applies to.
+
+    Managed when either the payload ``cwd`` or the hook process's directory is
+    in a managed repository: following ``cwd`` must widen the gate, never let
+    a ``cd`` to a scratch folder step out of it.
+    """
+    roots = [session_root(payload), repo_root()]
+    for root in roots:
+        origin = canonical_origin(root, run_git)
+        if origin in MANAGED_ORIGINS:
+            return root, origin
+    return roots[0], canonical_origin(roots[0], run_git)
 
 
 def spawn_profile(payload: dict[str, Any]) -> tuple[str, str]:
@@ -284,8 +306,7 @@ def main() -> int:
     if str(payload.get("tool_name") or "") not in SUBAGENT_TOOLS:
         return emit_json(None)
 
-    root = session_root(payload)
-    origin = canonical_origin(root, run_git)
+    root, origin = gated_root(payload)
     if origin not in MANAGED_ORIGINS:
         return unmanaged_spawn(origin, root, payload)
 
@@ -307,7 +328,7 @@ def main() -> int:
             "which keeps integration and final validation.",
         )
 
-    if not subagent_type or subagent_type in FORK_AGENT_TYPES:
+    if not subagent_type or subagent_type.lower() in FORK_AGENT_TYPES:
         return reject(
             origin,
             "",
