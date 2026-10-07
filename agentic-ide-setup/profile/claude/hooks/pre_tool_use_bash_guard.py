@@ -5,7 +5,9 @@ reads a statement's program and arguments, never quoted data or heredoc bodies.
 
 - Tier 1 denies, whoever asks: discarding work, force pushes, pushes to a
   protected branch, recursive deletes or moves outside the repository,
-  printing secrets into the transcript, approving production gates.
+  printing secrets into the transcript, approving production gates, voting on
+  or completing an Azure DevOps pull request through the REST API, and
+  bypassing branch policy by any route.
 - Tier 2 asks: force-deleting an unmerged branch, deletes whose targets are
   unresolved or many, Azure resource writes outside boards/repos/pipelines/
   devops, `checkout <rev> -- <paths>`, and destructive-looking commands that
@@ -26,12 +28,13 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import re
 import shlex
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 import shell_parse
 from hook_utils import (
@@ -315,6 +318,8 @@ class Context:
     escapes: bool = False  # PowerShell backtick escapes, which the parser drops (`r`n becomes rn)
     offline: bool = False  # judging carried text as if it ran: no git calls, no finish notes, no further scans
     scanned: set[str] = field(default_factory=set)  # carried text already judged
+    command: str = ""  # the text this context judges, for rules that must look past one statement
+    piped: set[int] = field(default_factory=set)  # id() of statements that read a pipeline's output
     scope: tuple[tuple[int, str], ...] = ()  # scope of the statement being judged
     dialect: str = "bash"  # dialect of the statement being judged
     _tables: dict[tuple[tuple[int, str], ...], dict[str, str]] = field(default_factory=dict)  # values in child scopes
@@ -1015,8 +1020,10 @@ def azure_write(statement: shell_parse.Statement) -> str | None:
 # Writes to pipeline check configurations: the approvals and gates that protect environments.
 CHECK_CONFIGURATION = re.compile(r"\bpipelineschecks\b|_apis/pipelines/checks/configurations", re.IGNORECASE)
 WRITE_METHODS = frozenset({"patch", "put", "post", "delete"})
-# az devops invoke --http-method, and PowerShell's -Method (any abbreviation, `:` or space).
-NAMED_METHOD = re.compile(r"(?:--http-method|-me\w*)[:=\s]+['\"]?(\w+)", re.IGNORECASE)
+PS_REQUESTS = frozenset({"invoke-restmethod", "irm", "invoke-webrequest", "iwr"})
+# az devops invoke --http-method, az rest --method/-m, wget --method, and PowerShell's -Method
+# (any abbreviation, `:` or space).
+NAMED_METHOD = re.compile(r"(?:^|\s)(?:--http-method|--method|-m|-me\w*)[:=\s]+['\"]?(\w+)", re.IGNORECASE)
 PS_BODY = re.compile(r"(?:^|\s)-(?:bo|inf|fo)\w*", re.IGNORECASE)
 # curl short options that take a value; the value may be glued (`-XPATCH`) or the next argument.
 CURL_VALUE_OPTIONS = frozenset("AbcCdDeEFHKmoPQrtTuUwxXyYz")
@@ -1051,18 +1058,25 @@ def curl_request(args: list[str]) -> tuple[str | None, bool]:
     return method, body and not get
 
 
-def writes_to_url(statement: shell_parse.Statement, text: str) -> bool:
-    """Whether a request writes: an explicit write method, or a body that implies one."""
+def request_method(statement: shell_parse.Statement, text: str) -> str:
+    """The HTTP method a request sends, lower-cased: an explicit one, or the one its body implies."""
     program = statement.program
     if program == "curl":
         method, body = curl_request(statement.argv[1:])
-        return (method or ("post" if body else "get")).strip("'\"").lower() in WRITE_METHODS
+        return (method or ("post" if body else "get")).strip("'\"").lower()
     named = NAMED_METHOD.search(text)
-    method = named.group(1).lower() if named else None
-    if program in {"invoke-restmethod", "irm", "invoke-webrequest", "iwr"} and method is None:
-        # A -Body, -InFile or -Form with no -Method sends a POST.
-        return bool(PS_BODY.search(text))
-    return method in WRITE_METHODS
+    if named:
+        return named.group(1).lower()
+    if program in PS_REQUESTS and PS_BODY.search(text):
+        return "post"  # a -Body, -InFile or -Form with no -Method sends a POST
+    if program == "wget" and re.search(r"--post-(?:data|file)\b", text):
+        return "post"
+    return "get"
+
+
+def writes_to_url(statement: shell_parse.Statement, text: str) -> bool:
+    """Whether a request writes: an explicit write method, or a body that implies one."""
+    return request_method(statement, text) in WRITE_METHODS
 
 
 # --- pull request creation ------------------------------------------------------
@@ -1264,6 +1278,199 @@ def gate_change(statement: shell_parse.Statement, ctx: Context) -> str | None:
     return None
 
 
+# --- pull request votes, completion and policy bypass ---------------------------
+# Votes and completion go through `az repos pr set-vote` and `az repos pr update`, where the
+# finish notes and the repository's branch policies apply. The REST routes that do the same
+# are denied, and bypassing branch policy is denied by every route.
+
+PR_PATH = re.compile(r"/_apis/git/(?:repositories/[^/]+/)?pullrequests(?:/(.*))?$")
+# az devops invoke --resource names: a pull request itself, and its reviewers (votes).
+INVOKE_PR_RESOURCES = {"pullrequests": "id", "pullrequestreviewers": "id/reviewers"}
+COMPLETION_KEYS = frozenset({"completionoptions", "autocompletesetby"})
+BYPASS_KEYS = frozenset({"bypasspolicy", "bypassreason"})
+# The same fields as text, for bodies that are not JSON: hashtables, form fields, query strings.
+COMPLETION_TEXT = re.compile(r"completionoptions|autocompletesetby|\bstatus['\"]?\s*[:=]\s*['\"]?(?:completed|3)\b")
+BYPASS_TEXT = re.compile(r"bypasspolicy|bypassreason|bypass-policy")
+VOTE_TEXT = re.compile(r"\bvote\b")
+# Body options per program: (literal values, bodies read from somewhere else).
+CURL_BODY_LONG = frozenset({"--data", "--data-raw", "--data-binary", "--data-urlencode", "--data-ascii", "--json", "--form", "--form-string"})
+CURL_OPAQUE_LONG = frozenset({"--upload-file", "--config"})
+WGET_BODY = frozenset({"--body-data", "--post-data"})
+WGET_OPAQUE = frozenset({"--body-file", "--post-file"})
+
+
+def normalized(text: str) -> str:
+    """Lower-cased, percent- and JSON-unescaped, so `%2F`, `\\u0073tatus` and case hide nothing."""
+    text = unquote(text).replace("\\\\", "\\")
+    text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), text)
+    return text.replace("\\", "/").lower()
+
+
+def json_names(text: str) -> tuple[set[str], set[str]] | None:
+    """(keys, `status` values) anywhere in a JSON document, lower-cased; None when not JSON."""
+    keys: set[str] = set()
+    values: set[str] = set()
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                keys.add(str(key).lower())
+                if str(key).lower() == "status":
+                    values.add(str(value).lower())
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    try:
+        walk(json.loads(text))
+    except ValueError:
+        return None
+    return keys, values
+
+
+def request_bodies(statement: shell_parse.Statement, argv: list[str], piped: bool) -> tuple[list[str], bool]:
+    """(literal bodies a request sends, whether it may also send one the guard cannot read)."""
+    program = statement.program
+    bodies: list[str] = []
+    opaque = piped and program in PS_REQUESTS  # Invoke-RestMethod takes -Body from the pipeline
+    index = 1
+    while index < len(argv):
+        arg = argv[index]
+        following = argv[index + 1] if index + 1 < len(argv) else ""
+        name, glued, value = arg.partition("=") if arg.startswith("--") else (arg, "", "")
+        lowered = name.lower()
+        if program == "curl" and arg.startswith("--"):
+            if lowered in CURL_BODY_LONG:
+                bodies.append(value if glued else following)
+            opaque = opaque or lowered in CURL_OPAQUE_LONG
+        elif program == "curl" and arg.startswith("-") and len(arg) > 1:
+            for position, letter in enumerate(arg[1:], start=1):
+                if letter in CURL_VALUE_OPTIONS:
+                    rest = arg[position + 1:]
+                    if letter in "dF":
+                        bodies.append(rest or following)
+                    opaque = opaque or letter in "TK"
+                    break
+        elif program == "wget":
+            if lowered in WGET_BODY:
+                bodies.append(value if glued else following)
+            opaque = opaque or lowered in WGET_OPAQUE
+        elif program == "az":
+            if lowered in {"--body", "-b"}:
+                bodies.append(value if glued else following)
+            opaque = opaque or lowered == "--in-file"
+        elif program in PS_REQUESTS and arg.startswith("-"):
+            ps_name, colon, ps_value = arg.partition(":")
+            ps_name = ps_name.lower()
+            if len(ps_name) >= 3 and "-body".startswith(ps_name):
+                bodies.append(ps_value if colon else following)
+            opaque = opaque or (len(ps_name) >= 4 and "-infile".startswith(ps_name)) or (len(ps_name) >= 3 and "-form".startswith(ps_name))
+        index += 1
+    # A file (`@body.json`, `@-`), an unresolved variable or an escape is a body the guard cannot read.
+    opaque = opaque or any(b.startswith("@") or re.search(r"[$`]", b) for b in bodies)
+    return [b for b in bodies if not b.startswith("@")], opaque
+
+
+def pull_request_targets(statement: shell_parse.Statement, argv: list[str]) -> tuple[list[str], bool]:
+    """(sub-paths under a pullRequests collection a request names, whether its target is unknown).
+
+    "" is the collection, "5" a pull request, "5/reviewers/me" a vote."""
+    if statement.program == "az" and [a.lower() for a in argv[1:3]] == ["devops", "invoke"]:
+        resource = _option(argv, "--resource").lower()
+        if re.search(r"[$%`]", resource):
+            return [], True
+        return ([INVOKE_PR_RESOURCES[resource]] if resource in INVOKE_PR_RESOURCES else []), False
+    targets = []
+    for arg in argv[1:]:
+        text = normalized(arg)
+        if "_apis" not in text:
+            continue
+        path = re.split(r"[?#]", text.partition("_apis")[2], maxsplit=1)[0]
+        path = posixpath.normpath("/_apis" + path)
+        match = PR_PATH.search(path)
+        if match:
+            targets.append(match.group(1) or "")
+    unknown = not any("_apis" in normalized(a) for a in argv[1:]) and any(re.search(r"[$%`]", a) for a in argv[1:])
+    return targets, unknown
+
+
+def pull_request_write(statement: shell_parse.Statement, ctx: Context) -> tuple[str, str] | None:
+    """REST votes and completion, and policy bypass by any route: ("deny"|"ask", reason) or None."""
+    program = statement.program
+    argv = [ctx.expand(a) for a in statement.argv]
+    words = [a.lower() for a in argv[1:4]]
+    if program == "az" and words[:2] == ["repos", "pr"]:
+        for arg in argv[3:]:
+            name = arg.partition("=")[0].lower()
+            # az accepts an unambiguous prefix of an option name; only --bypass-policy* starts `--b`.
+            if len(name) >= 3 and "--bypass-policy-reason".startswith(name):
+                return "deny", (
+                    "Bypassing branch policy is never part of the finish workflow. Leave the pull request "
+                    "for policies and required checks to pass, or report the failing policy as the blocker."
+                )
+        return None
+    rest = program in PS_REQUESTS | {"curl", "wget"} or (program == "az" and words[:1] == ["rest"]) or (
+        program == "az" and words[:2] == ["devops", "invoke"]
+    )
+    if not rest:
+        return None
+    text = " ".join(judged_argv(statement, ctx))
+    method = request_method(statement, text)
+    if method not in WRITE_METHODS:
+        return None
+    targets, unknown = pull_request_targets(statement, argv)
+    bodies, opaque = request_bodies(statement, argv, id(statement) in ctx.piped)
+    # A narrow creation's prose is set aside; any other request is judged on all of its text.
+    seen = normalized(text)
+    keys: set[str] = set()
+    statuses: set[str] = set()
+    if text == " ".join(argv):
+        for body in bodies:
+            names = json_names(body)
+            if names:
+                # A JSON body is judged by its fields, so prose in a value (`"content": "status: completed"`) is data.
+                keys |= names[0]
+                statuses |= names[1]
+                seen = seen.replace(normalized(body), " ")
+    if not targets and not unknown:
+        return None
+    if opaque:
+        seen += " " + normalized(ctx.command)  # an assignment elsewhere may build the body
+    if BYPASS_KEYS & keys or BYPASS_TEXT.search(seen):
+        return "deny", (
+            "This request bypasses branch policy on a pull request. Bypassing policy is never part of the "
+            "finish workflow; leave the pull request for its policies, or report the failing policy as the blocker."
+        )
+    votes = any("/reviewers" in f"/{t}" for t in targets)
+    vote_body = "vote" in keys or bool(VOTE_TEXT.search(seen))
+    vote_reason = (
+        "This votes on a pull request through the REST API. Vote with `az repos pr set-vote`, "
+        "where the finish workflow and branch policies apply."
+    )
+    if votes and (method in {"put", "patch"} or vote_body):
+        return "deny", vote_reason
+    pr_fields = COMPLETION_KEYS & keys or re.search(r"completionoptions|autocompletesetby", seen)
+    status = statuses & {"completed", "3"} or COMPLETION_TEXT.search(seen)
+    completion_reason = (
+        "This completes a pull request, or sets it to complete, through the REST API. Use "
+        "`az repos pr update --auto-complete` or `--status completed`, where the finish workflow and "
+        "branch policies apply."
+    )
+    if pr_fields or (status and targets):
+        return "deny", completion_reason
+    if unknown and (status or (vote_body and method in {"put", "patch"})):
+        # `status` and `vote` are not unique to pull requests; the target decides, and it is unresolved.
+        return "ask", f"This request's URL is unresolved and its body may vote on or complete a pull request. {vote_reason if vote_body else completion_reason}"
+    item = any(re.fullmatch(r"[^/]+/?", t) for t in targets)
+    if item and opaque and method in {"patch", "put"}:
+        return "ask", (
+            "This updates a pull request through the REST API with a body the guard cannot read. REST "
+            "votes, completion and policy bypass are not allowed; confirm the body does none of them."
+        )
+    return None
+
+
 def prod_approval(statement: shell_parse.Statement, ctx: Context) -> str | None:
     text = " ".join(judged_argv(statement, ctx)).lower()
     if not AZURE_PIPELINE_APPROVAL.search(text):
@@ -1450,6 +1657,10 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
     ctx.env_config = ctx.env_config or bool(GIT_ENV_CONFIG.search(command))
     ctx.redefines = ctx.redefines or redefines_commands(command, parsed.statements)
     ctx.escapes = ctx.escapes or (dialect == "powershell" and "`" in command)
+    ctx.command = f"{ctx.command}\n{command}" if ctx.command else command
+    for upstream, downstream in zip(parsed.statements, parsed.statements[1:]):
+        if upstream.downstream and tuple(downstream.argv) == upstream.downstream[0]:
+            ctx.piped.add(id(downstream))
     asks: list[str] = []
     notes: list[str] = []
     # Carried text has no working directory of its own: relative targets stay unresolved.
@@ -1551,6 +1762,11 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
             reason = check(statement, ctx)
             if reason:
                 return "deny", reason
+        verdict = pull_request_write(statement, ctx)
+        if verdict and verdict[0] == "deny":
+            return verdict
+        if verdict:
+            asks.append(verdict[1])
         verdict = check_files(statement, cwd, ctx)
         if verdict and verdict[0] == "deny":
             return verdict

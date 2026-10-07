@@ -1074,6 +1074,103 @@ class PullRequestCreationProseTests(GuardTestCase):
         ])
 
 
+class PullRequestRestWriteTests(GuardTestCase):
+    """Votes and completion go through `az repos pr`, where the finish notes and branch policies
+    apply. The REST routes that do the same are denied, and policy bypass is denied by every route."""
+
+    BASE = "https://dev.azure.com/o/p/_apis/git/repositories/r/pullRequests"
+    VOTE = json.dumps({"vote": 10})
+    COMPLETE = json.dumps({"status": "completed", "lastMergeSourceCommit": {"commitId": "abc"}})
+
+    def curl(self, method: str, path: str, body: str | None = None) -> str:
+        data = f" -H 'Content-Type: application/json' -d '{body}'" if body is not None else ""
+        return f"curl -s -X {method}{data} '{self.BASE}{path}?api-version=7.1'"
+
+    def test_rest_votes_are_denied(self) -> None:
+        self.assertDecisions([
+            ("Bash", self.curl("PUT", "/5/reviewers/me", self.VOTE), "deny"),
+            ("Bash", self.curl("PATCH", "/5/reviewers/me", self.VOTE), "deny"),
+            ("Bash", self.curl("PUT", "/5/reviewers/me"), "deny"),  # the method and route are enough
+            ("Bash", self.curl("POST", "/5/reviewers", json.dumps([{"id": "me", "vote": 10}])), "deny"),
+            ("Bash", f"az rest --method put --uri '{self.BASE}/5/reviewers/me' --body '{self.VOTE}'", "deny"),
+            ("Bash", f"az rest -m patch --uri '{self.BASE}/5/reviewers/me' --body '{self.VOTE}'", "deny"),
+            ("PowerShell", f"Invoke-RestMethod -Method Put -Uri '{self.BASE}/5/reviewers/me' -Body '{self.VOTE}'", "deny"),
+            ("PowerShell", f"irm -Me:Put -Uri '{self.BASE}/5/reviewers/me' -Body $b", "deny"),
+            ("Bash", "az devops invoke --area git --resource pullRequestReviewers --route-parameters project=p "
+                     "repositoryId=r pullRequestId=5 reviewerId=me --http-method PUT --in-file vote.json", "deny"),
+            # Spelling the route differently hides nothing.
+            ("Bash", f"curl -X PUT -d '{self.VOTE}' 'https://dev.azure.com/o/p/_apis/git/repositories/r/PULLREQUESTS/5/Reviewers/me'", "deny"),
+            ("Bash", f"curl -X PUT -d '{self.VOTE}' 'https://dev.azure.com/o/p/_apis/git/repositories/r/pullRequests%2F5%2Freviewers%2Fme'", "deny"),
+            ("Bash", f"curl -X PUT -d '{self.VOTE}' '{self.BASE}/5/x/../reviewers/me'", "deny"),
+            ("Bash", f"U='{self.BASE}/5/reviewers/me'; curl -X PUT -d '{self.VOTE}' \"$U\"", "deny"),
+        ])
+
+    def test_rest_completion_is_denied(self) -> None:
+        self.assertDecisions([
+            ("Bash", self.curl("PATCH", "/5", self.COMPLETE), "deny"),
+            ("Bash", self.curl("PATCH", "/5", json.dumps({"status": 3})), "deny"),
+            ("Bash", self.curl("PATCH", "/5", json.dumps({"autoCompleteSetBy": {"id": "me"}})), "deny"),
+            ("Bash", self.curl("PATCH", "/5", json.dumps({"completionOptions": {"mergeStrategy": "squash"}})), "deny"),
+            ("Bash", self.curl("PATCH", "/5", '{"st\\u0061tus": "completed"}'), "deny"),
+            ("Bash", f"az rest --method patch --uri '{self.BASE}/5' --body '{self.COMPLETE}'", "deny"),
+            ("PowerShell", f"Invoke-RestMethod -Method Patch -Uri '{self.BASE}/5' -ContentType 'application/json' -Body '{self.COMPLETE}'", "deny"),
+            # A body built elsewhere in the command is read too.
+            ("PowerShell", f"$b = @{{ status = 'completed' }} | ConvertTo-Json; Invoke-RestMethod -Method Patch -Uri '{self.BASE}/5' -Body $b", "deny"),
+            ("PowerShell", f"$b = @{{ autoCompleteSetBy = @{{ id = $me }} }} | ConvertTo-Json; $b | irm -Method Patch -Uri '{self.BASE}/5'", "deny"),
+            # Creation that also arms completion is not a narrow creation.
+            ("Bash", self.curl("POST", "", json.dumps({"sourceRefName": "refs/heads/f", "targetRefName": "refs/heads/main",
+                                                        "title": "t", "autoCompleteSetBy": {"id": "me"}})), "deny"),
+        ])
+
+    def test_policy_bypass_is_denied_by_every_route(self) -> None:
+        self.assertDecisions([
+            ("Bash", "az repos pr update --id 5 --bypass-policy true --bypass-policy-reason hotfix", "deny"),
+            ("Bash", "az repos pr update --id 5 --status completed --bypass-policy=true", "deny"),
+            ("Bash", "az repos pr update --id 5 --auto-complete true --bypass-policy true", "deny"),
+            ("PowerShell", "az repos pr update --id 5 --bypass-policy-reason x", "deny"),
+            ("Bash", "az repos pr update --id 5 --bypass true", "deny"),  # az accepts a unique prefix
+            ("Bash", "az repos pr create --source-branch f --title x --auto-complete true --bypass-policy true", "deny"),
+            ("Bash", "F=--bypass-policy; az repos pr update --id 5 $F true", "deny"),
+            ("Bash", self.curl("PATCH", "/5", json.dumps({"completionOptions": {"bypassPolicy": True, "bypassReason": "x"}})), "deny"),
+            ("Bash", self.curl("PATCH", "/5", json.dumps({"title": "x", "bypassPolicy": True})), "deny"),
+            ("Bash", f"echo '{{\"bypassPolicy\": true}}' | curl -X PATCH -d @- '{self.BASE}/5'", "deny"),
+        ])
+
+    def test_unreadable_bodies_and_targets_ask(self) -> None:
+        self.assertDecisions([
+            ("Bash", f"curl -X PATCH -H 'Content-Type: application/json' -d @body.json '{self.BASE}/5'", "ask"),
+            ("PowerShell", f"Invoke-RestMethod -Method Patch -Uri '{self.BASE}/5' -InFile body.json", "ask"),
+            ("Bash", "az devops invoke --area git --resource pullRequests --route-parameters project=p repositoryId=r "
+                     "pullRequestId=5 --http-method PATCH --in-file body.json", "ask"),
+            ("Bash", f"curl -X PATCH -d '{self.COMPLETE}' \"$PR_URL\"", "ask"),
+        ])
+
+    def test_finish_workflow_and_reads_stay_allowed(self) -> None:
+        create = json.dumps({"sourceRefName": "refs/heads/f", "targetRefName": "refs/heads/main",
+                             "title": "Production approval pending",
+                             "description": "After merge: status=completed, bypassPolicy stays off, reviewers vote."})
+        self.assertDecisions([
+            # The CLI finish path keeps the standing finish authority.
+            ("Bash", "az repos pr update --id 5 --auto-complete true --squash true --delete-source-branch true --transition-work-items true", "allow"),
+            ("Bash", "az repos pr update --id 5 --status completed", "allow"),
+            ("Bash", "az repos pr set-vote --id 5 --vote approve", "allow"),
+            ("Bash", "az repos pr create --source-branch f --target-branch main --auto-complete true --squash true", "allow"),
+            ("Bash", 'az repos pr create --title x --description "Do not use --bypass-policy; bypassPolicy stays false"', "allow"),
+            # A narrow REST creation whose prose names votes, completion and bypass.
+            ("Bash", self.curl("POST", "", create), "allow"),
+            # Reads, and writes that change none of the above.
+            ("Bash", f"curl -s '{self.BASE}/5/reviewers?api-version=7.1'", "allow"),
+            ("Bash", f"az rest --uri '{self.BASE}/5?api-version=7.1'", "allow"),
+            ("PowerShell", f"Invoke-RestMethod -Uri '{self.BASE}/5/reviewers'", "allow"),
+            ("Bash", "az devops invoke --area git --resource pullRequestReviewers --route-parameters pullRequestId=5", "allow"),
+            ("Bash", self.curl("PATCH", "/5", json.dumps({"title": "x", "description": "y"})), "allow"),
+            ("Bash", self.curl("POST", "/5/threads", json.dumps({"comments": [{"content": "status: completed review"}], "status": 1})), "allow"),
+            ("Bash", self.curl("DELETE", "/5/reviewers/someone-else"), "allow"),
+            # Text about bypass sent anywhere else is data.
+            ("Bash", "curl -X POST -d '{\"text\": \"never use bypassPolicy\"}' https://hooks.example.com/notify", "allow"),
+        ])
+
+
 class ScopeParserTests(unittest.TestCase):
     def test_statements_record_the_processes_and_blocks_they_run_in(self) -> None:
         parsed = shell_parse.parse("S=1; eval 'S=5'; sh -c 'S=2'; ( S=3 ); f() { S=4; }")
