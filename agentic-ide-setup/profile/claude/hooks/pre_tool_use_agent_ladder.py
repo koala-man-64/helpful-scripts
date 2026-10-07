@@ -129,7 +129,9 @@ def _locked(path: Path) -> Iterator[bool]:
             lock.parent.mkdir(parents=True, exist_ok=True)
             os.close(os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
             held = True
-        except FileExistsError:
+        except (FileExistsError, PermissionError):
+            # Windows reports a lock file that another hook is deleting as
+            # PermissionError: that is contention too, not an IO fault.
             try:
                 if time.time() - lock.stat().st_mtime > LOCK_STALE_SECONDS:
                     lock.unlink()
