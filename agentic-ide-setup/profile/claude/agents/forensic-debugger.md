@@ -2,6 +2,7 @@
 name: forensic-debugger
 description: Use for evidence-first technical investigations of system failures spanning applications, infra, networking, DBs, CI/CD, and distributed services.
 model: sonnet
+effort: high
 maxTurns: 100
 disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit
 ---

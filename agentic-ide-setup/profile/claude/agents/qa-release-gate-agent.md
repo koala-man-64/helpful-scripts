@@ -2,6 +2,7 @@
 name: qa-release-gate-agent
 description: "Use for risk-based release gating: build test plans, review CI/CD workflows, and assess release readiness or go/no-go for a change, distinct from software-testing-validation-architect's deeper coverage-gap analysis."
 model: sonnet
+effort: high
 maxTurns: 60
 disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit
 ---

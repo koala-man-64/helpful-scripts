@@ -739,6 +739,9 @@ class ProfileAgentFrontmatter(unittest.TestCase):
                     self.assertEqual(fields.get("mainThreadOnly"), "true")
                     continue
                 self.assertIn(fields.get("model"), {"haiku", "sonnet"})
+                # Effort is the only effort control a spawn has. Low and high are
+                # the efforts where Sonnet is not beaten on score and cost.
+                self.assertIn(fields.get("effort"), {"low", "high"})
                 self.assertRegex(str(fields.get("maxTurns") or ""), r"^\d+$")
                 self.assertGreaterEqual(int(str(fields["maxTurns"])), 60)
                 disallowed = set(fields.get("disallowedTools") or [])

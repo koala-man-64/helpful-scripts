@@ -2,6 +2,7 @@
 name: architecture-review-agent
 description: Use for architecture or delivery-readiness reviews of cloud-native reliability, security, operability, and performance; produces an Architecture and Code Audit Report with actionable work items.
 model: sonnet
+effort: high
 maxTurns: 80
 disallowedTools: Agent, Edit, Write, NotebookEdit, MultiEdit
 ---

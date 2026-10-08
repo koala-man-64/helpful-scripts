@@ -2,6 +2,7 @@
 name: actionmedic
 description: Use when Azure Pipelines CI is failing, stuck, cancelled, or timed out on a branch or PR; diagnoses the run, applies the smallest fix, pushes to Azure Repos, and monitors until green or a hard blocker is proven.
 model: sonnet
+effort: high
 maxTurns: 60
 disallowedTools: Agent
 ---
