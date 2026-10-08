@@ -396,6 +396,13 @@ class ChildCap(LadderTestCase):
             self.run_gate(self.payload(contract(), session_id="compact")), "LANE_CHILD_CAP"
         )
 
+    def test_negative_counts_buy_no_extra_children(self):
+        path = gate._children_file("negative")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"standard": -50, "critical": 2}), encoding="utf-8")
+        self.assertEqual(gate.claim_child_slot("negative", "standard"), "")
+        self.assertEqual(gate.claim_child_slot("negative", "standard"), "session")
+
     def test_a_legacy_per_lane_count_file_is_read(self):
         path = gate._children_file("legacy")
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -617,6 +624,10 @@ class SpawnShape(LadderTestCase):
             self.run_gate(self.payload(contract(), subagent_type="fork")),
             "LANE_FULL_HISTORY_FORK",
         )
+        self.assertDenied(
+            self.run_gate(self.payload(contract(), subagent_type="Fork")),
+            "LANE_FULL_HISTORY_FORK",
+        )
 
     def test_omitted_subagent_type_is_rejected(self):
         self.assertDenied(
@@ -635,6 +646,11 @@ class SpawnShape(LadderTestCase):
         self.assertRouted(result, "haiku")
         self.assertEqual(self.log_entries()[-1]["selection_source"], "explicit_model")
 
+    def test_explicit_model_matches_by_family(self):
+        for model in ("Haiku", "claude-haiku-4-5-20251001"):
+            with self.subTest(model=model):
+                self.assertRouted(self.run_gate(self.payload(contract(tier="haiku"), model=model)), "haiku")
+
     def test_read_only_contract_requires_a_read_only_agent(self):
         body = contract(constraints=["Read-only investigation"])
         self.assertDenied(
@@ -645,6 +661,10 @@ class SpawnShape(LadderTestCase):
     def test_read_only_contract_accepts_explore(self):
         body = contract(constraints=["Read-only investigation"])
         self.assertRouted(self.run_gate(self.payload(body, subagent_type="Explore")), "haiku")
+
+    def test_read_only_agent_names_match_without_case(self):
+        body = contract(constraints=["Read-only investigation"])
+        self.assertRouted(self.run_gate(self.payload(body, subagent_type="explore")), "haiku")
 
     def test_main_thread_only_agents_are_not_spawned(self):
         for name in sorted(agent_ladder.MAIN_THREAD_ONLY_AGENTS):
@@ -797,6 +817,42 @@ class Scope(LadderTestCase):
         gate.run_git = lambda args, cwd=None: (1, "")
         self.assertIsNone(self.run_gate(self.payload()))
 
+    def use_repositories(self, managed: Path, unmanaged: Path) -> None:
+        """Fake git: two repositories, identified by the directory git runs in."""
+        managed.mkdir()
+        unmanaged.mkdir()
+
+        def run_git(args, cwd=None):
+            where = Path(cwd) if cwd else Path(self.tmp.name)
+            if args[:2] == ["rev-parse", "--show-toplevel"]:
+                return 0, str(where)
+            return 0, MANAGED if where == managed else UNMANAGED
+
+        gate.run_git = run_git
+
+    def test_the_payload_cwd_decides_the_repository(self):
+        """A session started outside a managed repository is gated once it works in one."""
+        managed, unmanaged = Path(self.tmp.name) / "managed", Path(self.tmp.name) / "elsewhere"
+        self.use_repositories(managed, unmanaged)
+        gate.repo_root = lambda: unmanaged
+        data = self.payload()
+        data["cwd"] = str(managed)
+        self.assertDenied(self.run_gate(data), "LANE_MISSING_ENVELOPE")
+
+    def test_a_cd_out_of_a_managed_repository_does_not_escape_its_gate(self):
+        """The process directory is managed, the payload cwd is not: still gated."""
+        managed, unmanaged = Path(self.tmp.name) / "managed", Path(self.tmp.name) / "elsewhere"
+        self.use_repositories(managed, unmanaged)
+        gate.repo_root = lambda: managed
+        data = self.payload()
+        data["cwd"] = str(unmanaged)
+        self.assertDenied(self.run_gate(data), "LANE_MISSING_ENVELOPE")
+
+    def test_a_missing_cwd_falls_back_to_the_hook_directory(self):
+        data = self.payload()
+        data["cwd"] = str(Path(self.tmp.name) / "gone")
+        self.assertDenied(self.run_gate(data), "LANE_MISSING_ENVELOPE")
+
     def test_non_subagent_tools_are_untouched(self):
         self.assertIsNone(self.run_gate(self.payload(contract(), tool_name="Bash")))
 
@@ -886,6 +942,10 @@ class Redaction(LadderTestCase):
                 "reason_code",
             },
         )
+
+    def test_a_long_subagent_type_is_cut_in_the_log(self):
+        self.run_gate(self.payload(contract(), subagent_type="x" * 500))
+        self.assertEqual(len(self.log_entries()[-1]["subagent_type"]), gate.SUBAGENT_TYPE_LOG_CHARS)
 
     def test_log_is_bounded(self):
         gate.LOG_MAX_LINES = 5

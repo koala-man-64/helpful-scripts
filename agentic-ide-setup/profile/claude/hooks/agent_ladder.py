@@ -688,7 +688,7 @@ def validate(
         return ranked
 
     expected_model = TIER_MODEL[tier]
-    if explicit_model and explicit_model != expected_model:
+    if explicit_model and model_family(explicit_model) != expected_model:
         return (
             "LANE_MODEL_CONFLICT",
             "Explicit model '{0}' conflicts with tier '{1}', which routes to "
@@ -699,7 +699,7 @@ def validate(
 
     constraints = " ".join(_nonempty_strings(contract.get("constraints"))).lower()
     if any(marker in constraints for marker in READ_ONLY_MARKERS):
-        if subagent_type not in read_only:
+        if subagent_type.lower() not in {name.lower() for name in read_only}:
             return (
                 "LANE_READONLY_AGENT_VIOLATION",
                 "Contract declares a read-only constraint, so spawn a subagent "
