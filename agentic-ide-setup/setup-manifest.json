@@ -7,8 +7,8 @@
     "sandbox_mode": "danger-full-access"
   },
   "claudeDefaults": {
-    "model": "sonnet",
-    "effortLevel": "high",
+    "model": "opus",
+    "effortLevel": "medium",
     "permissions": {
       "deny": [
         "Bash(git reset *--hard*)",

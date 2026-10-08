@@ -8,7 +8,7 @@ sequence is required for ordinary delivery.
 
 import hashlib
 
-from agent_ladder import TIER_ORDER, parent_model
+from agent_ladder import LANE_OWNER_MIN, owner_failure, payload_effort, session_profile
 from hook_utils import (
     additional_context,
     azure_devops_agent_authority_lines,
@@ -28,7 +28,7 @@ from hook_utils import (
 # Stated once per session (see main); these do not vary by prompt.
 STANDING_POLICY_LINES = (
     "- Finish authority: when task-owned files change and the user does not explicitly limit scope, the owner completes the git finish workflow (commit, push, PR, merge/completion) before closeout, without waiting for a separate 'finish it' prompt. Delegate finishing only when it is an independent, bounded deliverable the lane permits; never spawn an agent just because work reached the finish stage. When ~/.claude/state/merge-steward.json shows an active steward updated within six hours, the owner instead stops at 'PR opened and steward told'; the steward owns completion. See the merge-steward agent definition.",
-    "- Lanes: lite (one owner, no children), standard (solo by default; at most a bounded Haiku reviewer and a bounded Sonnet or Haiku specialist, below the session model), critical (Opus owner; one to three bounded specialists; independent review). Select the model directly; no lower-tier attempts are required.",
+    "- Lanes: lite (one owner, no children), standard (owner at Opus medium or stronger; solo by default; at most two bounded children at Haiku, Sonnet low or high, or Opus low), critical (owner at Opus xhigh or stronger; one to three bounded children, also Opus medium or high; independent review). A child's model at its effort scores below the session's; its effort comes from its agent definition. Select the model directly; no lower-tier attempts are required.",
     "- Contract routing: before editing shared API, schema, or serialization shapes, classify the work as local-only or contracts-repo-first.",
 )
 
@@ -73,21 +73,26 @@ def delegation_answer(lane: str) -> str:
     if lane in {"question", "lite"}:
         return "no"
     if lane == "standard":
-        return "only a bounded Haiku reviewer or a Sonnet or Haiku specialist below the session model, when it clearly helps"
+        return "at most two bounded children (Haiku, Sonnet low or high, or Opus low) below the session, when it clearly helps"
     return "bounded specialists as needed; independent review required"
 
 
 def owner_model_lines(lane: str, payload: dict) -> list[str]:
-    """Flag a session model below the lane owner; a lane never switches models."""
-    if lane != "critical":
+    """Flag a session below the lane's owner; a lane never switches models or effort."""
+    minimum = LANE_OWNER_MIN.get(lane)
+    if not minimum:
         return []
-    session = parent_model(payload.get("transcript_path"))
-    if session not in TIER_ORDER or session == "opus":
+    tier, transcript_effort = session_profile(payload.get("transcript_path"))
+    effort = payload_effort(payload) or transcript_effort
+    if not tier:
+        return []
+    if owner_failure(lane, tier, effort) is None:
         return []
     return [
-        f"- Session model: {session}, below the critical-lane owner (opus). Say so "
-        "plainly and ask Rudy to switch models; if he proceeds on this model, the "
-        "result still needs independent review before completion."
+        f"- Session: {tier} at {effort or 'unknown'} effort, below the {lane}-lane owner "
+        f"({minimum[0]} at {minimum[1]} effort or stronger). Say so plainly and ask Rudy "
+        "to switch models or effort; the subagent gate refuses this lane's children "
+        "until then."
     ]
 
 

@@ -66,22 +66,47 @@ class RouterScenarios(unittest.TestCase):
         self.assertIn("Suggested lane: standard", text)
         self.assertIn("Tracking needed: no", text)
         self.assertIn("Commit/PR when files change: yes", text)
-        self.assertIn("only a bounded Haiku reviewer or a Sonnet or Haiku specialist below the session model", text)
+        self.assertIn("at most two bounded children (Haiku, Sonnet low or high, or Opus low) below the session", text)
 
     def test_security_change_is_critical_with_review(self) -> None:
         text = self.route("Update the token validation in the authentication middleware")
         self.assertIn("Suggested lane: critical", text)
         self.assertIn("independent review required", text)
 
-    def test_critical_on_sonnet_session_is_flagged(self) -> None:
+    def route_on(self, prompt: str, model: str, effort: str | None, payload_effort: str | None = None) -> str:
         import json
 
-        path = Path(self._tmp.name) / "t.jsonl"
-        path.write_text(json.dumps({"type": "assistant", "message": {"model": "claude-sonnet-5", "content": []}}), encoding="utf-8")
-        router.read_hook_input = lambda: {"session_id": "crit", "prompt": "Fix the authentication bypass", "transcript_path": str(path)}
+        path = Path(self._tmp.name) / f"t-{self.counter}.jsonl"
+        self.counter += 1
+        record = {"type": "assistant", "message": {"model": model, "content": []}}
+        if effort:
+            record["effort"] = effort
+        path.write_text(json.dumps(record), encoding="utf-8")
+        data = {"session_id": f"own{self.counter}", "prompt": prompt, "transcript_path": str(path)}
+        if payload_effort:
+            data["effort"] = {"level": payload_effort}
+        router.read_hook_input = lambda: data
         router.main()
-        text = self.captured[-1]["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("Session model: sonnet, below the critical-lane owner", text)
+        return self.captured[-1]["hookSpecificOutput"]["additionalContext"]
+
+    def test_critical_on_sonnet_session_is_flagged(self) -> None:
+        text = self.route_on("Fix the authentication bypass", "claude-sonnet-5", "high")
+        self.assertIn("Session: sonnet at high effort, below the critical-lane owner (opus at xhigh effort or stronger)", text)
+
+    def test_critical_needs_opus_xhigh_not_just_opus(self) -> None:
+        self.assertIn("below the critical-lane owner", self.route_on("Fix the authentication bypass", "claude-opus-5", "high"))
+        self.assertNotIn("below the critical-lane owner", self.route_on("Fix the authentication bypass", "claude-opus-5", "xhigh"))
+        self.assertNotIn("-lane owner (", self.route_on("Fix the authentication bypass", "claude-fable-5-1", "low"))
+
+    def test_standard_owner_is_flagged_below_opus_medium(self) -> None:
+        prompt = "Fix the off-by-one bug in the pagination helper"
+        self.assertIn("below the standard-lane owner", self.route_on(prompt, "claude-opus-5", "low"))
+        self.assertNotIn("below the standard-lane owner", self.route_on(prompt, "claude-opus-5", "medium"))
+        # The payload's effort is the one in force now.
+        self.assertNotIn("below the standard-lane owner", self.route_on(prompt, "claude-opus-5", "low", "high"))
+
+    def test_unknown_session_model_is_not_flagged(self) -> None:
+        self.assertNotIn("-lane owner (", self.route("Fix the authentication bypass"))
 
     def test_git_finish_is_owner_work_without_tracking(self) -> None:
         text = self.route("finish it")

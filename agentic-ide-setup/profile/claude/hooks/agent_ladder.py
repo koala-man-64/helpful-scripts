@@ -2,13 +2,15 @@
 
 Lanes are alternatives chosen from a task's scope and risk, not a cumulative
 ladder: a spawn names its lane and model directly, and nothing requires a
-failed or justified lower tier first. The gate checks that the chosen model
-is one the lane permits, that it ranks strictly below the parent, and that the
-task is bounded and verifiable.
+failed or justified lower tier first. Capability is a model *at an effort*, so
+the gate checks that the session owns the lane, that the child's model and
+effort pair is one the lane permits and not beaten on score and cost, that it
+scores strictly below the parent's, and that the task is bounded and
+verifiable.
 
 Claude exposes ``haiku | sonnet | opus | fable`` as spawn models. The first
-three form the child capability order. Fable is a parent-only tier ranked above
-Opus: a Fable session may spawn any lane-permitted child, but Fable itself is
+three are routable children. Fable is a parent-only tier ranked above every
+child: a Fable session may spawn any lane-permitted child, but Fable itself is
 never a routed child.
 
 The module is still named ``agent_ladder`` so the installed hook paths in
@@ -106,7 +108,7 @@ ENVELOPE_TEMPLATE = """<claude_subagent_task_v2>
   "scope": ["<path or surface the subagent may touch>"],
   "acceptance_checks": ["<how the parent verifies the result>"],
   "constraints": ["Do not spawn another agent"],
-  "routing_reason": "<why this lane and model>"
+  "routing_reason": "<why this lane, model and effort>"
 }
 </claude_subagent_task_v2>"""
 LANE_CHILD_CAP = {"lite": 0, "standard": 2, "critical": 3}
@@ -208,9 +210,15 @@ def lane_summary() -> str:
         "and select the model directly; no lower-tier attempts or blocker "
         "justifications are required:\n"
         f"{lanes}\n"
-        "- A child must rank strictly below its parent (haiku < sonnet < opus < fable); "
-        "Fable is never a routed child. Effort is set only by agent-definition "
-        "frontmatter, and a lane never changes the running session's model.\n"
+        "- Capability is a model at an effort. A child's pair must score strictly "
+        "below the session's (Opus max 57.6, xhigh 56.0, high 53.7, medium 51.3, low "
+        "42.3; Sonnet high 46.8, low 35.9; Haiku lowest); Fable is never a routed "
+        "child. Sonnet at medium, xhigh or max is beaten on score and cost and is "
+        "denied.\n"
+        "- The contract 'tier' picks the child's model. Its effort is its agent "
+        "definition's `effort` frontmatter, or the session's when the definition "
+        "sets none (every built-in agent). A lane never changes the running "
+        "session's model or effort; below a lane's owner, ask Rudy to switch.\n"
         f"- Lead every subagent prompt with this <{ENVELOPE_TAG}> envelope, "
         "filled in (constraints and scope are lists):\n"
         f"{ENVELOPE_TEMPLATE}"
