@@ -76,12 +76,13 @@ LANE_SHAPE = {
 }
 
 # Which child tiers each lane permits, and how many children per session. A
-# child still ranks strictly below its parent, so a Sonnet session in the
-# standard lane can spawn only Haiku (D1, 2026-09-23).
+# child's model at its effort still scores strictly below its parent's (see
+# ``rank_failure``).
 LANE_CHILD_TIERS = {
     "lite": (),
     "standard": ("haiku", "sonnet"),
-    "critical": ("haiku", "sonnet"),
+    # An Opus child is permitted when its effort scores below the parent (2026-10-07).
+    "critical": ("haiku", "sonnet", "opus"),
 }
 
 # The contract every spawn in a managed repository leads with. Shown verbatim
@@ -467,6 +468,95 @@ def beaten_failure(tier: str, effort: str) -> tuple[str, str] | None:
     )
 
 
+def child_score(tier: str, effort: str) -> float | None:
+    """Score a child runs at: Haiku is unscored and ranks lowest (0); an unknown
+    effort scores as the model's strongest, the most restrictive reading."""
+    if tier == "haiku":
+        return 0.0
+    return profile_score(tier, effort)
+
+
+def parent_score(tier: str, effort: str) -> float | None:
+    """Score of the spawning session, or None when its model is unknown.
+
+    Fable ranks above every child. An unknown effort scores as the model's
+    weakest charted effort, the most restrictive reading for a parent.
+    """
+    if tier in PARENT_ONLY_TIERS:
+        return float("inf")
+    if tier == "haiku":
+        return 0.0
+    if tier not in TIER_ORDER:
+        return None
+    if effort:
+        return PROFILE_SCORES.get((tier, effort))
+    scores = [score for (model, _), score in PROFILE_SCORES.items() if model == tier]
+    return min(scores) if scores else None
+
+
+def _describe(tier: str, effort: str) -> str:
+    return "{0} at {1} effort".format(tier, effort) if effort else "{0} at unknown effort".format(tier)
+
+
+def rank_failure(
+    tier: str, effort: str, parent_tier: str, parent_effort: str
+) -> tuple[str, str] | None:
+    """A child's model at its effort must score strictly below its parent's.
+
+    This replaces ranking by model name: an Opus child at low effort sits
+    below an Opus session at xhigh. Unknown values take their most
+    restrictive reading; an unknown parent model permits only Haiku.
+    """
+    parent = parent_score(parent_tier, parent_effort)
+    if parent is None:
+        if tier == "haiku":
+            return None
+        return (
+            "LANE_PARENT_UNKNOWN",
+            "The parent session's model could not be determined, so only a "
+            "haiku child is permitted. Use tier 'haiku' or do the work directly.",
+        )
+    child = child_score(tier, effort)
+    if child is not None and child < parent:
+        return None
+    return (
+        "LANE_CHILD_NOT_LOWER",
+        "A child must score strictly below its parent. This session runs {0} "
+        "(score {1}); the child would run {2} (score {3}). Pick a lower model, an "
+        "agent whose definition sets a lower `effort`, or do the work in this "
+        "session. A lane choice does not change the session's model or effort; "
+        "if the task needs a stronger owner, say so and ask Rudy to switch "
+        "models.".format(
+            _describe(parent_tier, parent_effort),
+            "above all" if parent == float("inf") else parent,
+            _describe(tier, effort),
+            "unscored" if child is None else child,
+        ),
+    )
+
+
+def definition_model(subagent_type: str, directories: list[Path]) -> str:
+    """The ``model`` a definition pins, or ``""`` when it inherits or is undefined."""
+    wanted = subagent_type.lower()
+    for name, fields in _definitions(directories).items():
+        if name.lower() == wanted and fields is not None:
+            model = str(fields.get("model") or "").strip().lower()
+            return "" if model == "inherit" else model
+    return ""
+
+
+def resolve_child_model(
+    explicit_model: str, pinned_model: str, environment_model: str, parent_tier: str
+) -> str:
+    """Tier the child runs on, in Claude Code's documented order: the Agent
+    tool's ``model``, the definition's ``model``, ``CLAUDE_CODE_SUBAGENT_MODEL``,
+    then the session's model. ``""`` when none resolves to a known tier."""
+    for candidate in (explicit_model, pinned_model, environment_model):
+        if candidate and candidate.strip():
+            return model_family(candidate.strip())
+    return parent_tier
+
+
 def validate(
     contract: dict[str, Any],
     subagent_type: str,
@@ -474,13 +564,14 @@ def validate(
     parent_tier: str,
     read_only: frozenset[str] = READ_ONLY_AGENTS,
     effort: str = "",
+    parent_effort: str = "",
 ) -> tuple[str, str] | None:
     """Return ``(reason_code, message)`` for the first failure, else ``None``.
 
     ``parent_tier`` is the parent's tier name, or ``""`` when unknown.
     ``read_only`` names the agents that cannot write (see ``read_only_agents``).
-    ``effort`` is the effort the child will run at (see ``child_effort``), or
-    ``""`` when unknown.
+    ``effort`` is the effort the child will run at (see ``child_effort``), and
+    ``parent_effort`` the session's; ``""`` for either when unknown.
     """
     lane = contract.get("lane")
     if not isinstance(lane, str) or lane not in LANE_ORDER:
@@ -541,25 +632,9 @@ def validate(
             "them in the parent first.",
         )
 
-    child_rank = TIER_ORDER.index(tier)
-    if parent_tier in PARENT_ONLY_TIERS:
-        pass  # Ranks above every child tier; the lane check above already applied.
-    elif parent_tier in TIER_ORDER:
-        if child_rank >= TIER_ORDER.index(parent_tier):
-            return (
-                "LANE_CHILD_NOT_LOWER",
-                "A child must rank strictly below its parent. This session runs "
-                "on {0}, so '{1}' is not permitted. Pick a lower tier, or do the "
-                "work in this session. A lane choice does not change the "
-                "session's model; if the task needs a stronger owner, say so and "
-                "ask Rudy to switch models.".format(parent_tier, tier),
-            )
-    elif child_rank > 0:
-        return (
-            "LANE_PARENT_UNKNOWN",
-            "The parent session's model could not be determined, so only a "
-            "haiku child is permitted. Use tier 'haiku' or do the work directly.",
-        )
+    ranked = rank_failure(tier, effort, parent_tier, parent_effort)
+    if ranked:
+        return ranked
 
     expected_model = TIER_MODEL[tier]
     if explicit_model and explicit_model != expected_model:

@@ -99,7 +99,7 @@ class LadderTestCase(unittest.TestCase):
         raw_prompt=None,
         parent="default",
         session_id=None,
-        effort=None,
+        effort="default",
         payload_effort=None,
     ):
         if raw_prompt is not None:
@@ -121,8 +121,11 @@ class LadderTestCase(unittest.TestCase):
             "tool_name": tool_name,
             "tool_input": tool_input,
             "session_id": session_id,
+            # Sessions record their effort; high keeps a Sonnet child that
+            # inherits it (46.8) below an Opus parent at high (53.7).
             "transcript_path": self.transcript(
-                self.parent if parent == "default" else parent, effort
+                self.parent if parent == "default" else parent,
+                "high" if effort == "default" else effort,
             ),
         }
         if payload_effort:
@@ -219,11 +222,9 @@ class LanePermissions(LadderTestCase):
             self.run_gate(self.payload(contract(tier="opus"))), "LANE_TIER_NOT_PERMITTED"
         )
 
-    def test_opus_is_never_a_child(self):
-        self.assertDenied(
-            self.run_gate(self.payload(contract(lane="critical", tier="opus"))),
-            "LANE_TIER_NOT_PERMITTED",
-        )
+    def test_opus_child_inheriting_the_parent_effort_is_not_lower(self):
+        body = contract(lane="critical", tier="opus")
+        self.assertDenied(self.run_gate(self.payload(body)), "LANE_CHILD_NOT_LOWER")
 
     def test_unknown_lane_is_rejected(self):
         self.assertDenied(
@@ -267,7 +268,7 @@ class ParentOrdering(LadderTestCase):
             "LANE_LITE_NO_CHILDREN",
         )
         self.assertDenied(
-            self.run_gate(self.payload(contract(lane="critical", tier="opus"), parent="fable")),
+            self.run_gate(self.payload(contract(tier="opus"), parent="fable")),
             "LANE_TIER_NOT_PERMITTED",
         )
         self.assertDenied(
@@ -388,9 +389,11 @@ class EffortProfiles(LadderTestCase):
         self.assertDenied(self.sonnet(effort="high"), "LANE_BEATEN_PROFILE")
 
     def test_unknown_effort_is_not_called_beaten(self):
-        self.assertRouted(self.sonnet(), "sonnet")
+        self.assertIsNone(agent_ladder.beaten_failure("sonnet", ""))
+        # Unknown efforts take their most restrictive reading in the ranking instead.
+        self.assertDenied(self.sonnet(effort=None), "LANE_CHILD_NOT_LOWER")
         entry = self.log_entries()[-1]
-        self.assertEqual((entry["effort"], entry["effort_source"]), ("unknown", "unknown"))
+        self.assertEqual(entry["reason_code"], "LANE_CHILD_NOT_LOWER")
 
     def test_haiku_is_never_beaten(self):
         self.assertRouted(self.run_gate(self.payload(contract(), effort="medium")), "haiku")
@@ -404,6 +407,131 @@ class EffortProfiles(LadderTestCase):
         self.assertEqual(agent_ladder.profile_score("opus", ""), 57.6)
         self.assertEqual(agent_ladder.profile_score("opus", "low"), 42.3)
         self.assertIsNone(agent_ladder.profile_score("haiku", "low"))
+
+
+class AgentDefinitionsCase(LadderTestCase):
+    """Agent definitions in a temporary directory, with model and effort env cleared."""
+
+    def setUp(self):
+        super().setUp()
+        self.agents = Path(self.tmp.name) / "agents"
+        self.agents.mkdir()
+        saved = gate.agent_directories
+        gate.agent_directories = lambda root: [self.agents]
+        self.addCleanup(setattr, gate, "agent_directories", saved)
+        for name in ("CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_SUBAGENT_MODEL"):
+            saved_env = os.environ.pop(name, None)
+            if saved_env is not None:
+                self.addCleanup(os.environ.__setitem__, name, saved_env)
+            self.addCleanup(os.environ.pop, name, None)
+
+    def define(self, name: str, *fields: str) -> None:
+        body = ["---", f"name: {name}", "description: test agent", *fields, "---", "", "# body"]
+        (self.agents / f"{name}.md").write_text("\n".join(body), encoding="utf-8")
+
+
+class ScoreRanking(AgentDefinitionsCase):
+    """Children rank by model at effort, so an Opus child can sit below an Opus parent."""
+
+    def opus_child(self, child_effort: str, parent_effort: str, parent: str = "opus"):
+        self.define("specialist", f"effort: {child_effort}")
+        body = contract(lane="critical", tier="opus")
+        return self.run_gate(
+            self.payload(body, subagent_type="specialist", parent=parent, effort=parent_effort)
+        )
+
+    def test_opus_low_and_medium_sit_below_an_opus_xhigh_parent(self):
+        for effort in ("low", "medium", "high"):
+            with self.subTest(effort=effort):
+                self.assertRouted(self.opus_child(effort, "xhigh"), "opus")
+
+    def test_opus_child_at_the_parent_effort_is_denied(self):
+        self.assertDenied(self.opus_child("high", "high"), "LANE_CHILD_NOT_LOWER")
+        self.assertDenied(self.opus_child("max", "xhigh"), "LANE_CHILD_NOT_LOWER")
+
+    def test_sonnet_high_sits_below_opus_medium_but_not_opus_low(self):
+        self.define("specialist", "effort: high")
+        body = contract(lane="critical", tier="sonnet")
+        self.assertRouted(self.run_gate(self.payload(body, subagent_type="specialist", effort="medium")), "sonnet")
+        self.assertDenied(
+            self.run_gate(self.payload(body, subagent_type="specialist", effort="low")), "LANE_CHILD_NOT_LOWER"
+        )
+
+    def test_fable_parent_takes_any_scored_child(self):
+        self.assertRouted(self.opus_child("max", "max", parent="fable"), "opus")
+
+    def test_unknown_parent_effort_reads_as_the_weakest(self):
+        # Opus at unknown effort scores as Opus low (42.3): Sonnet high (46.8) is not below it.
+        self.define("specialist", "effort: high")
+        body = contract(lane="critical", tier="sonnet")
+        self.assertDenied(
+            self.run_gate(self.payload(body, subagent_type="specialist", effort=None)), "LANE_CHILD_NOT_LOWER"
+        )
+
+    def test_haiku_ranks_below_every_scored_parent_but_not_haiku(self):
+        self.assertRouted(self.run_gate(self.payload(contract(), parent="sonnet", effort="low")), "haiku")
+        self.assertDenied(self.run_gate(self.payload(contract(), parent="haiku")), "LANE_CHILD_NOT_LOWER")
+
+    def test_denial_names_both_scores(self):
+        reason = self.opus_child("high", "high")["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("opus at high effort (score 53.7)", reason)
+
+
+class UnmanagedRules(AgentDefinitionsCase):
+    """Outside managed repositories: beaten pairs and child-below-parent only, no envelope."""
+
+    def setUp(self):
+        super().setUp()
+        self.set_origin(UNMANAGED)
+
+    def spawn(self, subagent_type="general-purpose", model=None, **kwargs):
+        return self.run_gate(self.payload(subagent_type=subagent_type, model=model, **kwargs))
+
+    def test_no_envelope_rewrite_or_cap(self):
+        for _ in range(5):
+            self.assertIsNone(self.spawn(model="haiku", session_id="many"))
+
+    def test_inheriting_built_in_is_not_below_its_parent(self):
+        self.assertDenied(self.spawn(), "LANE_CHILD_NOT_LOWER")
+        self.assertDenied(self.spawn(subagent_type=None), "LANE_CHILD_NOT_LOWER")
+
+    def test_explicit_lower_model_passes(self):
+        self.assertIsNone(self.spawn(model="sonnet"))  # Sonnet high (46.8) below Opus high (53.7)
+
+    def test_beaten_pair_is_denied(self):
+        self.assertDenied(self.spawn(model="sonnet", effort="medium"), "LANE_BEATEN_PROFILE")
+
+    def test_definition_model_and_effort_apply(self):
+        self.define("reviewer", "model: opus", "effort: low")
+        self.assertIsNone(self.spawn(subagent_type="reviewer"))
+        self.define("pinned", "model: opus")
+        self.assertDenied(self.spawn(subagent_type="pinned"), "LANE_CHILD_NOT_LOWER")
+
+    def test_explicit_model_beats_the_definition(self):
+        self.define("pinned", "model: opus")
+        self.assertIsNone(self.spawn(subagent_type="pinned", model="haiku"))
+
+    def test_environment_subagent_model_applies_after_the_definition(self):
+        os.environ["CLAUDE_CODE_SUBAGENT_MODEL"] = "claude-haiku-4-5-20251001"
+        self.assertIsNone(self.spawn())
+        self.define("pinned", "model: opus")
+        self.assertDenied(self.spawn(subagent_type="pinned"), "LANE_CHILD_NOT_LOWER")
+
+    def test_fable_is_never_a_child(self):
+        self.assertDenied(self.spawn(model="fable", parent="fable"), "LANE_CHILD_NOT_LOWER")
+
+    def test_unresolved_model_is_let_through_and_logged(self):
+        self.assertIsNone(self.spawn(model="gpt-6"))
+        self.assertEqual(self.log_entries()[-1]["reason_code"], "LANE_MODEL_UNRESOLVED")
+
+    def test_nested_spawns_are_left_to_the_depth_limit(self):
+        data = self.payload(subagent_type="general-purpose")
+        data["agent_id"] = "child-1"
+        self.assertIsNone(self.run_gate(data))
+
+    def test_denial_carries_no_envelope_guidance(self):
+        reason = self.spawn()["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertNotIn(agent_ladder.ENVELOPE_TAG, reason)
 
 
 class ContractShape(LadderTestCase):
@@ -621,10 +749,10 @@ class ProfileAgentFrontmatter(unittest.TestCase):
 
 
 class Scope(LadderTestCase):
-    def test_unmanaged_repository_is_untouched(self):
+    def test_unmanaged_repository_needs_no_envelope(self):
         self.set_origin(UNMANAGED)
-        self.assertIsNone(self.run_gate(self.payload()))
-        self.assertEqual(self.log_entries(), [])
+        self.assertIsNone(self.run_gate(self.payload(subagent_type="Explore", model="haiku")))
+        self.assertEqual([e["scope"] for e in self.log_entries()], ["unmanaged"])
 
     def test_repository_without_a_remote_is_untouched(self):
         gate.run_git = lambda args, cwd=None: (1, "")
