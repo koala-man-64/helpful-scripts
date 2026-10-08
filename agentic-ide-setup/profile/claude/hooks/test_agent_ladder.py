@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -63,13 +64,26 @@ class LadderTestCase(unittest.TestCase):
         self.addCleanup(os.environ.pop, "CLAUDE_SESSION_FLAGS_DIR", None)
         self.session_counter = 0
 
-        self._saved = (gate.LOG_PATH, gate.repo_root, gate.run_git)
+        self._saved = (gate.LOG_PATH, gate.repo_root, gate.run_git, gate.agent_directories)
         gate.LOG_PATH = self.log
         gate.repo_root = lambda: Path(self.tmp.name)
         self.set_origin(MANAGED)
+        # Hermetic definitions: the default child is a delivery engineer at high
+        # effort, as the profile ships it, not whatever the host has installed.
+        default_agents = Path(self.tmp.name) / "default-agents"
+        default_agents.mkdir()
+        (default_agents / "delivery-engineer-agent.md").write_text(
+            "---\nname: delivery-engineer-agent\ndescription: test\nmodel: sonnet\neffort: high\n---\n",
+            encoding="utf-8",
+        )
+        gate.agent_directories = lambda root: [default_agents]
+        for name in ("CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_SUBAGENT_MODEL"):
+            saved_env = os.environ.pop(name, None)
+            if saved_env is not None:
+                self.addCleanup(os.environ.__setitem__, name, saved_env)
 
         def restore():
-            gate.LOG_PATH, gate.repo_root, gate.run_git = self._saved
+            gate.LOG_PATH, gate.repo_root, gate.run_git, gate.agent_directories = self._saved
 
         self.addCleanup(restore)
 
@@ -121,11 +135,10 @@ class LadderTestCase(unittest.TestCase):
             "tool_name": tool_name,
             "tool_input": tool_input,
             "session_id": session_id,
-            # Sessions record their effort; high keeps a Sonnet child that
-            # inherits it (46.8) below an Opus parent at high (53.7).
+            # Sessions record their effort; xhigh owns every lane.
             "transcript_path": self.transcript(
                 self.parent if parent == "default" else parent,
-                "high" if effort == "default" else effort,
+                "xhigh" if effort == "default" else effort,
             ),
         }
         if payload_effort:
@@ -204,27 +217,38 @@ class DirectSelection(LadderTestCase):
         self.assertEqual(hook["updatedInput"]["subagent_type"], "delivery-engineer-agent")
 
 
-class LanePermissions(LadderTestCase):
+class AgentDefinitionsCase(LadderTestCase):
+    """Agent definitions in a temporary directory, with model and effort env cleared.
+
+    ``low-agent``, ``medium-agent``, ``high-agent`` and ``xhigh-agent`` set that
+    effort; ``plain-agent`` sets none, so it inherits the session's like a built-in.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.agents = Path(self.tmp.name) / "agents"
+        self.agents.mkdir()
+        gate.agent_directories = lambda root: [self.agents]
+        self.addCleanup(os.environ.pop, "CLAUDE_CODE_EFFORT_LEVEL", None)
+        self.addCleanup(os.environ.pop, "CLAUDE_CODE_SUBAGENT_MODEL", None)
+        for effort in ("low", "medium", "high", "xhigh"):
+            self.define(f"{effort}-agent", f"effort: {effort}")
+        self.define("plain-agent")
+
+    def define(self, name: str, *fields: str) -> None:
+        body = ["---", f"name: {name}", "description: test agent", *fields, "---", "", "# body"]
+        (self.agents / f"{name}.md").write_text("\n".join(body), encoding="utf-8")
+
+    def spawn(self, lane="critical", tier="sonnet", agent="high-agent", **kwargs):
+        body = contract(lane=lane, tier=tier)
+        return self.run_gate(self.payload(body, subagent_type=agent, **kwargs))
+
+
+class LanePermissions(AgentDefinitionsCase):
     def test_lite_lane_has_no_children(self):
         self.assertDenied(
             self.run_gate(self.payload(contract(lane="lite"))), "LANE_LITE_NO_CHILDREN"
         )
-
-    def test_standard_lane_permits_a_sonnet_specialist_below_the_parent(self):
-        """D1 (2026-09-23): one Sonnet or Haiku specialist, still strictly below the session model."""
-        self.assertRouted(self.run_gate(self.payload(contract(tier="sonnet"))), "sonnet")
-        self.assertDenied(
-            self.run_gate(self.payload(contract(tier="sonnet"), parent="sonnet")), "LANE_CHILD_NOT_LOWER"
-        )
-
-    def test_standard_lane_does_not_permit_opus(self):
-        self.assertDenied(
-            self.run_gate(self.payload(contract(tier="opus"))), "LANE_TIER_NOT_PERMITTED"
-        )
-
-    def test_opus_child_inheriting_the_parent_effort_is_not_lower(self):
-        body = contract(lane="critical", tier="opus")
-        self.assertDenied(self.run_gate(self.payload(body)), "LANE_CHILD_NOT_LOWER")
 
     def test_unknown_lane_is_rejected(self):
         self.assertDenied(
@@ -235,46 +259,86 @@ class LanePermissions(LadderTestCase):
         self.assertDenied(
             self.run_gate(self.payload(contract(tier="sol"))), "LANE_UNKNOWN_TIER"
         )
+        self.assertDenied(self.spawn(tier="fable", parent="fable"), "LANE_UNKNOWN_TIER")
+
+    def test_standard_lane_children(self):
+        """Haiku, Sonnet low or high, Opus low; checked under the weakest standard owner."""
+        medium = {"lane": "standard", "effort": "medium"}
+        self.assertRouted(self.spawn(tier="haiku", agent="plain-agent", **medium), "haiku")
+        self.assertRouted(self.spawn(agent="low-agent", **medium), "sonnet")
+        self.assertRouted(self.spawn(agent="high-agent", **medium), "sonnet")
+        self.assertRouted(self.spawn(tier="opus", agent="low-agent", **medium), "opus")
+
+    def test_standard_lane_refuses_stronger_opus_even_under_a_strong_owner(self):
+        result = self.spawn(lane="standard", tier="opus", agent="medium-agent", effort="max")
+        self.assertDenied(result, "LANE_PROFILE_NOT_PERMITTED")
+        self.assertIn("only at low effort", result["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_critical_lane_takes_opus_up_to_xhigh_below_the_owner(self):
+        for agent in ("low-agent", "medium-agent", "high-agent"):
+            with self.subTest(agent=agent):
+                self.assertRouted(self.spawn(tier="opus", agent=agent), "opus")
+        self.assertRouted(self.spawn(tier="opus", agent="xhigh-agent", effort="max"), "opus")
 
 
-class ParentOrdering(LadderTestCase):
-    def test_sonnet_parent_cannot_spawn_sonnet(self):
-        body = contract(lane="critical", tier="sonnet")
-        result = self.run_gate(self.payload(body, parent="sonnet"))
-        self.assertDenied(result, "LANE_CHILD_NOT_LOWER")
-        self.assertIn("switch models", result["hookSpecificOutput"]["permissionDecisionReason"])
+class LaneOwners(AgentDefinitionsCase):
+    """A session cannot claim a lane above its own model and effort."""
 
-    def test_sonnet_parent_can_spawn_haiku(self):
-        self.assertRouted(self.run_gate(self.payload(contract(), parent="sonnet")), "haiku")
+    def haiku(self, lane, **kwargs):
+        return self.spawn(lane=lane, tier="haiku", agent="plain-agent", **kwargs)
 
-    def test_haiku_parent_cannot_spawn_haiku(self):
-        self.assertDenied(
-            self.run_gate(self.payload(contract(), parent="haiku")), "LANE_CHILD_NOT_LOWER"
-        )
+    def test_standard_is_owned_from_opus_medium(self):
+        self.assertRouted(self.haiku("standard", effort="medium"), "haiku")
+        self.assertDenied(self.haiku("standard", effort="low"), "LANE_OWNER_BELOW_LANE")
+        self.assertDenied(self.haiku("standard", parent="sonnet", effort="high"), "LANE_OWNER_BELOW_LANE")
 
-    def test_unknown_parent_caps_at_haiku(self):
-        body = contract(lane="critical", tier="sonnet")
-        self.assertDenied(self.run_gate(self.payload(body, parent=None)), "LANE_PARENT_UNKNOWN")
-        self.assertRouted(self.run_gate(self.payload(contract(), parent=None)), "haiku")
+    def test_critical_is_owned_from_opus_xhigh(self):
+        self.assertDenied(self.haiku("critical", effort="high"), "LANE_OWNER_BELOW_LANE")
+        for effort in ("xhigh", "max"):
+            with self.subTest(effort=effort):
+                self.assertRouted(self.haiku("critical", effort=effort), "haiku")
+        self.assertRouted(self.haiku("critical", parent="fable", effort="low"), "haiku")
 
-    def test_fable_parent_ranks_above_opus(self):
-        body = contract(lane="critical", tier="sonnet")
-        self.assertRouted(self.run_gate(self.payload(body, parent="fable")), "sonnet")
-        self.assertRouted(self.run_gate(self.payload(contract(), parent="fable")), "haiku")
+    def test_unknown_parent_owns_no_lane(self):
+        self.assertDenied(self.haiku("standard", parent=None), "LANE_OWNER_BELOW_LANE")
+        # An unknown effort reads as the model's weakest, Opus low.
+        self.assertDenied(self.haiku("standard", effort=None), "LANE_OWNER_BELOW_LANE")
 
-    def test_fable_parent_still_obeys_lane_and_child_rules(self):
-        self.assertDenied(
-            self.run_gate(self.payload(contract(lane="lite"), parent="fable")),
-            "LANE_LITE_NO_CHILDREN",
-        )
-        self.assertDenied(
-            self.run_gate(self.payload(contract(tier="opus"), parent="fable")),
-            "LANE_TIER_NOT_PERMITTED",
-        )
-        self.assertDenied(
-            self.run_gate(self.payload(contract(lane="critical", tier="fable"), parent="fable")),
-            "LANE_UNKNOWN_TIER",
-        )
+    def test_denial_asks_for_a_model_switch(self):
+        reason = self.haiku("critical", effort="high")["hookSpecificOutput"]["permissionDecisionReason"]
+        self.assertIn("opus at xhigh effort or stronger", reason)
+        self.assertIn("ask Rudy to switch", reason)
+
+
+class ParentOrdering(AgentDefinitionsCase):
+    """Children rank by model at effort, so an Opus child can sit below an Opus parent."""
+
+    def test_opus_child_at_or_above_the_parent_effort_is_denied(self):
+        self.assertDenied(self.spawn(tier="opus", agent="xhigh-agent"), "LANE_CHILD_NOT_LOWER")
+        self.assertDenied(self.spawn(tier="opus", agent="plain-agent"), "LANE_CHILD_NOT_LOWER")
+
+    def test_sonnet_high_sits_below_opus_medium(self):
+        self.assertRouted(self.spawn(lane="standard", effort="medium"), "sonnet")
+
+    def test_fable_parent_takes_any_permitted_child(self):
+        self.assertRouted(self.spawn(tier="opus", agent="xhigh-agent", parent="fable", effort="max"), "opus")
+
+    def test_rank_rule(self):
+        rank = agent_ladder.rank_failure
+        self.assertIsNone(rank("haiku", "", "sonnet", "low"))
+        self.assertEqual(rank("haiku", "", "haiku", "")[0], "LANE_CHILD_NOT_LOWER")
+        self.assertIsNone(rank("haiku", "", "", ""))
+        self.assertEqual(rank("sonnet", "low", "", "")[0], "LANE_PARENT_UNKNOWN")
+        # Parent at unknown effort reads as its weakest; child as its strongest.
+        self.assertEqual(rank("sonnet", "high", "opus", "")[0], "LANE_CHILD_NOT_LOWER")
+        self.assertEqual(rank("opus", "", "opus", "max")[0], "LANE_CHILD_NOT_LOWER")
+        self.assertIsNone(rank("opus", "max", "fable", ""))
+        self.assertEqual(rank("fable", "max", "fable", "max")[0], "LANE_CHILD_NOT_LOWER")
+
+    def test_denial_names_both_scores(self):
+        reason = agent_ladder.rank_failure("opus", "high", "opus", "high")[1]
+        self.assertIn("opus at high effort (score 53.7)", reason)
+        self.assertIn("switch models", reason)
 
     def test_nested_spawn_is_rejected(self):
         data = self.payload(contract())
@@ -305,6 +369,15 @@ class ChildCap(LadderTestCase):
             self.assertRouted(self.run_gate(self.payload(body, session_id="crit")), "sonnet")
         self.assertDenied(self.run_gate(self.payload(body, session_id="crit")), "LANE_CHILD_CAP")
 
+    def test_switching_lanes_does_not_add_children(self):
+        for _ in range(2):
+            self.assertRouted(self.run_gate(self.payload(contract(), session_id="shop")), "haiku")
+        critical = contract(lane="critical")
+        self.assertRouted(self.run_gate(self.payload(critical, session_id="shop")), "haiku")
+        result = self.run_gate(self.payload(critical, session_id="shop"))
+        self.assertDenied(result, "LANE_CHILD_CAP")
+        self.assertIn("used its session budget", result["hookSpecificOutput"]["permissionDecisionReason"])
+
     def test_denied_spawns_do_not_consume_the_cap(self):
         for _ in range(3):
             self.run_gate(self.payload(contract(tier="opus"), session_id="cap2"))
@@ -323,30 +396,58 @@ class ChildCap(LadderTestCase):
             self.run_gate(self.payload(contract(), session_id="compact")), "LANE_CHILD_CAP"
         )
 
+    def test_a_legacy_per_lane_count_file_is_read(self):
+        path = gate._children_file("legacy")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"standard": 2}), encoding="utf-8")
+        self.assertEqual(gate.claim_child_slot("legacy", "standard"), "lane")
+        self.assertEqual(gate.claim_child_slot("legacy", "critical"), "")
+        self.assertEqual(gate.claim_child_slot("legacy", "critical"), "session")
 
-class EffortProfiles(LadderTestCase):
+    def test_parallel_claims_never_exceed_the_cap(self):
+        import threading
+
+        results: list[str] = []
+        barrier = threading.Barrier(12)
+
+        def claim():
+            barrier.wait()
+            results.append(gate.claim_child_slot("parallel", "critical"))
+
+        threads = [threading.Thread(target=claim) for _ in range(12)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(results.count(""), 3)
+        self.assertEqual(results.count("lane"), 9)
+
+    def test_a_stale_lock_is_broken(self):
+        path = gate._children_file("stale")
+        lock = path.with_name(path.name + ".lock")
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text("", encoding="utf-8")
+        old = time.time() - gate.LOCK_STALE_SECONDS - 5
+        os.utime(lock, (old, old))
+        self.assertEqual(gate.claim_child_slot("stale", "standard"), "")
+        self.assertFalse(lock.exists())
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["standard"], 1)
+
+    def test_a_held_lock_fails_open_without_counting(self):
+        path = gate._children_file("held")
+        lock = path.with_name(path.name + ".lock")
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text("", encoding="utf-8")
+        saved = gate.LOCK_WAIT_SECONDS
+        gate.LOCK_WAIT_SECONDS = 0.05
+        self.addCleanup(setattr, gate, "LOCK_WAIT_SECONDS", saved)
+        self.assertEqual(gate.claim_child_slot("held", "standard"), "")
+        self.assertFalse(path.exists())
+        self.assertTrue(lock.exists(), "another hook's lock is never removed while fresh")
+
+
+class EffortProfiles(AgentDefinitionsCase):
     """A child's capability is its model at its effort; beaten pairs are refused."""
-
-    def setUp(self):
-        super().setUp()
-        self.agents = Path(self.tmp.name) / "agents"
-        self.agents.mkdir()
-        saved = gate.agent_directories
-        gate.agent_directories = lambda root: [self.agents]
-        self.addCleanup(setattr, gate, "agent_directories", saved)
-        saved_env = os.environ.pop("CLAUDE_CODE_EFFORT_LEVEL", None)
-        if saved_env is not None:
-            self.addCleanup(os.environ.__setitem__, "CLAUDE_CODE_EFFORT_LEVEL", saved_env)
-        self.addCleanup(os.environ.pop, "CLAUDE_CODE_EFFORT_LEVEL", None)
-
-    def define(self, name: str, effort: str | None) -> None:
-        fields = ["---", f"name: {name}", "description: test agent", "model: sonnet"]
-        if effort:
-            fields.append(f"effort: {effort}")
-        (self.agents / f"{name}.md").write_text("\n".join([*fields, "---", "", "# body"]), encoding="utf-8")
-
-    def sonnet(self, **kwargs):
-        return self.run_gate(self.payload(contract(lane="critical", tier="sonnet"), **kwargs))
 
     def test_session_profile_reads_model_and_effort(self):
         self.assertEqual(agent_ladder.session_profile(self.transcript("opus", "xhigh")), ("opus", "xhigh"))
@@ -355,48 +456,42 @@ class EffortProfiles(LadderTestCase):
         self.assertEqual(agent_ladder.session_profile(None), ("", ""))
 
     def test_inherited_medium_lands_sonnet_on_a_beaten_pair(self):
-        result = self.sonnet(effort="medium")
+        result = self.spawn(lane="standard", agent="plain-agent", effort="medium")
         self.assertDenied(result, "LANE_BEATEN_PROFILE")
         self.assertIn("'opus' at low", result["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_sonnet_xhigh_and_max_are_beaten(self):
         for effort in ("xhigh", "max"):
             with self.subTest(effort=effort):
-                self.assertDenied(self.sonnet(effort=effort), "LANE_BEATEN_PROFILE")
+                self.assertDenied(self.spawn(agent="plain-agent", effort=effort), "LANE_BEATEN_PROFILE")
 
     def test_sonnet_low_and_high_route(self):
-        for effort in ("low", "high"):
-            with self.subTest(effort=effort):
-                self.assertRouted(self.sonnet(effort=effort), "sonnet")
+        for agent in ("low-agent", "high-agent"):
+            with self.subTest(agent=agent):
+                self.assertRouted(self.spawn(agent=agent), "sonnet")
 
     def test_definition_effort_overrides_the_session(self):
-        self.define("delivery-engineer-agent", "high")
-        self.assertRouted(self.sonnet(effort="medium"), "sonnet")
-        self.assertEqual(self.log_entries()[-1]["effort"], "high")
-        self.assertEqual(self.log_entries()[-1]["effort_source"], "definition")
-
-    def test_definition_without_effort_inherits(self):
-        self.define("delivery-engineer-agent", None)
-        self.assertDenied(self.sonnet(effort="medium"), "LANE_BEATEN_PROFILE")
+        self.assertRouted(self.spawn(lane="standard", effort="medium"), "sonnet")
+        entry = self.log_entries()[-1]
+        self.assertEqual((entry["effort"], entry["effort_source"]), ("high", "definition"))
 
     def test_payload_effort_wins_over_the_transcript(self):
-        self.assertRouted(self.sonnet(effort="medium", payload_effort="high"), "sonnet")
-        self.assertDenied(self.sonnet(effort="high", payload_effort="medium"), "LANE_BEATEN_PROFILE")
+        standard = {"lane": "standard", "agent": "plain-agent"}
+        self.assertRouted(self.spawn(effort="medium", payload_effort="high", **standard), "sonnet")
+        self.assertDenied(self.spawn(effort="high", payload_effort="medium", **standard), "LANE_BEATEN_PROFILE")
 
     def test_environment_effort_overrides_the_definition(self):
-        self.define("delivery-engineer-agent", "high")
         os.environ["CLAUDE_CODE_EFFORT_LEVEL"] = "max"
-        self.assertDenied(self.sonnet(effort="high"), "LANE_BEATEN_PROFILE")
+        self.assertDenied(self.spawn(), "LANE_BEATEN_PROFILE")
+        self.assertEqual(self.log_entries()[-1]["tier"], "sonnet")
 
     def test_unknown_effort_is_not_called_beaten(self):
         self.assertIsNone(agent_ladder.beaten_failure("sonnet", ""))
-        # Unknown efforts take their most restrictive reading in the ranking instead.
-        self.assertDenied(self.sonnet(effort=None), "LANE_CHILD_NOT_LOWER")
-        entry = self.log_entries()[-1]
-        self.assertEqual(entry["reason_code"], "LANE_CHILD_NOT_LOWER")
 
     def test_haiku_is_never_beaten(self):
-        self.assertRouted(self.run_gate(self.payload(contract(), effort="medium")), "haiku")
+        self.assertRouted(
+            self.spawn(lane="standard", tier="haiku", agent="plain-agent", effort="medium"), "haiku"
+        )
 
     def test_every_beaten_pair_has_a_cheaper_stronger_alternative(self):
         for pair, better in agent_ladder.BEATEN_PROFILES.items():
@@ -408,73 +503,13 @@ class EffortProfiles(LadderTestCase):
         self.assertEqual(agent_ladder.profile_score("opus", "low"), 42.3)
         self.assertIsNone(agent_ladder.profile_score("haiku", "low"))
 
-
-class AgentDefinitionsCase(LadderTestCase):
-    """Agent definitions in a temporary directory, with model and effort env cleared."""
-
-    def setUp(self):
-        super().setUp()
-        self.agents = Path(self.tmp.name) / "agents"
-        self.agents.mkdir()
-        saved = gate.agent_directories
-        gate.agent_directories = lambda root: [self.agents]
-        self.addCleanup(setattr, gate, "agent_directories", saved)
-        for name in ("CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_SUBAGENT_MODEL"):
-            saved_env = os.environ.pop(name, None)
-            if saved_env is not None:
-                self.addCleanup(os.environ.__setitem__, name, saved_env)
-            self.addCleanup(os.environ.pop, name, None)
-
-    def define(self, name: str, *fields: str) -> None:
-        body = ["---", f"name: {name}", "description: test agent", *fields, "---", "", "# body"]
-        (self.agents / f"{name}.md").write_text("\n".join(body), encoding="utf-8")
-
-
-class ScoreRanking(AgentDefinitionsCase):
-    """Children rank by model at effort, so an Opus child can sit below an Opus parent."""
-
-    def opus_child(self, child_effort: str, parent_effort: str, parent: str = "opus"):
-        self.define("specialist", f"effort: {child_effort}")
-        body = contract(lane="critical", tier="opus")
-        return self.run_gate(
-            self.payload(body, subagent_type="specialist", parent=parent, effort=parent_effort)
-        )
-
-    def test_opus_low_and_medium_sit_below_an_opus_xhigh_parent(self):
-        for effort in ("low", "medium", "high"):
-            with self.subTest(effort=effort):
-                self.assertRouted(self.opus_child(effort, "xhigh"), "opus")
-
-    def test_opus_child_at_the_parent_effort_is_denied(self):
-        self.assertDenied(self.opus_child("high", "high"), "LANE_CHILD_NOT_LOWER")
-        self.assertDenied(self.opus_child("max", "xhigh"), "LANE_CHILD_NOT_LOWER")
-
-    def test_sonnet_high_sits_below_opus_medium_but_not_opus_low(self):
-        self.define("specialist", "effort: high")
-        body = contract(lane="critical", tier="sonnet")
-        self.assertRouted(self.run_gate(self.payload(body, subagent_type="specialist", effort="medium")), "sonnet")
-        self.assertDenied(
-            self.run_gate(self.payload(body, subagent_type="specialist", effort="low")), "LANE_CHILD_NOT_LOWER"
-        )
-
-    def test_fable_parent_takes_any_scored_child(self):
-        self.assertRouted(self.opus_child("max", "max", parent="fable"), "opus")
-
-    def test_unknown_parent_effort_reads_as_the_weakest(self):
-        # Opus at unknown effort scores as Opus low (42.3): Sonnet high (46.8) is not below it.
-        self.define("specialist", "effort: high")
-        body = contract(lane="critical", tier="sonnet")
-        self.assertDenied(
-            self.run_gate(self.payload(body, subagent_type="specialist", effort=None)), "LANE_CHILD_NOT_LOWER"
-        )
-
-    def test_haiku_ranks_below_every_scored_parent_but_not_haiku(self):
-        self.assertRouted(self.run_gate(self.payload(contract(), parent="sonnet", effort="low")), "haiku")
-        self.assertDenied(self.run_gate(self.payload(contract(), parent="haiku")), "LANE_CHILD_NOT_LOWER")
-
-    def test_denial_names_both_scores(self):
-        reason = self.opus_child("high", "high")["hookSpecificOutput"]["permissionDecisionReason"]
-        self.assertIn("opus at high effort (score 53.7)", reason)
+    def test_every_lane_child_profile_is_scored_and_unbeaten(self):
+        for lane, profiles in agent_ladder.LANE_CHILD_PROFILES.items():
+            for tier, efforts in profiles.items():
+                for effort in efforts or ():
+                    with self.subTest(lane=lane, tier=tier, effort=effort):
+                        self.assertIn((tier, effort), agent_ladder.PROFILE_SCORES)
+                        self.assertNotIn((tier, effort), agent_ladder.BEATEN_PROFILES)
 
 
 class UnmanagedRules(AgentDefinitionsCase):
@@ -496,7 +531,8 @@ class UnmanagedRules(AgentDefinitionsCase):
         self.assertDenied(self.spawn(subagent_type=None), "LANE_CHILD_NOT_LOWER")
 
     def test_explicit_lower_model_passes(self):
-        self.assertIsNone(self.spawn(model="sonnet"))  # Sonnet high (46.8) below Opus high (53.7)
+        # The child inherits the session's high: Sonnet high (46.8) below Opus high (53.7).
+        self.assertIsNone(self.spawn(model="sonnet", payload_effort="high"))
 
     def test_beaten_pair_is_denied(self):
         self.assertDenied(self.spawn(model="sonnet", effort="medium"), "LANE_BEATEN_PROFILE")

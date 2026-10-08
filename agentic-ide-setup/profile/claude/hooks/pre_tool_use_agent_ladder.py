@@ -17,12 +17,13 @@ permission authority it should not hold.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from agent_ladder import (
     ENVELOPE_TEMPLATE,
@@ -31,6 +32,7 @@ from agent_ladder import (
     LANE_ORDER,
     LANE_SHAPE,
     MANAGED_ORIGINS,
+    SESSION_CHILD_CAP,
     TIER_MODEL,
     agent_directories,
     beaten_failure,
@@ -107,32 +109,83 @@ def _children_file(session_id: str) -> Path | None:
     return session_flags_dir() / f"{cleaned}.children.json"
 
 
-def claim_child_slot(session_id: str, lane: str) -> bool:
-    """Count one child against the lane's per-session cap.
+LOCK_WAIT_SECONDS = 2.0
+LOCK_STALE_SECONDS = 10.0
 
-    Fail-open on an unknown session or IO fault: the cap bounds fan-out, it is
-    not a security boundary, and a filesystem problem must not block work.
+
+@contextlib.contextmanager
+def _locked(path: Path) -> Iterator[bool]:
+    """Hold an exclusive lock file beside ``path``; yields False when it cannot.
+
+    Parallel Agent calls run their hooks concurrently, so the read, check and
+    write of a child count must not interleave. A lock older than
+    LOCK_STALE_SECONDS belongs to a crashed hook and is broken.
     """
-    cap = LANE_CHILD_CAP.get(lane, 0)
+    lock = path.with_name(path.name + ".lock")
+    deadline = time.monotonic() + LOCK_WAIT_SECONDS
+    held = False
+    while not held:
+        try:
+            lock.parent.mkdir(parents=True, exist_ok=True)
+            os.close(os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            held = True
+        except (FileExistsError, PermissionError):
+            # Windows reports a lock file that another hook is deleting as
+            # PermissionError: that is contention too, not an IO fault.
+            try:
+                if time.time() - lock.stat().st_mtime > LOCK_STALE_SECONDS:
+                    lock.unlink()
+                    continue
+            except OSError:
+                pass
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.02)
+        except OSError:
+            break
+    try:
+        yield held
+    finally:
+        if held:
+            try:
+                lock.unlink()
+            except OSError:
+                pass
+
+
+def claim_child_slot(session_id: str, lane: str) -> str:
+    """Count one child against the lane's cap and the session's single budget.
+
+    Returns ``""`` when a slot was claimed, else ``"lane"`` or ``"session"``
+    naming the exhausted cap. The session budget counts every lane, so
+    switching lanes cannot add children. Fail-open on an unknown session, an
+    IO fault, or a lock that cannot be taken in time: the cap bounds fan-out,
+    it is not a security boundary, and a filesystem problem must not block work.
+    """
     path = _children_file(session_id)
     if path is None:
-        return True
+        return ""
     try:
-        counts: dict[str, Any] = {}
-        if path.exists():
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                counts = loaded
-        used = counts.get(lane, 0)
-        used = used if isinstance(used, int) else 0
-        if used >= cap:
-            return False
-        counts[lane] = used + 1
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(counts, sort_keys=True), encoding="utf-8")
+        with _locked(path) as held:
+            if not held:
+                return ""
+            counts: dict[str, Any] = {}
+            if path.exists():
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    counts = loaded
+            used = {name: counts.get(name, 0) for name in LANE_ORDER}
+            used = {name: n if isinstance(n, int) else 0 for name, n in used.items()}
+            if used[lane] >= LANE_CHILD_CAP.get(lane, 0):
+                return "lane"
+            if sum(used.values()) >= SESSION_CHILD_CAP:
+                return "session"
+            used[lane] += 1
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(used, sort_keys=True), encoding="utf-8")
     except (OSError, ValueError):
-        return True
-    return True
+        return ""
+    return ""
 
 
 def reject(origin: str, tier: str, code: str, message: str) -> int:
@@ -304,14 +357,17 @@ def main() -> int:
 
     lane = str(contract["lane"])
     tier = str(contract["tier"])
-    if not claim_child_slot(str(payload.get("session_id") or ""), lane):
+    exhausted = claim_child_slot(str(payload.get("session_id") or ""), lane)
+    if exhausted:
         return reject(
             origin,
             tier,
             "LANE_CHILD_CAP",
-            "The {0} lane allows at most {1} children per session. Do the "
-            "remaining work as the owner, or re-scope if the task's risk "
-            "actually changed.".format(lane, LANE_CHILD_CAP[lane]),
+            "The {0} lane allows at most {1} children, and a session at most {2} "
+            "across all lanes; this session has used its {3} budget. Do the "
+            "remaining work as the owner.".format(
+                lane, LANE_CHILD_CAP[lane], SESSION_CHILD_CAP, lane if exhausted == "lane" else "session"
+            ),
         )
 
     model = TIER_MODEL[tier]

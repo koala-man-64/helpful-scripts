@@ -71,19 +71,30 @@ LANE_ORDER = ("lite", "standard", "critical")
 
 LANE_SHAPE = {
     "lite": "bounded mechanical work; one owner, no children",
-    "standard": "Sonnet owner, solo by default; at most a bounded Haiku reviewer and a bounded specialist below the session model (Sonnet or Haiku; a Sonnet owner's is Haiku)",
-    "critical": "Opus owner; one to three bounded Sonnet or Haiku specialists with independent evidence",
+    "standard": "owner at Opus medium or stronger, solo by default; at most two bounded children at Haiku, Sonnet low or high, or Opus low",
+    "critical": "owner at Opus xhigh or stronger; one to three bounded children, also Opus medium or high, with independent evidence",
 }
 
-# Which child tiers each lane permits, and how many children per session. A
-# child's model at its effort still scores strictly below its parent's (see
-# ``rank_failure``).
-LANE_CHILD_TIERS = {
-    "lite": (),
-    "standard": ("haiku", "sonnet"),
-    # An Opus child is permitted when its effort scores below the parent (2026-10-07).
-    "critical": ("haiku", "sonnet", "opus"),
+# The weakest session that may own each lane. A lane never changes the
+# session's model or effort; a weaker session asks Rudy to switch.
+LANE_OWNER_MIN = {
+    "standard": ("opus", "medium"),
+    "critical": ("opus", "xhigh"),
 }
+
+# Which child model and effort pairs each lane permits (``None``: any effort,
+# for unscored Haiku). Every child still scores strictly below its parent
+# (see ``rank_failure``), and beaten pairs never appear.
+LANE_CHILD_PROFILES = {
+    "lite": {},
+    "standard": {"haiku": None, "sonnet": ("low", "high"), "opus": ("low",)},
+    "critical": {
+        "haiku": None,
+        "sonnet": ("low", "high"),
+        "opus": ("low", "medium", "high", "xhigh"),
+    },
+}
+LANE_CHILD_TIERS = {lane: tuple(profiles) for lane, profiles in LANE_CHILD_PROFILES.items()}
 
 # The contract every spawn in a managed repository leads with. Shown verbatim
 # at session start so a first spawn attempt passes the gate.
@@ -99,6 +110,8 @@ ENVELOPE_TEMPLATE = """<claude_subagent_task_v2>
 }
 </claude_subagent_task_v2>"""
 LANE_CHILD_CAP = {"lite": 0, "standard": 2, "critical": 3}
+# One budget per session across lanes, so switching lanes cannot add children.
+SESSION_CHILD_CAP = max(LANE_CHILD_CAP.values())
 
 # Turn caps and effort are agent-definition fields, not Agent tool inputs, so
 # the hook cannot inject them per spawn. They become real only by choosing an
@@ -557,6 +570,28 @@ def resolve_child_model(
     return parent_tier
 
 
+def owner_failure(lane: str, parent_tier: str, parent_effort: str) -> tuple[str, str] | None:
+    """The spawning session must be at least the lane's owner.
+
+    A session cannot claim a lane above its own model and effort to unlock
+    that lane's children. Unknown values read as the weakest, as for ranking.
+    """
+    minimum = LANE_OWNER_MIN.get(lane)
+    if not minimum:
+        return None
+    parent = parent_score(parent_tier, parent_effort)
+    if parent is not None and parent >= PROFILE_SCORES[minimum]:
+        return None
+    return (
+        "LANE_OWNER_BELOW_LANE",
+        "The {0} lane is owned by {1} or stronger; this session runs {2}. A lane "
+        "never changes the session's model or effort. Say so plainly and ask Rudy "
+        "to switch models or effort, or re-scope to a lane this session owns.".format(
+            lane, _describe(*minimum), _describe(parent_tier or "an unknown model", parent_effort)
+        ),
+    )
+
+
 def validate(
     contract: dict[str, Any],
     subagent_type: str,
@@ -607,9 +642,25 @@ def validate(
             ),
         )
 
+    owner = owner_failure(lane, parent_tier, parent_effort)
+    if owner:
+        return owner
+
     beaten = beaten_failure(tier, effort)
     if beaten:
         return beaten
+
+    efforts = LANE_CHILD_PROFILES[lane][tier]
+    if efforts is not None and effort not in efforts:
+        return (
+            "LANE_PROFILE_NOT_PERMITTED",
+            "The {0} lane permits '{1}' only at {2} effort; this child would run at "
+            "{3}. Its effort comes from its agent definition's `effort` frontmatter, "
+            "or the session's when the definition sets none. Pick an agent whose "
+            "definition sets a permitted effort, or another tier.".format(
+                lane, tier, " or ".join(efforts), effort or "an unknown effort"
+            ),
+        )
 
     if not _nonempty_strings(contract.get("scope")):
         return (
