@@ -370,6 +370,36 @@ def update_status(
     return _mutate(mutator, path)
 
 
+def sweep_expired(path: Path | None = None) -> list[str]:
+    """Time out every active wait that is past its timeout, without a provider call.
+
+    Nothing polls a repository's waits until a session there polls them, so an
+    expired wait from a quiet repository stayed active for weeks and kept the
+    doctor unhealthy. This is the registry-only half of wait_poll.poll_one: the
+    same status and detail code it records for an expired wait, minus the
+    network. A sweep that finds nothing writes nothing.
+    """
+    ids = {str(row["wait_id"]) for row in active(path) if is_expired(row)}
+    if not ids:
+        return []
+
+    def mutator(data: dict[str, Any]) -> list[str]:
+        swept: list[str] = []
+        for row in data["waits"]:
+            if (
+                isinstance(row, dict)
+                and str(row.get("wait_id")) in ids
+                and row.get("status") in ACTIVE_STATUSES
+            ):
+                row["status"] = "timed_out"
+                row["detail_code"] = "wait_timeout"
+                row["updated_at"] = now_iso()
+                swept.append(str(row["wait_id"]))
+        return swept
+
+    return _mutate(mutator, path)
+
+
 def record_diagnostic(
     code: str, detail: str = "", *, path: Path | None = None
 ) -> dict[str, Any]:

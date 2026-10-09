@@ -42,19 +42,36 @@ def outstanding_waits(repository: str = "") -> list[str]:
     Without this a wait survives in the registry but nothing tells the next
     session it exists, which is how Codex heartbeats die: they are attached to
     a thread and vanish with it.
+
+    Expired waits are timed out first. Nothing polls a repository's waits until
+    a session there polls them, so without this sweep a wait from a quiet
+    repository stays active for weeks and keeps `wait_poll.py doctor` unhealthy.
+    The sweep is registry-only; a registry problem must never take down
+    session start.
     """
+    try:
+        swept = wait_registry.sweep_expired()
+    except Exception:
+        swept = []
+    swept_lines = (
+        [f"{len(swept)} delivery wait(s) past timeout were marked timed_out at session start."]
+        if swept
+        else []
+    )
     try:
         rows = wait_registry.active()
     except Exception:
-        return []
+        return swept_lines
     if not rows:
-        return []
+        return swept_lines
     # Only this repository's waits are this session's business; the others are
     # counted so they stay discoverable without costing context everywhere.
     here = [row for row in rows if not repository or row.get("repository") == repository]
     elsewhere = len(rows) - len(here)
     if not here:
-        return [f"{elsewhere} outstanding delivery wait(s) in other repositories; `wait_poll.py list` shows them."]
+        return [
+            f"{elsewhere} outstanding delivery wait(s) in other repositories; `wait_poll.py list` shows them."
+        ] + swept_lines
     # active() sorts ascending by created_at, so the newest are at the end.
     shown = here[-MAX_WAITS_SHOWN:]
     hidden = here[:-MAX_WAITS_SHOWN]
@@ -76,7 +93,7 @@ def outstanding_waits(repository: str = "") -> list[str]:
         f'Poll with: py "{script}" poll --all. '
         "Registration is not delivery evidence; a wait is resolved only by a terminal status."
     )
-    return lines
+    return lines + swept_lines
 
 
 def main() -> int:
