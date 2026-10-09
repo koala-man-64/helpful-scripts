@@ -3,8 +3,7 @@
 Ported from the per-repo Codex hooks (.codex/hooks/hook_utils.py) so the same
 team workflow applies in Claude Code across all projects. Claude-specific
 differences:
-- Stop hooks receive a transcript_path instead of last_assistant_message,
-  so extract_last_message() falls back to parsing the transcript JSONL.
+- Stop hooks receive a transcript_path and read the turn's tool calls from it.
 - Core agent presence is checked in .claude/agents/ (repo) and ~/.claude/agents/.
 - Codex session/thread title helpers are dropped (no Claude equivalent).
 """
@@ -171,25 +170,6 @@ NO_REMOTE_FINISH_MARKERS = (
     "do not mutate azure devops",
 )
 
-CHANGE_MARKERS = (
-    "added",
-    "updated",
-    "changed",
-    "implemented",
-    "wired",
-    "created",
-    "removed",
-    "deleted",
-    "patched",
-    "refactored",
-    "configured",
-    "fixed",
-    "installed",
-    "edited",
-    "propagated",
-    "deployed",
-)
-
 MULTI_REPO_MARKERS = (
     "multi-repo",
     "multirepo",
@@ -354,44 +334,6 @@ def classify_lane(text: str) -> tuple[str, str]:
     return "standard", "ordinary change or investigation"
 
 
-def is_planning_or_analysis_only(text: str) -> bool:
-    kind = classify_work_kind(text)
-    return kind in {"planning", "analysis"} and not (
-        requires_finish_workflow(text)
-        or requires_tracking(text)
-        or contains_any_text(text, CHANGE_MARKERS)
-    )
-
-
-def requires_git_hygiene(text: str) -> bool:
-    return requires_finish_workflow(text) or contains_any_text(
-        text, CHANGE_MARKERS + ("committed", "pushed", "opened pr", "created pr")
-    )
-
-
-def requires_bookkeeper_recap(text: str) -> bool:
-    if contains_any_text(text, TRACKING_CLAIM_MARKERS):
-        return True
-    if requires_tracking(text) and contains_any_text(
-        text, CHANGE_MARKERS + ("committed", "pushed", "opened pr", "created pr")
-    ):
-        return True
-    # A pull request or merge alone is not tracked delivery; Boards, CI,
-    # deployment, and multi-repo work are.
-    auditable_markers = (
-        AZURE_DEVOPS_MARKERS
-        + CI_MARKERS
-        + DEPLOYMENT_MARKERS
-        + ("multi-repo", "cross-repo")
-    )
-    return contains_any_text(text, auditable_markers) and contains_any_text(
-        text, CHANGE_MARKERS + ("committed", "pushed", "opened pr", "created pr")
-    )
-
-
-# Every hook shells out to git. A locked index, a credential prompt, or a slow
-# network share must not hang the turn; hooks have their own settings timeout,
-# but that kills the process without the caller learning anything.
 GIT_TIMEOUT_SECONDS = 10
 
 
@@ -554,43 +496,6 @@ def _text_from_message_content(content: Any) -> str:
     return ""
 
 
-def extract_last_message(payload: dict[str, Any]) -> str:
-    """Return the final assistant message for Stop hooks.
-
-    Claude Code Stop hooks provide a transcript_path (JSONL) rather than the
-    message itself, so parse the transcript from the end.
-    """
-    message = payload.get("last_assistant_message")
-    if isinstance(message, str) and message.strip():
-        return message
-
-    transcript_path = payload.get("transcript_path")
-    if not isinstance(transcript_path, str) or not transcript_path:
-        return ""
-    try:
-        lines = Path(transcript_path).read_text(
-            encoding="utf-8", errors="replace"
-        ).splitlines()
-    except OSError:
-        return ""
-
-    for line in reversed(lines):
-        if '"assistant"' not in line:
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if record.get("type") != "assistant" or record.get("isSidechain"):
-            continue
-        text = _text_from_message_content(
-            (record.get("message") or {}).get("content")
-        )
-        if text.strip():
-            return text
-    return ""
-
-
 def extract_last_user_prompt(payload: dict[str, Any]) -> str:
     """Text of the most recent real user prompt in the transcript, or ``""``."""
     transcript_path = payload.get("transcript_path")
@@ -617,23 +522,13 @@ def extract_last_user_prompt(payload: dict[str, Any]) -> str:
     return ""
 
 
-MUTATING_TOOLS = frozenset(
-    {"Edit", "Write", "NotebookEdit", "MultiEdit"}
-)
-
-SHELL_TOOLS = frozenset({"Bash", "PowerShell"})
-
-MUTATING_COMMAND_PATTERN = re.compile(
-    r"\bgit\s+(?:add|commit|push|merge|rebase|revert|cherry-pick|tag|am|apply)\b"
-    r"|\bgit\s+(?:branch|checkout|switch|restore|reset|clean|stash)\b"
-    r"|\baz\s+(?:repos|boards|pipelines)\b"
-    r"|\bgh\s+(?:pr|issue|release)\s+(?:create|merge|edit|close|comment)\b"
-)
-
-
 def _is_real_user_turn(record: dict[str, Any]) -> bool:
-    """True when this user record is an actual prompt, not a tool result."""
-    if record.get("type") != "user" or record.get("isSidechain"):
+    """True when this user record is an actual prompt, not a tool result.
+
+    Harness-injected records (Stop hook feedback, task notifications) are marked
+    isMeta; counting them as prompts would reset the turn and hide its work.
+    """
+    if record.get("type") != "user" or record.get("isSidechain") or record.get("isMeta"):
         return False
     content = (record.get("message") or {}).get("content")
     if isinstance(content, str):
@@ -643,57 +538,6 @@ def _is_real_user_turn(record: dict[str, Any]) -> bool:
             isinstance(block, dict) and block.get("type") == "text"
             for block in content
         )
-    return False
-
-
-def turn_did_work(payload: dict[str, Any]) -> bool:
-    """Report whether the current turn actually changed anything.
-
-    Walks the transcript backwards to the most recent real user prompt and
-    looks for tool calls that mutate files or git/Azure DevOps state. Pure
-    question-and-answer turns return False, so the closeout hooks can skip
-    enforcement instead of matching on words like "updated" or "changed"
-    that appear in ordinary explanations.
-    """
-    transcript_path = payload.get("transcript_path")
-    if not isinstance(transcript_path, str) or not transcript_path:
-        return True
-
-    try:
-        lines = Path(transcript_path).read_text(
-            encoding="utf-8", errors="replace"
-        ).splitlines()
-    except OSError:
-        return True
-
-    for line in reversed(lines):
-        if '"user"' not in line and '"assistant"' not in line:
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        if _is_real_user_turn(record):
-            return False
-
-        if record.get("type") != "assistant" or record.get("isSidechain"):
-            continue
-        content = (record.get("message") or {}).get("content")
-        if not isinstance(content, list):
-            continue
-        for block in content:
-            if not isinstance(block, dict) or block.get("type") != "tool_use":
-                continue
-            name = block.get("name")
-            if name in MUTATING_TOOLS:
-                return True
-            if name in SHELL_TOOLS:
-                command = (block.get("input") or {}).get("command")
-                if isinstance(command, str) and MUTATING_COMMAND_PATTERN.search(
-                    command.lower()
-                ):
-                    return True
     return False
 
 
