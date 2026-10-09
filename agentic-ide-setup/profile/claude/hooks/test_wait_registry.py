@@ -136,6 +136,31 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("b" * 24, ids)
         self.assertEqual(len(ids), 3)
 
+    def test_sweep_expired_times_out_only_expired_active_rows(self):
+        expired = self.register(resource_id="1")
+        fresh = self.register(resource_id="2")
+        done = self.register(resource_id="3")
+        wait_registry.update_status(done["wait_id"], status="succeeded", path=self.path)
+        data = wait_registry.load(self.path)
+        for row in data["waits"]:
+            if row["wait_id"] in {expired["wait_id"], done["wait_id"]}:
+                row["created_at"] = (datetime.now(UTC) - timedelta(hours=200)).isoformat()
+        wait_registry.save(data, self.path)
+
+        self.assertEqual(wait_registry.sweep_expired(self.path), [expired["wait_id"]])
+        rows = {row["wait_id"]: row for row in wait_registry.load(self.path)["waits"]}
+        self.assertEqual(rows[expired["wait_id"]]["status"], "timed_out")
+        self.assertEqual(rows[expired["wait_id"]]["detail_code"], "wait_timeout")
+        # No provider was consulted, so no check time is claimed.
+        self.assertEqual(rows[expired["wait_id"]]["last_checked_at"], "")
+        self.assertEqual(rows[fresh["wait_id"]]["status"], "registered")
+        self.assertEqual(rows[done["wait_id"]]["status"], "succeeded")
+        self.assertTrue(wait_registry.doctor(self.path)["healthy"])
+        # A second sweep finds nothing and rewrites nothing.
+        before = self.path.read_bytes()
+        self.assertEqual(wait_registry.sweep_expired(self.path), [])
+        self.assertEqual(self.path.read_bytes(), before)
+
     def test_doctor_flags_overdue_and_unbound(self):
         healthy = wait_registry.doctor(self.path)
         self.assertTrue(healthy["healthy"])
@@ -514,6 +539,29 @@ class PollLifecycleTests(unittest.TestCase):
         self.assertFalse(any("other-repo" in line for line in lines))
         self.assertTrue(any("1 more in other repositories" in line for line in lines))
         self.assertIn("in other repositories", start.outstanding_waits("unrelated")[0])
+
+    def test_session_start_sweeps_expired_waits_and_says_so(self):
+        import session_start_team_context as start
+
+        stale = wait_registry.register(
+            provider="github", operation_kind="pull_request", resource_id="301", repository="quiet-repo",
+            branch="b", commit="c" * 40, target_state="merged",
+        )
+        data = wait_registry.load(self.path)
+        for row in data["waits"]:
+            if row["wait_id"] == stale["wait_id"]:
+                row["created_at"] = (datetime.now(UTC) - timedelta(hours=200)).isoformat()
+        wait_registry.save(data, self.path)
+
+        lines = start.outstanding_waits("helpful-scripts")
+        self.assertTrue(any("1 delivery wait(s) past timeout were marked timed_out" in line for line in lines))
+        self.assertTrue(any(self.wait["wait_id"] in line for line in lines))
+        # The stale wait from the quiet repository is gone from the active set.
+        self.assertFalse(any("more in other repositories" in line for line in lines))
+        self.assertEqual(wait_registry.get(stale["wait_id"])["status"], "timed_out")
+        # Nothing left to sweep: the next session start says nothing about it.
+        again = start.outstanding_waits("helpful-scripts")
+        self.assertFalse(any("marked timed_out" in line for line in again))
 
     def test_poll_persists_the_terminal_status(self):
         self.stub(
