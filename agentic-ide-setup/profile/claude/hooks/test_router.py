@@ -67,6 +67,7 @@ class RouterScenarios(unittest.TestCase):
         self.assertIn("Tracking needed: no", text)
         self.assertIn("Commit/PR when files change: yes", text)
         self.assertIn("at most two bounded children (Haiku, Sonnet low or high, or Opus low) below the session", text)
+        self.assertIn("Sonnet high by default", text)
 
     def test_security_change_is_critical_with_review(self) -> None:
         text = self.route("Update the token validation in the authentication middleware")

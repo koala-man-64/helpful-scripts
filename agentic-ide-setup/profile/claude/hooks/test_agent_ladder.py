@@ -396,6 +396,42 @@ class ChildCap(LadderTestCase):
             self.run_gate(self.payload(contract(), session_id="compact")), "LANE_CHILD_CAP"
         )
 
+    def test_one_opus_child_per_session_then_sonnet(self):
+        body = contract(lane="critical", tier="opus")
+        self.assertRouted(self.run_gate(self.payload(body, session_id="opus")), "opus")
+        result = self.run_gate(self.payload(body, session_id="opus"))
+        self.assertDenied(result, "LANE_OPUS_CHILD_CAP")
+        self.assertIn("tier 'sonnet'", result["hookSpecificOutput"]["permissionDecisionReason"])
+        # The Opus denial spends no lane slot: two Sonnet children still fit.
+        sonnet = contract(lane="critical", tier="sonnet")
+        for _ in range(2):
+            self.assertRouted(self.run_gate(self.payload(sonnet, session_id="opus")), "sonnet")
+        self.assertDenied(self.run_gate(self.payload(sonnet, session_id="opus")), "LANE_CHILD_CAP")
+
+    def test_opus_cap_spans_lanes(self):
+        standard = contract(tier="opus", lane="standard")
+        # Standard permits Opus only at low effort; the low-effort session env makes it so.
+        os.environ["CLAUDE_CODE_EFFORT_LEVEL"] = "low"
+        self.addCleanup(os.environ.pop, "CLAUDE_CODE_EFFORT_LEVEL", None)
+        self.assertRouted(self.run_gate(self.payload(standard, session_id="span")), "opus")
+        os.environ.pop("CLAUDE_CODE_EFFORT_LEVEL")
+        critical = contract(lane="critical", tier="opus")
+        self.assertDenied(self.run_gate(self.payload(critical, session_id="span")), "LANE_OPUS_CHILD_CAP")
+
+    def test_opus_count_is_kept_beside_lane_counts(self):
+        self.assertEqual(gate.claim_child_slot("beside", "critical", "opus"), "")
+        self.assertEqual(gate.claim_child_slot("beside", "critical", "sonnet"), "")
+        counts = json.loads(gate._children_file("beside").read_text(encoding="utf-8"))
+        self.assertEqual(counts, {"critical": 2, "lite": 0, "opus": 1, "standard": 0})
+        self.assertEqual(gate.claim_child_slot("beside", "critical", "opus"), "opus")
+
+    def test_a_negative_opus_count_buys_no_extra_opus(self):
+        path = gate._children_file("negopus")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"opus": -5}), encoding="utf-8")
+        self.assertEqual(gate.claim_child_slot("negopus", "critical", "opus"), "")
+        self.assertEqual(gate.claim_child_slot("negopus", "critical", "opus"), "opus")
+
     def test_negative_counts_buy_no_extra_children(self):
         path = gate._children_file("negative")
         path.parent.mkdir(parents=True, exist_ok=True)

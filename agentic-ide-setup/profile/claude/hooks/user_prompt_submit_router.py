@@ -8,7 +8,7 @@ sequence is required for ordinary delivery.
 
 import hashlib
 
-from agent_ladder import LANE_OWNER_MIN, owner_failure, payload_effort, session_profile
+from agent_ladder import CHILD_DEFAULT, LANE_OWNER_MIN, OPUS_CHILD_CAP, owner_failure, payload_effort, session_profile
 from hook_utils import (
     additional_context,
     azure_devops_agent_authority_lines,
@@ -29,6 +29,7 @@ from hook_utils import (
 STANDING_POLICY_LINES = (
     "- Finish authority: when task-owned files change and the user does not explicitly limit scope, the owner completes the git finish workflow (commit, push, PR, merge/completion) before closeout, without waiting for a separate 'finish it' prompt. Delegate finishing only when it is an independent, bounded deliverable the lane permits; never spawn an agent just because work reached the finish stage. When ~/.claude/state/merge-steward.json shows an active steward updated within six hours, the owner instead stops at 'PR opened and steward told'; the steward owns completion. See the merge-steward agent definition.",
     "- Lanes: lite (one owner, no children), standard (owner at Opus medium or stronger; solo by default; at most two bounded children at Haiku, Sonnet low or high, or Opus low), critical (owner at Opus xhigh or stronger; one to three bounded children, also Opus medium or high; independent review). A child's model at its effort scores below the session's; its effort comes from its agent definition. Select the model directly; no lower-tier attempts are required.",
+    f"- {CHILD_DEFAULT}",
     "- Contract routing: before editing shared API, schema, or serialization shapes, classify the work as local-only or contracts-repo-first.",
 )
 
@@ -73,8 +74,8 @@ def delegation_answer(lane: str) -> str:
     if lane in {"question", "lite"}:
         return "no"
     if lane == "standard":
-        return "at most two bounded children (Haiku, Sonnet low or high, or Opus low) below the session, when it clearly helps"
-    return "bounded specialists as needed; independent review required"
+        return "at most two bounded children (Haiku, Sonnet low or high, or Opus low) below the session, when it clearly helps; Sonnet high by default"
+    return f"bounded specialists as needed; Sonnet high by default, at most {OPUS_CHILD_CAP} Opus child per session; independent review required"
 
 
 def owner_model_lines(lane: str, payload: dict) -> list[str]:

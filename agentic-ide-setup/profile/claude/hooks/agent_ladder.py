@@ -77,6 +77,17 @@ LANE_SHAPE = {
     "critical": "owner at Opus xhigh or stronger; one to three bounded children, also Opus medium or high, with independent evidence",
 }
 
+# Sonnet high is the default child. Opus children are kept sparing by count,
+# not by justification: at most this many per session, across all lanes, so
+# the Opus slot goes to the child whose judgment is the critical path.
+OPUS_CHILD_CAP = 1
+CHILD_DEFAULT = (
+    "Default child: Sonnet at high effort. Spawn at most {0} Opus child per "
+    "session, for the child whose judgment is the critical path (for example the "
+    "final security or data-integrity verdict); give other reviewers and "
+    "specialists Sonnet high, or Haiku for mechanical work.".format(OPUS_CHILD_CAP)
+)
+
 # The weakest session that may own each lane. A lane never changes the
 # session's model or effort; a weaker session asks Rudy to switch.
 LANE_OWNER_MIN = {
@@ -215,6 +226,7 @@ def lane_summary() -> str:
         "42.3; Sonnet high 46.8, low 35.9; Haiku lowest); Fable is never a routed "
         "child. Sonnet at medium, xhigh or max is beaten on score and cost and is "
         "denied.\n"
+        f"- {CHILD_DEFAULT}\n"
         "- The contract 'tier' picks the child's model. Its effort is its agent "
         "definition's `effort` frontmatter, or the session's when the definition "
         "sets none (every built-in agent). A lane never changes the running "
