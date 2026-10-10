@@ -34,6 +34,7 @@ from agent_ladder import (
     LANE_ORDER,
     LANE_SHAPE,
     MANAGED_ORIGINS,
+    OPUS_CHILD_CAP,
     SESSION_CHILD_CAP,
     TIER_MODEL,
     agent_directories,
@@ -159,12 +160,13 @@ def _locked(path: Path) -> Iterator[bool]:
                 pass
 
 
-def claim_child_slot(session_id: str, lane: str) -> str:
+def claim_child_slot(session_id: str, lane: str, tier: str = "") -> str:
     """Count one child against the lane's cap and the session's single budget.
 
-    Returns ``""`` when a slot was claimed, else ``"lane"`` or ``"session"``
-    naming the exhausted cap. The session budget counts every lane, so
-    switching lanes cannot add children. Fail-open on an unknown session, an
+    Returns ``""`` when a slot was claimed, else ``"opus"``, ``"lane"`` or
+    ``"session"`` naming the exhausted cap. The session budget counts every
+    lane, so switching lanes cannot add children; an Opus child also counts
+    against OPUS_CHILD_CAP, kept beside the lane counts. Fail-open on an unknown session, an
     IO fault, or a lock that cannot be taken in time: the cap bounds fan-out,
     it is not a security boundary, and a filesystem problem must not block work.
     """
@@ -183,13 +185,19 @@ def claim_child_slot(session_id: str, lane: str) -> str:
             used = {name: counts.get(name, 0) for name in LANE_ORDER}
             # A count edited below zero must not buy extra children.
             used = {name: max(n, 0) if isinstance(n, int) else 0 for name, n in used.items()}
+            opus = counts.get("opus", 0)
+            opus = max(opus, 0) if isinstance(opus, int) else 0
+            if tier == "opus" and opus >= OPUS_CHILD_CAP:
+                return "opus"
             if used[lane] >= LANE_CHILD_CAP.get(lane, 0):
                 return "lane"
             if sum(used.values()) >= SESSION_CHILD_CAP:
                 return "session"
             used[lane] += 1
+            if tier == "opus":
+                opus += 1
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(used, sort_keys=True), encoding="utf-8")
+            path.write_text(json.dumps({**used, "opus": opus}, sort_keys=True), encoding="utf-8")
     except (OSError, ValueError):
         return ""
     return ""
@@ -394,7 +402,17 @@ def main() -> int:
 
     lane = str(contract["lane"])
     tier = str(contract["tier"])
-    exhausted = claim_child_slot(str(payload.get("session_id") or ""), lane)
+    exhausted = claim_child_slot(str(payload.get("session_id") or ""), lane, tier)
+    if exhausted == "opus":
+        return reject(
+            origin,
+            tier,
+            "LANE_OPUS_CHILD_CAP",
+            "A session spawns at most {0} Opus child, and this one has used its "
+            "Opus budget. Give this child tier 'sonnet' with an agent whose "
+            "definition sets high effort, or 'haiku' for mechanical work, or do "
+            "it as the owner.".format(OPUS_CHILD_CAP),
+        )
     if exhausted:
         return reject(
             origin,
