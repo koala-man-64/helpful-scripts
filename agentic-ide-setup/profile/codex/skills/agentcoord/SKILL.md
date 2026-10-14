@@ -49,6 +49,6 @@ turn tracking. Root startup registers the session; the first prompt fetches its 
 Child startup also fetches its inbox because the provider may omit its first prompt
 event. Explicit MCP and CLI inbox reads remain available at any time.
 
-Stop closes the current turn without forwarding or retaining the final response.
+Stop requests closure of the current turn without forwarding or retaining the final response.
 Use authorized MCP messages for material handoffs and work tools for structured
 outcomes. Verify those operations rather than assuming hook success.
