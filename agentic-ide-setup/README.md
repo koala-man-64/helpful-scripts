@@ -107,6 +107,20 @@ After reviewing the printed config diff, `--apply-dedup` backs up
 clients. Install updated source guidance separately with the existing installer
 and `-Components Codex -Overwrite -Apply`; it preserves the host config.
 
+For a scoped skill repair, select only its canonical files and duplicate paths:
+
+```powershell
+.\scripts\Install-AgenticIdeSetup.ps1 -Components Codex `
+  -CodexSkills agentcoord,project-workflow-enforcer-agent -Overwrite -Apply
+python -B .\scripts\check_codex_drift.py `
+  --skill agentcoord --skill project-workflow-enforcer-agent
+```
+
+Review that preview, then add `--apply-dedup` to disable those duplicate `.agents`
+entries for Codex. Selected skills must exist in this committed profile. This
+selection preserves AGENTS.md, unrelated skills, host settings and other clients'
+skill files. Every replaced file and config retains its existing backup behavior.
+
 Apply refuses missing or different canonical files and differing duplicate skills
 that this profile does not own. The preview names the retained Codex path and each
 differing file. Existing disabled entries stay disabled. Portable markers are

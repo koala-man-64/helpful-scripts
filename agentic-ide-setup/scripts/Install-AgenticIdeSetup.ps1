@@ -2,6 +2,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [ValidateSet('Codex', 'Claude', 'VSCode')][string[]]$Components = @('Codex', 'Claude', 'VSCode'),
+    [string[]]$CodexSkills = @(),
     [string]$ProfileRoot = (Join-Path $PSScriptRoot '..\profile'),
     [string]$DestinationRoot = [Environment]::GetFolderPath('UserProfile'),
     [switch]$Apply,
@@ -13,6 +14,20 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'ProfileTools.psm1') -Force
 & (Join-Path $PSScriptRoot 'Test-AgenticIdeSetup.ps1') -ProfileRoot $ProfileRoot
+if ($CodexSkills.Count) {
+    if ($Components.Count -ne 1 -or $Components[0] -ne 'Codex') { throw '-CodexSkills requires -Components Codex only.' }
+    if (@($CodexSkills | Sort-Object -Unique).Count -ne $CodexSkills.Count) { throw 'Duplicate Codex skill selection.' }
+    foreach ($skill in $CodexSkills) {
+        if ($skill -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') { throw 'Unsafe Codex skill name.' }
+        if (-not (Test-Path -LiteralPath (Join-Path $ProfileRoot "codex/skills/$skill/SKILL.md") -PathType Leaf)) { throw "Unknown source-owned Codex skill: $skill" }
+    }
+}
+function Test-SelectedCodexPath {
+    param([Parameter(Mandatory)][string]$Relative)
+    if (-not $CodexSkills.Count) { return $true }
+    $parts = $Relative.Split([char[]]@('\', '/'))
+    return $parts.Count -ge 3 -and $parts[0] -eq 'skills' -and $parts[1] -in $CodexSkills
+}
 $DestinationRoot = [IO.Path]::GetFullPath($DestinationRoot)
 Assert-NoReparsePath $DestinationRoot
 $isActiveHome = $DestinationRoot.TrimEnd('\', '/') -eq [Environment]::GetFolderPath('UserProfile').TrimEnd('\', '/')
@@ -36,6 +51,7 @@ foreach ($component in $Components) {
     $sourceRoot = (Resolve-Path -LiteralPath (Join-Path $ProfileRoot $component.ToLowerInvariant())).Path
     Get-ChildItem -LiteralPath $sourceRoot -Recurse -File | ForEach-Object {
         $relativeFile = Get-TargetRelativePath ($_.FullName.Substring($sourceRoot.Length).TrimStart('\', '/'))
+        if (-not (Test-SelectedCodexPath $relativeFile)) { return }
         Assert-NoReparsePath (Join-Path $targetRoot $relativeFile)
     }
 }
@@ -48,6 +64,7 @@ function Install-Tree {
     Get-ChildItem -LiteralPath $sourceRoot -Recurse -File | ForEach-Object {
         if ($_.Name -in @('extensions.txt', 'plugins.txt')) { return }
         $relative = $_.FullName.Substring($sourceRoot.Length).TrimStart([char[]]@('\', '/'))
+        if (-not (Test-SelectedCodexPath $relative)) { return }
         if ($relative -match '^hooks[\\/]') { return } # Repository source, owned by the hook installer.
         $target = Join-Path $Destination (Get-TargetRelativePath $relative)
         if ((Test-Path -LiteralPath $target -PathType Leaf) -and $_.Name -in @('config.template.toml', 'settings.template.json', 'mcp.template.json')) {

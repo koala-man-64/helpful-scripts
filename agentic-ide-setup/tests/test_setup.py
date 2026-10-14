@@ -36,6 +36,44 @@ def test_checked_in_profile():
     ps("Test-AgenticIdeSetup.ps1")
 
 
+def test_selected_codex_skills_preserve_other_guidance_and_back_up_replacements(tmp_path):
+    codex = tmp_path / ".codex"
+    codex.mkdir()
+    kept = {
+        "AGENTS.md": b"custom working agreements\n",
+        "config.toml": b"model='host-controlled'\n",
+        "skills/unrelated/SKILL.md": b"unrelated skill\n",
+    }
+    for relative, content in kept.items():
+        target = codex / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+    selected = ("agentcoord", "project-workflow-enforcer-agent")
+    for name in selected:
+        target = codex / "skills" / name / "SKILL.md"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"historical guidance\n")
+    command(f"& {quote(SCRIPTS / 'Install-AgenticIdeSetup.ps1')} -Components Codex "
+            f"-CodexSkills agentcoord,project-workflow-enforcer-agent -DestinationRoot {quote(tmp_path)} -Overwrite -Apply")
+    for relative, content in kept.items():
+        assert (codex / relative).read_bytes() == content
+        assert not list((codex / relative).parent.glob((codex / relative).name + '.agentic-ide-setup-backup-*'))
+    for name in selected:
+        target = codex / "skills" / name / "SKILL.md"
+        assert target.read_bytes() == (ROOT / "profile/codex/skills" / name / "SKILL.md").read_bytes()
+        backup, = target.parent.glob("SKILL.md.agentic-ide-setup-backup-*")
+        assert backup.read_bytes() == b"historical guidance\n"
+    assert not (tmp_path / ".claude").exists()
+    assert not (codex / "keybindings.json").exists()
+
+
+@pytest.mark.parametrize("name", ["../agentcoord", "missing-skill", "agentcoord/child"])
+def test_invalid_codex_skill_selection_fails_before_writes(tmp_path, name):
+    ps("Install-AgenticIdeSetup.ps1", "-Components", "Codex", "-CodexSkills", name,
+       "-DestinationRoot", tmp_path / "new-home", "-Apply", ok=False)
+    assert not (tmp_path / "new-home").exists()
+
+
 def test_plugin_tables_and_allowlist(tmp_path):
     spec = importlib.util.spec_from_file_location("codex_config", SCRIPTS / "codex_config.py")
     module = importlib.util.module_from_spec(spec)
