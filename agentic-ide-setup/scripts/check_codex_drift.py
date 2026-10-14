@@ -27,11 +27,18 @@ def normalized(text: str, home: Path) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def owned_file_drift(profile: Path, codex: Path, home: Path) -> list[str]:
+def owned_file_drift(profile: Path, codex: Path, home: Path, skills: set[str] | None = None) -> list[str]:
     findings = []
     if not (profile / "AGENTS.md").is_file() or not (profile / "skills").is_dir():
         return [f"canonical profile is incomplete: {profile}"]
-    sources = [profile / "AGENTS.md", *(profile / "skills").rglob("*")]
+    if skills is None:
+        sources = [profile / "AGENTS.md", *(profile / "skills").rglob("*")]
+    else:
+        unknown = sorted(name for name in skills if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", name)
+                         or not (profile / "skills" / name / "SKILL.md").is_file())
+        if unknown:
+            return [f"unknown source-owned Codex skill: {name}" for name in unknown]
+        sources = [source for name in sorted(skills) for source in (profile / "skills" / name).rglob("*")]
     for source in sources:
         if not source.is_file() or "__pycache__" in source.parts or source.suffix == ".pyc":
             continue
@@ -208,7 +215,7 @@ def skill_path(path: str) -> str:
     return path.replace("\\", "/").casefold().rstrip("/")
 
 
-def duplicate_paths(codex: Path, agents: Path) -> dict[str, Path]:
+def duplicate_paths(codex: Path, agents: Path, skills: set[str] | None = None) -> dict[str, Path]:
     def names(root):
         result = {}
         for name in skill_names(root):
@@ -219,7 +226,8 @@ def duplicate_paths(codex: Path, agents: Path) -> dict[str, Path]:
         return result
     left, right = names(codex / "skills"), names(agents / "skills")
     return {skill_path(str(agents / "skills" / right[key] / "SKILL.md")): agents / "skills" / right[key] / "SKILL.md"
-            for key in sorted(left.keys() & right.keys())}
+            for key in sorted(left.keys() & right.keys())
+            if skills is None or left[key].casefold() in {name.casefold() for name in skills}}
 
 
 def config_entries(config: str) -> list[dict]:
@@ -294,20 +302,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile", type=Path, default=Path(__file__).resolve().parents[1] / "profile" / "codex")
     parser.add_argument("--home", type=Path, default=Path.home())
     parser.add_argument("--apply-dedup", action="store_true", help="Back up and update only duplicate skills.config entries")
+    parser.add_argument("--skill", action="append", help="Limit drift and deduplication to one source-owned skill; repeat for more")
     args = parser.parse_args(argv)
     args.home = args.home.absolute()
     codex, agents = args.home / ".codex", args.home / ".agents"
     config_path = codex / "config.toml"
+    skills = set(args.skill) if args.skill is not None else None
     try:
-        findings = owned_file_drift(args.profile, codex, args.home)
+        findings = owned_file_drift(args.profile, codex, args.home, skills)
         identity = path_identity(config_path)
         original = config_path.read_bytes()
         config = original.decode("utf-8-sig")
-        duplicates = duplicate_paths(codex, agents)
+        duplicates = duplicate_paths(codex, agents, skills)
         blockers = findings + duplicate_review(args.profile, codex, duplicates, args.home)
         def validate():
-            current = owned_file_drift(args.profile, codex, args.home)
-            if current or duplicate_paths(codex, agents) != duplicates:
+            current = owned_file_drift(args.profile, codex, args.home, skills)
+            if current or duplicate_paths(codex, agents, skills) != duplicates:
                 raise ValueError("canonical files or duplicate discovery changed; rerun preview")
             if duplicate_review(args.profile, codex, duplicates, args.home, report=False):
                 raise ValueError("non-owned differing duplicates require resolution")

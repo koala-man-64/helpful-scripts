@@ -100,6 +100,29 @@ def setup_home(tmp_path):
     return profile, home, config, ["--profile", str(profile), "--home", str(home), "--apply-dedup"]
 
 
+def test_selected_dedup_preserves_unrelated_guidance_and_discovery(tmp_path):
+    profile, home, config, args = setup_home(tmp_path)
+    write(home / ".codex/AGENTS.md", "custom agreements\n")
+    write(profile / "skills/other/SKILL.md", "new unrelated skill\n")
+    write(home / ".codex/skills/other/SKILL.md", "old unrelated skill\n")
+    write(home / ".agents/skills/other/SKILL.md", "old unrelated duplicate\n")
+    assert drift.main(args + ["--skill", "shared"]) == 0
+    assert (home / ".codex/AGENTS.md").read_text() == "custom agreements\n"
+    assert (home / ".codex/skills/other/SKILL.md").read_text() == "old unrelated skill\n"
+    duplicates = drift.duplicate_paths(home / ".codex", home / ".agents")
+    assert drift.enabled_duplicates(config.read_text(), duplicates) == [home / ".agents/skills/other/SKILL.md"]
+    assert (home / ".agents/skills/shared/SKILL.md").read_text() == "old skill\n"
+
+
+@pytest.mark.parametrize("name", ["../shared", "missing", "shared/child"])
+def test_unowned_selected_dedup_refuses_config_writes(tmp_path, name):
+    profile, home, config, args = setup_home(tmp_path)
+    original = config.read_bytes()
+    assert drift.main(args + ["--skill", name]) == 2
+    assert config.read_bytes() == original
+    assert not list(config.parent.glob("config.toml.*"))
+
+
 @pytest.mark.parametrize("relative", ["AGENTS.md", "skills/shared/SKILL.md"])
 @pytest.mark.parametrize("missing", [True, False])
 def test_apply_refuses_canonical_drift_without_writes(tmp_path, relative, missing):

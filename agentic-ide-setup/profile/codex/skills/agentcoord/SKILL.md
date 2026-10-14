@@ -44,6 +44,11 @@ Never report `queued_not_accepted` as accepted, delivered, or successful. Regist
 membership changes, work starts, and claims fail closed while offline. Do not persist or
 send raw prompts, full transcripts, credentials, authorization headers, or secret values.
 
-Lifecycle hooks perform best-effort registration, heartbeat, inbox injection, turn
-tracking, and final-response publication. Use MCP tools for explicit communication and
-structured work rather than assuming hook success.
+Lifecycle hooks perform best-effort registration, heartbeat, inbox injection, and
+turn tracking. Root startup registers the session; the first prompt fetches its inbox.
+Child startup also fetches its inbox because the provider may omit its first prompt
+event. Explicit MCP and CLI inbox reads remain available at any time.
+
+Stop requests closure of the current turn without forwarding or retaining the final response.
+Use authorized MCP messages for material handoffs and work tools for structured
+outcomes. Verify those operations rather than assuming hook success.
