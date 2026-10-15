@@ -692,6 +692,34 @@ def session_flag_once(session_id: str, name: str) -> bool:
     return session_value_changed(session_id, name, True)
 
 
+def session_first_time(session_id: str, name: str, value: str) -> bool:
+    """True the first time `value` is recorded under `name` for this session.
+
+    Records it as a side effect. An unknown session id or an IO failure returns
+    True, so a fault can only repeat a nudge, never lose one.
+    """
+    path = _session_flag_file(session_id)
+    if path is None:
+        return True
+    try:
+        flags: dict[str, Any] = {}
+        if path.exists():
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                flags = loaded
+        seen = flags.get(name)
+        if not isinstance(seen, list):
+            seen = []
+        if value in seen:
+            return False
+        flags[name] = [*seen, value]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(flags, sort_keys=True), encoding="utf-8")
+    except (OSError, ValueError):
+        return True
+    return True
+
+
 def clear_session_flags(session_id: str) -> None:
     """Forget the session's flags so standing text is re-stated (after compaction)."""
     path = _session_flag_file(session_id)
