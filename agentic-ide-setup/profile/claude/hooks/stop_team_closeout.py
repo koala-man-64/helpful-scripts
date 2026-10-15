@@ -23,9 +23,10 @@ say why not, and then stop.
 Files a shell statement writes or runs are located where the statement runs:
 the session's directory, followed through cd, pushd and popd, so a scratch
 file written after `cd "$SCRATCH"` is not an edit of the repository. The
-repository is the one under the payload's cwd when the workflow hooks apply
-there (a worktree session's cwd is its worktree; the hook process starts in
-the main checkout), else the hook process's own repository.
+repository is the one the turn worked in (its last edit, then the directories
+its commands ran in, then the payload's cwd) when the workflow hooks apply
+there, else the hook process's own repository (for a worktree session, the
+main checkout).
 """
 
 from __future__ import annotations
@@ -142,12 +143,14 @@ class _Shell:
     def directory(self, statement: shell_parse.Statement) -> Path | None:
         return self._state(statement.scope)[0]
 
-    def expand(self, text: str) -> str:
+    def expand(self, text: str, directory: Path | None = None) -> str:
         def value(match: re.Match) -> str:
             name = next(group for group in match.groups() if group)
             for candidate in (name, name.upper(), name.lower()):
                 if candidate in self.literals:
                     return self.literals[candidate]
+            if name.upper() == "PWD" and directory is not None:
+                return directory.as_posix()
             return match.group(0)
 
         return VARIABLE.sub(value, text)
@@ -161,16 +164,31 @@ class _Shell:
         if program in POPD_PROGRAMS:
             state[0] = state[1].pop() if state[1] else None
             return
-        operands = [arg for arg in statement.argv[1:] if not arg.startswith("-")]
+        operands = [arg for arg in shell_parse.without_redirections(statement.argv[1:]) if not arg.startswith("-")]
         if "-" in statement.argv[1:]:
             target = None  # `cd -` returns to a directory this command never named
         elif not operands:
             target = Path.home() if statement.dialect == "bash" else state[0]
         else:
-            target = shell_parse.resolve_path(self.expand(operands[0]), state[0])
+            target = shell_parse.resolve_path(self.expand(operands[0], state[0]), state[0])
         if program in PUSHD_PROGRAMS:
             state[1].append(state[0])
         state[0] = target
+
+    def substitute(self, statement: shell_parse.Statement) -> None:
+        """Record what `$(pwd)` and `$(git rev-parse --show-toplevel)` print, so `cd "$(...)"` resolves."""
+        directory = self.directory(statement)
+        if not statement.assigns or directory is None:
+            return
+        value = ""
+        if statement.program == "pwd" and len(statement.argv) == 1:
+            value = directory.as_posix()
+        elif statement.program == "git" and statement.argv[1:] == ["rev-parse", "--show-toplevel"]:
+            code, top = run_git(["rev-parse", "--show-toplevel"], directory)
+            value = top if code == 0 else ""
+        if value:
+            for name in statement.assigns:
+                self.literals[name] = value
 
     def locate(self, target: str, statement: shell_parse.Statement) -> str:
         """Absolute path of a file the statement names, or "" when its directory is unknown."""
@@ -187,6 +205,7 @@ class Facts:
     executions: list[tuple[int, str]] = field(default_factory=list)  # scripts run by path
     reviews: list[int] = field(default_factory=list)
     pr_in_session: bool = False
+    cwds: list[str] = field(default_factory=list)  # the turn's recorded working directories, in order
 
 
 def _is_real_prompt(record: dict) -> bool:
@@ -284,6 +303,7 @@ def _classify_command(command: str, dialect: str, step: int, facts: Facts, in_tu
     shell = _Shell(Path(cwd) if cwd else None)
     for statement in shell_parse.parse(command, dialect).statements:
         shell.literals.update(statement.literals)
+        shell.substitute(statement)
         if not statement.argv:
             continue  # a bare assignment (`S=...;`) runs nothing
         text = " ".join(statement.argv).lower()
@@ -342,6 +362,8 @@ def facts_from_records(records: list[dict]) -> Facts:
                 continue
             step += 1
             name, tool_input = str(item.get("name") or ""), item.get("input") or {}
+            if in_turn and record.get("cwd"):
+                facts.cwds.append(str(record["cwd"]))
             if name in SHELL_TOOLS:
                 dialect = "powershell" if name == "PowerShell" else "bash"
                 _classify_command(str(tool_input.get("command") or ""), dialect, step, facts, in_turn, str(record.get("cwd") or ""))
@@ -388,7 +410,7 @@ def repository_name(root: Path) -> str:
     named for the task), else the root's."""
     code, url = run_git(["remote", "get-url", "origin"], root)
     if code == 0 and url:
-        name = re.sub(r"\.git$", "", re.split(r"[/:]", url.rstrip("/"))[-1])
+        name = re.sub(r"\.git$", "", re.split(r"[/\\:]", url.rstrip("/\\"))[-1])
         if name:
             return name
     code, common = run_git(["rev-parse", "--path-format=absolute", "--git-common-dir"], root)
@@ -426,22 +448,48 @@ def findings(facts: Facts, root: Path, header: str, scope_limited: bool, reposit
     return found
 
 
-def closeout_root(payload: dict) -> Path | None:
+def _toplevel(path: str) -> Path | None:
+    """The git toplevel of a path, or of its nearest existing parent."""
+    try:
+        candidate = Path(path)
+        while not candidate.is_dir() and candidate.parent != candidate:
+            candidate = candidate.parent
+    except (OSError, ValueError):
+        return None
+    if not candidate.is_dir():
+        return None
+    code, top = run_git(["rev-parse", "--show-toplevel"], candidate)
+    return Path(top) if code == 0 and top else None
+
+
+def closeout_root(payload: dict, facts: Facts | None = None) -> Path | None:
     """The repository the turn worked in, or None when the workflow hooks apply to none.
 
-    The payload's cwd follows the session through cd and into worktrees; the
-    hook process starts where the session started, the main checkout for a
-    worktree session. The first of the two where the workflow hooks apply wins,
-    so a cd into a scratch folder cannot step out of the gate.
+    In order: the repository of the turn's last edit, of the directories its
+    commands ran in (latest first), of the payload's cwd, and of the hook
+    process (the main checkout for a worktree session). A session that ends
+    with a cd into a scratch folder still judges the worktree it edited. The
+    first repository where the workflow hooks apply wins, so a cd cannot step
+    out of the gate.
     """
-    candidates: list[Path] = []
+    facts = facts or Facts()
+    paths = [path for _, path in reversed(facts.edits)][:1] + list(reversed(facts.cwds))
     cwd = payload.get("cwd")
-    if isinstance(cwd, str) and cwd and Path(cwd).is_dir():
-        code, top = run_git(["rev-parse", "--show-toplevel"], Path(cwd))
-        if code == 0 and top:
-            candidates.append(Path(top))
-    candidates.append(repo_root())
-    return next((root for root in candidates if workflow_scope_enabled(root)), None)
+    if isinstance(cwd, str) and cwd:
+        paths.append(cwd)
+    seen: set[str] = set()
+    for path in paths:
+        key = path.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if len(seen) > 6:
+            break  # bounded: each candidate costs a git call
+        root = _toplevel(path)
+        if root is not None and workflow_scope_enabled(root):
+            return root
+    root = repo_root()
+    return root if workflow_scope_enabled(root) else None
 
 
 def main() -> int:
@@ -451,11 +499,12 @@ def main() -> int:
     transcript = payload.get("transcript_path")
     if not isinstance(transcript, str) or not transcript:
         return 0
-    root = closeout_root(payload)
+    facts = collect_facts(transcript)
+    root = closeout_root(payload, facts)
     if root is None:
         return 0
     scope_limited = contains_any_text(extract_last_user_prompt(payload), NO_REMOTE_FINISH_MARKERS)
-    found = findings(collect_facts(transcript), root, branch_header(root), scope_limited, repository_name(root))
+    found = findings(facts, root, branch_header(root), scope_limited, repository_name(root))
     session_id = payload.get("session_id")
     if isinstance(session_id, str) and session_id:
         found = [(key, message) for key, message in found if session_first_time(session_id, NUDGED_FLAG, key)]
