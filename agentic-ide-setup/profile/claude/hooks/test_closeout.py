@@ -9,6 +9,8 @@ Run from this directory: py -m pytest test_closeout.py
 
 import itertools
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -52,26 +54,50 @@ class CloseoutHarness(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         base = Path(self._tmp.name).resolve()
         # The repository must not sit under the temp directory: edits there count as scratch.
-        self.root = Path.home() / f".closeout-test-{next(_ids)}"
-        self.root.mkdir()
-        self.addCleanup(self._remove_root)
+        self.root = Path(tempfile.mkdtemp(prefix=".closeout-test-", dir=Path.home()))
+        self.addCleanup(self._rmtree, self.root)
         subprocess.run(["git", "init", "-q", "-b", "claude/topic"], cwd=self.root, check=True)
         self.transcript = base / "transcript.jsonl"
         self.header = SYNCED
+        # A directory outside the repository that is not scratch either: only cd tracking keeps writes there out.
+        self.elsewhere = Path(tempfile.mkdtemp(prefix=".closeout-elsewhere-", dir=Path.home()))
+        self.addCleanup(self._rmtree, self.elsewhere)
+        self.scratch = base  # under the temp directory, which the hook never counts as the repository
+        previous_flags = os.environ.get("CLAUDE_SESSION_FLAGS_DIR")
+        os.environ["CLAUDE_SESSION_FLAGS_DIR"] = str(base / "flags")
+        self.addCleanup(self._restore_flags_dir, previous_flags)
         saved = {name: getattr(closeout, name) for name in ("workflow_scope_enabled", "repo_root", "branch_header", "read_hook_input", "emit_json")}
         self.addCleanup(lambda: [setattr(closeout, k, v) for k, v in saved.items()])
-        closeout.workflow_scope_enabled = lambda: True
+        closeout.workflow_scope_enabled = lambda root=None: True
         closeout.repo_root = lambda: self.root
         closeout.branch_header = lambda root=None: self.header
 
-    def _remove_root(self) -> None:
-        import shutil
-        shutil.rmtree(self.root, ignore_errors=True)
+    @staticmethod
+    def _rmtree(path: Path) -> None:
+        """Remove a test directory even when git left read-only objects in it."""
+        for entry in path.rglob("*"):
+            try:
+                entry.chmod(0o700)
+            except OSError:
+                pass
+        shutil.rmtree(path, ignore_errors=True)
 
-    def stop(self, *records: dict, active: bool = False) -> str | None:
+    @staticmethod
+    def _restore_flags_dir(previous: str | None) -> None:
+        if previous is None:
+            os.environ.pop("CLAUDE_SESSION_FLAGS_DIR", None)
+        else:
+            os.environ["CLAUDE_SESSION_FLAGS_DIR"] = previous
+
+    def stop(self, *records: dict, active: bool = False, cwd: str | None = None, session_id: str | None = None) -> str | None:
         self.transcript.write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
         captured = []
-        closeout.read_hook_input = lambda: {"transcript_path": str(self.transcript), "stop_hook_active": active}
+        payload: dict = {"transcript_path": str(self.transcript), "stop_hook_active": active}
+        if cwd:
+            payload["cwd"] = cwd
+        if session_id:
+            payload["session_id"] = session_id
+        closeout.read_hook_input = lambda: payload
         closeout.emit_json = lambda payload: captured.append(payload) or 0
         closeout.main()
         return captured[-1]["reason"] if captured else None
@@ -217,6 +243,199 @@ class Gates(CloseoutHarness):
         feedback = {"type": "user", "isMeta": True, "message": {"role": "user", "content": "Stop hook feedback:\nBefore stopping: F3"}}
         reason = self.stop(user("fix it"), self.edit("src/app.py"), say("done"), feedback, say("still done"))
         self.assertIn("F3", reason)
+
+
+class ShellDirectories(CloseoutHarness):
+    """Files a shell statement writes or runs are located where the statement runs."""
+
+    def test_a_write_after_cd_elsewhere_is_not_a_repository_edit(self) -> None:
+        away = self.elsewhere.as_posix()
+        for command, name in (
+            (f'cd "{away}" && cat > build_log.py <<\'EOF\'\nprint(1)\nEOF', "Bash"),
+            (f'S="{away}"; cd "$S" && py -I tools/ado.py attach 2041 "$S/memo.md" && cat > c2041.txt <<\'EOF\'\nposted\nEOF', "Bash"),
+            (f'cd "{away}" && sed -i \'s/a/b/\' azure-pipelines/ci.yml', "Bash"),
+            (f'cd "{away}"; py -I - build_log.py <<\'EOF\'\nprint(1)\nEOF', "Bash"),
+            (f'Set-Location "{away}"; Set-Content -Path tool.py -Value "x"', "PowerShell"),
+        ):
+            with self.subTest(command=command):
+                self.assertIsNone(self.stop(user("read the build log"), self.sh(command, name=name)))
+
+    def test_a_write_after_cd_inside_the_repository_is_an_edit(self) -> None:
+        for command, name, expected in (
+            ("cd src && cat > gen.py <<'EOF'\nprint(1)\nEOF", "Bash", "src/gen.py"),
+            ("if true; then cd src; fi; echo x > s.py", "Bash", "src/s.py"),
+            ('W="src"; cd "$W" && sed -i "s/a/b/" app.py', "Bash", "src/app.py"),
+            ("Set-Location src; Set-Content -Path p.py -Value 'x'", "PowerShell", "src/p.py"),
+        ):
+            with self.subTest(command=command):
+                self.assertIn(expected, self.stop(user("fix it"), self.sh(command, name=name)) or "")
+
+    def test_relative_writes_in_an_unknown_directory_are_not_attributed(self) -> None:
+        self.assertIsNone(self.stop(user("fix it"), self.sh('cd "$ELSEWHERE" && cat > x.py <<\'EOF\'\nprint(1)\nEOF')))
+        self.assertIsNone(self.stop(user("fix it"), self.sh("cd - && echo x > y.py")))
+        self.assertIsNone(self.stop(user("fix it"), shell("cat > z.py <<'EOF'\nprint(1)\nEOF")))  # no cwd recorded
+
+    def test_a_cd_in_a_subshell_ends_with_it(self) -> None:
+        command = f'(cd "{self.elsewhere.as_posix()}" && cat > a.py <<\'EOF\'\nx\nEOF\n); cat > b.py <<\'EOF\'\ny\nEOF'
+        reason = self.stop(user("fix it"), self.sh(command)) or ""
+        self.assertIn("b.py", reason)
+        self.assertNotIn("a.py", reason)
+
+    def test_popd_returns_to_the_pushed_directory(self) -> None:
+        command = f'pushd "{self.elsewhere.as_posix()}" && echo x > t.py; popd; echo y > u.py'
+        reason = self.stop(user("fix it"), self.sh(command)) or ""
+        self.assertIn("u.py", reason)
+        self.assertNotIn("t.py", reason)
+
+    def test_running_a_same_named_script_elsewhere_is_not_the_edited_scripts_check(self) -> None:
+        reason = self.stop(user("count the rows"), self.edit("q.py"), self.sh(f'cd "{self.elsewhere.as_posix()}" && py q.py'))
+        self.assertIn("F3", reason or "")
+
+
+    def test_cd_to_the_printed_toplevel_or_working_directory_resolves(self) -> None:
+        sub = self.root / "pkg"
+        sub.mkdir()
+        for command, expected in (
+            ('cd "$(git rev-parse --show-toplevel)" && sed -i \'s/a/b/\' src/app.py', "src/app.py"),
+            ('cd "$PWD/src"; echo x > z.py', "pkg/src/z.py"),
+            ('cd "$(pwd)/src"; echo x > w.py', "pkg/src/w.py"),
+            ("cd >/dev/null src; echo x > r.py", "pkg/src/r.py"),
+        ):
+            with self.subTest(command=command):
+                record = {**tool("Bash", command=command), "cwd": str(sub)}
+                self.assertIn(expected, self.stop(user("fix it"), record) or "")
+
+    def test_push_location_and_pop_location(self) -> None:
+        command = f'Push-Location "{self.elsewhere}"; Set-Content -Path t.py -Value x; Pop-Location; Set-Content -Path u.py -Value y'
+        reason = self.stop(user("fix it"), self.sh(command, name="PowerShell")) or ""
+        self.assertIn("u.py", reason)
+        self.assertNotIn("t.py", reason)
+
+    def test_cd_home_leaves_the_repository(self) -> None:
+        self.assertIsNone(self.stop(user("fix it"), self.sh("cd ~ && echo x > h.py")))
+
+
+class OncePerSession(CloseoutHarness):
+    """A fact is nudged once per session, however many harness-started turns follow."""
+
+    peer = {"type": "user", "isMeta": True, "message": {"role": "user", "content": "Another Claude session sent a message: hold the push"}}
+
+    def test_the_same_fact_is_not_nudged_twice(self) -> None:
+        records = [user("fix it"), self.edit("src/app.py"), say("holding")]
+        self.assertIn("F3", self.stop(*records, session_id="s1") or "")
+        self.assertIsNone(self.stop(*records, self.peer, say("still holding"), session_id="s1"))
+        reason = self.stop(*records, self.peer, say("still holding"), self.edit("src/b.py"), session_id="s1") or ""
+        self.assertIn("src/b.py", reason)
+
+    def test_a_different_fact_still_nudges(self) -> None:
+        self.header = AHEAD
+        records = [user("fix it"), self.edit("src/app.py")]
+        self.assertIn("F3", self.stop(*records, session_id="s2") or "")
+        reason = self.stop(*records, self.peer, shell("git commit -m fix"), session_id="s2") or ""
+        self.assertIn("F1", reason)
+        self.assertNotIn("F3", reason)
+
+    def test_f2_and_f4_are_nudged_once(self) -> None:
+        records = [user("tune ci"), self.edit("azure-pipelines/ci.yml"), shell("py -m pytest"), shell("git push")]
+        first = self.stop(*records, session_id="s3") or ""
+        self.assertIn("F2", first)
+        self.assertIn("F4", first)
+        self.assertIsNone(self.stop(*records, self.peer, say("waiting"), session_id="s3"))
+
+    def test_without_a_session_id_the_nudge_repeats(self) -> None:
+        records = [user("fix it"), self.edit("src/app.py")]
+        self.assertIn("F3", self.stop(*records) or "")
+        self.assertIn("F3", self.stop(*records) or "")
+
+
+class Roots(CloseoutHarness):
+    """The repository is the one the turn worked in, when the hooks apply there."""
+
+    def _main_checkout(self) -> Path:
+        """A second repository standing in for the main checkout the hook process starts in."""
+        main = Path(tempfile.mkdtemp(prefix=".closeout-main-", dir=Path.home()))
+        self.addCleanup(self._rmtree, main)
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=main, check=True)
+        return main
+
+    def at(self, command: str, directory: Path) -> dict:
+        return {**tool("Bash", command=command), "cwd": str(directory)}
+
+    def test_the_edited_repository_wins_over_the_hook_process_repository(self) -> None:
+        main = self._main_checkout()
+        closeout.repo_root = lambda: main
+        for cwd in (str(self.root), None):
+            with self.subTest(cwd=cwd):
+                self.assertIn("edit to src/app.py", self.stop(user("fix it"), self.edit("src/app.py"), cwd=cwd) or "")
+
+    def test_a_session_ending_in_a_scratch_folder_still_judges_its_worktree(self) -> None:
+        main = self._main_checkout()
+        closeout.repo_root = lambda: main
+        scratch_write = self.at(f'cd "{self.scratch.as_posix()}" && cat > x.py <<\'EOF\'\nx\nEOF', self.root)
+        records = [user("fix it"), self.edit("src/app.py"), scratch_write]
+        first = self.stop(*records, cwd=str(self.scratch), session_id="wt") or ""
+        self.assertIn("edit to src/app.py", first)
+        # The key stays the same when the session's cwd moves, so the fact is not nudged twice.
+        self.assertIsNone(self.stop(*records, cwd=str(self.root), session_id="wt"))
+
+    def test_a_command_in_another_repository_does_not_move_the_turn_off_its_edits(self) -> None:
+        other = self._main_checkout()
+        records = [user("fix it"), self.edit("src/app.py"), self.at("git log -1", other)]
+        self.assertIn("edit to src/app.py", self.stop(*records, cwd=str(other)) or "")
+
+    def test_without_edits_the_commands_directory_names_the_repository(self) -> None:
+        self.header = AHEAD
+        main = self._main_checkout()
+        closeout.repo_root = lambda: main
+        headers = []
+        closeout.branch_header = lambda root=None: headers.append(Path(root).resolve()) or self.header
+        self.assertIn("F1", self.stop(user("commit it"), self.at("git commit -m fix", self.root), cwd=str(self.scratch)) or "")
+        self.assertEqual(headers[-1], self.root.resolve())
+
+    def test_a_cwd_outside_any_repository_falls_back_to_the_hook_process_repository(self) -> None:
+        reason = self.stop(user("fix it"), self.edit("src/app.py"), cwd=str(self.scratch)) or ""
+        self.assertIn("edit to src/app.py", reason)
+
+    def test_the_gate_does_not_widen_to_a_repository_outside_scope(self) -> None:
+        other = self._main_checkout()
+        closeout.repo_root = lambda: self.root.parent
+        closeout.workflow_scope_enabled = lambda root=None: Path(root).resolve() == self.root.resolve()
+        self.assertIn("edit to src/app.py", self.stop(user("fix it"), self.edit("src/app.py"), cwd=str(self.scratch)) or "")
+        out_of_scope = tool("Edit", file_path=str(other / "src" / "app.py"), old_string="a", new_string="b")
+        self.assertIsNone(self.stop(user("fix it"), out_of_scope, cwd=str(other)))
+
+    def test_no_repository_in_scope_is_silent(self) -> None:
+        closeout.workflow_scope_enabled = lambda root=None: False
+        self.assertIsNone(self.stop(user("fix it"), self.edit("src/app.py"), cwd=str(self.root)))
+
+    def test_repository_names_from_origin_urls(self) -> None:
+        for url, expected in (
+            ("https://github.com/koala-man-64/helpful-scripts.git", "helpful-scripts"),
+            ("git@github.com:koala-man-64/helpful-scripts.git", "helpful-scripts"),
+            ("git@ssh.dev.azure.com:v3/o/p/asset-allocation-contracts", "asset-allocation-contracts"),
+            ("https://dev.azure.com/o/p/_git/asset-allocation-contracts/", "asset-allocation-contracts"),
+            (r"C:\src\asset-allocation-contracts", "asset-allocation-contracts"),
+        ):
+            with self.subTest(url=url):
+                subprocess.run(["git", "remote", "remove", "origin"], cwd=self.root, check=False, capture_output=True)
+                subprocess.run(["git", "remote", "add", "origin", url], cwd=self.root, check=True)
+                self.assertEqual(closeout.repository_name(self.root), expected)
+
+    def test_the_risky_repository_rule_reads_the_repository_name_not_the_directory(self) -> None:
+        # A worktree of asset-allocation-contracts is named for its task; the origin still says which repository it is.
+        subprocess.run(["git", "remote", "add", "origin", "https://dev.azure.com/o/p/_git/asset-allocation-contracts"], cwd=self.root, check=True)
+        reason = self.stop(user("rename the field"), self.edit("notes/field.py"), shell("py -m pytest"), cwd=str(self.root)) or ""
+        self.assertIn("F4", reason)
+        self.assertEqual(closeout.repository_name(self.root), "asset-allocation-contracts")
+
+    def test_a_worktree_without_an_origin_is_named_for_its_main_checkout(self) -> None:
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "root"], cwd=self.root, check=True,
+                       env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"})
+        worktree = self.elsewhere / "task-worktree"
+        subprocess.run(["git", "worktree", "add", "-q", "-b", "claude/task", str(worktree)], cwd=self.root, check=True)
+        self.addCleanup(lambda: subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], cwd=self.root, check=False))
+        self.assertEqual(closeout.repository_name(worktree), self.root.name)
+        self.assertEqual(closeout.repository_name(self.scratch), self.scratch.name)
 
 
 if __name__ == "__main__":

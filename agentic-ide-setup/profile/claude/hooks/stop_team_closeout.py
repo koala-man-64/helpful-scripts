@@ -14,8 +14,19 @@ once, only when one of these facts holds:
   after the last such change.
 
 A prompt that limits scope (no push, local only, read-only...) switches off F1
-and F2. stop_hook_active makes the nudge one-shot: the model can finish the
-work or say why not, and then stop.
+and F2. stop_hook_active makes the nudge one-shot within a turn, and each fact
+(the same unchecked edit, the same unpushed commit) is nudged once per session:
+a turn the harness starts, such as a message from another session, does not
+repeat a nudge the model already answered. The model can finish the work or
+say why not, and then stop.
+
+Files a shell statement writes or runs are located where the statement runs:
+the session's directory, followed through cd, pushd and popd, so a scratch
+file written after `cd "$SCRATCH"` is not an edit of the repository. The
+repository is the one the turn worked in (its last edit, then the directories
+its commands ran in, then the payload's cwd) when the workflow hooks apply
+there, else the hook process's own repository (for a worktree session, the
+main checkout).
 """
 
 from __future__ import annotations
@@ -36,6 +47,8 @@ from hook_utils import (
     extract_last_user_prompt,
     read_hook_input,
     repo_root,
+    run_git,
+    session_first_time,
     workflow_scope_enabled,
 )
 from risky_paths import is_risky
@@ -85,6 +98,102 @@ PS_VALUE_OPTIONS = frozenset({"-value", "-encoding", "-width", "-inputobject", "
 SED_SCRIPT_OPTIONS = frozenset({"-e", "--expression", "-f", "--file"})
 GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"})
 PYTHON_VALIDATION_MODULES = frozenset({"pytest", "unittest", "mypy", "ruff", "compileall", "py_compile", "pyright"})
+CD_PROGRAMS = frozenset({"cd", "chdir", "pushd", "set-location", "sl", "push-location"})
+PUSHD_PROGRAMS = frozenset({"pushd", "push-location"})
+POPD_PROGRAMS = frozenset({"popd", "pop-location"})
+VARIABLE = re.compile(r"\$\{(\w+)\}|\$(?:env:)?(\w+)|%(\w+)%", re.IGNORECASE)
+NUDGED_FLAG = "closeout-nudged"
+
+
+class _Shell:
+    """Where each statement of a command runs.
+
+    The session's directory, moved by cd, pushd and popd, per shell scope: a cd
+    inside a subshell ends with it, a cd inside an if or loop body does not. A
+    variable the command assigned (`S="..."; cd "$S"`) resolves; a directory
+    the command never named (`cd "$ELSEWHERE"`, `cd -`) is unknown, and a
+    relative path there belongs to no file this hook can judge.
+    """
+
+    def __init__(self, start: Path | None) -> None:
+        self._states: dict[tuple, list] = {(): [start, []]}  # scope key -> [directory, pushd stack]
+        self.literals: dict[str, str] = {}
+
+    @staticmethod
+    def _key(scope: tuple) -> tuple:
+        """The nearest enclosing child process of a scope: blocks share their shell's directory."""
+        for length in range(len(scope), 0, -1):
+            if scope[length - 1][1] == "child":
+                return tuple(scope[:length])
+        return ()
+
+    def _state(self, scope: tuple) -> list:
+        key = self._key(scope)
+        state = self._states.get(key)
+        if state is None:
+            parent = self._states[()]
+            for length in range(len(key) - 1, 0, -1):
+                candidate = self._states.get(self._key(key[:length]))
+                if candidate is not None:
+                    parent = candidate
+                    break
+            state = self._states[key] = [parent[0], list(parent[1])]
+        return state
+
+    def directory(self, statement: shell_parse.Statement) -> Path | None:
+        return self._state(statement.scope)[0]
+
+    def expand(self, text: str, directory: Path | None = None) -> str:
+        def value(match: re.Match) -> str:
+            name = next(group for group in match.groups() if group)
+            for candidate in (name, name.upper(), name.lower()):
+                if candidate in self.literals:
+                    return self.literals[candidate]
+            if name.upper() == "PWD" and directory is not None:
+                return directory.as_posix()
+            return match.group(0)
+
+        return VARIABLE.sub(value, text)
+
+    def follow(self, statement: shell_parse.Statement) -> None:
+        """Apply a cd, pushd or popd to its scope; anything else leaves the directory alone."""
+        program = statement.program
+        if program not in CD_PROGRAMS and program not in POPD_PROGRAMS:
+            return
+        state = self._state(statement.scope)
+        if program in POPD_PROGRAMS:
+            state[0] = state[1].pop() if state[1] else None
+            return
+        operands = [arg for arg in shell_parse.without_redirections(statement.argv[1:]) if not arg.startswith("-")]
+        if "-" in statement.argv[1:]:
+            target = None  # `cd -` returns to a directory this command never named
+        elif not operands:
+            target = Path.home() if statement.dialect == "bash" else state[0]
+        else:
+            target = shell_parse.resolve_path(self.expand(operands[0], state[0]), state[0])
+        if program in PUSHD_PROGRAMS:
+            state[1].append(state[0])
+        state[0] = target
+
+    def substitute(self, statement: shell_parse.Statement) -> None:
+        """Record what `$(pwd)` and `$(git rev-parse --show-toplevel)` print, so `cd "$(...)"` resolves."""
+        directory = self.directory(statement)
+        if not statement.assigns or directory is None:
+            return
+        value = ""
+        if statement.program == "pwd" and len(statement.argv) == 1:
+            value = directory.as_posix()
+        elif statement.program == "git" and statement.argv[1:] == ["rev-parse", "--show-toplevel"]:
+            code, top = run_git(["rev-parse", "--show-toplevel"], directory)
+            value = top if code == 0 else ""
+        if value:
+            for name in statement.assigns:
+                self.literals[name] = value
+
+    def locate(self, target: str, statement: shell_parse.Statement) -> str:
+        """Absolute path of a file the statement names, or "" when its directory is unknown."""
+        path = shell_parse.resolve_path(target, self.directory(statement))
+        return str(path) if path else ""
 
 
 @dataclass
@@ -96,6 +205,7 @@ class Facts:
     executions: list[tuple[int, str]] = field(default_factory=list)  # scripts run by path
     reviews: list[int] = field(default_factory=list)
     pr_in_session: bool = False
+    cwds: list[str] = field(default_factory=list)  # the turn's recorded working directories, in order
 
 
 def _is_real_prompt(record: dict) -> bool:
@@ -190,25 +300,34 @@ def _git_subcommand(args: list[str]) -> str:
 
 
 def _classify_command(command: str, dialect: str, step: int, facts: Facts, in_turn: bool, cwd: str = "") -> None:
+    shell = _Shell(Path(cwd) if cwd else None)
     for statement in shell_parse.parse(command, dialect).statements:
+        shell.literals.update(statement.literals)
+        shell.substitute(statement)
+        if not statement.argv:
+            continue  # a bare assignment (`S=...;`) runs nothing
         text = " ".join(statement.argv).lower()
         if re.match(r"^(?:az repos pr create|gh pr create)\b", text):
             facts.pr_in_session = True
-        if not in_turn:
-            continue
-        if statement.program == "git":
-            subcommand = _git_subcommand(statement.argv[1:])
-            if subcommand == "commit":
-                facts.commits.append(step)
-            elif subcommand == "push":
-                facts.pushes.append(step)
-        if _is_validation(statement):
-            facts.validations.append(step)
-        for target in written_files(statement):
-            facts.edits.append((step, str(Path(cwd, target)) if cwd else target))
-        script = executed_script(statement)
-        if script and not re.search(r"[$%]", script):
-            facts.executions.append((step, str(Path(cwd, script)) if cwd else script))
+        if in_turn:
+            if statement.program == "git":
+                subcommand = _git_subcommand(statement.argv[1:])
+                if subcommand == "commit":
+                    facts.commits.append(step)
+                elif subcommand == "push":
+                    facts.pushes.append(step)
+            if _is_validation(statement):
+                facts.validations.append(step)
+            for target in written_files(statement):
+                located = shell.locate(target, statement)
+                if located:
+                    facts.edits.append((step, located))
+            script = executed_script(statement)
+            if script and not re.search(r"[$%]", script):
+                located = shell.locate(script, statement)
+                if located:
+                    facts.executions.append((step, located))
+        shell.follow(statement)
 
 
 def collect_facts(transcript_path: str) -> Facts:
@@ -243,6 +362,8 @@ def facts_from_records(records: list[dict]) -> Facts:
                 continue
             step += 1
             name, tool_input = str(item.get("name") or ""), item.get("input") or {}
+            if in_turn and record.get("cwd"):
+                facts.cwds.append(str(record["cwd"]))
             if name in SHELL_TOOLS:
                 dialect = "powershell" if name == "PowerShell" else "bash"
                 _classify_command(str(tool_input.get("command") or ""), dialect, step, facts, in_turn, str(record.get("cwd") or ""))
@@ -283,16 +404,34 @@ def _is_test(relative_path: str) -> bool:
     return bool(TEST_DIRS & set(path.parts[:-1])) or bool(TEST_FILE.search(path.name))
 
 
-def findings(facts: Facts, root: Path, header: str, scope_limited: bool) -> list[str]:
+def repository_name(root: Path) -> str:
+    """The repository's name for the risky-repository rule: its origin's last path
+    segment, else the main worktree's directory (a worktree's own directory is
+    named for the task), else the root's."""
+    code, url = run_git(["remote", "get-url", "origin"], root)
+    if code == 0 and url:
+        name = re.sub(r"\.git$", "", re.split(r"[/\\:]", url.rstrip("/\\"))[-1])
+        if name:
+            return name
+    code, common = run_git(["rev-parse", "--path-format=absolute", "--git-common-dir"], root)
+    if code == 0 and common:
+        return Path(common).parent.name
+    return root.name
+
+
+def findings(facts: Facts, root: Path, header: str, scope_limited: bool, repository: str = "") -> list[tuple[str, str]]:
+    """``(key, message)`` for each fact that holds. The key names the state behind
+    the fact (which commit, which edit), so a session is nudged once for it."""
+    repository = repository or root.name
     found = []
     if not scope_limited:
         last_commit, last_push = max(facts.commits, default=0), max(facts.pushes, default=0)
         unpushed = "[ahead" in header or ("..." not in header and header.startswith("## "))
         if facts.commits and last_push < last_commit and unpushed:
-            found.append("F1: this turn committed but did not push the branch")
+            found.append((f"F1:{last_commit}", "F1: this turn committed but did not push the branch"))
         protected = re.search(r"^## (?:main|master|trunk|develop|staging|production)(?:\.\.\.|$)", header)
         if facts.pushes and not facts.pr_in_session and not protected:
-            found.append("F2: this turn pushed the branch, and this session shows no pull request for it")
+            found.append((f"F2:{last_push}", "F2: this turn pushed the branch, and this session shows no pull request for it"))
     in_repo = [(step, rel) for step, path in facts.edits if (rel := _repo_relative(path, root))]
     source = [(step, rel) for step, rel in in_repo if _is_source(rel)]
     if source:
@@ -300,27 +439,78 @@ def findings(facts: Facts, root: Path, header: str, scope_limited: bool) -> list
         # Running the file just edited (an analysis script, a CLI) is its check.
         ran_it = any(step > last_step and _repo_relative(path, root) == last_rel for step, path in facts.executions)
         if max(facts.validations, default=0) < last_step and not ran_it:
-            found.append(f"F3: no test, build, lint or browser check ran after the last edit to {last_rel}")
+            found.append((f"F3:{last_rel}:{last_step}", f"F3: no test, build, lint or browser check ran after the last edit to {last_rel}"))
     # A test of a risky area (tests/migrations/test_plan.py) is not itself a risky change.
-    risky = [(step, rel) for step, rel in in_repo if is_risky(rel, root.name) and not _is_test(rel)]
+    risky = [(step, rel) for step, rel in in_repo if is_risky(rel, repository) and not _is_test(rel)]
     if risky and max(facts.reviews, default=0) < max(step for step, _ in risky):
-        found.append(f"F4: {risky[-1][1]} is a risky path, and no reviewer agent ran after it changed")
+        risky_step, risky_rel = risky[-1]
+        found.append((f"F4:{risky_rel}:{risky_step}", f"F4: {risky_rel} is a risky path, and no reviewer agent ran after it changed"))
     return found
+
+
+def _toplevel(path: str) -> Path | None:
+    """The git toplevel of a path, or of its nearest existing parent."""
+    try:
+        candidate = Path(path)
+        while not candidate.is_dir() and candidate.parent != candidate:
+            candidate = candidate.parent
+    except (OSError, ValueError):
+        return None
+    if not candidate.is_dir():
+        return None
+    code, top = run_git(["rev-parse", "--show-toplevel"], candidate)
+    return Path(top) if code == 0 and top else None
+
+
+def closeout_root(payload: dict, facts: Facts | None = None) -> Path | None:
+    """The repository the turn worked in, or None when the workflow hooks apply to none.
+
+    In order: the repository of the turn's last edit, of the directories its
+    commands ran in (latest first), of the payload's cwd, and of the hook
+    process (the main checkout for a worktree session). A session that ends
+    with a cd into a scratch folder still judges the worktree it edited. The
+    first repository where the workflow hooks apply wins, so a cd cannot step
+    out of the gate.
+    """
+    facts = facts or Facts()
+    paths = [path for _, path in reversed(facts.edits)][:1] + list(reversed(facts.cwds))
+    cwd = payload.get("cwd")
+    if isinstance(cwd, str) and cwd:
+        paths.append(cwd)
+    seen: set[str] = set()
+    for path in paths:
+        key = path.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        if len(seen) > 6:
+            break  # bounded: each candidate costs a git call
+        root = _toplevel(path)
+        if root is not None and workflow_scope_enabled(root):
+            return root
+    root = repo_root()
+    return root if workflow_scope_enabled(root) else None
 
 
 def main() -> int:
     payload = read_hook_input()
-    if payload.get("stop_hook_active") or not workflow_scope_enabled():
+    if payload.get("stop_hook_active"):
         return 0
     transcript = payload.get("transcript_path")
     if not isinstance(transcript, str) or not transcript:
         return 0
-    root = repo_root()
+    facts = collect_facts(transcript)
+    root = closeout_root(payload, facts)
+    if root is None:
+        return 0
     scope_limited = contains_any_text(extract_last_user_prompt(payload), NO_REMOTE_FINISH_MARKERS)
-    found = findings(collect_facts(transcript), root, branch_header(root), scope_limited)
+    found = findings(facts, root, branch_header(root), scope_limited, repository_name(root))
+    session_id = payload.get("session_id")
+    if isinstance(session_id, str) and session_id:
+        found = [(key, message) for key, message in found if session_first_time(session_id, NUDGED_FLAG, key)]
     if not found:
         return 0
-    reason = "Before stopping: " + "; ".join(found) + ". Finish it, or say in one line why not."
+    reason = "Before stopping: " + "; ".join(message for _, message in found) + ". Finish it, or say in one line why not."
     return emit_json(block(reason))
 
 

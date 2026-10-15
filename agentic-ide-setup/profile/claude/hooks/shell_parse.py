@@ -28,8 +28,9 @@ import binascii
 import itertools
 import re
 import shlex
+import tempfile
 from dataclasses import dataclass, field
-from pathlib import PureWindowsPath
+from pathlib import Path, PureWindowsPath
 
 MAX_DEPTH = 6
 _SUBSTITUTIONS = itertools.count(1)
@@ -1103,6 +1104,54 @@ def without_redirections(args: list[str]) -> list[str]:
             continue
         kept.append(arg)
     return kept
+
+
+# Home and temp spelled as variables in bash, PowerShell or cmd, ending at a path separator.
+KNOWN_ROOT_VARIABLE = re.compile(
+    r"^(?:\$\{?(home|tmpdir|temp|tmp|env:userprofile|env:home|env:temp|env:tmp)\}?|%(userprofile|temp|tmp)%)(?=[\\/]|$)",
+    re.IGNORECASE,
+)
+
+
+def resolve_path(raw: str, cwd: Path | None) -> Path | None:
+    """Absolute path for a file or directory a statement names, or None when it cannot be known here.
+
+    `~`, `$HOME`, `%TEMP%`, `/tmp` and `/c/...` spellings resolve; any other
+    variable, and a relative path with no known directory, does not. A glob
+    resolves to its fixed prefix.
+    """
+    text = raw.strip()
+    if not text:
+        return None
+    home, temp = str(Path.home()), tempfile.gettempdir()
+    known = KNOWN_ROOT_VARIABLE.match(text)
+    if known:
+        name = next(group for group in known.groups() if group).lower()
+        text = (home if name in {"home", "userprofile", "env:home", "env:userprofile"} else temp) + text[known.end():]
+    if text == "~" or text.startswith(("~/", "~\\")):
+        text = home + text[1:]
+    drive = re.match(r"^/([a-zA-Z])(?=/|$)", text)
+    if drive:
+        text = f"{drive.group(1).upper()}:/{text[drive.end():].lstrip('/')}"
+    elif text == "/tmp" or text.startswith("/tmp/"):
+        text = temp + text[4:]
+    if re.search(r"[$%{]", text):
+        return None
+    parts = re.split(r"[\\/]", text)
+    for index, part in enumerate(parts):
+        if any(ch in part for ch in "*?["):
+            # A glob can only reach below its fixed prefix.
+            text = "/".join(parts[:index]) or "."
+            break
+    path = Path(text)
+    if not path.is_absolute():
+        if cwd is None or path.drive:
+            return None
+        path = cwd / path
+    try:
+        return path.resolve(strict=False)
+    except (OSError, ValueError):
+        return None
 
 
 def _shell_payload(statement: Statement) -> tuple[str | None, str] | None:

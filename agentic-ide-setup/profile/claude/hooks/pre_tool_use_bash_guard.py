@@ -91,11 +91,6 @@ SECRET_NAME = re.compile(
 VARIABLE_REF = re.compile(r"\$\{?(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}?|%([A-Za-z_][A-Za-z0-9_]*)%", re.IGNORECASE)
 ENV_VARIABLE_CALL = re.compile(r"getenvironmentvariable\(\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
 LENGTH_READ = re.compile(r"\.(?:length|count)\b", re.IGNORECASE)
-# Home and temp spelled as variables in bash, PowerShell or cmd, ending at a path separator.
-KNOWN_ROOT_VARIABLE = re.compile(
-    r"^(?:\$\{?(home|tmpdir|temp|tmp|env:userprofile|env:home|env:temp|env:tmp)\}?|%(userprofile|temp|tmp)%)(?=[\\/]|$)",
-    re.IGNORECASE,
-)
 SECRET_FILE = re.compile(
     r"(?i)(?:^|[\\/])(?:\.env(?:rc|[-\w]*)(?:\.(?!example$|sample$|template$|dist$)[\w.-]+)?"
     r"|[^\\/]+\.(?:pem|key|pfx|p12)|id_(?:rsa|dsa|ecdsa|ed25519)|\.git-credentials|[._]netrc"
@@ -384,40 +379,8 @@ class Context:
         return (BASH_EXPANSION if self.dialect == "bash" else PS_EXPANSION).sub(value, text)
 
 
-def resolve_path(raw: str, cwd: Path | None) -> Path | None:
-    """Absolute path for a delete or move target, or None when it cannot be known here."""
-    text = raw.strip()
-    if not text:
-        return None
-    home, temp = str(Path.home()), tempfile.gettempdir()
-    known = KNOWN_ROOT_VARIABLE.match(text)
-    if known:
-        name = next(group for group in known.groups() if group).lower()
-        text = (home if name in {"home", "userprofile", "env:home", "env:userprofile"} else temp) + text[known.end():]
-    if text == "~" or text.startswith(("~/", "~\\")):
-        text = home + text[1:]
-    drive = re.match(r"^/([a-zA-Z])(?=/|$)", text)
-    if drive:
-        text = f"{drive.group(1).upper()}:/{text[drive.end():].lstrip('/')}"
-    elif text == "/tmp" or text.startswith("/tmp/"):
-        text = temp + text[4:]
-    if re.search(r"[$%{]", text):
-        return None
-    parts = re.split(r"[\\/]", text)
-    for index, part in enumerate(parts):
-        if any(ch in part for ch in "*?["):
-            # A glob can only reach below its fixed prefix.
-            text = "/".join(parts[:index]) or "."
-            break
-    path = Path(text)
-    if not path.is_absolute():
-        if cwd is None or path.drive:
-            return None
-        path = cwd / path
-    try:
-        return path.resolve(strict=False)
-    except (OSError, ValueError):
-        return None
+# Delete and move targets resolve the way the Stop closeout locates written files: one resolver, in shell_parse.
+resolve_path = shell_parse.resolve_path
 
 
 def _under(path: Path, bases: list[Path]) -> bool:
