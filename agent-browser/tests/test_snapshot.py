@@ -9,12 +9,13 @@ from __future__ import annotations
 import pytest
 
 import agent_browser as ab
+from agent_browser_core import common as core_common, daemon as core_daemon, snapshots as core_snapshots
 
 # ---------------------------------------------------------------------------
 # parse_ai_snapshot
 
 def test_parse_outer_fixture_line_shapes(outer_text: str) -> None:
-    lines = ab.parse_ai_snapshot(outer_text)
+    lines = core_snapshots.parse_ai_snapshot(outer_text)
     assert len(lines) == 14
     root, heading, link, url, button, iframe, inner_root = lines[:7]
 
@@ -38,7 +39,7 @@ def test_parse_outer_fixture_line_shapes(outer_text: str) -> None:
     assert (paragraph.role, paragraph.name, paragraph.ref, paragraph.has_children) == ("paragraph", None, None, False)
 
 def test_parse_data_page_fixture_values_and_options(data_page_text: str) -> None:
-    lines = ab.parse_ai_snapshot(data_page_text)
+    lines = core_snapshots.parse_ai_snapshot(data_page_text)
     assert len(lines) == 11
     by_ref = {l.ref: l for l in lines if l.ref}
 
@@ -55,13 +56,13 @@ def test_parse_data_page_fixture_values_and_options(data_page_text: str) -> None
     assert all(o.ref is None for o in options)
 
 def test_parse_ai_snapshot_unescapes_quoted_names() -> None:
-    (line,) = ab.parse_ai_snapshot('- button "Save \\"Draft\\"" [ref=e9]\n')
+    (line,) = core_snapshots.parse_ai_snapshot('- button "Save \\"Draft\\"" [ref=e9]\n')
     assert line.name == 'Save "Draft"' and line.ref == "e9"
 
 def test_parse_ai_snapshot_fallback_line_level_matches_sibling_indent() -> None:
     # Regression: the fallback branch once counted one level per leading space instead of per two.
     text = '- generic [ref=e1]:\n  - button "A" [ref=e2]\n  stray text without a dash\n'
-    sibling, stray = ab.parse_ai_snapshot(text)[1:3]
+    sibling, stray = core_snapshots.parse_ai_snapshot(text)[1:3]
     assert sibling.level == 1  # matched via LINE_RE: 2 spaces // 2
     assert stray.level == sibling.level  # same indent should mean the same level
 
@@ -78,12 +79,12 @@ def test_parse_ai_snapshot_fallback_line_level_matches_sibling_indent() -> None:
     ],
 )
 def test_is_ref_and_normalize_target(target: str, normalized: str, ref: bool) -> None:
-    assert ab.normalize_target(target) == normalized
-    assert ab.is_ref(target) is ref
+    assert core_snapshots.normalize_target(target) == normalized
+    assert core_snapshots.is_ref(target) is ref
 
 def test_frame_prefixes_maps_iframe_ref_to_child_prefix(outer_text: str) -> None:
-    assert ab.frame_prefixes(ab.parse_ai_snapshot(outer_text)) == {"e5": "f1"}
-    assert ab.frame_prefixes(ab.parse_ai_snapshot('- button "x" [ref=e1]\n')) == {}
+    assert core_snapshots.frame_prefixes(core_snapshots.parse_ai_snapshot(outer_text)) == {"e5": "f1"}
+    assert core_snapshots.frame_prefixes(core_snapshots.parse_ai_snapshot('- button "x" [ref=e1]\n')) == {}
 
 # ---------------------------------------------------------------------------
 # filter_snapshot: outer.txt (the interesting fixture - has an iframe)
@@ -91,7 +92,7 @@ def test_frame_prefixes_maps_iframe_ref_to_child_prefix(outer_text: str) -> None
 def test_filter_snapshot_default_outer(outer_text: str) -> None:
     # Golden output also proves: root generic wrapper dropped, /url line dropped, and the
     # link's trailing ":" removed once its only child (/url) was filtered out.
-    assert ab.filter_snapshot(outer_text) == [
+    assert core_snapshots.filter_snapshot(outer_text) == [
         '- heading "Outer page" [level=1]',
         '- link "Home" [ref=e3]',
         '- button "Outer button" [ref=e4]',
@@ -104,7 +105,7 @@ def test_filter_snapshot_default_outer(outer_text: str) -> None:
     ]
 
 def test_filter_snapshot_full_keeps_everything(outer_text: str) -> None:
-    assert ab.filter_snapshot(outer_text, full=True) == [
+    assert core_snapshots.filter_snapshot(outer_text, full=True) == [
         "- generic [active] [ref=e1]:",
         '  - heading "Outer page" [level=1] [ref=e2]',
         '  - link "Home" [ref=e3]:',
@@ -122,15 +123,15 @@ def test_filter_snapshot_full_keeps_everything(outer_text: str) -> None:
     ]
 
 def test_filter_snapshot_find_keeps_match_plus_ancestors(outer_text: str) -> None:
-    assert ab.filter_snapshot(outer_text, find="Save") == [
+    assert core_snapshots.filter_snapshot(outer_text, find="Save") == [
         "- iframe [ref=e5] (children f1e...):",
         "  - generic [active]:",
         '    - button "Save" [ref=f1e4]',
     ]
-    assert ab.filter_snapshot(outer_text, find="nothing matches this") == []
+    assert core_snapshots.filter_snapshot(outer_text, find="nothing matches this") == []
 
 def test_filter_snapshot_frame_names_labels_the_iframe_line(outer_text: str) -> None:
-    out = ab.filter_snapshot(outer_text, frame_names={"e5": "Inner form"})
+    out = core_snapshots.filter_snapshot(outer_text, frame_names={"e5": "Inner form"})
     assert out[3] == '- iframe "Inner form" [ref=e5] (children f1e...):'
     assert out[0] == '- heading "Outer page" [level=1]'  # rest of the tree is unaffected
 
@@ -140,7 +141,7 @@ def test_filter_snapshot_frame_names_labels_the_iframe_line(outer_text: str) -> 
 def test_filter_snapshot_default_data_page(data_page_text: str) -> None:
     # Golden output also proves: cursor=pointer generic kept, plain generic wrapper (e8)
     # dropped, and option lines under the combobox dropped along with its trailing ":".
-    assert ab.filter_snapshot(data_page_text) == [
+    assert core_snapshots.filter_snapshot(data_page_text) == [
         '- heading "Title" [level=1]',
         '- button "ok" [ref=e6]',
         "- generic [ref=e7]: clickable div",
@@ -149,7 +150,7 @@ def test_filter_snapshot_default_data_page(data_page_text: str) -> None:
     ]
 
 def test_filter_snapshot_full_data_page(data_page_text: str) -> None:
-    assert ab.filter_snapshot(data_page_text, full=True) == [
+    assert core_snapshots.filter_snapshot(data_page_text, full=True) == [
         "- generic [active] [ref=e1]:",
         '  - heading "Title" [level=1] [ref=e2]',
         "  - paragraph [ref=e3]: para text",
@@ -168,30 +169,30 @@ def test_filter_snapshot_full_data_page(data_page_text: str) -> None:
 
 def test_budget_lines_truncation() -> None:
     lines = ["a", "b", "c"]
-    assert ab.budget_lines(lines, 100_000) == (lines, False)
-    assert ab.budget_lines(lines, 5) == (["a"], True)  # always keeps at least one line
-    assert ab.budget_lines([], 1000) == ([], False)
+    assert core_snapshots.budget_lines(lines, 100_000) == (lines, False)
+    assert core_snapshots.budget_lines(lines, 5) == (["a"], True)  # always keeps at least one line
+    assert core_snapshots.budget_lines([], 1000) == ([], False)
 
 def test_diff_lines() -> None:
-    assert ab.diff_lines(None, ["a", "b"]) == {"added": ["a", "b"], "removed": []}
-    assert ab.diff_lines(["a", "b", "c"], ["b", "c", "d"]) == {"added": ["d"], "removed": ["a"]}
-    capped_after = [f"line{i}" for i in range(ab.CHANGES_CAP + 10)]
-    result = ab.diff_lines([], capped_after)
-    assert result["added"] == capped_after[: ab.CHANGES_CAP]
+    assert core_snapshots.diff_lines(None, ["a", "b"]) == {"added": ["a", "b"], "removed": []}
+    assert core_snapshots.diff_lines(["a", "b", "c"], ["b", "c", "d"]) == {"added": ["d"], "removed": ["a"]}
+    capped_after = [f"line{i}" for i in range(core_common.CHANGES_CAP + 10)]
+    result = core_snapshots.diff_lines([], capped_after)
+    assert result["added"] == capped_after[: core_common.CHANGES_CAP]
 
 def test_find_line(data_page_text: str) -> None:
-    out = ab.filter_snapshot(data_page_text)
-    assert ab.find_line(out, "e6") == '- button "ok" [ref=e6]'
-    assert ab.find_line(out, "e999") is None
-    assert ab.find_line(None, "e1") is None
+    out = core_snapshots.filter_snapshot(data_page_text)
+    assert core_snapshots.find_line(out, "e6") == '- button "ok" [ref=e6]'
+    assert core_snapshots.find_line(out, "e999") is None
+    assert core_snapshots.find_line(None, "e1") is None
 
 # ---------------------------------------------------------------------------
 # sanitize_text / redact_url / safe_name
 
 def test_sanitize_text_strips_control_bidi_zero_width_and_caps() -> None:
-    assert ab.sanitize_text("a\x00b\x1fc\u200bd\u202ee", cap=300) == "abcde"
-    assert ab.sanitize_text("x" * 10, cap=5) == "xxxxx..."
-    assert ab.sanitize_text("x" * 10, cap=0) == "x" * 10  # cap=0 means uncapped
+    assert core_common.sanitize_text("a\x00b\x1fc\u200bd\u202ee", cap=300) == "abcde"
+    assert core_common.sanitize_text("x" * 10, cap=5) == "xxxxx..."
+    assert core_common.sanitize_text("x" * 10, cap=0) == "x" * 10  # cap=0 means uncapped
 
 @pytest.mark.parametrize(
     "url, expected",
@@ -205,7 +206,7 @@ def test_sanitize_text_strips_control_bidi_zero_width_and_caps() -> None:
     ],
 )
 def test_redact_url_table(url: str | None, expected: str) -> None:
-    assert ab.redact_url(url) == expected
+    assert core_common.redact_url(url) == expected
 
 @pytest.mark.parametrize(
     "name, expected",
@@ -218,10 +219,10 @@ def test_redact_url_table(url: str | None, expected: str) -> None:
     ],
 )
 def test_safe_name_table(name: object, expected: str) -> None:
-    assert ab.safe_name(name) == expected
+    assert core_common.safe_name(name) == expected
 
 def test_safe_name_caps_length() -> None:
-    assert len(ab.safe_name("a" * 500)) == 120
+    assert len(core_common.safe_name("a" * 500)) == 120
 
 # ---------------------------------------------------------------------------
 # is_secret_field
@@ -246,4 +247,4 @@ def test_safe_name_caps_length() -> None:
     ],
 )
 def test_is_secret_field_matrix(info: dict | None, url: str, title: str, expected: bool) -> None:
-    assert ab.is_secret_field(info, url, title) is expected
+    assert core_daemon.is_secret_field(info, url, title) is expected

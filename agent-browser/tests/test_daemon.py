@@ -21,6 +21,7 @@ from typing import Any, Callable, Iterator
 import pytest
 
 import agent_browser as ab
+from agent_browser_core import common as core_common, daemon as core_daemon, session as core_session
 
 
 class _ServerHarness:
@@ -51,7 +52,7 @@ class _ServerHarness:
 
         daemon.h_ping = guarded_h_ping
 
-        server = ab._Server(("127.0.0.1", 0), ab._Handler)
+        server = core_daemon._Server(("127.0.0.1", 0), core_daemon._Handler)
         server.daemon = daemon
         server.timeout = 0.2
         self.info = {"port": server.server_address[1], "token": daemon.token, "profile": daemon.profile}
@@ -100,7 +101,7 @@ def _raw_send(port: int, raw: bytes, read_timeout: float = 2.0) -> bytes:
 
 
 def test_ping_returns_pong_with_tabs(daemon_server: _ServerHarness) -> None:
-    result = ab._request(daemon_server.session, "ping", {}, timeout=2.0)
+    result = core_session._request(daemon_server.session, "ping", {}, timeout=2.0)
     assert result["pong"] is True
     assert result["profile"] == daemon_server.info["profile"]
     assert isinstance(result["tabs"], list) and result["tabs"]
@@ -109,37 +110,37 @@ def test_ping_returns_pong_with_tabs(daemon_server: _ServerHarness) -> None:
 def test_wrong_token_gets_no_reply(daemon_server: _ServerHarness) -> None:
     bad_session = {**daemon_server.session, "token": "not-the-real-token"}
     with pytest.raises(RuntimeError) as exc:
-        ab._request(bad_session, "ping", {}, timeout=2.0)
-    assert exc.value.error_class == ab.ERR_DAEMON
+        core_session._request(bad_session, "ping", {}, timeout=2.0)
+    assert exc.value.error_class == core_common.ERR_DAEMON
 
 
 def test_malformed_json_is_a_usage_error(daemon_server: _ServerHarness) -> None:
     line = _raw_send(daemon_server.info["port"], b"not json at all\n")
     reply = json.loads(line)
     assert reply["ok"] is False
-    assert reply["error"]["class"] == ab.ERR_USAGE
+    assert reply["error"]["class"] == core_common.ERR_USAGE
 
 
 def test_unknown_command_is_a_usage_error(daemon_server: _ServerHarness) -> None:
     with pytest.raises(ValueError) as exc:
-        ab._request(daemon_server.session, "no-such-command", {}, timeout=2.0)
-    assert exc.value.error_class == ab.ERR_USAGE
+        core_session._request(daemon_server.session, "no-such-command", {}, timeout=2.0)
+    assert exc.value.error_class == core_common.ERR_USAGE
 
 
 def test_handler_exception_is_reported_as_daemon_class_and_the_loop_keeps_serving(daemon_server: _ServerHarness) -> None:
     daemon_server.fail_next_ping.set()  # a thread-safe flag; the server thread itself raises once
 
     with pytest.raises(RuntimeError) as exc:
-        ab._request(daemon_server.session, "ping", {}, timeout=2.0)
-    assert exc.value.error_class == ab.ERR_DAEMON
+        core_session._request(daemon_server.session, "ping", {}, timeout=2.0)
+    assert exc.value.error_class == core_common.ERR_DAEMON
 
     # the flag auto-cleared after firing once; the server loop is still alive and answers normally
-    result = ab._request(daemon_server.session, "ping", {}, timeout=2.0)
+    result = core_session._request(daemon_server.session, "ping", {}, timeout=2.0)
     assert result["pong"] is True
 
 
 def test_stop_sets_stop_reason_and_the_loop_exits(daemon_server: _ServerHarness) -> None:
-    result = ab._request(daemon_server.session, "stop", {}, timeout=2.0)
+    result = core_session._request(daemon_server.session, "stop", {}, timeout=2.0)
     assert result["stopping"] is True
     daemon_server.thread.join(timeout=2.0)
     assert not daemon_server.thread.is_alive()
@@ -149,10 +150,10 @@ def test_stop_sets_stop_reason_and_the_loop_exits(daemon_server: _ServerHarness)
 def test_idle_connection_does_not_block_a_following_legitimate_request(
     daemon_server: _ServerHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(ab, "FIRST_READ_TIMEOUT", 0.3)  # a module constant, not part of the Daemon instance
+    monkeypatch.setattr(core_common, "FIRST_READ_TIMEOUT", 0.3)  # a module constant, not part of the Daemon instance
     idle_sock = socket.create_connection(("127.0.0.1", daemon_server.info["port"]), timeout=2.0)
     try:
-        result = ab._request(daemon_server.session, "ping", {}, timeout=2.0)
+        result = core_session._request(daemon_server.session, "ping", {}, timeout=2.0)
         assert result["pong"] is True
     finally:
         idle_sock.close()

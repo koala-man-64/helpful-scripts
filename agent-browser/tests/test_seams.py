@@ -10,9 +10,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import agent_browser as ab  # noqa: E402
+import agent_browser as ab
 
-SOURCE = Path(ab.__file__).read_text(encoding="utf-8")
+SOURCE = "\n".join(p.read_text(encoding="utf-8").replace("from __future__ import annotations", "") for p in sorted((Path(ab.__file__).parent / "agent_browser_core").glob("*.py"), key=lambda p: (p.stem != "common", p.name)))
 TREE = ast.parse(SOURCE)
 
 

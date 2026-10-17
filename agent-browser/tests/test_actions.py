@@ -13,6 +13,7 @@ import re
 import pytest
 
 import agent_browser as ab
+from agent_browser_core import common as core_common
 from conftest import FakeDialog, FakeDownload, FakeElement, FakeLocator, FakePage
 
 # ---------------------------------------------------------------------------
@@ -30,7 +31,7 @@ def test_goto_exposes_iframe_refs_and_snapshot_is_the_last_key(make_daemon, oute
     frame_refs = [l for l in result["snapshot"] if re.search(r"\[ref=f\d+e\d+\]", l)]
     assert frame_refs and all(f"[ref={prefix}e" in l for l in frame_refs)
     assert any(l.startswith('- iframe "gsft_main"') for l in result["snapshot"])
-    assert result["untrusted"] == ab.UNTRUSTED_KEYS
+    assert result["untrusted"] == core_common.UNTRUSTED_KEYS
     assert list(result.keys())[-1] == "snapshot"
     # the filter re-indents: the root wrapper is dropped, so top-level lines start at depth 0
     assert result["snapshot"][0].startswith("- ") and not result["snapshot"][0].startswith("  -")
@@ -71,7 +72,7 @@ def test_click_after_frame_navigation_is_stale_ref(make_daemon, outer_text: str)
 
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("click", {"target": save_ref}, 5.0)
-    assert exc.value.error_class == ab.ERR_STALE_REF
+    assert exc.value.error_class == core_common.ERR_STALE_REF
 
 
 def test_click_heals_a_zero_count_ref_before_giving_up(make_daemon, outer_text: str) -> None:
@@ -97,7 +98,7 @@ def test_invalid_frame_error_text_becomes_stale_ref(make_daemon, outer_text: str
     )
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("click", {"target": "f1e4"}, 5.0)
-    assert exc.value.error_class == ab.ERR_STALE_REF
+    assert exc.value.error_class == core_common.ERR_STALE_REF
 
 
 def test_strict_mode_violation_becomes_ambiguous(make_daemon, outer_text: str) -> None:
@@ -107,7 +108,7 @@ def test_strict_mode_violation_becomes_ambiguous(make_daemon, outer_text: str) -
     page.elements["e4"].raise_on["click"] = FakePlaywrightError("strict mode violation: locator resolved to 2 elements")
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("click", {"target": "e4"}, 5.0)
-    assert exc.value.error_class == ab.ERR_AMBIGUOUS
+    assert exc.value.error_class == core_common.ERR_AMBIGUOUS
 
 
 def test_not_a_checkbox_becomes_action_failed_with_hint(make_daemon, outer_text: str) -> None:
@@ -117,8 +118,8 @@ def test_not_a_checkbox_becomes_action_failed_with_hint(make_daemon, outer_text:
     page.elements["e4"].raise_on["check"] = FakePlaywrightError("Not a checkbox or radio button")
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("check", {"target": "e4"}, 5.0)
-    assert exc.value.error_class == ab.ERR_ACTION_FAILED
-    assert exc.value.hint == ab._hint("check_not_checkbox", daemon.profile)
+    assert exc.value.error_class == core_common.ERR_ACTION_FAILED
+    assert exc.value.hint == core_common._hint("check_not_checkbox", daemon.profile)
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +133,7 @@ def test_fill_on_password_field_is_guarded_and_never_leaks_the_text(make_daemon,
 
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("fill", {"target": "f1e3", "text": "hunter2"}, 5.0)
-    assert exc.value.error_class == ab.ERR_GUARDED
+    assert exc.value.error_class == core_common.ERR_GUARDED
     assert "hunter2" not in str(exc.value)
     assert el.value == ""  # fill() was never called
 
@@ -176,7 +177,7 @@ def test_select_unknown_value_is_not_found_with_options_in_details(make_daemon, 
     page.elements["f1e3"].options = [("Choice A", "a", False)]
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("select", {"target": "f1e3", "values": ["zzz"]}, 5.0)
-    assert exc.value.error_class == ab.ERR_NOT_FOUND
+    assert exc.value.error_class == core_common.ERR_NOT_FOUND
     assert exc.value.details["options"] == ["Choice A"]
 
 
@@ -185,8 +186,8 @@ def test_select_on_a_non_select_element_is_action_failed(make_daemon, outer_text
     page.elements["f1e3"].options = None
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("select", {"target": "f1e3", "values": ["a"]}, 5.0)
-    assert exc.value.error_class == ab.ERR_ACTION_FAILED
-    assert exc.value.hint == ab._hint("select_not_select", daemon.profile)
+    assert exc.value.error_class == core_common.ERR_ACTION_FAILED
+    assert exc.value.hint == core_common._hint("select_not_select", daemon.profile)
 
 
 # ---------------------------------------------------------------------------
@@ -205,8 +206,8 @@ def test_press_on_secret_target_guards_unsafe_keys_but_allows_tab(make_daemon, o
 
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("press", {"key": "a", "target": "f1e3"}, 5.0)
-    assert exc.value.error_class == ab.ERR_GUARDED
-    assert exc.value.hint == ab._hint("guarded_key", daemon.profile)
+    assert exc.value.error_class == core_common.ERR_GUARDED
+    assert exc.value.hint == core_common._hint("guarded_key", daemon.profile)
 
     result = daemon.dispatch("press", {"key": "Tab", "target": "f1e3"}, 5.0)
     assert result["ok"] is True
@@ -223,7 +224,7 @@ def test_confirm_dialog_blocks_unless_accepted(make_daemon, outer_text: str) -> 
 
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("click", {"target": "e4"}, 5.0)
-    assert exc.value.error_class == ab.ERR_DIALOG
+    assert exc.value.error_class == core_common.ERR_DIALOG
 
     page.elements["e4"].click_side_effect = lambda: ctx.emit("dialog", FakeDialog("confirm", "Are you sure?"))
     result = daemon.dispatch("click", {"target": "e4", "accept_dialog": True}, 5.0)
@@ -242,7 +243,7 @@ def test_beforeunload_during_goto_blocks_then_can_be_discarded(make_daemon, oute
     page.pending_dialog = FakeDialog("beforeunload", "Leave?")
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("goto", {"url": "http://x/home.html"}, 5.0)
-    assert exc.value.error_class == ab.ERR_UNSAVED
+    assert exc.value.error_class == core_common.ERR_UNSAVED
 
     page.pending_dialog = FakeDialog("beforeunload", "Leave?")
     result = daemon.dispatch("goto", {"url": "http://x/home.html", "discard_changes": True}, 5.0)
@@ -312,14 +313,14 @@ def test_wait_timeout_raises_timeout_class(make_daemon) -> None:
     daemon, ctx, page = make_daemon(snapshot_text="- generic [ref=e1]:\n")
     with pytest.raises(RuntimeError) as exc:
         daemon.dispatch("wait", {"text": "never-there"}, 0.2)
-    assert exc.value.error_class == ab.ERR_TIMEOUT
+    assert exc.value.error_class == core_common.ERR_TIMEOUT
 
 
 def test_wait_with_no_condition_is_usage_error(make_daemon) -> None:
     daemon, ctx, page = make_daemon(snapshot_text="- generic [ref=e1]:\n")
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("wait", {}, 5.0)
-    assert exc.value.error_class == ab.ERR_USAGE
+    assert exc.value.error_class == core_common.ERR_USAGE
 
 
 # ---------------------------------------------------------------------------
@@ -330,14 +331,14 @@ def test_tab_index_out_of_range_is_not_found(make_daemon, outer_text: str) -> No
     daemon, ctx, page = make_daemon(snapshot_text=outer_text)
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("tab", {"index": 5}, 5.0)
-    assert exc.value.error_class == ab.ERR_NOT_FOUND
+    assert exc.value.error_class == core_common.ERR_NOT_FOUND
 
 
 def test_closing_the_last_tab_is_refused(make_daemon, outer_text: str) -> None:
     daemon, ctx, page = make_daemon(snapshot_text=outer_text)
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("tab", {"index": 1, "close": True}, 5.0)
-    assert exc.value.error_class == ab.ERR_VALIDATION
+    assert exc.value.error_class == core_common.ERR_VALIDATION
 
 
 # ---------------------------------------------------------------------------
@@ -348,8 +349,8 @@ def test_eval_disabled_by_config_is_guarded(make_daemon, outer_text: str) -> Non
     daemon, ctx, page = make_daemon(snapshot_text=outer_text, eval_enabled=False)
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("eval", {"js": "1+1"}, 5.0)
-    assert exc.value.error_class == ab.ERR_GUARDED
-    assert exc.value.hint == ab._hint("eval_disabled")
+    assert exc.value.error_class == core_common.ERR_GUARDED
+    assert exc.value.hint == core_common._hint("eval_disabled")
 
 
 def test_downloads_are_saved_under_the_profile_downloads_folder(make_daemon, outer_text: str) -> None:
@@ -376,5 +377,5 @@ def test_off_allowlist_blocks_actions_before_resolving_a_target(make_daemon) -> 
     daemon, ctx, page = make_daemon(config={"allowed_hosts": ["allowed.example"]}, page_url="http://other.example/x")
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("click", {"target": "e1"}, 5.0)
-    assert exc.value.error_class == ab.ERR_GUARDED
-    assert exc.value.hint == ab._hint("off_allowlist", daemon.profile)
+    assert exc.value.error_class == core_common.ERR_GUARDED
+    assert exc.value.hint == core_common._hint("off_allowlist", daemon.profile)
