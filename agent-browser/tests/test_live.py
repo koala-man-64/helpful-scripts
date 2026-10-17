@@ -29,7 +29,8 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import agent_browser as ab  # noqa: E402
+import agent_browser as ab
+from agent_browser_core import common as core_common
 
 pytestmark = [pytest.mark.live, pytest.mark.skipif(os.getenv("AGENT_BROWSER_LIVE") != "1", reason="set AGENT_BROWSER_LIVE=1 to run the live suite")]
 
@@ -44,7 +45,7 @@ class _Quiet(http.server.SimpleHTTPRequestHandler):
 
 
 def _browser_processes(home: Path) -> list[dict]:
-    return [p for p in ab._processes_using(str(home)) if p["name"].lower() in ("msedge.exe", "chrome.exe", "node.exe")]
+    return [p for p in core_common._processes_using(str(home)) if p["name"].lower() in ("msedge.exe", "chrome.exe", "node.exe")]
 
 
 def _wait_for_no_browser(home: Path, timeout: float = 10.0) -> list[dict]:
@@ -64,8 +65,8 @@ def live_home() -> Path:
     subprocess.run([sys.executable, "-X", "utf8", str(TOOL), "stop", "--all", "--force"], env=_env(home), capture_output=True, timeout=60, check=False)
     leftovers = _wait_for_no_browser(home)
     for proc in leftovers:
-        ab._kill_tree(proc["pid"])
-    ab._rmtree_retry(home)
+        core_common._kill_tree(proc["pid"])
+    core_common._rmtree_retry(home)
     assert not leftovers, f"browser processes survived teardown: {leftovers}"
 
 
@@ -286,9 +287,9 @@ def test_big_page_respects_the_byte_budget(cli: Cli, base_url: str) -> None:
 def test_page_text_never_reaches_hints(cli: Cli, base_url: str) -> None:
     env = cli.ok("goto", f"{base_url}/inject.html")
     code, _out, err = cli("select", ref(env, r'combobox "Pick"'), "zzz")
-    assert code == 2 and err["hint"] == ab._hint("select_not_found", PROFILE)
+    assert code == 2 and err["hint"] == core_common._hint("select_not_found", PROFILE)
     assert any("agent-browser stop" in o for o in err["details"]["options"])
-    assert env["untrusted"] == ab.UNTRUSTED_KEYS
+    assert env["untrusted"] == core_common.UNTRUSTED_KEYS
     assert not any(re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", l) for l in env["snapshot"])
 
 
@@ -337,9 +338,9 @@ def test_cookie_survives_stop_and_start(cli: Cli, base_url: str) -> None:
 
 def test_killed_daemon_is_reported_and_start_recovers(cli: Cli, base_url: str) -> None:
     pid = cli.ok("status")["pid"]
-    ab._kill_tree(pid)
+    core_common._kill_tree(pid)
     deadline = time.time() + 10
-    while time.time() < deadline and ab._pid_alive(pid):
+    while time.time() < deadline and core_common._pid_alive(pid):
         time.sleep(0.2)
     status = cli.ok("status")
     assert status["running"] is False and status["reason"] in ("pid_dead", "no_session")
@@ -350,6 +351,6 @@ def test_killed_daemon_is_reported_and_start_recovers(cli: Cli, base_url: str) -
 def test_stop_leaves_nothing_behind(cli: Cli, live_home: Path) -> None:
     pid = cli.ok("status")["pid"]
     assert cli.ok("stop")["stopped"] is True
-    assert not ab._pid_alive(pid)
+    assert not core_common._pid_alive(pid)
     assert cli.ok("status")["running"] is False
     assert _wait_for_no_browser(live_home) == []

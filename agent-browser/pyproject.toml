@@ -22,6 +22,7 @@ agent-browser = "agent_browser:main"
 
 [tool.setuptools]
 py-modules = ["agent_browser"]
+packages = ["agent_browser_core"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

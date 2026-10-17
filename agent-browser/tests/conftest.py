@@ -19,7 +19,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import agent_browser as ab  # noqa: E402
+import agent_browser as ab
+from agent_browser_core import common as core_common, daemon as core_daemon, snapshots as core_snapshots
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "snapshots"
 
@@ -33,11 +34,11 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_BROWSER_HOME", str(tmp_path / "home"))
     # The process-listing seam shells out to PowerShell CIM on Windows; offline tests never do that.
     # A test that needs specific processes re-patches it (a later monkeypatch wins).
-    monkeypatch.setattr(ab, "_processes_using", lambda needle: [])
-    ab._ARGV_NOTES.clear()
-    ab.VERBOSE = False
+    monkeypatch.setattr(core_common, "_processes_using", lambda needle: [])
+    core_common._ARGV_NOTES.clear()
+    core_common.VERBOSE = False
     yield
-    ab._ARGV_NOTES.clear()
+    core_common._ARGV_NOTES.clear()
 
 def read_fixture(name: str) -> str:
     """Read a captured real-Playwright ai-mode snapshot (text mode: CRLF -> LF)."""
@@ -69,7 +70,8 @@ def capture_args(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], list[Any]]:
             calls.append(args)
             return {"ok": True}
 
-        monkeypatch.setattr(ab, f"_cmd_{verb}", fake)
+        from agent_browser_core import cli as core_cli
+        monkeypatch.setattr(core_cli, f"_cmd_{verb}", fake)
         return calls
 
     return patch
@@ -172,7 +174,7 @@ class FakeElementHandle:
     def evaluate(self, js: str) -> Any:
         if self.element is None:
             return ""
-        if js == ab.FRAME_LABEL_JS:
+        if js == core_daemon.FRAME_LABEL_JS:
             return self.element.frame_label
         raise AssertionError(f"FakeElementHandle.evaluate: no fake for js={js[:80]!r}")
 
@@ -267,13 +269,13 @@ class FakeLocator:
         el = self.element
         if el is None:
             raise AssertionError("FakeLocator.evaluate called with no element bound")
-        if js == ab.SECRET_JS:
+        if js == core_daemon.SECRET_JS:
             if el.secret_info is not None:
                 return el.secret_info
             return {"tag": el.tag, "type": "", "autocomplete": "", "inputmode": "", "maxlength": -1, "text": el.name, "contenteditable": False}
-        if js == ab.OPTIONS_JS:
+        if js == core_daemon.OPTIONS_JS:
             return el.options
-        if js == ab.VALUE_JS:
+        if js == core_daemon.VALUE_JS:
             return el.checked if el.role in ("checkbox", "radio") else el.value
         if "type === 'file'" in js:
             return el.is_file_input
@@ -310,7 +312,7 @@ class FakeFrame:
     def evaluate(self, js: str, timeout: float | None = None) -> Any:
         if "readyState" in js:
             return self.ready_state
-        if js == ab.VISIBLE_SECRET_JS:
+        if js == core_daemon.VISIBLE_SECRET_JS:
             return False
         raise AssertionError(f"FakeFrame.evaluate: no fake for js={js[:80]!r}")
 
@@ -457,7 +459,7 @@ class FakePlaywright:
 
 def build_elements_from_snapshot(text: str, frame_name: str = "gsft_main") -> tuple[dict[str, FakeElement], "FakeFrame | None"]:
     """Auto-generate one FakeElement per ref in a captured ai-mode snapshot; wire the first iframe to a FakeFrame."""
-    lines = ab.parse_ai_snapshot(text)
+    lines = core_snapshots.parse_ai_snapshot(text)
     elements: dict[str, FakeElement] = {}
     inner_frame: FakeFrame | None = None
     for line in lines:
@@ -490,10 +492,10 @@ class FakeClock:
 
 @pytest.fixture
 def fake_clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
-    """Patch ab._now / ab._sleep so timing loops (settle, wait, start/stop polling) resolve instantly."""
+    """Patch core_common._now / core_common._sleep so timing loops (settle, wait, start/stop polling) resolve instantly."""
     clock = FakeClock()
-    monkeypatch.setattr(ab, "_now", clock.now)
-    monkeypatch.setattr(ab, "_sleep", clock.sleep)
+    monkeypatch.setattr(core_common, "_now", clock.now)
+    monkeypatch.setattr(core_common, "_sleep", clock.sleep)
     return clock
 
 
@@ -517,14 +519,14 @@ def make_daemon(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock: Fak
         eval_enabled: bool | None = None,
     ) -> tuple[Any, FakeContext, FakePage]:
         home = tmp_path / "home"
-        paths = ab.ProfilePaths(profile, home)
+        paths = core_common.ProfilePaths(profile, home)
         cfg = dict(config or {})
         if eval_enabled is not None:
             cfg["eval"] = eval_enabled
         launch = {
             "profile": profile, "home": str(home), "log": str(paths.log), "token": "test-token",
             "browser": "msedge", "exe": None, "headless": headless, "window_size": None,
-            "code_hash": "deadbeef", "config": cfg, "idle_seconds": 0.0, "tool_version": ab.TOOL_VERSION,
+            "code_hash": "deadbeef", "config": cfg, "idle_seconds": 0.0, "tool_version": core_common.TOOL_VERSION,
         }
         holder: dict[str, Any] = {}
 
@@ -542,9 +544,9 @@ def make_daemon(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock: Fak
             holder["page"] = page
             return ctx
 
-        monkeypatch.setattr(ab, "_playwright_factory", lambda: FakePlaywright(ctx_factory))
-        monkeypatch.setattr(ab, "_playwright_errors", lambda: (FakePlaywrightError, FakePlaywrightTimeoutError))
-        daemon = ab.Daemon(launch)
+        monkeypatch.setattr(core_common, "_playwright_factory", lambda: FakePlaywright(ctx_factory))
+        monkeypatch.setattr(core_common, "_playwright_errors", lambda: (FakePlaywrightError, FakePlaywrightTimeoutError))
+        daemon = core_daemon.Daemon(launch)
         daemon.start_browser()
         return daemon, holder["ctx"], holder["page"]
 
