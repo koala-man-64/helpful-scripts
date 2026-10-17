@@ -54,7 +54,8 @@ def data_page_text() -> str:
 def error_envelope(err: str) -> dict[str, Any]:
     """Parse the stderr JSON `_emit_error` writes and assert its shape."""
     payload = json.loads(err)
-    assert set(payload) == {"error"}
+    assert set(payload) == {"error", "contract_version"}
+    assert payload["contract_version"] == 1
     assert set(payload["error"]) >= {"class", "http_status", "message", "hint"}
     return payload["error"]
 

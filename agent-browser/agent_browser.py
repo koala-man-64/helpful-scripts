@@ -69,6 +69,7 @@ from typing import Any, Callable, Iterable, Sequence
 
 TOOL_NAME = "agent-browser"
 TOOL_VERSION = "0.1.0"
+CONTRACT_VERSION = 1
 TESTED_PLAYWRIGHT = ("1.61",)          # aria_snapshot(mode="ai") + aria-ref engine verified on these lines
 SESSION_SCHEMA = 1
 DEFAULT_PROFILE = "default"
@@ -354,6 +355,10 @@ class ProfilePaths:
     @property
     def shots(self) -> Path:
         return self.dir / "shots"
+
+    @property
+    def outputs(self) -> Path:
+        return self.dir / "outputs"
 
 
 def _paths(profile: str) -> ProfilePaths:
@@ -1292,6 +1297,7 @@ class Daemon:
         self.errors: tuple[type, type] = (Exception, Exception)
         self.browser_version: str | None = None
         self.log_handle: Any = None
+        self.telemetry = dict.fromkeys(("console_errors", "page_errors", "failed_requests", "http_errors"), 0)
 
     # -- logging -------------------------------------------------------------------------
 
@@ -1362,6 +1368,13 @@ class Daemon:
         page.on("framenavigated", self._on_frame_navigated)
         page.on("download", self._on_download)
         page.on("close", lambda p: self._on_page_closed(p))
+        page.on("console", lambda message: self._observe("console_errors") if message.type == "error" else None)
+        page.on("pageerror", lambda error: self._observe("page_errors"))
+        page.on("requestfailed", lambda request: self._observe("failed_requests"))
+        page.on("response", lambda response: self._observe("http_errors") if response.status >= 400 else None)
+
+    def _observe(self, kind: str) -> None:
+        self.telemetry[kind] += 1
 
     def _on_page(self, page: Any) -> None:
         self._track_page(page)
@@ -1834,9 +1847,19 @@ class Daemon:
         if cmd not in OFF_ALLOWLIST_OK and self.current is not None and self._off_allowlist(self.current):
             raise _tag(ValueError("The page is outside allowed_hosts; only back, goto, snapshot, text, tabs, and stop are allowed."),
                        ERR_GUARDED, hint=_hint("off_allowlist", self.profile))
+        observed_before = dict(self.telemetry)
         self._begin(cmd, args)
         try:
-            return handler(args, timeout)
+            result = handler(args, timeout)
+            result["contract_version"] = CONTRACT_VERSION
+            result["observed"] = {k: self.telemetry[k] - v for k, v in observed_before.items()}
+            if "action" in result:
+                result["effect"] = ("navigated" if result.get("navigated") else "tab_opened" if result.get("new_tab")
+                                    else "downloaded" if result.get("downloads") else "value_set" if "value_after" in result
+                                    else "dom_changed" if any(result.get("changes", {}).values()) else "none")
+            if "snapshot" in result:
+                result["snapshot"] = result.pop("snapshot")
+            return result
         finally:
             self._end()
 
@@ -2934,11 +2957,11 @@ def _cmd_click(args: argparse.Namespace) -> Any:
 
 
 def _cmd_fill(args: argparse.Namespace) -> Any:
-    return _remote(args, "fill", "fill", {"target": args.target, "text": args.text, "enter": bool(args.enter)})
+    return _remote(args, "fill", "fill", {"target": args.target, "text": _input_text(args, "text"), "enter": bool(args.enter)})
 
 
 def _cmd_type(args: argparse.Namespace) -> Any:
-    return _remote(args, "type", "type", {"target": args.target, "text": args.text, "delay": args.delay, "append": bool(args.append), "enter": bool(args.enter)})
+    return _remote(args, "type", "type", {"target": args.target, "text": _input_text(args, "text"), "delay": args.delay, "append": bool(args.append), "enter": bool(args.enter)})
 
 
 def _cmd_press(args: argparse.Namespace) -> Any:
@@ -3026,7 +3049,60 @@ def _cmd_downloads(args: argparse.Namespace) -> Any:
 
 
 def _cmd_eval(args: argparse.Namespace) -> Any:
-    return _remote(args, "eval", "eval", {"js": args.js, "target": args.ref, "frame": args.frame})
+    return _remote(args, "eval", "eval", {"js": _input_text(args, "js"), "target": args.ref, "frame": args.frame})
+
+
+def _input_text(args: argparse.Namespace, name: str) -> str:
+    value, filename = getattr(args, name, None), getattr(args, name + "_file", None)
+    if (value is None) == (filename is None):
+        raise _tag(ValueError(f"Provide exactly one of {name} or --{name}-file."), ERR_USAGE)
+    if filename is None:
+        return value
+    path = _check_local_path(filename, _paths(_resolve_profile(args.profile)), _load_config())
+    if path.stat().st_size > REQUEST_CAP // 2:
+        raise _tag(ValueError("Input file exceeds the command payload budget."), ERR_VALIDATION)
+    try:
+        return path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as exc:
+        raise _tag(ValueError("Input file must be readable UTF-8 text."), ERR_VALIDATION) from exc
+
+
+def _cmd_output(args: argparse.Namespace) -> dict[str, Any]:
+    paths = _paths(_resolve_profile(args.profile))
+    if args.offset < 0:
+        raise _tag(ValueError("--offset must be >= 0."), ERR_VALIDATION)
+    if args.id and not re.fullmatch(r"[a-f0-9]{32}", args.id):
+        raise _tag(ValueError("Invalid output ID."), ERR_VALIDATION)
+    path = paths.outputs / (args.id + ".json") if args.id else paths.dir / "last_output.json"
+    try:
+        data = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise _tag(ValueError("Output not found."), ERR_NOT_FOUND) from exc
+    chunk = data[args.offset:args.offset + 3000]
+    end = args.offset + len(chunk)
+    return {"offset": args.offset, "next_offset": end if end < len(data) else None,
+            "total_chars": len(data), "chunk": chunk}
+
+
+def _json_line(payload: Any, profile: str | None = None) -> str:
+    result = dict(payload) if isinstance(payload, dict) else {"result": payload}
+    result["contract_version"] = CONTRACT_VERSION
+    encoded = json.dumps(result, ensure_ascii=False, default=str, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) + 1 <= STDOUT_BUDGET:
+        return encoded
+    paths = _paths(profile or result.get("profile") or _resolve_profile(None))
+    paths.outputs.mkdir(parents=True, exist_ok=True)
+    output_id = secrets.token_hex(16)
+    output_file = paths.outputs / (output_id + ".json")
+    output_file.write_text(encoded, encoding="utf-8")
+    _write_json_atomic(paths.dir / "last_output.json", result)
+    bounded = {k: result[k] for k in ("ok", "action", "effect", "observed", "command_id") if k in result}
+    bounded.update(contract_version=CONTRACT_VERSION, truncated=True, output_id=output_id,
+                   output_file=str(output_file), next_offset=0)
+    if "error" in result:
+        bounded["error"] = {"class": result["error"].get("class"), "http_status": None,
+                            "message": "Error details exceeded the reply budget; read output by ID.", "hint": None}
+    return json.dumps(bounded, ensure_ascii=False, default=str, separators=(",", ":"))
 
 
 def _cmd_focus(args: argparse.Namespace) -> Any:
@@ -3117,11 +3193,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--discard-changes", action="store_true", help="leave a page that has unsaved edits")
     p = add("fill", _cmd_fill, "replace the text of a field (refuses password/code fields)")
     p.add_argument("target")
-    p.add_argument("text")
+    p.add_argument("text", nargs="?")
+    p.add_argument("--text-file")
     p.add_argument("--enter", action="store_true")
     p = add("type", _cmd_type, "type into a field key by key (typeahead fields); clears it first unless --append")
     p.add_argument("target")
-    p.add_argument("text")
+    p.add_argument("text", nargs="?")
+    p.add_argument("--text-file")
     p.add_argument("--delay", type=int, default=30, metavar="MS")
     p.add_argument("--append", action="store_true")
     p.add_argument("--enter", action="store_true")
@@ -3171,7 +3249,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("files", nargs="+")
     add("downloads", _cmd_downloads, "save and list files downloaded during this session")
     p = add("eval", _cmd_eval, "run JavaScript on the page (last resort; never for credentials)")
-    p.add_argument("js")
+    p.add_argument("js", nargs="?")
+    p.add_argument("--js-file")
     p.add_argument("--ref", metavar="REF", help="run with the element as `el`")
     p.add_argument("--frame", metavar="NAME")
     add("focus", _cmd_focus, "bring the browser window to the front (best effort)")
@@ -3185,6 +3264,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("serve", help=argparse.SUPPRESS)
     p.add_argument("--launch-file", required=True)
     p.set_defaults(func=_cmd_serve)
+    p = add("output", _cmd_output, "page a saved overflow result without repeating its command")
+    p.add_argument("--id")
+    p.add_argument("--offset", type=int, default=0)
     return parser
 
 
@@ -3195,7 +3277,11 @@ def _emit_error(exc: Exception) -> None:
     details = getattr(exc, "details", None)
     if details is not None:
         payload["error"]["details"] = details
-    print(json.dumps(payload, indent=2, ensure_ascii=False, default=str), file=sys.stderr, flush=True)
+    try:
+        line = _json_line(payload)
+    except OSError:
+        line = json.dumps({"contract_version": CONTRACT_VERSION, "error": {"class": "output_storage", "message": "Cannot preserve oversized error output."}}, separators=(",", ":"))
+    print(line, file=sys.stderr, flush=True)
 
 
 def _reconfigure_streams() -> None:
@@ -3231,7 +3317,11 @@ def main(argv: list[str] | None = None) -> int:
         _emit_error(exc)
         return EXIT_TIMEOUT if getattr(exc, "error_class", None) == ERR_TIMEOUT else 1
     if isinstance(result, bool) or not isinstance(result, int):
-        print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+        try:
+            print(_json_line(result, getattr(args, "profile", None)))
+        except OSError as exc:
+            _emit_error(_tag(RuntimeError("Cannot preserve oversized output."), "output_storage"))
+            return 1
         return 0
     return result
 
