@@ -80,6 +80,93 @@ class GuardTestCase(unittest.TestCase):
                 self.assertEqual(self.decide(command, tool), expected)
 
 
+class InterpreterDeleteTests(GuardTestCase):
+    """AB#4013: payloads are data passed to the guard, never interpreter input."""
+
+    def test_python_delete_apis_ask(self) -> None:
+        self.assertDecisions([
+            ("Bash", f'''python -c "import shutil; shutil.rmtree(r'{OUT}')"''', "ask"),
+            ("Bash", '''python3.12 -I -c "import os; os.remove('../other/file')"''', "ask"),
+            ("Bash", '''py -3 -c "from shutil import rmtree as erase; erase('build')"''', "ask"),
+            ("Bash", '''python -c "from pathlib import Path; Path('build').rmdir()"''', "ask"),
+            ("Bash", '''python -c "from pathlib import Path; Path('file').unlink()"''', "ask"),
+            ("Bash", '''python -c "import os; os.removedirs(target)"''', "ask"),
+            ("Bash", '''python -Ic "import shutil; shutil.rmtree('build')"''', "ask"),
+            ("Bash", '''python -c"import os; os.unlink('file')"''', "ask"),
+            ("Bash", '''python -X utf8 -c "import os as fs; fs.remove('file')"''', "ask"),
+            ("Bash", '''python -c "import os; delete_path = os.remove; delete_path('../file')"''', "ask"),
+            ("Bash", '''python -c "from pathlib import Path; delete_path = Path('../file').unlink; delete_path()"''', "ask"),
+            ("PowerShell", '''python.exe -c "import shutil; shutil.rmtree('C:/outside path')"''', "ask"),
+        ])
+
+    def test_node_delete_apis_ask(self) -> None:
+        self.assertDecisions([
+            ("Bash", f'''node -e "require('fs').rmSync('{OUT.as_posix()}', {{recursive:true}})"''', "ask"),
+            ("Bash", '''node --eval="require('fs').rmdirSync('../other')"''', "ask"),
+            ("Bash", '''node -e "require('fs/promises').rm(target, {recursive:true})"''', "ask"),
+            ("Bash", '''node -p "require('fs').unlinkSync('file')"''', "ask"),
+            ("PowerShell", '''node.exe --eval "const {unlink} = require('fs'); unlink('file', cb)"''', "ask"),
+            ("Bash", '''node -e "require('fs').rmSync/*comment*/('../other', {recursive:true})"''', "ask"),
+            ("Bash", '''node -e "const {rmSync: deletePath} = require('fs'); deletePath('../other')"''', "ask"),
+            ("Bash", '''node -e "const deletePath = require('fs').rmSync; deletePath('../other')"''', "ask"),
+            ("Bash", '''node -e "const re = /[//]/; require('fs').rmSync('../other')"''', "ask"),
+        ])
+
+    def test_powershell_delete_apis_ask(self) -> None:
+        code = f"[System.IO.Directory]::Delete('{OUT.as_posix()}', $true)"
+        encoded = base64.b64encode(code.encode("utf-16-le")).decode()
+        self.assertDecisions([
+            ("PowerShell", code, "ask"),
+            ("Bash", f'''pwsh -NoProfile -Command "{code}"''', "ask"),
+            ("Bash", f"powershell -EncodedCommand {encoded}", "ask"),
+            ("PowerShell", "[IO.File]::Delete('../file')", "ask"),
+            ("PowerShell", "$directory.Delete($true)", "ask"),
+        ])
+
+    def test_benign_interpreters_and_quoted_data_allow(self) -> None:
+        self.assertDecisions([
+            ("Bash", '''python -c "print('hello')"''', "allow"),
+            ("Bash", '''python -c "print('shutil.rmtree(outside)')"''', "allow"),
+            ("Bash", '''python -c "items = [1]; items.remove(1)"''', "allow"),
+            ("Bash", '''node -e "console.log('hello')"''', "allow"),
+            ("Bash", '''node -e "console.log('fs.rmSync(outside)')"''', "allow"),
+            ("Bash", '''node -e "/* fs.rmSync(outside) */ console.log('hello')"''', "allow"),
+            ("Bash", '''node -e "// fs.rmSync(outside)"''', "allow"),
+            ("Bash", '''echo 'python -c shutil.rmtree(outside)' ''', "allow"),
+            ("PowerShell", '''Write-Output "[IO.Directory]::Delete('outside')"''', "allow"),
+            ("Bash", '''python script.py -c "shutil.rmtree('build')"''', "allow"),
+        ])
+
+    def test_chaining_and_wrappers(self) -> None:
+        code = '''python -c "import shutil; shutil.rmtree('../other')"'''
+        self.assertDecisions([
+            ("Bash", f"echo ready && {code}", "ask"),
+            ("Bash", f"{code}; echo finished", "ask"),
+            ("Bash", f"env FLAG=1 {code}", "ask"),
+        ])
+
+    def test_hook_payloads_ask_without_launching_interpreters(self) -> None:
+        cases = [
+            ("Bash", '''python -c "import shutil; shutil.rmtree('../other')"'''),
+            ("Bash", '''node -e "require('fs').rmSync('../other', {recursive:true})"'''),
+            ("PowerShell", "[IO.Directory]::Delete('../other', $true)"),
+        ]
+        for tool, command in cases:
+            with self.subTest(tool=tool):
+                payload = {"tool_name": tool, "tool_input": {"command": command}, "cwd": str(self.repo)}
+                out = io.StringIO()
+                with (
+                    mock.patch.object(guard, "read_hook_input", return_value=payload),
+                    mock.patch.object(guard, "run_git", return_value=(1, "")),
+                    mock.patch("subprocess.run", side_effect=AssertionError("Payload must never execute")),
+                    contextlib.redirect_stdout(out),
+                ):
+                    self.assertEqual(guard.main(), 0)
+                decision = json.loads(out.getvalue())["hookSpecificOutput"]
+                self.assertEqual(decision["permissionDecision"], "ask")
+                self.assertIn("filesystem delete API", decision["permissionDecisionReason"])
+
+
 class AuditCaseTests(GuardTestCase):
     """Appendix A of the remediation plan: every case the audit probed, plus the new ones."""
 
@@ -175,9 +262,8 @@ class AuditCaseTests(GuardTestCase):
             ("Bash", "az containerapp delete -n foo --resource-group AssetAllocationRG --yes", "ask"),
             ("Bash", "az group delete -n AssetAllocationRG --yes", "ask"),
             ("Bash", "az boards work-item update --id 1 --state Closed", "allow"),
-            # A known limit of pattern rules: interpreter code is opaque here, and
-            # auto mode's classifier still reviews it.
-            ("Bash", f"python -c \"import shutil; shutil.rmtree(r'{OUT}')\"", "allow"),
+            # AB#4013: recognized interpreter delete APIs require confirmation.
+            ("Bash", f"python -c \"import shutil; shutil.rmtree(r'{OUT}')\"", "ask"),
         ])
 
 
