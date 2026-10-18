@@ -101,7 +101,7 @@ distribution, local folders mounted into the sandbox. See
 
 ## agent-browser - a visible Edge/Chrome window for AI agents
 
-`agent-browser/` holds a single-file Playwright CLI (`agent_browser.py`,
+`agent-browser/` holds a modular Playwright CLI (`agent_browser.py` entry point,
 console script `agent-browser`) that lets a Claude Code session on a model
 without built-in browser tools drive a real, visible Edge or Chrome window
 through the Bash tool: `goto URL` returns the page as element refs, `click e12`

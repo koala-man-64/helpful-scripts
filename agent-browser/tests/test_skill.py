@@ -52,7 +52,9 @@ def test_frontmatter_names_the_tool_and_preapproves_bash() -> None:
     head = text.split("---")[1]
     assert f"name: {core_common.TOOL_NAME}" in head
     assert "description:" in head
-    assert f"allowed-tools: Bash({core_common.TOOL_NAME} *)" in head
+    assert f"allowed-tools: Bash({core_common.TOOL_NAME} goto *)" in head
+    assert f"Bash({core_common.TOOL_NAME} *)" not in head
+    assert "Bash(agent-browser commit" not in head and "Bash(agent-browser eval" not in head
     description = re.search(r'description: "(.*)"', head).group(1)  # type: ignore[union-attr]
     assert len(description) < 1536
 
@@ -61,12 +63,27 @@ def test_skill_is_short_enough_for_a_small_model() -> None:
     assert len(_skill().splitlines()) <= 170
 
 
+def test_shared_shutdown_and_commit_operations_require_caller_approval() -> None:
+    import json
+    settings = json.loads((SKILL_DIR.parents[1] / "settings.template.json").read_text(encoding="utf-8"))
+    rules = settings["permissions"]["ask"]
+    for shell in ("Bash", "PowerShell"):
+        for verb in ("stop *--all*", "stop *--force*", "commit *", "* commit *"):
+            assert f"{shell}(agent-browser {verb})" in rules
+    assert "mcp__*__browser_commit" in rules
+
+
 def test_every_example_verb_and_flag_exists_in_the_parser() -> None:
     verbs = _parser_verbs()
-    for verb, rest in _example_commands(_skill() + REFERENCE.read_text(encoding="utf-8")):
+    interfaces = (SKILL_DIR / "references" / "interfaces.md").read_text(encoding="utf-8")
+    for verb, rest in _example_commands(_skill() + REFERENCE.read_text(encoding="utf-8") + interfaces):
         assert verb in verbs, f"SKILL mentions unknown verb {verb!r}"
+        if verb == "commit":
+            inner = rest.strip().split()[0]
+            assert inner in verbs
+            verb = inner
         for flag in re.findall(r"--[a-z-]+", rest):
-            assert flag in verbs[verb] or flag in {"--profile", "--timeout", "--snapshot", "--max-bytes", "--verbose"}, f"{verb} has no flag {flag}"
+            assert flag in verbs[verb] or flag in {"--profile", "--timeout", "--snapshot", "--max-bytes"}, f"{verb} has no flag {flag}"
 
 
 def test_examples_never_start_an_argument_with_a_slash_or_chain_commands() -> None:

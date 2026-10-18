@@ -2,14 +2,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import secrets
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from . import common as core_common, daemon as core_daemon, session as core_session
+from . import policy, evidence
+
+
+class JsonArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise core_common._tag(ValueError("Invalid command arguments. Use --help for command syntax."), core_common.ERR_USAGE)
 
 
 def _demangle_msys(argv: list[str]) -> list[str]:
@@ -39,9 +47,15 @@ def _timeout_for(args: argparse.Namespace, default: float) -> float:
     value = getattr(args, "timeout", None)
     if value is None:
         value = core_common._env_float("AGENT_BROWSER_TIMEOUT_SECONDS", default) if default == core_common.DEFAULT_TIMEOUT else default
-    if value < 0:
-        raise core_common._tag(ValueError("--timeout must be >= 0"), core_common.ERR_VALIDATION)
+    if not math.isfinite(value) or value < 0 or value > 86400:
+        raise core_common._tag(ValueError("--timeout must be finite and between 0 and 86400 seconds"), core_common.ERR_VALIDATION)
     return float(value)
+
+
+def _caller_paths(args: argparse.Namespace) -> tuple[core_common.ProfilePaths, dict[str, Any]]:
+    profile = core_session._resolve_profile(getattr(args, "profile", None))
+    paths = core_common.ProfilePaths(profile, core_common._home(), core_common.session_identity(getattr(args, "session", None)))
+    return paths, policy.profile_config(core_common._load_config(), profile)
 
 
 def _max_bytes(args: argparse.Namespace) -> int:
@@ -74,9 +88,25 @@ def _remote(args: argparse.Namespace, verb: str, cmd: str, payload: dict[str, An
     paths, session = _session_for(args, verb, autostart=autostart)
     timeout = _timeout_for(args, default_timeout)
     payload.setdefault("max_bytes", _max_bytes(args))
+    payload["_session_id"] = core_common.session_identity(getattr(args, "session", None))
+    payload["_cwd"] = str(Path.cwd())
+    if getattr(args, "annotate", False):
+        payload["annotate"] = True
+    if any(getattr(args, k, None) for k in ("role", "name", "label")):
+        if payload.get("target"):
+            raise core_common._tag(ValueError("Use a ref/selector or semantic targeting, not both."), core_common.ERR_USAGE)
+        payload["target"] = {k: getattr(args, k) for k in ("role", "name", "label") if getattr(args, k, None)}
+    if getattr(args, "expect", None):
+        payload["expect"] = args.expect
+    if getattr(args, "committing", False):
+        payload["operation"], cmd = cmd, "commit"
     if getattr(args, "snapshot", False):
         payload["snapshot"] = True
-    return _finish(core_session._request(session, cmd, payload, timeout), session)
+    result = core_session._request(session, cmd, payload, timeout)
+    while result.get("pending") and result.get("status") != "needs_human":
+        time.sleep(0.2)
+        result = core_session._request(session, "poll", {"command_id": result["command_id"], "_session_id": payload["_session_id"]}, 2.0)
+    return _finish(result, session)
 
 
 def _cmd_start(args: argparse.Namespace) -> Any:
@@ -84,19 +114,26 @@ def _cmd_start(args: argparse.Namespace) -> Any:
     result = core_session.start_session(paths, args, timeout=_timeout_for(args, core_common.START_TIMEOUT))
     if args.url:
         session = core_session._require_running(paths, "start")
-        env = core_session._request(session, "goto", {"url": core_common._check_url(args.url, paths, core_common._load_config()), "max_bytes": _max_bytes(args)}, timeout=core_common.GOTO_TIMEOUT)
+        env = core_session._request(session, "goto", {"url": core_common._check_url(args.url, paths, policy.profile_config(core_common._load_config(), paths.profile)), "max_bytes": _max_bytes(args), "_session_id": core_common.session_identity(getattr(args, "session", None))}, timeout=core_common.GOTO_TIMEOUT)
         keep = {"profile", "status", "pid", "port", "launcher", "log", "browser", "browser_version", "headless", "user_data_dir", "window"}
         result.update({k: v for k, v in env.items() if k not in keep})  # the navigation's url/title/snapshot win
     return _finish(result)
 
 
 def _cmd_stop(args: argparse.Namespace) -> Any:
-    if args.all:
-        names = core_session._running_profiles()
-        root = core_common._home() / "profiles"
-        if root.is_dir():
-            names = sorted({*names, *[e.name for e in root.iterdir() if e.is_dir() and (e / "core_session.json").is_file()]})
-        return {"stopped": [core_session.stop_session(core_common._paths(n), force=args.force) for n in names]}
+    if not args.all and not args.force:
+        paths = core_common._paths(core_session._resolve_profile(args.profile))
+        state, metadata = core_session._liveness(paths)
+        if state in {"none", "stale"}:
+            return core_session.stop_session(paths)
+        result = _remote(args, "stop", "stop", {}, core_common.STOP_GRACE)
+        if result.get("stopping") and metadata:
+            deadline = core_common._now() + core_common.STOP_GRACE
+            while core_common._pid_alive(int(metadata["pid"])):
+                if core_common._now() >= deadline:
+                    raise core_common._tag(RuntimeError("Session released; browser shutdown has not finished. Inspect status before forcing a profile stop."), core_common.ERR_TIMEOUT)
+                core_common._sleep(.1)
+        return result
     paths = core_common._paths(core_session._resolve_profile(args.profile))
     return core_session.stop_session(paths, force=args.force)
 
@@ -113,7 +150,7 @@ def _cmd_status(args: argparse.Namespace) -> Any:
 def _cmd_goto(args: argparse.Namespace) -> Any:
     profile = core_session._resolve_profile(args.profile)
     paths = core_common._paths(profile)
-    url = core_common._check_url(args.url, paths, core_common._load_config())
+    url = core_common._check_url(args.url, paths, policy.profile_config(core_common._load_config(), profile))
     return _remote(args, "goto", "goto", {"url": url, "wait": args.wait, "new_tab": bool(args.new_tab), "discard_changes": bool(args.discard_changes)}, core_common.GOTO_TIMEOUT, autostart=True)
 
 
@@ -128,10 +165,14 @@ def _cmd_click(args: argparse.Namespace) -> Any:
 
 
 def _cmd_fill(args: argparse.Namespace) -> Any:
+    if (getattr(args, "label", None) or getattr(args, "role", None)) and args.text is None and args.target is not None:
+        args.text, args.target = args.target, None
     return _remote(args, "fill", "fill", {"target": args.target, "text": _input_text(args, "text"), "enter": bool(args.enter)})
 
 
 def _cmd_type(args: argparse.Namespace) -> Any:
+    if (getattr(args, "label", None) or getattr(args, "role", None)) and args.text is None and args.target is not None:
+        args.text, args.target = args.target, None
     return _remote(args, "type", "type", {"target": args.target, "text": _input_text(args, "text"), "delay": args.delay, "append": bool(args.append), "enter": bool(args.enter)})
 
 
@@ -144,6 +185,8 @@ def _cmd_select(args: argparse.Namespace) -> Any:
 
 
 def _cmd_check(args: argparse.Namespace) -> Any:
+    if args.target.startswith(("http://", "https://")):
+        return _remote(args, "check", "diagnose", {"url": args.target}, autostart=True)
     return _remote(args, "check", "check", {"target": args.target})
 
 
@@ -176,7 +219,8 @@ def _cmd_screenshot(args: argparse.Namespace) -> Any:
         candidate = Path(args.path)
         if candidate.suffix.lower() != ".png":
             raise core_common._tag(ValueError("--path must end with .png"), core_common.ERR_VALIDATION)
-        path = str(core_common._check_local_path(args.path, paths, core_common._load_config(), must_exist=False))
+        paths, config = _caller_paths(args)
+        path = str(core_common._check_local_path(args.path, paths, config, must_exist=False))
     return _remote(args, "screenshot", "screenshot", {"target": args.target, "path": path, "full_page": bool(args.full_page)})
 
 
@@ -208,9 +252,7 @@ def _cmd_tab(args: argparse.Namespace) -> Any:
 
 
 def _cmd_upload(args: argparse.Namespace) -> Any:
-    profile = core_session._resolve_profile(args.profile)
-    paths = core_common._paths(profile)
-    config = core_common._load_config()
+    paths, config = _caller_paths(args)
     files = [str(core_common._check_local_path(f, paths, config)) for f in args.files]
     return _remote(args, "upload", "upload", {"target": args.target, "files": files})
 
@@ -229,7 +271,8 @@ def _input_text(args: argparse.Namespace, name: str) -> str:
         raise core_common._tag(ValueError(f"Provide exactly one of {name} or --{name}-file."), core_common.ERR_USAGE)
     if filename is None:
         return value
-    path = core_common._check_local_path(filename, core_common._paths(core_session._resolve_profile(args.profile)), core_common._load_config())
+    paths, config = _caller_paths(args)
+    path = core_common._check_local_path(filename, paths, config)
     if path.stat().st_size > core_common.REQUEST_CAP // 2:
         raise core_common._tag(ValueError("Input file exceeds the command payload budget."), core_common.ERR_VALIDATION)
     try:
@@ -240,46 +283,63 @@ def _input_text(args: argparse.Namespace, name: str) -> str:
 
 def _cmd_output(args: argparse.Namespace) -> dict[str, Any]:
     paths = core_common._paths(core_session._resolve_profile(args.profile))
+    paths = core_common.ProfilePaths(paths.profile, paths.root, core_common.session_identity(getattr(args, "session", None)))
     if args.offset < 0:
         raise core_common._tag(ValueError("--offset must be >= 0."), core_common.ERR_VALIDATION)
     if args.id and not re.fullmatch(r"[a-f0-9]{32}", args.id):
         raise core_common._tag(ValueError("Invalid output ID."), core_common.ERR_VALIDATION)
-    path = paths.outputs / (args.id + ".json") if args.id else paths.dir / "last_output.json"
+    path = paths.outputs / (args.id + ".json") if args.id else paths.workspace / "last_output.json"
     try:
         data = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise core_common._tag(ValueError("Output not found."), core_common.ERR_NOT_FOUND) from exc
-    chunk = data[args.offset:args.offset + 3000]
+    page_size = min(3000, max(1, getattr(args, "page_size", 3000)))
+    chunk = data[args.offset:args.offset + page_size]
     end = args.offset + len(chunk)
     return {"offset": args.offset, "next_offset": end if end < len(data) else None,
             "total_chars": len(data), "chunk": chunk}
 
 
-def _json_line(payload: Any, profile: str | None = None) -> str:
+def _json_line(payload: Any, profile: str | None = None, session_id: str | None = None, *, byte_budget: int = core_common.STDOUT_BUDGET) -> str:
     result = dict(payload) if isinstance(payload, dict) else {"result": payload}
     result["contract_version"] = core_common.CONTRACT_VERSION
     encoded = json.dumps(result, ensure_ascii=False, default=str, separators=(",", ":"))
-    if len(encoded.encode("utf-8")) + 1 <= core_common.STDOUT_BUDGET:
+    if len(encoded.encode("utf-8")) + 1 <= byte_budget:
         return encoded
     paths = core_common._paths(profile or result.get("profile") or core_session._resolve_profile(None))
+    paths = core_common.ProfilePaths(paths.profile, paths.root, result.get("session_id") or core_common.session_identity(session_id))
+    quota = policy.profile_config(core_common._load_config(), paths.profile).get("evidence_max_bytes", evidence.DEFAULT_QUOTA)
+    evidence.require_space(paths.dir, quota, 2 * len(encoded.encode("utf-8")))
     paths.outputs.mkdir(parents=True, exist_ok=True)
-    output_id = secrets.token_hex(16)
+    output_id = result.get("command_id") or secrets.token_hex(16)
+    if not isinstance(output_id, str) or not re.fullmatch(r"[0-9a-f]{32}", output_id):
+        output_id = secrets.token_hex(16)
     output_file = paths.outputs / (output_id + ".json")
-    output_file.write_text(encoded, encoding="utf-8")
-    core_session._write_json_atomic(paths.dir / "last_output.json", result)
+    # A receipt may be rendered again after polling. Never replace an earlier artifact.
+    while True:
+        try:
+            with output_file.open("x", encoding="utf-8", newline="") as handle:
+                handle.write(encoded)
+            break
+        except FileExistsError:
+            if output_file.read_text(encoding="utf-8") == encoded:
+                break
+            output_id = secrets.token_hex(16)
+            output_file = paths.outputs / (output_id + ".json")
+    core_session._write_json_atomic(paths.workspace / "last_output.json", result, compact=True)
     bounded = {k: result[k] for k in ("ok", "action", "effect", "observed", "command_id") if k in result}
     bounded.update(contract_version=core_common.CONTRACT_VERSION, truncated=True, output_id=output_id,
                    output_file=str(output_file), next_offset=0)
     if "error" in result:
         bounded["error"] = {"class": result["error"].get("class"), "http_status": None,
                             "message": "Error details exceeded the reply budget; read output by ID.", "hint": None}
-    return json.dumps(bounded, ensure_ascii=False, default=str, separators=(",", ":"))
-
-
-def _cmd_focus(args: argparse.Namespace) -> Any:
-    paths = core_common._paths(core_session._resolve_profile(args.profile))
-    core_session._require_running(paths, "focus")
-    return core_session.focus_window(paths)
+    line = json.dumps(bounded, ensure_ascii=False, default=str, separators=(",", ":"))
+    if len(line.encode("utf-8")) + 1 > byte_budget:
+        bounded = {k: bounded[k] for k in ("contract_version", "truncated", "output_id", "next_offset")}
+        if "error" in result:
+            bounded["error"] = {"class": "oversized_error", "message": "Read full error details by output ID."}
+        line = json.dumps(bounded, separators=(",", ":"))
+    return line
 
 
 def _cmd_doctor(args: argparse.Namespace) -> Any:
@@ -313,14 +373,13 @@ output contract:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=core_common.TOOL_NAME, description="Drive a real, visible Edge/Chrome window; JSON in and out, refs from snapshots.",
+    parser = JsonArgumentParser(prog=core_common.TOOL_NAME, description="Drive a real, visible Edge/Chrome window; JSON in and out, refs from snapshots.",
                                      epilog=_EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=f"{core_common.TOOL_NAME} {core_common.TOOL_VERSION}")
     parser.add_argument("--profile", metavar="NAME", default=None, help="browser profile (cookies persist per profile; default: the running one, else 'default')")
     parser.add_argument("--timeout", type=float, metavar="SECONDS", default=None, help="per-action timeout (default 15; goto 30; wait 60, max 100)")
     parser.add_argument("--max-bytes", type=int, metavar="N", default=None, help="snapshot byte budget per response (default 16000)")
     parser.add_argument("--snapshot", action="store_true", default=False, help="return a full snapshot after an action instead of the compact change list")
-    parser.add_argument("--verbose", action="store_true", default=False, help="diagnostics to stderr")
     sub = parser.add_subparsers(dest="command", metavar="<command>", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
@@ -328,7 +387,6 @@ def _build_parser() -> argparse.ArgumentParser:
     common.add_argument("--timeout", type=float, metavar="SECONDS", default=argparse.SUPPRESS)
     common.add_argument("--max-bytes", type=int, metavar="N", default=argparse.SUPPRESS)
     common.add_argument("--snapshot", action="store_true", default=argparse.SUPPRESS)
-    common.add_argument("--verbose", action="store_true", default=argparse.SUPPRESS)
 
     def add(name: str, func: Callable[[argparse.Namespace], Any], help_text: str, **kw: Any) -> argparse.ArgumentParser:
         p = sub.add_parser(name, parents=[common], help=help_text, description=help_text, **kw)
@@ -424,7 +482,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--js-file")
     p.add_argument("--ref", metavar="REF", help="run with the element as `el`")
     p.add_argument("--frame", metavar="NAME")
-    add("focus", _cmd_focus, "bring the browser window to the front (best effort)")
     p = add("doctor", _cmd_doctor, "preflight checks (always exit 0)")
     p.add_argument("--live", action="store_true", help="also boot a headless browser and click a ref")
     p.add_argument("--browser", choices=("msedge", "chrome"), default=None)
@@ -438,6 +495,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p = add("output", _cmd_output, "page a saved overflow result without repeating its command")
     p.add_argument("--id")
     p.add_argument("--offset", type=int, default=0)
+    from . import commands
+    commands.configure(parser, sub, add)
     return parser
 
 
@@ -450,7 +509,7 @@ def _emit_error(exc: Exception) -> None:
         payload["error"]["details"] = details
     try:
         line = _json_line(payload)
-    except OSError:
+    except (OSError, ValueError, RuntimeError):
         line = json.dumps({"contract_version": core_common.CONTRACT_VERSION, "error": {"class": "output_storage", "message": "Cannot preserve oversized error output."}}, separators=(",", ":"))
     print(line, file=sys.stderr, flush=True)
 
@@ -472,14 +531,17 @@ def _reconfigure_streams() -> None:
 def main(argv: list[str] | None = None) -> int:
     raw = list(sys.argv[1:] if argv is None else argv)
     core_common._ARGV_NOTES.clear()
-    args = _build_parser().parse_args(_demangle_msys(raw))
-    pass
-    core_common.VERBOSE = bool(getattr(args, "verbose", False))
+    try:
+        args = _build_parser().parse_args(_demangle_msys(raw))
+    except ValueError as exc:
+        _emit_error(exc)
+        return 2
+    core_common.VERBOSE = False
     _reconfigure_streams()
     try:
         result = args.func(args)
     except KeyboardInterrupt:
-        print(f"\n{core_common.TOOL_NAME}: interrupted", file=sys.stderr, flush=True)
+        _emit_error(core_common._tag(RuntimeError("Interrupted; inspect the receipt before repeating an action."), "interrupted"))
         return core_common.EXIT_INTERRUPT
     except ValueError as exc:
         _emit_error(exc)
@@ -487,10 +549,13 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeError as exc:
         _emit_error(exc)
         return core_common.EXIT_TIMEOUT if getattr(exc, "error_class", None) == core_common.ERR_TIMEOUT else 1
+    except OSError:
+        _emit_error(core_common._tag(RuntimeError("Local file or socket access failed."), "io"))
+        return 1
     if isinstance(result, bool) or not isinstance(result, int):
         try:
-            print(_json_line(result, getattr(args, "profile", None)))
-        except OSError as exc:
+            print(_json_line(result, getattr(args, "profile", None), getattr(args, "session", None)))
+        except (OSError, ValueError, RuntimeError) as exc:
             _emit_error(core_common._tag(RuntimeError("Cannot preserve oversized output."), "output_storage"))
             return 1
         return 0

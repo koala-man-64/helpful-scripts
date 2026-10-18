@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Delayed state</title></head>
+<body>
+  <output id="state">waiting</output>
+  <script>
+    setTimeout(() => { document.querySelector('#state').textContent = 'ready after delay'; }, 3000);
+  </script>
+</body>
+</html>

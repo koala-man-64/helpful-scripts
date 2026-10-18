@@ -35,6 +35,7 @@ class _ServerHarness:
         self._build = build
         self._build_kwargs = build_kwargs
         self.fail_next_ping = threading.Event()
+        self.large_next_ping = threading.Event()
         self.stop_event = threading.Event()
         self._ready = threading.Event()
         self.info: dict[str, Any] = {}
@@ -48,6 +49,9 @@ class _ServerHarness:
             if self.fail_next_ping.is_set():
                 self.fail_next_ping.clear()
                 raise Exception("boom")
+            if self.large_next_ping.is_set():
+                self.large_next_ping.clear()
+                return {**real_h_ping(args, timeout), "large": "😀\\\"" * 14000}
             return real_h_ping(args, timeout)
 
         daemon.h_ping = guarded_h_ping
@@ -119,6 +123,39 @@ def test_malformed_json_is_a_usage_error(daemon_server: _ServerHarness) -> None:
     reply = json.loads(line)
     assert reply["ok"] is False
     assert reply["error"]["class"] == core_common.ERR_USAGE
+
+
+@pytest.mark.parametrize("raw", [b"[]\n", b"null\n", b"42\n"])
+def test_nonobject_envelope_is_rejected_without_crashing(daemon_server, raw):
+    reply = json.loads(_raw_send(daemon_server.info["port"], raw))
+    assert reply["error"]["class"] == core_common.ERR_USAGE
+    assert core_session._request(daemon_server.session, "ping", {}, timeout=2)["pong"]
+
+
+@pytest.mark.parametrize("timeout", [-1, "bad", float("nan"), float("inf"), 86401, True])
+def test_invalid_wire_timeout_is_rejected_without_dispatch(daemon_server, timeout):
+    message = {**daemon_server.session, "protocol_version": core_common.PROTOCOL_VERSION, "cmd": "ping", "timeout": timeout}
+    reply = json.loads(_raw_send(daemon_server.info["port"], (json.dumps(message) + "\n").encode()))
+    assert reply["error"]["class"] == core_common.ERR_VALIDATION
+
+
+def test_protocol_mismatch_requires_explicit_restart(daemon_server):
+    message = {**daemon_server.session, "cmd": "ping", "protocol_version": -1}
+    reply = json.loads(_raw_send(daemon_server.info["port"], (json.dumps(message) + "\n").encode()))
+    assert reply["error"]["class"] == "protocol_mismatch"
+    assert "restart" in reply["error"]["message"]
+
+
+def test_complete_wire_reply_is_bounded_with_recoverable_output(daemon_server):
+    daemon_server.large_next_ping.set()
+    message = {**daemon_server.session, "cmd": "ping", "protocol_version": core_common.PROTOCOL_VERSION}
+    raw = _raw_send(daemon_server.info["port"], (json.dumps(message) + "\n").encode())
+    assert len(raw) <= core_common.STDOUT_BUDGET
+    reply = json.loads(raw)
+    assert reply["result"]["truncated"] and reply["result"]["output_id"]
+    from pathlib import Path
+    saved = json.loads(Path(reply["result"]["output_file"]).read_text(encoding="utf-8"))
+    assert len(saved["large"]) == 3 * 14000
 
 
 def test_unknown_command_is_a_usage_error(daemon_server: _ServerHarness) -> None:

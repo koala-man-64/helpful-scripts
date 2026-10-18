@@ -61,10 +61,11 @@ from typing import Any, Callable, Iterable, Sequence
 TOOL_NAME = "agent-browser"
 
 
-TOOL_VERSION = "0.1.0"
+TOOL_VERSION = "0.2.0"
 
 
 CONTRACT_VERSION = 1
+PROTOCOL_VERSION = 2
 
 
 TESTED_PLAYWRIGHT = ("1.61",)          # aria_snapshot(mode="ai") + aria-ref engine verified on these lines
@@ -121,7 +122,7 @@ DEFAULT_TEXT_CHARS = 20000
 CHANGES_CAP = 40
 
 
-REQUEST_CAP = 64 * 1024
+REQUEST_CAP = 2 * 1024 * 1024
 
 
 CLIENT_GRACE = SETTLE_CAP + 7.0        # the daemon settles frames and snapshots after the action itself finishes
@@ -368,7 +369,8 @@ HINTS = {
     "profile_in_use": "Another browser holds this profile. Run: {tool} clean --profile {profile}",
     "playwright_missing": "Install it for the interpreter that runs {tool}: python -m pip install --user \"playwright>=1.61,<2\"",
     "browser_not_found": "Set AGENT_BROWSER_EXE or pass --exe pointing at msedge.exe or chrome.exe.",
-    "stale_code": "agent_browser.py changed since the daemon started; run: {tool} stop --profile {profile} then {tool} start --profile {profile}",
+    "stale_code": "Implementation changed since daemon startup. Explicitly restart the shared profile: {tool} stop --profile {profile} --all, then {tool} start --profile {profile}. This closes every session in that profile.",
+    "protocol_mismatch": "Client and daemon are incompatible. Run {tool} stop --profile {profile} --all --force, then {tool} start --profile {profile}. This closes every session in that profile.",
     "select_not_found": "None of the options match. See details.options, then run select again with one of them.",
     "select_not_select": "This element is not a drop-down. Use: {tool} click <ref> then {tool} snapshot --profile {profile}",
     "check_not_checkbox": "This element is not a checkbox. Use: {tool} click <ref>",
@@ -471,6 +473,7 @@ def _validate_profile(name: str) -> str:
 class ProfilePaths:
     profile: str
     root: Path
+    session_id: str | None = None
 
     @property
     def dir(self) -> Path:
@@ -482,7 +485,7 @@ class ProfilePaths:
 
     @property
     def session(self) -> Path:
-        return self.dir / "core_session.json"
+        return self.dir / "session.json"
 
     @property
     def lock(self) -> Path:
@@ -498,19 +501,25 @@ class ProfilePaths:
 
     @property
     def last_snapshot(self) -> Path:
-        return self.dir / "last_snapshot.txt"
+        return self.workspace / "last_snapshot.txt"
 
     @property
     def downloads(self) -> Path:
-        return self.dir / "downloads"
+        return self.workspace / "downloads"
 
     @property
     def shots(self) -> Path:
-        return self.dir / "shots"
+        return self.workspace / "shots"
 
     @property
     def outputs(self) -> Path:
-        return self.dir / "outputs"
+        return self.workspace / "outputs"
+
+    @property
+    def workspace(self) -> Path:
+        if not self.session_id or self.session_id == "manual":
+            return self.dir
+        return self.dir / "sessions" / hashlib.sha256(self.session_id.encode()).hexdigest()[:32]
 
 
 def _paths(profile: str) -> ProfilePaths:
@@ -545,7 +554,17 @@ def _load_config() -> dict[str, Any]:
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise _tag(RuntimeError(f"config.json {key} must be a list of strings."), ERR_CONFIG)
             out[key] = [v.strip().lower() if key == "allowed_hosts" else v for v in value if v.strip()]
+    for key in ("profiles", "permission", "evidence_max_bytes", "uploads"):
+        if key in data:
+            out[key] = data[key]
     return out
+
+
+def session_identity(explicit: str | None = None) -> str:
+    value = explicit or os.getenv("CODEX_THREAD_ID") or os.getenv("CLAUDE_CODE_SESSION_ID") or "manual"
+    if not isinstance(value, str) or not value or len(value) > 200 or any(ord(c) < 32 for c in value):
+        raise _tag(ValueError("Invalid session identifier."), ERR_VALIDATION)
+    return value
 
 
 def _code_hash() -> str:

@@ -35,10 +35,9 @@ def test_version_prints_tool_and_version_and_exits_zero(capsys: pytest.CaptureFi
     assert capsys.readouterr().out.strip() == f"{core_common.TOOL_NAME} {core_common.TOOL_VERSION}"
 
 def test_unknown_verb_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc:
-        core_cli.main(["frobnicate"])
-    assert exc.value.code == 2
-    assert "invalid choice" in capsys.readouterr().err
+    assert core_cli.main(["frobnicate"]) == 2
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["contract_version"] == 1 and payload["error"]["class"] == "usage"
 
 # ---------------------------------------------------------------------------
 # The error envelope contract (repo-wide: ValueError=2, RuntimeError=1, timeout class=124)

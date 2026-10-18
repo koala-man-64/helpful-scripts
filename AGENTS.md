@@ -58,7 +58,7 @@ no runtime dependencies, works fully offline from a vendored `vendor/` folder.
 
 ## Project: agent-browser
 
-Single-file Playwright CLI (`agent-browser/agent_browser.py`, console script
+Modular Playwright CLI (`agent-browser/agent_browser.py` thin entry point, console script
 `agent-browser`) that gives an AI agent a visible Edge/Chrome window through a
 per-profile background daemon: JSON in and out, elements addressed by refs
 from accessibility snapshots, sign-ins kept per profile.

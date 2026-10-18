@@ -31,6 +31,8 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
             monkeypatch.delenv(key, raising=False)
     monkeypatch.delenv("MSYSTEM", raising=False)
     monkeypatch.delenv("EXEPATH", raising=False)
+    monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
     monkeypatch.setenv("AGENT_BROWSER_HOME", str(tmp_path / "home"))
     # The process-listing seam shells out to PowerShell CIM on Windows; offline tests never do that.
     # A test that needs specific processes re-patches it (a later monkeypatch wins).
@@ -287,7 +289,7 @@ class FakeLocator:
     def element_handle(self, timeout: float | None = None) -> FakeElementHandle:
         return FakeElementHandle(self.element)
 
-    def screenshot(self, path: str | None = None, timeout: float | None = None) -> None:
+    def screenshot(self, path: str | None = None, timeout: float | None = None, mask=None) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_bytes(PNG_HEADER)
 
@@ -413,7 +415,7 @@ class FakePage(_Emitter):
             return value() if callable(value) else value
         raise AssertionError(f"FakePage.evaluate: no fake for js={js[:80]!r}")
 
-    def screenshot(self, path: str | None = None, full_page: bool = False, timeout: float | None = None, scale: str | None = None) -> None:
+    def screenshot(self, path: str | None = None, full_page: bool = False, timeout: float | None = None, scale: str | None = None, mask=None) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_bytes(PNG_HEADER)
 

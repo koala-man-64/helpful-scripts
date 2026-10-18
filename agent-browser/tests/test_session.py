@@ -154,13 +154,10 @@ def test_resolve_profile_sticky_rules(monkeypatch: pytest.MonkeyPatch, tmp_path:
     assert core_session._resolve_profile(None) == core_common.DEFAULT_PROFILE
 
     monkeypatch.setattr(core_session, "_running_profiles", lambda: ["work"])
-    assert core_session._resolve_profile(None) == "work"
+    assert core_session._resolve_profile(None) == core_common.DEFAULT_PROFILE
 
     monkeypatch.setattr(core_session, "_running_profiles", lambda: ["alpha", "beta"])
-    with pytest.raises(ValueError) as exc:
-        core_session._resolve_profile(None)
-    assert exc.value.error_class == core_common.ERR_AMBIGUOUS_PROFILE
-    assert exc.value.details == {"profiles": ["alpha", "beta"]}
+    assert core_session._resolve_profile(None) == core_common.DEFAULT_PROFILE
 
     # explicit --profile wins even with several running
     assert core_session._resolve_profile("chosen") == "chosen"
@@ -420,8 +417,8 @@ def test_clean_removes_stale_sessions_and_prunes_old_artifacts(monkeypatch: pyte
 
     assert result["stale_sessions_removed"] == ["default"]
     assert not paths.session.exists()
-    assert result["artifacts_removed"] == 1
-    assert not old_file.exists() and new_file.exists()
+    assert result["artifacts_removed"] == 0
+    assert old_file.exists() and new_file.exists()
 
 
 def test_clean_dry_run_touches_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -437,7 +434,7 @@ def test_clean_dry_run_touches_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path
 
     assert result["stale_sessions_removed"] == ["default"]  # reported...
     assert paths.session.exists()  # ...but not actually removed
-    assert result["artifacts_removed"] == 1
+    assert result["artifacts_removed"] == 0
     assert old_file.exists()
 
 

@@ -62,7 +62,7 @@ def _wait_for_no_browser(home: Path, timeout: float = 10.0) -> list[dict]:
 def live_home() -> Path:
     home = Path(tempfile.mkdtemp(prefix="abl", dir=os.getenv("TEMP") or None))
     yield home
-    subprocess.run([sys.executable, "-X", "utf8", str(TOOL), "stop", "--all", "--force"], env=_env(home), capture_output=True, timeout=60, check=False)
+    subprocess.run([sys.executable, "-X", "utf8", str(TOOL), "stop", "--all", "--force", "--profile", PROFILE], env=_env(home), capture_output=True, timeout=60, check=False)
     leftovers = _wait_for_no_browser(home)
     for proc in leftovers:
         core_common._kill_tree(proc["pid"])
@@ -73,7 +73,8 @@ def live_home() -> Path:
 @pytest.fixture(scope="module")
 def base_url() -> str:
     handler = functools.partial(_Quiet, directory=str(FIXTURES))
-    server = socketserver.TCPServer(("127.0.0.1", 0), handler)
+    server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), handler)
+    server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{server.server_address[1]}"
     server.shutdown()
@@ -81,6 +82,8 @@ def base_url() -> str:
 
 def _env(home: Path) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("AGENT_BROWSER_")}
+    env.pop("CODEX_THREAD_ID", None)
+    env.pop("CLAUDE_CODE_SESSION_ID", None)
     env.update({"AGENT_BROWSER_HOME": str(home), "AGENT_BROWSER_HEADLESS": "1", "PYTHONUTF8": "1"})
     return env
 

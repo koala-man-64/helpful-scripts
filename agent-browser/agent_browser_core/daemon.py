@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from . import common as core_common, session as core_session, snapshots as core_snapshots
+from . import runtime, policy
+from . import actions
+from . import api
+from . import reach
 
 
 def _playwright_version() -> str | None:
@@ -32,7 +36,7 @@ SECRET_JS = """el => {
   return {tag: el.tagName, type: String(el.type || '').toLowerCase(), autocomplete: String(el.autocomplete || a('autocomplete')).toLowerCase(),
           inputmode: String(el.inputMode || a('inputmode')).toLowerCase(), maxlength: typeof el.maxLength === 'number' ? el.maxLength : -1,
           text: [a('name'), el.id || '', a('aria-label'), a('placeholder'), a('title'), labels, by, String(el.className || ''), Object.keys(el.dataset || {}).join(' ')].join(' '),
-          contenteditable: !!el.isContentEditable};
+          contenteditable: !!el.isContentEditable, context_url: el.ownerDocument.URL, context_title: el.ownerDocument.title};
 }"""
 
 
@@ -99,7 +103,7 @@ class DownloadRecord:
     saved: str | None = None
 
 
-class Daemon:
+class BrowserEngine:
     """Owns one Playwright persistent context. Single-threaded: only the main thread touches Playwright."""
 
     def __init__(self, launch: dict[str, Any]) -> None:
@@ -196,14 +200,14 @@ class Daemon:
             return
         self.pages.append(page)
         page.on("framenavigated", self._on_frame_navigated)
-        page.on("download", self._on_download)
+        page.on("download", lambda download: self._on_download(download, page))
         page.on("close", lambda p: self._on_page_closed(p))
-        page.on("console", lambda message: self._observe("console_errors") if message.type == "error" else None)
-        page.on("pageerror", lambda error: self._observe("page_errors"))
-        page.on("requestfailed", lambda request: self._observe("failed_requests"))
-        page.on("response", lambda response: self._observe("http_errors") if response.status >= 400 else None)
+        page.on("console", lambda message: self._observe("console_errors", page) if message.type == "error" else None)
+        page.on("pageerror", lambda error: self._observe("page_errors", page))
+        page.on("requestfailed", lambda request: self._observe("failed_requests", page))
+        page.on("response", lambda response: self._observe("http_errors", page) if response.status >= 400 else None)
 
-    def _observe(self, kind: str) -> None:
+    def _observe(self, kind: str, page: Any = None) -> None:
         self.telemetry[kind] += 1
 
     def _on_page(self, page: Any) -> None:
@@ -224,7 +228,7 @@ class Daemon:
     def _on_frame_navigated(self, frame: Any) -> None:
         self.nav_counts[frame] = self.nav_counts.get(frame, 0) + 1
 
-    def _on_download(self, download: Any) -> None:
+    def _on_download(self, download: Any, page: Any = None) -> None:
         try:
             suggested = download.suggested_filename
         except Exception:  # noqa: BLE001
@@ -383,7 +387,8 @@ class Daemon:
             return ""
 
     def _is_secret(self, page: Any, locator: Any) -> bool:
-        return is_secret_field(self._secret_info(locator), page.url, self._safe_title(page))
+        info = self._secret_info(locator)
+        return is_secret_field(info, info.get("context_url", page.url), info.get("context_title", self._safe_title(page)))
 
     def _focused_is_secret(self, page: Any) -> bool:
         """The element that would receive a targetless key press, in whichever frame holds focus."""
@@ -392,7 +397,7 @@ class Daemon:
                 info = frame.evaluate(ACTIVE_SECRET_JS)
             except Exception:  # noqa: BLE001
                 continue
-            if info and is_secret_field(info, page.url, self._safe_title(page)):
+            if info and is_secret_field(info, info.get("context_url", frame.url), info.get("context_title", self._safe_title(page))):
                 return True
         return False
 
@@ -651,10 +656,10 @@ class Daemon:
             raise core_common._tag(ValueError("A dialog was dismissed during the action."), core_common.ERR_DIALOG, hint=core_common._hint("dialog", self.profile), details={"dialogs": self.dialog_log[-3:]})
 
     def _nav_signature(self, page: Any) -> dict[Any, int]:
-        return dict(self.nav_counts)
+        return {frame: self.nav_counts.get(frame, 0) for frame in page.frames}
 
     def _navigated_since(self, before: dict[Any, int]) -> bool:
-        return any(self.nav_counts.get(f, 0) != n for f, n in before.items()) or any(f not in before for f in self.nav_counts)
+        return self._nav_signature(self.page()) != before
 
     def _before_lines(self, page: Any) -> list[str] | None:
         served = self.served.get(page)
@@ -674,7 +679,7 @@ class Daemon:
         handler = getattr(self, "h_" + cmd.replace("-", "_"), None)
         if handler is None:
             raise core_common._tag(ValueError(f"Unknown daemon command {cmd!r}."), core_common.ERR_USAGE)
-        if cmd not in core_common.OFF_ALLOWLIST_OK and self.current is not None and self._off_allowlist(self.current):
+        if cmd not in core_common.OFF_ALLOWLIST_OK and cmd not in policy.CONTROL and self.current is not None and self._off_allowlist(self.current):
             raise core_common._tag(ValueError("The page is outside allowed_hosts; only back, goto, snapshot, text, tabs, and stop are allowed."),
                        core_common.ERR_GUARDED, hint=core_common._hint("off_allowlist", self.profile))
         observed_before = dict(self.telemetry)
@@ -683,7 +688,7 @@ class Daemon:
             result = handler(args, timeout)
             result["contract_version"] = core_common.CONTRACT_VERSION
             result["observed"] = {k: self.telemetry[k] - v for k, v in observed_before.items()}
-            if "action" in result:
+            if "action" in result and "effect" not in result:
                 result["effect"] = ("navigated" if result.get("navigated") else "tab_opened" if result.get("new_tab")
                                     else "downloaded" if result.get("downloads") else "value_set" if "value_after" in result
                                     else "dom_changed" if any(result.get("changes", {}).values()) else "none")
@@ -768,7 +773,8 @@ class Daemon:
         before_lines = self._before_lines(page)
         target = args.get("target")
         locator = self.resolve(page, target) if target else None
-        target_line = core_snapshots.find_line(before_lines, core_snapshots.normalize_target(target)) if target else None
+        target_line = (core_snapshots.find_line(before_lines, core_snapshots.normalize_target(target)) if isinstance(target, str)
+                       else core_common.sanitize_text(json.dumps(target), 300)) if target else None
         masked = False
         if guard:
             secret = self._is_secret(page, locator) if locator is not None else (allow_keys is not None and self._focused_is_secret(page))
@@ -780,6 +786,7 @@ class Daemon:
                                hint=core_common._hint("guarded_key" if allow_keys is not None else "guarded_secret", self.profile))
         nav_before = self._nav_signature(page)
         try:
+            self.action_attempted = True
             run(page, locator)
         except (ValueError, RuntimeError):
             raise
@@ -1089,7 +1096,7 @@ class Daemon:
         else:
             self.current = page
             try:
-                page.bring_to_front()
+                pass  # focus is reserved for needs-human handoffs
             except Exception:  # noqa: BLE001
                 pass
         return self.snap_envelope(page, max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES)
@@ -1118,13 +1125,17 @@ class Daemon:
         ms = self._timeout_ms(timeout)
         try:
             if args.get("target"):
-                value = self.resolve(page, args["target"]).evaluate(js, timeout=ms)
+                locator = self.resolve(page, args["target"])
+                self.action_attempted = True
+                value = locator.evaluate(js, timeout=ms)
             elif args.get("frame"):
                 frame = page.frame(name=args["frame"])
                 if frame is None:
                     raise core_common._tag(ValueError(f"No frame named {args['frame']!r}."), core_common.ERR_NOT_FOUND)
+                self.action_attempted = True
                 value = frame.evaluate(js)
             else:
+                self.action_attempted = True
                 value = page.evaluate(js)
         except (ValueError, RuntimeError):
             raise
@@ -1143,7 +1154,7 @@ class Daemon:
     def write_session(self, port: int) -> None:
         existing = core_session._read_session(self.paths) or {}  # the client adds `launcher` once; heartbeats must keep it
         core_session._write_json_atomic(self.paths.session, {
-            "schema": core_common.SESSION_SCHEMA, "profile": self.profile, "pid": os.getpid(), "port": port, "token": self.token,
+            "schema": core_common.SESSION_SCHEMA, "protocol_version": core_common.PROTOCOL_VERSION, "profile": self.profile, "pid": os.getpid(), "port": port, "token": self.token,
             "launcher": existing.get("launcher"),
             "browser": self.launch.get("browser"), "browser_version": self.browser_version, "headless": bool(self.launch.get("headless")),
             "user_data_dir": str(self.paths.user_data), "log": str(self.paths.log), "started": self.started_at,
@@ -1225,6 +1236,10 @@ def _take_startup_error(paths: core_common.ProfilePaths) -> dict[str, Any] | Non
     return data if isinstance(data, dict) else None
 
 
+class Daemon(runtime.OperatingMixin, actions.VerifiedActionsMixin, api.ApiMixin, reach.ReachMixin, BrowserEngine):
+    """One browser owner thread, with a separate logical page set per caller session."""
+
+
 class _Handler(socketserver.StreamRequestHandler):
     def handle(self) -> None:  # noqa: D102
         daemon: Daemon = self.server.daemon  # type: ignore[attr-defined]
@@ -1242,13 +1257,29 @@ class _Handler(socketserver.StreamRequestHandler):
         except ValueError:
             self._reply({"ok": False, "error": {"class": core_common.ERR_USAGE, "message": "Malformed request."}})
             return
+        if not isinstance(message, dict):
+            self._reply({"ok": False, "error": {"class": core_common.ERR_USAGE, "message": "Request must be an object."}})
+            return
         token = str(message.get("token") or "")
         if not hmac.compare_digest(token, daemon.token):
             daemon.dlog("rejected a request with a bad token")
             return
+        if message.get("protocol_version") != core_common.PROTOCOL_VERSION:
+            self._reply({"ok": False, "error": {"class": "protocol_mismatch", "message": "Client and daemon protocols differ; restart the daemon explicitly."}})
+            return
         cmd = str(message.get("cmd") or "")
         args = message.get("args") or {}
-        timeout = float(message.get("timeout") or core_common.DEFAULT_TIMEOUT)
+        if not isinstance(args, dict):
+            self._reply({"ok": False, "error": {"class": "validation", "message": "Command arguments must be an object."}})
+            return
+        args["_session_id"] = message.get("session_id") or "manual"
+        args["_cooperative"] = True
+        import math
+        raw_timeout = message.get("timeout", core_common.DEFAULT_TIMEOUT)
+        if type(raw_timeout) not in (float, int) or not math.isfinite(raw_timeout) or not 0 <= raw_timeout <= 86400:
+            self._reply({"ok": False, "error": {"class": core_common.ERR_VALIDATION, "message": "Timeout must be finite and between 0 and 86400 seconds."}})
+            return
+        timeout = float(raw_timeout)
         self.request.settimeout(timeout + core_common.CLIENT_GRACE + 30)
         started = core_common._now()
         try:
@@ -1258,16 +1289,38 @@ class _Handler(socketserver.StreamRequestHandler):
         except (ValueError, RuntimeError) as exc:
             reply = {"ok": False, "error": {"class": getattr(exc, "error_class", core_common.ERR_DAEMON), "message": str(exc),
                                             "hint": getattr(exc, "hint", None), "details": getattr(exc, "details", None)}}
-            daemon.dlog(f"{cmd} error {reply['error']['class']}: {str(exc)[:200]}")
+            daemon.dlog(f"{cmd} error {reply['error']['class']}")
         except Exception as exc:  # noqa: BLE001 - never let a handler take the daemon down
-            daemon.dlog(f"{cmd} crashed: {traceback.format_exc()[-800:]}")
-            reply = {"ok": False, "error": {"class": core_common.ERR_DAEMON, "message": core_common.sanitize_text(f"{type(exc).__name__}: {exc}", 300),
+            daemon.dlog(f"{cmd} crashed: {type(exc).__name__}")
+            reply = {"ok": False, "error": {"class": core_common.ERR_DAEMON, "message": "Command failed unexpectedly; inspect its journal receipt before repeating an action.",
                                             "hint": core_common._hint("daemon_unresponsive", daemon.profile)}}
         self._reply(reply)
 
     def _reply(self, reply: dict[str, Any]) -> None:
+        reply["protocol_version"] = core_common.PROTOCOL_VERSION
+        reply["contract_version"] = core_common.CONTRACT_VERSION
         try:
-            self.wfile.write((json.dumps(reply, ensure_ascii=False, default=str) + "\n").encode("utf-8"))
+            encoded = json.dumps(reply, ensure_ascii=False, default=str, separators=(",", ":"))
+            if len(encoded.encode("utf-8")) + 1 > core_common.STDOUT_BUDGET:
+                from .cli import _json_line
+                daemon = self.server.daemon
+                try:
+                    if reply.get("ok"):
+                        reply["result"] = json.loads(_json_line(reply["result"], daemon.profile, daemon.session_id,
+                                                              byte_budget=core_common.STDOUT_BUDGET - 256))
+                    else:
+                        bounded = json.loads(_json_line({"error": reply["error"]}, daemon.profile, daemon.session_id,
+                                                       byte_budget=core_common.STDOUT_BUDGET - 256))
+                        reply["error"] = bounded["error"]
+                        if bounded.get("output_id"):
+                            reply["error"]["details"] = {"output_id": bounded["output_id"], "next_offset": 0}
+                except (OSError, ValueError, RuntimeError) as exc:
+                    result = reply.get("result", {})
+                    reply = {"ok": False, "protocol_version": core_common.PROTOCOL_VERSION, "contract_version": core_common.CONTRACT_VERSION,
+                             "error": {"class": getattr(exc, "error_class", "output_storage"), "message": "Cannot preserve oversized reply; inspect the journal before repeating an action.",
+                                       "details": {"command_id": result.get("command_id"), "executed": result.get("executed", False)}}}
+                encoded = json.dumps(reply, ensure_ascii=False, default=str, separators=(",", ":"))
+            self.wfile.write((encoded + "\n").encode("utf-8"))
             self.wfile.flush()
         except (OSError, ValueError):
             pass
