@@ -807,13 +807,29 @@ class BrowserEngine:
             self._check_blocks()
             raise self._classify(exc, action) from exc
         self._check_blocks()
-        page = self.page()  # a popup may have become current; settle and report that page
-        loading = self._settle(page, cap=3.0)
-        navigated = self._navigated_since(nav_before)
-        value_after = self._value_of(locator, masked) if (value and locator is not None) else None
-        return self.act_envelope(page, action, target_line, before_lines, navigated=navigated, loading=loading,
-                                 value_after=value_after, max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES,
-                                 force_full=bool(args.get("snapshot")))
+        settle_deadline = core_common._now() + 3.0
+        new_tab = None
+        while True:
+            page = self.page()
+            remaining = settle_deadline - core_common._now()
+            loading = self._settle(page, cap=remaining) if remaining > 0 else ["new tab"]
+            # Page events can arrive while settling the opener, after click returned.
+            # Observe the new current page without repeating the action or its wait budget.
+            if self.page() is not page:
+                if core_common._now() < settle_deadline:
+                    continue
+                page, loading = self.page(), ["new tab"]
+            navigated = self._navigated_since(nav_before)
+            value_after = self._value_of(locator, masked) if (value and locator is not None) else None
+            result = self.act_envelope(page, action, target_line, before_lines, navigated=navigated, loading=loading,
+                                       value_after=value_after, max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES,
+                                       force_full=bool(args.get("snapshot")))
+            new_tab = result.get("new_tab") or new_tab
+            if self.page() is page:
+                if new_tab: result["new_tab"] = new_tab
+                return result
+            if core_common._now() >= settle_deadline:
+                raise core_common._tag(RuntimeError("The active tab kept changing during verification; inspect tabs and the receipt before another action."), "verification_unavailable")
 
     def h_click(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         ms = self._timeout_ms(timeout)

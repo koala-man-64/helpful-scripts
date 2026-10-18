@@ -287,6 +287,31 @@ def test_popup_becomes_the_new_current_tab(make_daemon, outer_text: str) -> None
 # text
 
 
+@pytest.mark.parametrize("observation", ["settle", "snapshot"])
+def test_popup_arriving_during_observation_is_reported_without_replaying_click(make_daemon, outer_text, monkeypatch, observation):
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    popup = FakePage(ctx, url="http://x/home.html", title="Home page")
+    daemon.dispatch("snapshot", {}, 1)
+    settled = []
+    def settle(candidate, cap):
+        settled.append(candidate)
+        if observation == "settle" and candidate is page:
+            ctx.emit("page", popup)
+        return []
+    original = daemon._serve_snapshot
+    def snapshot(candidate, **kwargs):
+        if observation == "snapshot" and candidate is page:
+            ctx.emit("page", popup)
+        return original(candidate, **kwargs)
+    monkeypatch.setattr(daemon, "_settle", settle)
+    monkeypatch.setattr(daemon, "_serve_snapshot", snapshot)
+    result = daemon.dispatch("click", {"target": "e4"}, 5)
+    assert result["url"] == popup.url and result["tab"] == 2
+    assert result["new_tab"]["url"] == popup.url
+    assert settled == [page, popup]
+    assert page.elements["e4"].calls == [("click", "left")]
+
+
 def test_text_concatenates_frames_with_a_header(make_daemon, outer_text: str) -> None:
     daemon, ctx, page = make_daemon(snapshot_text=outer_text)
     page.main_frame.body_text = "Outer body"
