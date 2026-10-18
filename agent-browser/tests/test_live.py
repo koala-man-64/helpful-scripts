@@ -126,7 +126,7 @@ def cli(live_home: Path) -> Cli:
 def ensure_running(cli: Cli) -> None:
     # A few tests stop or kill the daemon on purpose; every test starts from a running browser.
     if cli.ok("status")["running"] is not True:
-        assert cli.ok("start", "--headless")["status"] == "started"
+        assert cli.ok("start", "--headless")["status"] in {"started", "already_running"}
 
 
 # ---------------------------------------------------------------------------
