@@ -9,7 +9,7 @@ on:
       - 'agentic-ide-setup/profile/claude/settings.template.json'
       - '.github/workflows/agent-browser.yml'
   push:
-    branches: ['codex/agent-browser-expansion', 'codex/AB4183-*', 'main']
+    branches: ['main']
     paths:
       - 'agent-browser/**'
       - 'servicenow-client/**'

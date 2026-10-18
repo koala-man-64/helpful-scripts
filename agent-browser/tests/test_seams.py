@@ -97,8 +97,6 @@ def test_module_docstring_lists_every_env_var_the_code_reads() -> None:
 
 def test_source_is_python_310_syntax() -> None:
     compile(SOURCE, ab.__file__, "exec", flags=0, dont_inherit=True, optimize=0)
-    # `match` statements are 3.10+, which is the floor; anything newer (PEP 695 generics, `except*`) is not.
-    for node in ast.walk(TREE):
-        assert not isinstance(node, (ast.TryStar, ast.TypeAlias)), f"line {node.lineno}: syntax newer than Python 3.10"
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
-            assert not getattr(node, "type_params", None), f"line {node.lineno}: PEP 695 type parameters need Python 3.12"
+    # Ask the parser to enforce the floor without referring to AST node classes
+    # that do not exist on that interpreter (TryStar is 3.11, TypeAlias is 3.12).
+    ast.parse(SOURCE, filename=ab.__file__, feature_version=(3, 10))
