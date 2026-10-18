@@ -171,16 +171,185 @@ def _basic_auth_headers() -> dict[str, str]:
     return {"Authorization": f"Basic {token}"}
 
 
+def _auth_mode() -> str:
+    return (os.getenv("SERVICENOW_AUTH") or "basic").strip().lower()
+
+
 def _auth_headers() -> dict[str, str]:
-    mode = (os.getenv("SERVICENOW_AUTH") or "basic").strip().lower()
+    mode = _auth_mode()
     if mode == "basic":
         return _basic_auth_headers()
+    if mode == "browser":
+        # The browser transport uses its already-authenticated profile. Browser
+        # cookies and ServiceNow's g_ck token stay inside the browser daemon.
+        return {}
     raise _tag(
         RuntimeError(
-            f"Unsupported SERVICENOW_AUTH mode {mode!r}; only 'basic' is implemented. "
-            "OAuth support is a planned follow-up."
+            f"Unsupported SERVICENOW_AUTH mode {mode!r}; only 'basic' and "
+            "'browser' are implemented. OAuth support is a planned follow-up."
         ),
         "config",
+    )
+
+
+# These headers carry browser-managed authentication or anti-CSRF material.
+# They must never cross the bridge boundary in either direction.
+_BROWSER_SECRET_HEADERS = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "cookie2",
+        "set-cookie",
+        "set-cookie2",
+        "x-user-token",
+        "x-usertoken",
+        "x-csrf-token",
+        "x-xsrf-token",
+        "x-snc-csrf-token",
+    }
+)
+
+
+def _is_browser_secret_header(name: str) -> bool:
+    normalized = name.strip().lower().replace("_", "-")
+    return normalized in _BROWSER_SECRET_HEADERS or any(
+        marker in normalized
+        for marker in (
+            "authorization",
+            "auth",
+            "cookie",
+            "token",
+            "session",
+            "g-ck",
+        )
+    )
+
+
+def _browser_result_metadata(result: dict[str, Any]) -> dict[str, Any]:
+    """Keep only safe receipt and write-outcome metadata from the local bridge."""
+    metadata: dict[str, Any] = {}
+    for name in ("command_id", "receipt"):
+        value = result.get(name)
+        if isinstance(value, str) and value and len(value) <= 512 and not any(
+            ord(char) < 32 or ord(char) == 127 for char in value
+        ):
+            metadata[name] = value
+    executed = result.get("executed")
+    if type(executed) is bool:
+        metadata["executed"] = executed
+    write_outcome = result.get("write_outcome")
+    if write_outcome == "unknown":
+        metadata["write_outcome"] = write_outcome
+    return metadata
+
+
+def _attach_browser_metadata(exc: Exception, metadata: dict[str, Any]) -> Exception:
+    """Copy only safe receipt, execution, and outcome fields onto an exception."""
+    for name in ("command_id", "receipt", "executed", "write_outcome"):
+        value = metadata.get(name)
+        if name == "executed":
+            if type(value) is bool:
+                setattr(exc, name, value)
+        elif name == "write_outcome":
+            if value == "unknown":
+                setattr(exc, name, value)
+        elif isinstance(value, str) and value and len(value) <= 512 and not any(
+            ord(char) < 32 or ord(char) == 127 for char in value
+        ):
+            setattr(exc, name, value)
+    return exc
+
+
+def _browser_http_send(
+    request: urllib.request.Request,
+    timeout: float,
+    max_bytes: int = MAX_RESPONSE_BYTES,
+) -> HttpResponse:
+    """Send through an authenticated agent-browser profile without exporting secrets."""
+    try:
+        from agent_browser_core.client import browser_request
+    except ImportError as exc:
+        error = _tag(
+            RuntimeError(
+                "SERVICENOW_AUTH=browser requires the local agent-browser transport. "
+                "From the repository root, install it into this Python environment "
+                "with `python -m pip install -e agent-browser`, then retry."
+            ),
+            "config",
+        )
+        error.executed = False  # type: ignore[attr-defined]
+        raise error from exc
+
+    profile = (os.getenv("SERVICENOW_BROWSER_PROFILE") or "").strip() or None
+    request_headers = {
+        name: value
+        for name, value in request.header_items()
+        if not _is_browser_secret_header(name)
+    }
+    host = urllib.parse.urlsplit(request.full_url).netloc
+    result = browser_request(
+        method=request.get_method(),
+        url=request.full_url,
+        headers=request_headers,
+        body=request.data,
+        timeout=timeout,
+        max_bytes=max_bytes,
+        profile=profile,
+        session_id=None,
+        servicenow=True,
+    )
+    if not isinstance(result, dict):
+        raise _tag(
+            RuntimeError("Browser transport returned an invalid response."),
+            "validation",
+        )
+
+    metadata = _browser_result_metadata(result)
+    status = result.get("status")
+    raw_headers = result.get("headers")
+    body = result.get("body")
+    if type(status) is not int or not 100 <= status <= 599:
+        raise _attach_browser_metadata(_tag(
+            RuntimeError("Browser transport returned an invalid HTTP status."),
+            "validation",
+        ), metadata)
+    if not isinstance(raw_headers, dict) or any(
+        not isinstance(name, str) or not isinstance(value, str)
+        for name, value in raw_headers.items()
+    ):
+        raise _attach_browser_metadata(_tag(
+            RuntimeError("Browser transport returned invalid response headers."),
+            "validation",
+        ), metadata)
+    if not isinstance(body, bytes):
+        raise _attach_browser_metadata(_tag(
+            RuntimeError("Browser transport returned an invalid response body."),
+            "validation",
+        ), metadata)
+
+    if len(body) > max_bytes:
+        raise _attach_browser_metadata(_tag(
+            RuntimeError(
+                f"Response from {host} exceeded "
+                f"{max_bytes // (1024 * 1024)} MiB; narrow the request with "
+                "--fields or --limit."
+            ),
+            "validation",
+        ), metadata)
+    headers = {
+        name.lower(): value
+        for name, value in raw_headers.items()
+        if not _is_browser_secret_header(name)
+    }
+    return HttpResponse(
+        status=status,
+        headers=headers,
+        body=body,
+        command_id=metadata.get("command_id"),
+        receipt=metadata.get("receipt"),
+        executed=metadata.get("executed"),
+        write_outcome=metadata.get("write_outcome"),
     )
 
 
@@ -193,6 +362,10 @@ class HttpResponse:
     status: int
     headers: dict[str, str]  # lower-cased keys
     body: bytes
+    command_id: str | None = None
+    receipt: str | None = None
+    executed: bool | None = None
+    write_outcome: str | None = None
 
 
 # Module-level so tests can monkeypatch a recording fake here - the single seam
@@ -326,6 +499,68 @@ def _translate_http_error(
     return _tag(RuntimeError(text), "remote", resp.status)
 
 
+def _browser_exception_metadata(exc: Exception) -> dict[str, Any]:
+    details = getattr(exc, "details", None)
+    metadata = dict(details) if isinstance(details, dict) else {}
+    for name in ("command_id", "receipt", "executed", "write_outcome"):
+        if hasattr(exc, name):
+            metadata[name] = getattr(exc, name)
+    safe: dict[str, Any] = {}
+    for name in ("command_id", "receipt", "executed", "write_outcome"):
+        value = metadata.get(name)
+        if name == "executed":
+            if type(value) is bool:
+                safe[name] = value
+        elif name == "write_outcome":
+            if value == "unknown":
+                safe[name] = value
+        elif isinstance(value, str) and value and len(value) <= 512 and not any(
+            ord(char) < 32 or ord(char) == 127 for char in value
+        ):
+            safe[name] = value
+    return safe
+
+
+def _browser_unknown_write_outcome(
+    context: str,
+    *,
+    http_status: int | None = None,
+    metadata: dict[str, Any] | None = None,
+    reason: str | None = None,
+) -> Exception:
+    safe_metadata: dict[str, Any] = {}
+    if metadata is not None:
+        temporary = RuntimeError("")
+        _attach_browser_metadata(temporary, metadata)
+        safe_metadata = _browser_exception_metadata(temporary)
+
+    receipt = safe_metadata.get("receipt") or safe_metadata.get("command_id")
+    receipt_instruction = (
+        f"Inspect browser receipt {receipt!r} and verify the ServiceNow record "
+        "before any manual retry."
+        if receipt
+        else "Inspect the browser command receipt, if available, and verify the "
+        "ServiceNow record before any manual retry."
+    )
+    prefix = "Browser write outcome is unknown"
+    if http_status is not None:
+        prefix += f" after HTTP {http_status}"
+    if reason:
+        prefix += f" ({reason})"
+    hint = f"{receipt_instruction} Do not automatically replay this write."
+    error = _tag(
+        RuntimeError(f"{prefix} during {context}. {hint}"),
+        "unknown_write_outcome",
+        http_status,
+        hint,
+    )
+    return _attach_browser_metadata(error, safe_metadata)
+
+
+def _is_browser_uncertain_write_status(status: int) -> bool:
+    return status in (408, 429) or status >= 500
+
+
 class ServiceNowClient:
     """Thin sync client over the ServiceNow REST APIs (Table, Aggregate, Attachment).
 
@@ -339,10 +574,16 @@ class ServiceNowClient:
         base_url: str,
         auth_provider: Callable[[], dict[str, str]],
         timeout: float = DEFAULT_TIMEOUT,
+        transport: Callable[
+            [urllib.request.Request, float, int], HttpResponse
+        ]
+        | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self._auth_provider = auth_provider
         self.timeout = timeout
+        self._transport = transport
+        self._browser_auth = transport is _browser_http_send or _auth_mode() == "browser"
 
     # -- core -------------------------------------------------------------
 
@@ -410,11 +651,33 @@ class ServiceNowClient:
         attempt = 0
         while True:
             attempt += 1
-            resp = _http_send(req, self.timeout, max_bytes)
-            # A 429 was never executed server-side so any method may retry; a
-            # retried POST after a 5xx could duplicate a ticket, so 5xx retries
-            # are GET-only.
-            retryable = resp.status == 429 or (
+            # Resolve the default dynamically so existing tests and embedders
+            # can continue to replace the module-level transport seam.
+            sender = self._transport or _http_send
+            try:
+                resp = sender(req, self.timeout, max_bytes)
+            except Exception as exc:
+                if self._browser_auth and method != "GET":
+                    metadata = _browser_exception_metadata(exc)
+                    _attach_browser_metadata(exc, metadata)
+                    if metadata.get("executed") is False:
+                        raise
+                    message = str(exc).strip()
+                    reason = (
+                        message[:240]
+                        if message and not re.search(
+                            r"\b(retry|repeat|replay|try again)\b", message, re.I
+                        )
+                        else getattr(exc, "error_class", None)
+                    )
+                    raise _browser_unknown_write_outcome(
+                        f"{method} {path}", metadata=metadata, reason=reason
+                    ) from exc
+                raise
+            # Basic auth retains its historical 429 retry. Browser-auth writes
+            # never replay, because an intermediary may have lost an accepted
+            # request's response. Reads keep the existing safe retry behavior.
+            retryable = (resp.status == 429 and (method == "GET" or not self._browser_auth)) or (
                 resp.status in (502, 503, 504) and method == "GET"
             )
             if retryable and attempt < RETRY_ATTEMPTS:
@@ -427,7 +690,26 @@ class ServiceNowClient:
             if not parse:
                 return resp.body, resp
             return self._parse_success(resp, url), resp
-        raise _translate_http_error(resp, f"{method} {path}", table)
+        context = f"{method} {path}"
+        if (
+            self._browser_auth
+            and method != "GET"
+            and (
+                resp.write_outcome == "unknown"
+                or _is_browser_uncertain_write_status(resp.status)
+            )
+        ):
+            raise _browser_unknown_write_outcome(
+                context,
+                http_status=resp.status,
+                metadata={
+                    "command_id": resp.command_id,
+                    "receipt": resp.receipt,
+                    "executed": resp.executed,
+                    "write_outcome": resp.write_outcome,
+                },
+            )
+        raise _translate_http_error(resp, context, table)
 
     @staticmethod
     def _parse_success(resp: HttpResponse, url: str) -> Any:
@@ -696,10 +978,12 @@ def _client() -> ServiceNowClient:
     # Cached process-lifetime singleton; also the coarse test seam (tests clear
     # the cache and monkeypatch _http_send underneath it).
     timeout = os.getenv("SERVICENOW_TIMEOUT_SECONDS")
+    transport = _browser_http_send if _auth_mode() == "browser" else None
     return ServiceNowClient(
         base_url=_base_url(),
         auth_provider=_auth_headers,
         timeout=float(timeout) if timeout else DEFAULT_TIMEOUT,
+        transport=transport,
     )
 
 
@@ -2275,6 +2559,11 @@ def _emit_error(exc: Exception) -> None:
             "hint": getattr(exc, "hint", None),
         }
     }
+    if _auth_mode() == "browser":
+        metadata = _browser_exception_metadata(exc)
+        for name in ("command_id", "receipt", "executed", "write_outcome"):
+            if name in metadata:
+                payload["error"][name] = metadata[name]
     print(json.dumps(payload, indent=2, ensure_ascii=False), file=sys.stderr)
 
 

@@ -93,6 +93,15 @@ def test_429_retries_honoring_retry_after(transport):
     assert len(transport.requests) == 3
 
 
+def test_basic_post_429_keeps_legacy_retry_behavior(transport):
+    transport.queue_error(429, "Rate limit")
+    transport.queue_json({"created": True}, status=201)
+    assert snow._client().request("POST", "/x", json_body={"a": 1}) == {
+        "created": True
+    }
+    assert len(transport.requests) == 2
+
+
 def test_429_gives_up_after_three_attempts(transport):
     transport.queue_error(429, "Rate limit")
     with pytest.raises(RuntimeError) as excinfo:

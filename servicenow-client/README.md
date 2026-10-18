@@ -17,14 +17,23 @@ install python-dotenv`, and it runs. The folder exists for the tests.
 
 ## Quickstart
 
+Browser authentication retains raw response bodies under the owning agent-browser
+session's `outputs/` directory. They contain application data, count against the
+default 1 GiB profile evidence quota, and remain until explicitly cleared with
+`agent-browser commit journal --clear` for that session. Request staging files are
+transient. The response size setting is a post-download check: Playwright buffers
+the response, so it is not a hard memory limit. Browser writes with explicit
+`write_outcome: unknown` preserve receipt/execution metadata and require inspection
+before another attempt; they are never automatically replayed.
+
 ```powershell
 cd servicenow-client
 py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe -m pytest        # 171 offline tests, no credentials needed
+.\.venv\Scripts\python.exe -m pytest        # 187 offline tests, no credentials needed
 ```
 
-Add credentials to the repo-root `.env` (see Configuration), then:
+For basic auth, add credentials to the repo-root `.env` (see Configuration), then:
 
 ```powershell
 .\.venv\Scripts\snow.exe whoami
@@ -84,13 +93,16 @@ the `query` table argument.
   `validation`, `not_found` — and `guarded` when the refusal is
   per-invocation: missing `--force`, or a denylisted table). Exit `1` = fix
   config or retry (classes `config`, `auth`, `forbidden`, `rate_limited`,
-  `unavailable`, `remote` — and `guarded` when a standing policy gate refuses:
+  `unknown_write_outcome`, `unavailable`, `remote` — and `guarded` when a standing policy gate refuses:
   `SERVICENOW_READ_ONLY`, `SERVICENOW_ALLOW_DELETE`). Branch on the exit code
-  for who-fixes-it, on `class` for what happened.
+  for who-fixes-it, on `class` for what happened. Browser-auth write failures
+  may also include safe `command_id`, `receipt`, and `executed` metadata.
 - **Writes** report `fields_not_applied` when ServiceNow accepted the request
   (2xx) but silently dropped or rewrote a field — an ACL block or a business
   rule. Journal fields are exempt (they are never echoed back).
-- 429s are retried up to 3 attempts honoring `Retry-After` (capped 30s);
+- Basic-auth 429s are retried up to 3 attempts honoring `Retry-After` (capped 30s);
+  browser-auth writes are never retried automatically and explicit uncertain
+  outcomes use `unknown_write_outcome` with receipt-inspection guidance;
   502/503/504 retries are GET-only — **a POST is never auto-retried** (it could
   duplicate a ticket). Use `create --correlation-id <key>` to make orchestrator
   retries idempotent.
@@ -103,13 +115,20 @@ second default-path `load_dotenv` covers the copied-out-of-repo case).
 | Variable | Required | Meaning |
 |---|---|---|
 | `SERVICENOW_INSTANCE` | yes | Bare instance name (`dev12345`) or full `https://` URL. |
-| `SERVICENOW_USERNAME` | yes | Service-account user. |
-| `SERVICENOW_PASSWORD` | yes | Service-account password. There is deliberately no `--password` flag (argv leaks into process lists). |
-| `SERVICENOW_AUTH` | no | `basic` (default). `oauth` is reserved for a follow-up; the auth seam (`_auth_headers`) is the only place it will touch. |
+| `SERVICENOW_USERNAME` | basic | Service-account user. Not needed with browser auth. |
+| `SERVICENOW_PASSWORD` | basic | Service-account password. There is deliberately no `--password` flag (argv leaks into process lists). Not needed with browser auth. |
+| `SERVICENOW_AUTH` | no | `basic` (default) or `browser`. Browser auth uses an already-signed-in local agent-browser profile and needs no username or password. OAuth is reserved for a follow-up. |
+| `SERVICENOW_BROWSER_PROFILE` | no | Optional agent-browser profile name for browser auth. When omitted, agent-browser resolves its configured profile and session. |
 | `SERVICENOW_TIMEOUT_SECONDS` | no | Per-request timeout (default 30). |
 | `SERVICENOW_READ_ONLY` | no | `true` refuses every write **before any request is sent**. Recommended default for exploratory agent sessions. |
 | `SERVICENOW_ALLOW_DELETE` | no | Must be `true` for `delete` (in addition to `--force`). |
 | `SERVICENOW_MAX_ATTACHMENT_MB` | no | Attachment size cap (default 100). |
+
+Browser auth loads the optional bridge only when a request is made. Install the
+repository's `agent-browser` project into the same Python environment with
+`python -m pip install -e agent-browser` from the repository root, then sign in
+to the browser profile you want to use. The ServiceNow client sends neither
+username/password nor browser cookies or `g_ck` through its transport adapter.
 
 ### Service account & roles (the real security boundary)
 
@@ -137,7 +156,7 @@ change — a comment on a ticket emails its watch list.
 ## Validate (offline — no instance needed)
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest      # 171 tests; recording-fake transport, no network
+.\.venv\Scripts\python.exe -m pytest      # 187 tests; recording-fake transport, no network
 python servicenow_client.py tables        # works with zero configuration
 ```
 
@@ -166,9 +185,9 @@ One file, strictly layered — CLI handlers → high-level operations →
 
 | Section | Role |
 |---|---|
-| Transport (`HttpResponse`, `_http_send`) | The only code that touches the network; normalizes `HTTPError`, caps response size, detects hibernating dev instances. **The test seam** — tests monkeypatch it with a recording fake. |
-| `ServiceNowClient` | One `_request()` choke point: URL/params/headers, bounded retries (429 any method, 5xx GET-only), read-only refusal and dry-run preview enforced here so no layer can bypass them, central error translation preserving ServiceNow's `error.message`/`detail` and HTTP status verbatim. |
-| Auth seam (`_auth_headers`) | Basic today; OAuth later is one new branch + token cache, zero call-site changes. |
+| Transport (`HttpResponse`, `_http_send`, browser adapter) | Normalizes stdlib and browser responses, caps response size, detects hibernating dev instances and preserves safe browser receipts. **The test seam** — tests inject recording fakes; no instance requests are needed. |
+| `ServiceNowClient` | One `_request()` choke point: URL/params/headers, bounded mode-aware retries, read-only refusal and dry-run preview enforced here so no layer can bypass them, central error translation preserving ServiceNow's `error.message`/`detail` and HTTP status verbatim. |
+| Auth seam (`_auth_headers`) | Basic by default or optional browser-profile transport; OAuth can follow as another explicit branch. |
 | Registry (`TableConfig`, `TABLES`) | Pure data: prefixes, aliases, curated default fields, journal fields, state transitions. Instance quirks are one-row fixes. Unknown tables get a synthesized generic config. |
 | Operations | The importable API (`get_record`, `query_records`, `add_work_note`, ...). Write verification diffs payload vs response into `fields_not_applied`. |
 | CLI | argparse subcommands, JSON emit, error envelopes, truncation. |
@@ -179,7 +198,7 @@ or retry (exit 1). Messages say what to do next; ServiceNow's own error text is
 surfaced verbatim with its status code. Machine-readable `class`/`http_status`/
 `hint` ride on the exception for the CLI envelope — no custom exception classes.
 
-Tests (`tests/`): 171 offline tests mirroring the layers —
+Tests (`tests/`): 187 offline tests mirroring the layers —
 transport/retry/error translation, query building and pagination, identifier
 detection, registry invariants, operation payload shapes, guardrails
 (read-only/dry-run/delete gates/denylist), and CLI exit codes/envelopes via
