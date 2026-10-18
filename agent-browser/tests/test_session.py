@@ -90,20 +90,20 @@ def test_liveness_running_when_lock_held_and_ping_ok(monkeypatch: pytest.MonkeyP
     paths = core_common._paths("default")
     _touch_lock(paths)
     monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
-    monkeypatch.setattr(core_session, "_read_session", lambda p: {"port": 1, "token": "t"})
+    monkeypatch.setattr(core_session, "_read_session", lambda p: {"port": 1, "token": "t", "protocol_version": core_common.PROTOCOL_VERSION})
     monkeypatch.setattr(core_session, "_ping", lambda session, timeout=core_common.PING_TIMEOUT: {"pong": True})
     state, session = core_session._liveness(paths)
-    assert state == "running" and session == {"port": 1, "token": "t"}
+    assert state == "running" and session["port"] == 1
 
 
 def test_liveness_unresponsive_when_lock_held_and_ping_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     paths = core_common._paths("default")
     _touch_lock(paths)
     monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
-    monkeypatch.setattr(core_session, "_read_session", lambda p: {"port": 1, "token": "t"})
+    monkeypatch.setattr(core_session, "_read_session", lambda p: {"port": 1, "token": "t", "protocol_version": core_common.PROTOCOL_VERSION})
     monkeypatch.setattr(core_session, "_ping", lambda session, timeout=core_common.PING_TIMEOUT: None)
     state, session = core_session._liveness(paths)
-    assert state == "unresponsive" and session == {"port": 1, "token": "t"}
+    assert state == "unresponsive" and session["port"] == 1
 
 
 def test_liveness_starting_when_lock_held_and_no_session_yet(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -126,6 +126,40 @@ def test_liveness_none_when_nothing_present(tmp_path: Path) -> None:
     paths = core_common._paths("default")
     state, session = core_session._liveness(paths)
     assert state == "none" and session is None
+
+
+def test_command_connection_does_not_depend_on_a_short_health_probe(monkeypatch):
+    paths = core_common._paths("default")
+    _touch_lock(paths)
+    record = {"port": 1, "token": "t", "protocol_version": core_common.PROTOCOL_VERSION}
+    monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
+    monkeypatch.setattr(core_session, "_read_session", lambda p: record)
+    def refuse_probe(*args, **kwargs):
+        raise AssertionError("An action must use its own request, not a health probe")
+    monkeypatch.setattr(core_session, "_ping", refuse_probe)
+    assert core_session._require_running(paths, "click") is record
+
+
+@pytest.mark.parametrize("protocol", [None, 1, core_common.PROTOCOL_VERSION + 1])
+def test_incompatible_record_is_rejected_before_action_dispatch(monkeypatch, protocol):
+    paths = core_common._paths("default")
+    _touch_lock(paths)
+    monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
+    monkeypatch.setattr(core_session, "_read_session", lambda p: {"port": 1, "token": "t", "protocol_version": protocol})
+    with pytest.raises(RuntimeError) as exc:
+        core_session._require_running(paths, "click")
+    assert exc.value.error_class == "protocol_mismatch"
+
+
+def test_reused_start_health_check_uses_the_start_deadline(monkeypatch):
+    paths = core_common._paths("default")
+    _touch_lock(paths)
+    monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
+    monkeypatch.setattr(core_session, "_read_session", lambda p: {"port": 1, "token": "t", "protocol_version": core_common.PROTOCOL_VERSION})
+    deadlines = []
+    monkeypatch.setattr(core_session, "_ping", lambda record, timeout: deadlines.append(timeout) or {"pong": True})
+    assert core_session.start_session(paths, _start_args(), timeout=17)["status"] == "already_running"
+    assert deadlines == [17]
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +214,7 @@ def _start_args() -> argparse.Namespace:
 
 
 def _valid_session(paths: core_common.ProfilePaths, **overrides: Any) -> dict[str, Any]:
-    data = {"schema": 1, "profile": paths.profile, "pid": 9999, "port": 4444, "token": "tok",
+    data = {"schema": 1, "protocol_version": core_common.PROTOCOL_VERSION, "profile": paths.profile, "pid": 9999, "port": 4444, "token": "tok",
             "browser": "msedge", "browser_version": "119.0", "headless": True, "code_hash": core_common._code_hash()}
     data.update(overrides)
     return data

@@ -16,7 +16,7 @@ from typing import Any, Callable
 import pytest
 
 import agent_browser as ab
-from agent_browser_core import cli as core_cli, common as core_common, daemon as core_daemon
+from agent_browser_core import cli as core_cli, common as core_common, daemon as core_daemon, session as core_session
 from conftest import error_envelope
 
 def _raising_handler(exc: Exception) -> Callable[[argparse.Namespace], Any]:
@@ -186,6 +186,30 @@ def test_overflow_preserves_pending_operation_and_failed_write_metadata():
     details = {"command_id": command_id, "executed": True, "receipt": "state --command " + command_id}
     error = json.loads(core_cli._json_line({"error": {"class": "timeout", "message": "😀" * 15000, "details": details}}))
     assert error["error"]["details"] == details
+
+
+@pytest.mark.parametrize("request_fails", [False, True])
+def test_action_is_sent_once_without_preflight_health_requests(monkeypatch, request_fails):
+    paths = core_common._paths("default")
+    paths.lock.parent.mkdir(parents=True, exist_ok=True)
+    paths.lock.touch()
+    record = {"port": 1, "token": "t", "protocol_version": core_common.PROTOCOL_VERSION}
+    monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
+    monkeypatch.setattr(core_session, "_read_session", lambda p: record)
+    calls = []
+    def request(session, command, arguments, timeout, **kwargs):
+        calls.append(command)
+        if request_fails:
+            raise core_common._tag(RuntimeError("Ambiguous timeout"), core_common.ERR_TIMEOUT)
+        return {"ok": True}
+    monkeypatch.setattr(core_session, "_request", request)
+    args = argparse.Namespace(profile="default", session="caller", timeout=15, max_bytes=None)
+    if request_fails:
+        with pytest.raises(RuntimeError, match="Ambiguous timeout"):
+            core_cli._remote(args, "click", "click", {"target": "e1"})
+    else:
+        assert core_cli._remote(args, "click", "click", {"target": "e1"})["ok"]
+    assert calls == ["click"]
 
 
 def test_main_prints_non_ascii_result_without_raising(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
