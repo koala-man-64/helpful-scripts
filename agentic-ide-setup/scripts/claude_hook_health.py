@@ -83,8 +83,6 @@ def family(model: str) -> str:
 def classify_source(text: str) -> str:
     if text.startswith("Team workflow routing:"):
         return "router"
-    if "AGENTCOORD UNTRUSTED PEER MESSAGES" in text:
-        return "agentcoord peer messages"
     if text.startswith("Team workflow context:"):
         return "session context"
     if text.startswith("Task note"):

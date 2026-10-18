@@ -93,8 +93,8 @@ def test_missing_release_clone_is_reported(tmp_path):
 
 def settings_with(home: Path, *scripts: Path) -> Path:
     groups = [{"hooks": [{"type": "command", "command": f'py "{script}"'}]} for script in scripts]
-    agentcoord = {"hooks": [{"type": "command", "command": "C:\\agentcoord\\python.exe"}]}
-    return write(home / "settings.json", json.dumps({"hooks": {"Stop": groups + [agentcoord]}}))
+    foreign = {"hooks": [{"type": "command", "command": "C:\\foreign-tool\\python.exe"}]}
+    return write(home / "settings.json", json.dumps({"hooks": {"Stop": groups + [foreign]}}))
 
 
 def test_wiring_accepts_release_clone_and_flags_copied_or_missing_hooks(tmp_path):

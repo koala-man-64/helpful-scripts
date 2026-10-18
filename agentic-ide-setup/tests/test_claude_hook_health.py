@@ -77,7 +77,6 @@ def test_family_and_classify_source():
     assert hh.family("claude-haiku-5") == "haiku"
     assert hh.family("some-other-model") == "some-other-model"
     assert hh.classify_source("Team workflow routing:\nfoo") == "router"
-    assert hh.classify_source("blah AGENTCOORD UNTRUSTED PEER MESSAGES blah") == "agentcoord peer messages"
     assert hh.classify_source("Team workflow context:\nfoo") == "session context"
     assert hh.classify_source("Task note for AB1: still going") == "task note"
     assert hh.classify_source("Outstanding delivery waits (from earlier sessions):") == "waits"
@@ -333,10 +332,6 @@ def test_injected_context_classification_excludes_subagents(tmp_path):
                 content=["Team workflow routing:\n- Suggested lane: standard"],
             ),
             attachment(
-                "2026-08-01T08:01:00.000Z", "hook_additional_context", "UserPromptSubmit",
-                content=["blah AGENTCOORD UNTRUSTED PEER MESSAGES blah blah"],
-            ),
-            attachment(
                 "2026-08-01T08:02:00.000Z", "hook_additional_context", "SessionStart",
                 content=["Outstanding delivery waits (from earlier sessions):\n- one"],
             ),
@@ -371,7 +366,6 @@ def test_injected_context_classification_excludes_subagents(tmp_path):
     report = hh.scan_projects(projects, "2026-08-01", "2026-08-31")
     ctx = report["injected_context"]
     assert len(ctx["router"]) == 1
-    assert len(ctx["agentcoord peer messages"]) == 1
     assert len(ctx["waits"]) == 1
     assert len(ctx["task note"]) == 1
     assert len(ctx["session context"]) == 1
