@@ -286,13 +286,24 @@ def _cmd_output(args: argparse.Namespace) -> dict[str, Any]:
     paths = core_common.ProfilePaths(paths.profile, paths.root, core_common.session_identity(getattr(args, "session", None)))
     if args.offset < 0:
         raise core_common._tag(ValueError("--offset must be >= 0."), core_common.ERR_VALIDATION)
-    if args.id and not re.fullmatch(r"[a-f0-9]{32}", args.id):
+    if args.id and not re.fullmatch(r"r?[a-f0-9]{32}", args.id):
         raise core_common._tag(ValueError("Invalid output ID."), core_common.ERR_VALIDATION)
+    is_receipt = bool(args.id and args.id.startswith("r"))
     path = paths.outputs / (args.id + ".json") if args.id else paths.workspace / "last_output.json"
-    try:
-        data = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise core_common._tag(ValueError("Output not found."), core_common.ERR_NOT_FOUND) from exc
+    data = None
+    if not is_receipt:
+        try:
+            data = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise core_common._tag(ValueError("Output not found."), core_common.ERR_NOT_FOUND) from exc
+    if data is None:
+        command_id = args.id[1:] if is_receipt else args.id
+        receipt = evidence.read_receipt(paths.dir, core_common.session_identity(getattr(args, "session", None)), command_id) if command_id else None
+        if receipt is None:
+            raise core_common._tag(ValueError("Output not found or receipt is not complete."), core_common.ERR_NOT_FOUND)
+        data = json.dumps(receipt, ensure_ascii=False, separators=(",", ":"))
     page_size = min(3000, max(1, getattr(args, "page_size", 3000)))
     chunk = data[args.offset:args.offset + page_size]
     end = args.offset + len(chunk)
@@ -327,12 +338,14 @@ def _json_line(payload: Any, profile: str | None = None, session_id: str | None 
             output_id = secrets.token_hex(16)
             output_file = paths.outputs / (output_id + ".json")
     core_session._write_json_atomic(paths.workspace / "last_output.json", result, compact=True)
-    bounded = {k: result[k] for k in ("ok", "action", "effect", "observed", "command_id") if k in result}
+    bounded = {k: result[k] for k in ("ok", "action", "effect", "observed", "command_id", "session_id", "pending", "status", "executed", "receipt") if k in result}
     bounded.update(contract_version=core_common.CONTRACT_VERSION, truncated=True, output_id=output_id,
                    output_file=str(output_file), next_offset=0)
     if "error" in result:
+        original = result["error"].get("details") or {}
         bounded["error"] = {"class": result["error"].get("class"), "http_status": None,
-                            "message": "Error details exceeded the reply budget; read output by ID.", "hint": None}
+                            "message": "Error details exceeded the reply budget; read output by ID.", "hint": None,
+                            "details": {k: original[k] for k in ("command_id", "executed", "receipt") if k in original}}
     line = json.dumps(bounded, ensure_ascii=False, default=str, separators=(",", ":"))
     if len(line.encode("utf-8")) + 1 > byte_budget:
         bounded = {k: bounded[k] for k in ("contract_version", "truncated", "output_id", "next_offset")}

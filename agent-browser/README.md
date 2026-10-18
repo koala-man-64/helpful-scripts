@@ -135,6 +135,11 @@ Journal, masked screenshots, overflow JSON and raw API response files remain unt
 explicitly cleared. The default quota is 1 GiB/profile (`evidence_max_bytes`, minimum
 65536); reaching it blocks new audited mutations/captures while preserving inspection
 and explicit clear. `commit journal --clear` clears this session's evidence only.
+Journal pages return `next_offset`; state returns `command_next_offset`. Pass that
+value with `--offset`. A large receipt returns `r` plus its command ID as `output_id`;
+use `output --id ID --offset 0` to read the terminal receipt directly from SQLite.
+This read creates no evidence files and works at quota. The distinct receipt ID
+cannot be confused with an earlier pending-result overflow artifact.
 Entered text, JS, bodies and credentials are omitted from SQLite receipt arguments.
 Commit UI operations capture before/after screenshots. API response artifacts contain
 application data and count toward quota; transient request staging files are removed.

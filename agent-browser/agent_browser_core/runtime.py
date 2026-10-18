@@ -290,15 +290,16 @@ class OperatingMixin:
             if args.get("resolve") or observed:
                 self.journal.resolve_handoff(self.session_id, item["id"])
                 item["status"] = "resolved"
+        command_page = self.journal.page(self.session_id, args.get("command_id"), int(args.get("offset", 0)))
         return {"profile": self.profile, "session_id": self.session_id, "tabs": self._tabs(),
-                "commands": self.journal.rows(self.session_id, args.get("command_id")), "handoffs": handoffs,
+                "commands": command_page["commands"], "command_next_offset": command_page["next_offset"], "handoffs": handoffs,
                 "evidence_bytes": self.journal.usage(), "evidence_max_bytes": self.journal.quota,
                 "background_dialogs": self.sessions[self.session_id].get("dialogs", []),
                 "permission": self.config.get("permission", "commit"), "eval": self.config.get("eval", True) and self.config.get("permission", "commit") == "commit"}
 
     def h_journal(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         if not args.get("clear"):
-            return {"commands": self.journal.rows(self.session_id, args.get("command_id"), int(args.get("offset", 0)))}
+            return self.journal.page(self.session_id, args.get("command_id"), int(args.get("offset", 0)))
         for command_id, job in list(self.jobs.items()):
             if job["session"] == self.session_id:
                 self.jobs.pop(command_id)

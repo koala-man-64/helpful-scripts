@@ -52,6 +52,29 @@ def test_mcp_manual_handoff_resolution_uses_commit_dispatch(monkeypatch):
     assert kwargs["committing"] is True
 
 
+def test_mcp_can_inspect_and_page_receipts_when_quota_is_full(make_daemon, monkeypatch):
+    daemon, ctx, page = make_daemon()
+    monkeypatch.setenv("AGENT_BROWSER_HOME", str(daemon.paths.root))
+    monkeypatch.setattr(common, "_load_config", lambda: {"evidence_max_bytes": 65536})
+    for index in range(25):
+        command_id = f"{index:032x}"
+        daemon.journal.start(command_id, "manual", "read", {}, "http://x/")
+        daemon.journal.finish(command_id, "completed", {"expectations": [{"kind": "text", "passed": True}] * 2000})
+    daemon.journal.quota = 65536
+    monkeypatch.setattr(mcp_server.client, "invoke", lambda command, args, **kw: daemon.dispatch(command, args, 1))
+    async def run():
+        server = mcp_server.make_server()
+        reply = await server.call_tool("browser_read", {"operation": "journal", "session_id": "manual"})
+        data = reply.structuredContent
+        assert not data.get("truncated") and data["next_offset"] is not None
+        summary = next(row for row in data["commands"] if row.get("output_id"))
+        page = await server.call_tool("browser_output", {"session_id": "manual", "output_id": summary["output_id"]})
+        assert page.structuredContent["next_offset"] is not None
+        assert len(page.model_dump_json().encode()) < common.STDOUT_BUDGET
+    asyncio.run(run())
+    assert not daemon.paths.outputs.exists()
+
+
 def test_real_stdio_handshake_and_error_contract():
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client

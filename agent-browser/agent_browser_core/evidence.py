@@ -5,7 +5,7 @@ import json
 import sqlite3
 import secrets
 import os
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,7 @@ from . import common
 
 DEFAULT_QUOTA = 1024 ** 3
 PRIVATE_ARGS = frozenset({"text", "js", "body", "json", "fields", "dialog_text", "headers", "token"})
+INSPECTION_BUDGET = 4000  # leave room for the MCP text + structuredContent envelope
 
 
 def evidence_usage(directory: Path) -> int:
@@ -31,6 +32,21 @@ def evidence_usage(directory: Path) -> int:
 def require_space(directory: Path, quota: int, additional: int = 0) -> None:
     if evidence_usage(directory) + additional >= quota:
         raise common._tag(RuntimeError("Evidence quota reached; inspect journal/state and explicitly clear evidence before another mutation."), "journal_full")
+
+
+def read_receipt(directory: Path, session: str, command_id: str) -> dict[str, Any] | None:
+    """Read a terminal receipt without initializing the journal or changing recovery state."""
+    path = directory / "journal.sqlite3"
+    if not path.exists():
+        return None
+    try:
+        with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)) as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute("SELECT * FROM commands WHERE session=? AND id=? AND status IN ('completed','failed','unknown')",
+                             (session, command_id)).fetchone()
+        return dict(row) if row else None
+    except sqlite3.Error as exc:
+        raise common._tag(RuntimeError("Journal storage cannot be read."), "journal_unavailable") from exc
 
 
 class Journal:
@@ -93,6 +109,24 @@ class Journal:
             rows = db.execute("SELECT * FROM commands WHERE session=? AND (? IS NULL OR id=?) ORDER BY rowid DESC LIMIT ? OFFSET ?",
                               (session, command_id, command_id, min(max(limit, 1), 100), max(offset, 0))).fetchall()
         return [dict(row) for row in rows]
+
+    def page(self, session: str, command_id: str | None = None, offset: int = 0) -> dict[str, Any]:
+        """Bound inspection in memory; existing receipts provide paging even at quota."""
+        rows = self.rows(session, command_id, offset)
+        commands, used = [], 0
+        for row in rows:
+            size = len(json.dumps(row, ensure_ascii=False).encode("utf-8"))
+            if size > INSPECTION_BUDGET:
+                row = {"id": row["id"], "verb": common.sanitize_text(row["verb"], 160),
+                       "started": row["started"], "status": row["status"], "truncated": True,
+                       "output_id": "r" + row["id"], "receipt_pending": row["status"] in {"running", "pending"}}
+                size = len(json.dumps(row, ensure_ascii=False).encode("utf-8"))
+            if commands and used + size > INSPECTION_BUDGET:
+                break
+            commands.append(row)
+            used += size
+        more = len(commands) < len(rows) or not command_id and len(rows) == 25
+        return {"commands": commands, "next_offset": max(offset, 0) + len(commands) if more else None}
 
     def handoff(self, session: str, reason: str, condition: dict[str, Any]) -> str:
         handoff_id = secrets.token_hex(16)
