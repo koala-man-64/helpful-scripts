@@ -307,10 +307,10 @@ def test_table_returns_clickable_iframe_row_refs(cli: Cli, site: _Site) -> None:
     assert result["columns"] == ["Item", "Owner"]
     assert result["rows"][0]["cells"] == ["Review", "Rudy"]
     row_ref = result["rows"][0]["ref"]
-    assert row_ref.startswith("f1e"), row_ref
+    assert re.fullmatch(r"f\d+e\d+", row_ref), row_ref
     current_snapshot = cli.ok("snapshot", "--full", "--session", session)
     row_lines = [line for line in current_snapshot.get("snapshot", [])
-                 if re.search(r"^\s*- row(?: |\[|:)", line) and "Review" in line and "[ref=" in line]
+                 if re.search(r"^\s*- row(?: |\[|:)", line) and f"[ref={row_ref}]" in line]
     assert row_lines, current_snapshot.get("snapshot")
     current_row_ref = re.search(r"\[ref=([^\]]+)\]", row_lines[0]).group(1)
     assert current_row_ref == row_ref, {"table_ref": row_ref, "snapshot_row": row_lines[0]}

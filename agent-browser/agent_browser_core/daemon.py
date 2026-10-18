@@ -469,6 +469,19 @@ class BrowserEngine:
             frames.append({"prefix": prefix, "ref": line.ref, "name": core_common.sanitize_text(label, 80),
                            "url": core_common.redact_url(frame.url) if frame is not None else "",
                            "same_origin": (_origin(frame.url) == page_origin) if frame is not None else None})
+        # Newer Playwright versions can prefix main-frame refs too. Resolve each
+        # remaining prefix through its actual element owner, including scoped trees.
+        seen = set(by_prefix)
+        for line in lines:
+            if not line.prefix or line.prefix in seen:
+                continue
+            seen.add(line.prefix)
+            try:
+                frame = page.locator("aria-ref=" + line.ref).element_handle(timeout=1000).owner_frame()
+                if frame in page.frames:
+                    by_prefix[line.prefix] = frame
+            except Exception:  # noqa: BLE001 - absent/moving elements remain stale
+                pass
         return by_prefix, frames, names, prefixes
 
     def _serve_snapshot(self, page: Any, *, full: bool = False, find: str | None = None, scope: str | None = None) -> Served:

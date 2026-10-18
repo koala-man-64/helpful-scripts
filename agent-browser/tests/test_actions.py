@@ -75,6 +75,21 @@ def test_click_after_frame_navigation_is_stale_ref(make_daemon, outer_text: str)
     assert exc.value.error_class == core_common.ERR_STALE_REF
 
 
+@pytest.mark.parametrize("belongs_to_page", [True, False])
+def test_prefixed_main_frame_refs_use_the_element_owner(make_daemon, monkeypatch, belongs_to_page):
+    from types import SimpleNamespace
+    daemon, ctx, page = make_daemon(snapshot_text='- generic [ref=f9e1]:\n  - button "Save" [ref=f9e2]')
+    owner = page.main_frame if belongs_to_page else object()
+    monkeypatch.setattr(FakeLocator, "element_handle", lambda self, timeout=None: SimpleNamespace(owner_frame=lambda: owner))
+    daemon.dispatch("snapshot", {}, 1)
+    if belongs_to_page:
+        assert daemon.dispatch("click", {"target": "f9e2"}, 1)["ok"]
+        page.emit("framenavigated", page.main_frame)
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("click", {"target": "f9e2"}, 1)
+    assert exc.value.error_class == core_common.ERR_STALE_REF
+
+
 def test_click_heals_a_zero_count_ref_before_giving_up(make_daemon, outer_text: str) -> None:
     daemon, ctx, page = make_daemon(snapshot_text=outer_text)
     daemon.dispatch("snapshot", {}, 5.0)
