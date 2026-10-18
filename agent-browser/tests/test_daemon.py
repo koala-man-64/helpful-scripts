@@ -146,6 +146,22 @@ def test_protocol_mismatch_requires_explicit_restart(daemon_server):
     assert "restart" in reply["error"]["message"]
 
 
+def test_oversized_error_preserves_write_receipt_when_output_storage_is_full(monkeypatch):
+    from io import BytesIO
+    from types import SimpleNamespace
+    from agent_browser_core import cli
+    def full(*args, **kwargs):
+        raise core_common._tag(RuntimeError("quota"), "journal_full")
+    monkeypatch.setattr(cli, "_json_line", full)
+    handler = SimpleNamespace(server=SimpleNamespace(daemon=SimpleNamespace(profile="default", session_id="manual")), wfile=BytesIO())
+    command_id = "a" * 32
+    core_daemon._Handler._reply(handler, {"ok": False, "error": {"class": "timeout", "message": "😀" * 30000,
+                                         "details": {"command_id": command_id, "executed": True}}})
+    reply = json.loads(handler.wfile.getvalue())
+    assert reply["error"]["details"] == {"command_id": command_id, "executed": True, "receipt": "state --command " + command_id}
+    assert len(handler.wfile.getvalue()) <= core_common.STDOUT_BUDGET
+
+
 def test_complete_wire_reply_is_bounded_with_recoverable_output(daemon_server):
     daemon_server.large_next_ping.set()
     message = {**daemon_server.session, "cmd": "ping", "protocol_version": core_common.PROTOCOL_VERSION}

@@ -160,3 +160,60 @@ def test_full_quota_still_allows_explicit_clear_and_reclaims_journal_space(make_
     assert result["cleared_commands"] == 300
     assert daemon.journal.path.stat().st_size < before
     assert daemon.journal.usage() < daemon.journal.quota
+
+
+def test_full_quota_keeps_large_receipts_readable_without_new_artifacts(make_daemon, monkeypatch):
+    from argparse import Namespace
+    from agent_browser_core import cli
+    daemon, ctx, page = make_daemon()
+    monkeypatch.setenv("AGENT_BROWSER_HOME", str(daemon.paths.root))
+    for index in range(30):
+        daemon.journal.start(f"{index:032x}", "manual", "read", {"target": "x" * 160}, "http://x/")
+        daemon.journal.finish(f"{index:032x}", "completed", {"effect": "none"})
+    command_id = "a" * 32
+    daemon.journal.start(command_id, "manual", "commit click", {}, "http://x/")
+    daemon.journal.finish(command_id, "failed", {"executed": True, "expectations": [{"kind": "text", "passed": False}] * 2000})
+    daemon.journal.quota = 0
+    listing = daemon.dispatch("journal", {}, 1)
+    assert listing["next_offset"] is not None
+    receipt = next(row for row in listing["commands"] if row["id"] == command_id)
+    assert receipt["output_id"] == "r" + command_id and receipt["truncated"]
+    assert len(cli._json_line(listing).encode()) < common.STDOUT_BUDGET
+    chunks, offset = [], 0
+    while offset is not None:
+        result = cli._cmd_output(Namespace(profile=daemon.profile, session="manual", id=receipt["output_id"], offset=offset))
+        chunks.append(result["chunk"])
+        offset = result["next_offset"]
+        daemon.dispatch("ping", {}, 1)  # concurrent receipts cannot change the terminal one
+    recovered = json.loads("".join(chunks))
+    assert recovered["id"] == command_id
+    assert json.loads(recovered["outcome"])["executed"] is True
+    assert not daemon.paths.outputs.exists()
+
+
+def test_receipt_paging_is_session_scoped_and_does_not_change_pending_state(make_daemon, monkeypatch):
+    from argparse import Namespace
+    from agent_browser_core import cli
+    daemon, ctx, page = make_daemon()
+    monkeypatch.setenv("AGENT_BROWSER_HOME", str(daemon.paths.root))
+    daemon.journal.start("b" * 32, "manual", "commit api", {}, "http://x/")
+    daemon.journal.start("c" * 32, "other", "read", {}, "http://x/")
+    daemon.journal.finish("c" * 32, "completed", {"effect": "none"})
+    for command_id in ("b" * 32, "c" * 32):
+        with pytest.raises(ValueError, match="not found"):
+            cli._cmd_output(Namespace(profile=daemon.profile, session="manual", id=command_id, offset=0))
+    assert daemon.journal.rows("manual", "b" * 32)[0]["status"] == "running"
+
+
+def test_terminal_receipt_id_cannot_return_a_prior_pending_artifact(make_daemon, monkeypatch):
+    from argparse import Namespace
+    from agent_browser_core import cli
+    daemon, ctx, page = make_daemon()
+    monkeypatch.setenv("AGENT_BROWSER_HOME", str(daemon.paths.root))
+    command_id = "d" * 32
+    daemon.journal.start(command_id, "manual", "commit click", {}, "http://x/")
+    daemon.journal.finish(command_id, "completed", {"executed": True})
+    daemon.paths.outputs.mkdir(parents=True)
+    (daemon.paths.outputs / (command_id + ".json")).write_text('{"pending":true}', encoding="utf-8")
+    result = cli._cmd_output(Namespace(profile=daemon.profile, session="manual", id="r" + command_id, offset=0))
+    assert json.loads(result["chunk"])["status"] == "completed"
