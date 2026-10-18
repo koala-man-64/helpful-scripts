@@ -285,7 +285,7 @@ class RuleTests(GuardTestCase):
             ("Bash", "env | grep -i azure", "deny"),
             ("Bash", "env | cut -d= -f2", "deny"),
             ("Bash", "env | grep PAT | sed 's/x/y/'", "deny"),
-            ("Bash", "env | grep -i ^AGENTCOORD | sed 's/\\(TOKEN\\|SECRET\\|KEY\\)=.*/\\1=<redacted>/'", "deny"),
+            ("Bash", "env | grep -i ^MYAPP | sed 's/\\(TOKEN\\|SECRET\\|KEY\\)=.*/\\1=<redacted>/'", "deny"),
             ("Bash", "env | grep -iE 'CLAUDE|CODEX' | sed -E 's/(TOKEN|KEY|SECRET)=.*/\\1=<redacted>/'", "deny"),
             ("Bash", "env | sed 's/^\\([^=]*\\)=.*/\\1/'", "allow"),
             ("Bash", "env | sed -E 's/^([^=]*)=.*$/\\1/'", "allow"),
