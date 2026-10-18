@@ -35,10 +35,9 @@ def test_version_prints_tool_and_version_and_exits_zero(capsys: pytest.CaptureFi
     assert capsys.readouterr().out.strip() == f"{core_common.TOOL_NAME} {core_common.TOOL_VERSION}"
 
 def test_unknown_verb_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc:
-        core_cli.main(["frobnicate"])
-    assert exc.value.code == 2
-    assert "invalid choice" in capsys.readouterr().err
+    assert core_cli.main(["frobnicate"]) == 2
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["contract_version"] == 1 and payload["error"]["class"] == "usage"
 
 # ---------------------------------------------------------------------------
 # The error envelope contract (repo-wide: ValueError=2, RuntimeError=1, timeout class=124)
@@ -177,6 +176,17 @@ def test_demangle_msys_through_main_reaches_the_handler(monkeypatch: pytest.Monk
 
 # ---------------------------------------------------------------------------
 # UTF-8 stdout when stdout is a pipe (not a tty)
+
+def test_overflow_preserves_pending_operation_and_failed_write_metadata():
+    command_id = "e" * 32
+    pending = json.loads(core_cli._json_line({"command_id": command_id, "session_id": "manual", "executed": True,
+                                             "pending": True, "status": "pending", "body": "😀" * 15000}))
+    assert pending["pending"] and pending["executed"] and pending["command_id"] == command_id
+    assert pending["session_id"] == "manual" and pending["status"] == "pending"
+    details = {"command_id": command_id, "executed": True, "receipt": "state --command " + command_id}
+    error = json.loads(core_cli._json_line({"error": {"class": "timeout", "message": "😀" * 15000, "details": details}}))
+    assert error["error"]["details"] == details
+
 
 def test_main_prints_non_ascii_result_without_raising(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setattr(core_cli, "_cmd_status", lambda args: {"title": "caf\u00e9 \u2713 \U0001F600"})

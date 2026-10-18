@@ -18,7 +18,7 @@ from typing import Any, Callable, Iterable, Sequence
 from . import common as core_common, daemon as core_daemon
 
 
-def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
+def _write_json_atomic(path: Path, data: dict[str, Any], *, compact: bool = False) -> None:
     """Atomic, owner-only write: the session file carries the daemon token."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if not core_common._is_windows():
@@ -26,11 +26,31 @@ def _write_json_atomic(path: Path, data: dict[str, Any]) -> None:
             os.chmod(path.parent, 0o700)
         except OSError:
             pass
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(json.dumps(data, indent=1))
-    os.replace(tmp, path)
+    tmp = path.with_suffix(path.suffix + "." + secrets.token_hex(8) + ".tmp")
+    write_lock = None
+    try:
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, ensure_ascii=not compact, indent=None if compact else 1,
+                                    separators=(",", ":") if compact else None))
+        deadline = core_common._now() + 2
+        while write_lock is None:
+            write_lock = core_common._try_lock(path.with_suffix(path.suffix + ".write.lock"))
+            if write_lock is None:
+                if core_common._now() >= deadline:
+                    raise OSError("Timed out preserving the latest output pointer.")
+                core_common._sleep(.02)
+        while True:
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if core_common._now() >= deadline:
+                    raise
+                core_common._sleep(.02)
+    finally:
+        core_common._release_lock(write_lock)
+        tmp.unlink(missing_ok=True)
 
 
 def _read_session(paths: core_common.ProfilePaths) -> dict[str, Any] | None:
@@ -44,18 +64,25 @@ def _read_session(paths: core_common.ProfilePaths) -> dict[str, Any] | None:
 def _ping(session: dict[str, Any], timeout: float = core_common.PING_TIMEOUT) -> dict[str, Any] | None:
     try:
         return _request(session, "ping", {}, timeout=timeout, grace=0.0)
-    except (RuntimeError, ValueError, OSError):
+    except (RuntimeError, ValueError, OSError) as exc:
+        if getattr(exc, "error_class", None) == "protocol_mismatch":
+            raise
         return None
 
 
 def _liveness(paths: core_common.ProfilePaths) -> tuple[str, dict[str, Any] | None]:
-    """running | unresponsive | starting | stale | none, with the session record when there is one."""
+    """running | incompatible | unresponsive | starting | stale | none, plus the session record."""
     held = core_common._lock_held(paths.lock) if paths.lock.exists() else False
     session = _read_session(paths)
     if held:
         if session is None:
             return "starting", None
-        return ("running", session) if _ping(session) is not None else ("unresponsive", session)
+        try:
+            return ("running", session) if _ping(session) is not None else ("unresponsive", session)
+        except RuntimeError as exc:
+            if getattr(exc, "error_class", None) == "protocol_mismatch":
+                return "incompatible", session
+            raise
     if session is not None:
         return "stale", session
     return "none", None
@@ -69,7 +96,7 @@ def _running_profiles() -> list[str]:
     for entry in sorted(root.iterdir()):
         if entry.is_dir() and core_common.PROFILE_RE.match(entry.name) and entry.name not in core_common.RESERVED_PROFILES:
             lock = entry / "session.lock"
-            if lock.exists() and core_common._lock_held(lock) and (entry / "core_session.json").is_file():
+            if lock.exists() and core_common._lock_held(lock) and (entry / "session.json").is_file():
                 names.append(entry.name)
     return names
 
@@ -80,18 +107,11 @@ def _resolve_profile(explicit: str | None, sticky: bool = True) -> str:
     env = os.getenv("AGENT_BROWSER_PROFILE")
     if env:
         return core_common._validate_profile(env)
-    if sticky:
-        running = _running_profiles()
-        if len(running) == 1:
-            return running[0]
-        if len(running) > 1:
-            raise core_common._tag(ValueError("Several profiles are running: " + ", ".join(running)), core_common.ERR_AMBIGUOUS_PROFILE,
-                       hint=core_common._hint("ambiguous_profile"), details={"profiles": running})
     return core_common.DEFAULT_PROFILE
 
 
 def _request(session: dict[str, Any], cmd: str, args: dict[str, Any], timeout: float, grace: float = core_common.CLIENT_GRACE) -> dict[str, Any]:
-    payload = json.dumps({"token": session["token"], "cmd": cmd, "args": args, "timeout": timeout}) + "\n"
+    payload = json.dumps({"token": session["token"], "cmd": cmd, "args": args, "timeout": timeout, "protocol_version": core_common.PROTOCOL_VERSION, "session_id": core_common.session_identity(args.get("_session_id"))}) + "\n"
     try:
         with socket.create_connection(("127.0.0.1", int(session["port"])), timeout=3.0) as sock:
             sock.settimeout(timeout + grace)
@@ -108,6 +128,8 @@ def _request(session: dict[str, Any], cmd: str, args: dict[str, Any], timeout: f
         reply = json.loads(line.decode("utf-8"))
     except ValueError as exc:
         raise core_common._tag(RuntimeError("The daemon sent a malformed reply."), core_common.ERR_DAEMON) from exc
+    if reply.get("protocol_version") != core_common.PROTOCOL_VERSION:
+        raise core_common._tag(RuntimeError("Client and daemon protocols differ; restart explicitly."), "protocol_mismatch")
     if reply.get("ok"):
         return reply.get("result") or {}
     _raise_remote(reply.get("error") or {}, session.get("profile", core_common.DEFAULT_PROFILE))
@@ -125,6 +147,8 @@ def _raise_remote(error: dict[str, Any], profile: str) -> None:
 
 def _require_running(paths: core_common.ProfilePaths, verb: str) -> dict[str, Any]:
     state, session = _liveness(paths)
+    if state == "incompatible":
+        raise _restart_required(paths)
     if state == "running" and session is not None:
         return session
     if state == "starting":
@@ -140,6 +164,11 @@ def _require_running(paths: core_common.ProfilePaths, verb: str) -> dict[str, An
     if state == "stale":
         paths.session.unlink(missing_ok=True)
     raise core_common._tag(RuntimeError(f"No browser is running for profile {paths.profile!r} ({verb} needs one)."), core_common.ERR_NOT_RUNNING, hint=core_common._hint("not_running", paths.profile))
+
+
+def _restart_required(paths: core_common.ProfilePaths) -> RuntimeError:
+    return core_common._tag(RuntimeError("Client and daemon protocols differ; an explicit profile restart is required."), "protocol_mismatch",
+                            hint=core_common._hint("protocol_mismatch", paths.profile))
 
 
 def _launch_record(paths: core_common.ProfilePaths, args: argparse.Namespace, token: str) -> dict[str, Any]:
@@ -160,6 +189,8 @@ def _launch_record(paths: core_common.ProfilePaths, args: argparse.Namespace, to
 
 def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, timeout: float = core_common.START_TIMEOUT) -> dict[str, Any]:
     state, session = _liveness(paths)
+    if state == "incompatible":
+        raise _restart_required(paths)
     if state == "running" and session is not None:
         pong = _ping(session) or {}
         return {"profile": paths.profile, "status": "already_running", "pid": session.get("pid"), "port": session.get("port"),
@@ -215,11 +246,13 @@ def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, tim
 
 def stop_session(paths: core_common.ProfilePaths, force: bool = False) -> dict[str, Any]:
     state, session = _liveness(paths)
+    if state == "incompatible" and not force:
+        raise _restart_required(paths)
     result: dict[str, Any] = {"profile": paths.profile, "stopped": False, "killed_pids": []}
     pid = int(session.get("pid") or 0) if session else 0
     if state == "running" and session is not None and not force:
         try:
-            _request(session, "stop", {}, timeout=core_common.STOP_GRACE)
+            _request(session, "stop", {"all": True}, timeout=core_common.STOP_GRACE)
         except (RuntimeError, ValueError) as exc:
             core_common._log(f"stop request failed: {exc}")
         deadline = core_common._now() + core_common.STOP_GRACE
@@ -228,11 +261,11 @@ def stop_session(paths: core_common.ProfilePaths, force: bool = False) -> dict[s
         result["stopped"] = True
     # The recorded pid is only trusted while the daemon holds the lock (running/unresponsive/starting);
     # a stale record may name a pid that the OS has since given to an unrelated process.
-    if pid and state in ("running", "unresponsive", "starting") and core_common._pid_alive(pid):
+    if pid and state in ("running", "incompatible", "unresponsive", "starting") and core_common._pid_alive(pid):
         core_common._kill_tree(pid)
         result["killed_pids"].append(pid)
         result["stopped"] = True
-    if state in ("running", "unresponsive", "stale", "starting"):
+    if state in ("running", "incompatible", "unresponsive", "stale", "starting"):
         # Chromium's helper processes (--type=...) follow the main process out; give them a moment so a
         # `status`/`clean` right after `stop` does not see a browser that is still winding down.
         deadline = core_common._now() + 4.0
@@ -247,8 +280,8 @@ def stop_session(paths: core_common.ProfilePaths, force: bool = False) -> dict[s
 def status_session(paths: core_common.ProfilePaths) -> dict[str, Any]:
     state, session = _liveness(paths)
     if state != "running" or session is None:
-        reason = {"none": "no_session", "stale": "pid_dead", "unresponsive": "unresponsive", "starting": "starting"}[state]
-        hint = core_common._hint("daemon_unresponsive" if state == "unresponsive" else "not_running", paths.profile)
+        reason = {"none": "no_session", "stale": "pid_dead", "unresponsive": "unresponsive", "starting": "starting", "incompatible": "protocol_mismatch"}[state]
+        hint = _restart_required(paths).hint if state == "incompatible" else core_common._hint("daemon_unresponsive" if state == "unresponsive" else "not_running", paths.profile)
         return {"profile": paths.profile, "running": False, "reason": reason, "hint": hint}
     pong = _ping(session, timeout=1.0) or {}
     started = session.get("started")
@@ -289,7 +322,7 @@ def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = 
                 paths.session.unlink(missing_ok=True)
         if state in ("stale", "none"):
             out["killed_pids"].extend(core_common._kill_browsers_using(paths.user_data, dry_run=dry_run))
-        for folder in (paths.shots, paths.downloads):
+        for folder in (paths.downloads,):
             if folder.is_dir():
                 for item in folder.iterdir():
                     try:
@@ -300,10 +333,14 @@ def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = 
                     except OSError:
                         pass
         if purge == entry.name:
-            if state in ("running", "starting", "unresponsive"):
+            if state in ("running", "incompatible", "starting", "unresponsive"):
                 raise core_common._tag(ValueError(f"Profile {entry.name!r} is running; refusing to purge."), core_common.ERR_VALIDATION, hint=core_common._hint("purge_running", entry.name))
             out["profiles_purged"].append(entry.name)
             if not dry_run:
+                resolved = paths.dir.resolve()
+                intended = (core_common._home() / "profiles").resolve()
+                if resolved.parent != intended or resolved.name != entry.name:
+                    raise core_common._tag(ValueError("Unsafe profile purge path."), core_common.ERR_GUARDED)
                 core_common._rmtree_retry(paths.dir)
     if purge and purge not in out["profiles_purged"]:
         raise core_common._tag(ValueError(f"No profile named {purge!r}."), core_common.ERR_NOT_FOUND, hint=core_common._hint("no_such_profile"))
@@ -465,6 +502,7 @@ def focus_window(paths: core_common.ProfilePaths) -> dict[str, Any]:
             return {"profile": paths.profile, "focused": False, "reason": "no visible window"}
         user32.ShowWindow(found[0], 9)  # SW_RESTORE
         ok = bool(user32.SetForegroundWindow(found[0]))
-        return {"profile": paths.profile, "focused": ok, "windows": len(found)}
+        flashed = bool(user32.FlashWindow(found[0], True))
+        return {"profile": paths.profile, "focused": ok, "flashed": flashed, "windows": len(found)}
     except Exception as exc:  # noqa: BLE001
         return {"profile": paths.profile, "focused": False, "reason": core_common.sanitize_text(str(exc), 200)}

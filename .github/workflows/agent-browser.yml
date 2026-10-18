@@ -1,0 +1,56 @@
+name: Agent browser and ServiceNow
+
+on:
+  pull_request:
+    paths:
+      - 'agent-browser/**'
+      - 'servicenow-client/**'
+      - 'agentic-ide-setup/profile/claude/skills/agent-browser/**'
+      - 'agentic-ide-setup/profile/claude/settings.template.json'
+      - '.github/workflows/agent-browser.yml'
+  push:
+    branches: ['main']
+    paths:
+      - 'agent-browser/**'
+      - 'servicenow-client/**'
+      - 'agentic-ide-setup/profile/claude/skills/agent-browser/**'
+      - 'agentic-ide-setup/profile/claude/settings.template.json'
+      - '.github/workflows/agent-browser.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-browser-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e "./agent-browser[dev,mcp]" -e "./servicenow-client[dev]"
+      - run: python -m pytest -q
+        working-directory: agent-browser
+      - run: python -m pytest -q
+        working-directory: servicenow-client
+
+  local-browser:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+      - run: python -m pip install -e "./agent-browser[dev,mcp]"
+      - run: python -m pytest -q -m live
+        working-directory: agent-browser
+        env:
+          AGENT_BROWSER_LIVE: '1'

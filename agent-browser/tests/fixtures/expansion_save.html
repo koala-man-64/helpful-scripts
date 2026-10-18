@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Save action</title></head>
+<body>
+  <button id="save" type="button">Save</button>
+  <output id="count">0</output>
+  <output id="state">waiting</output>
+  <script>
+    document.querySelector('#save').addEventListener('click', async () => {
+      const count = document.querySelector('#count');
+      count.textContent = String(Number(count.textContent) + 1);
+      const response = await fetch('/save', {method: 'POST'});
+      document.querySelector('#state').textContent = response.ok ? 'saved' : 'save failed';
+    });
+  </script>
+</body>
+</html>

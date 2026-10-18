@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Ambiguous controls</title></head>
+<body>
+  <button type="button" onclick="document.querySelector('#main-result').textContent='main:1'">Save</button>
+  <output id="main-result">main:0</output>
+  <iframe name="dialog_frame" title="Dialog" src="expansion_ambiguous_inner.html"></iframe>
+</body>
+</html>
