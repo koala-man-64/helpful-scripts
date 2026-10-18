@@ -68,7 +68,7 @@ CONTRACT_VERSION = 1
 PROTOCOL_VERSION = 2
 
 
-TESTED_PLAYWRIGHT = ("1.61",)          # aria_snapshot(mode="ai") + aria-ref engine verified on these lines
+TESTED_PLAYWRIGHT = ("1.61", "1.64")   # aria_snapshot(mode="ai") + aria-ref engine verified on these lines
 
 
 SESSION_SCHEMA = 1
