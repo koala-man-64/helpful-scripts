@@ -70,22 +70,32 @@ def _ping(session: dict[str, Any], timeout: float = core_common.PING_TIMEOUT) ->
         return None
 
 
-def _liveness(paths: core_common.ProfilePaths) -> tuple[str, dict[str, Any] | None]:
-    """running | incompatible | unresponsive | starting | stale | none, plus the session record."""
+def _transport_state(paths: core_common.ProfilePaths) -> tuple[str, dict[str, Any] | None]:
+    """Locate a recorded endpoint; the command itself establishes responsiveness."""
     held = core_common._lock_held(paths.lock) if paths.lock.exists() else False
     session = _read_session(paths)
     if held:
         if session is None:
             return "starting", None
-        try:
-            return ("running", session) if _ping(session) is not None else ("unresponsive", session)
-        except RuntimeError as exc:
-            if getattr(exc, "error_class", None) == "protocol_mismatch":
-                return "incompatible", session
-            raise
+        if session.get("protocol_version") != core_common.PROTOCOL_VERSION:
+            return "incompatible", session
+        return "running", session
     if session is not None:
         return "stale", session
     return "none", None
+
+
+def _liveness(paths: core_common.ProfilePaths) -> tuple[str, dict[str, Any] | None]:
+    """Health observation for status/doctor, separate from command dispatch."""
+    state, session = _transport_state(paths)
+    if state != "running":
+        return state, session
+    try:
+        return ("running", session) if _ping(session) is not None else ("unresponsive", session)
+    except RuntimeError as exc:
+        if getattr(exc, "error_class", None) == "protocol_mismatch":
+            return "incompatible", session
+        raise
 
 
 def _running_profiles() -> list[str]:
@@ -146,7 +156,7 @@ def _raise_remote(error: dict[str, Any], profile: str) -> None:
 
 
 def _require_running(paths: core_common.ProfilePaths, verb: str) -> dict[str, Any]:
-    state, session = _liveness(paths)
+    state, session = _transport_state(paths)
     if state == "incompatible":
         raise _restart_required(paths)
     if state == "running" and session is not None:
@@ -155,7 +165,7 @@ def _require_running(paths: core_common.ProfilePaths, verb: str) -> dict[str, An
         deadline = core_common._now() + 10.0
         while core_common._now() < deadline:
             core_common._sleep(0.2)
-            state, session = _liveness(paths)
+            state, session = _transport_state(paths)
             if state == "running" and session is not None:
                 return session
         raise core_common._tag(RuntimeError("The browser is still starting."), core_common.ERR_NOT_RUNNING, hint=core_common._hint("starting", paths.profile))
@@ -188,11 +198,14 @@ def _launch_record(paths: core_common.ProfilePaths, args: argparse.Namespace, to
 
 
 def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, timeout: float = core_common.START_TIMEOUT) -> dict[str, Any]:
-    state, session = _liveness(paths)
+    state, session = _transport_state(paths)
     if state == "incompatible":
         raise _restart_required(paths)
     if state == "running" and session is not None:
-        pong = _ping(session) or {}
+        pong = _ping(session, timeout=timeout)
+        if pong is None:
+            raise core_common._tag(RuntimeError("The existing daemon did not answer within the start deadline."), core_common.ERR_DAEMON_UNRESPONSIVE,
+                                   hint=core_common._hint("daemon_unresponsive", paths.profile))
         return {"profile": paths.profile, "status": "already_running", "pid": session.get("pid"), "port": session.get("port"),
                 "browser": session.get("browser"), "browser_version": session.get("browser_version"), "headless": session.get("headless"),
                 "current_tab": pong.get("current_tab"), "url": pong.get("url"), "launcher": session.get("launcher"), "log": session.get("log")}

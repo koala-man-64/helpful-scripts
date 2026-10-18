@@ -68,7 +68,7 @@ def _max_bytes(args: argparse.Namespace) -> int:
 def _session_for(args: argparse.Namespace, verb: str, autostart: bool = False) -> tuple[core_common.ProfilePaths, dict[str, Any]]:
     profile = core_session._resolve_profile(getattr(args, "profile", None))
     paths = core_common._paths(profile)
-    state, session = core_session._liveness(paths)
+    state, session = core_session._transport_state(paths)
     if state != "running" and autostart and core_common._env_flag("AGENT_BROWSER_AUTOSTART", True) and state in ("none", "stale"):
         core_session.start_session(paths, argparse.Namespace(browser=None, exe=None, headless=False, window_size=None))
     session = core_session._require_running(paths, verb)

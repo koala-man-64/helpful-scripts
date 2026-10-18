@@ -148,6 +148,11 @@ Incompatible wire protocols require an explicit shared-profile restart. Implemen
 hashes include every package module. A restart may affect other sessions; it never
 replays a command. Explicit help/version remain human-readable.
 
+Status/doctor health probes use a short diagnostic deadline. Normal commands validate
+the recorded protocol and send one actual request under their own deadline, without
+preliminary health requests or automatic action retries. Reusing a running profile
+with start gives its health response the requested start deadline.
+
 - **Success**: JSON on stdout, exit `0`. Page-derived keys are listed in `untrusted`; hints never contain page text.
   Metadata keys come before `snapshot`, so a truncated read still carries `url`, `title`, `truncated`, `note`.
 - **Failure**: `{"error": {"class", "http_status": null, "message", "hint", "details"?}}` on stderr, stdout empty.
