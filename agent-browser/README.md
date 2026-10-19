@@ -42,7 +42,7 @@ is a separate step; editing them does not update an already-installed caller pol
 
 ## Commands
 
-Global flags, before or after the verb: `--profile NAME`, `--timeout SECONDS`, `--snapshot` (full snapshot after an
+Global flags, before or after the verb: `--profile NAME`, `--tab TAB` (target a specific tab by stable id `t1`, `t2` or 1-based index without switching the active tab), `--timeout SECONDS`, `--snapshot` (full snapshot after an
 action), `--max-bytes N`, `--session ID`, repeatable `--expect CHECK`, and `--version`.
 
 The detailed [agent interface reference](../agentic-ide-setup/profile/claude/skills/agent-browser/references/interfaces.md)
@@ -87,7 +87,7 @@ qualification requires a separately authorized test record.
 | `value REF` | Current value of a field (masked on secret fields). |
 | `screenshot [REF] [--path F.png] [--full-page]` | PNG under the profile's `shots/` (or a path under the cwd). |
 | `wait [--url-contains S] [--text S] [--ref R] [--selector S] [--signed-in HOST] [--seconds N] [--timeout S]` | Conditions AND-ed; cooperative polling; inspect the receipt after timeout before deciding what to do next. |
-| `back` / `reload` / `tabs` / `tab N [--close]` | Navigation and tabs. Closing the last tab is refused. |
+| `back` / `reload` / `tabs` / `tab TAB [--close]` | Navigation and tabs (`TAB` is a stable id `t1`, `t2` or 1-based index). Pass `--tab TAB` on any command to drive tabs in parallel without switching focus. Closing the last tab is refused. |
 | `upload REF FILE...` / `downloads` | Attach local files; save and list files the page downloaded. |
 | `eval JS [--ref REF] [--frame NAME]` | Run JavaScript. Off when `config.json` says `"eval": false`. |
 | `needs-human [--signed-in HOST]` | Focus/flash for human input; returns a durable handoff ID. |

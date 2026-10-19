@@ -28,7 +28,7 @@ def origin(url: str) -> tuple[str, str, int]:
 
 class ApiMixin:
     def h_api(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        page = self.page()
+        page = self.target_page(args)
         raw = str(args.get("url") or "")
         if not raw or raw.startswith("//"):
             raise common._tag(ValueError("API needs a same-origin path or URL."), common.ERR_USAGE)

@@ -85,6 +85,8 @@ def _finish(result: dict[str, Any], session: dict[str, Any] | None = None) -> di
 
 
 def _remote(args: argparse.Namespace, verb: str, cmd: str, payload: dict[str, Any], default_timeout: float = core_common.DEFAULT_TIMEOUT, autostart: bool = False) -> dict[str, Any]:
+    if getattr(args, "tab", None) is not None:
+        payload.setdefault("tab", core_common._parse_tab_spec(args.tab, getattr(args, "profile", None) or core_common.DEFAULT_PROFILE))
     paths, session = _session_for(args, verb, autostart=autostart)
     timeout = _timeout_for(args, default_timeout)
     payload.setdefault("max_bytes", _max_bytes(args))
@@ -148,6 +150,8 @@ def _cmd_status(args: argparse.Namespace) -> Any:
 
 
 def _cmd_goto(args: argparse.Namespace) -> Any:
+    if getattr(args, "new_tab", False) and getattr(args, "tab", None) is not None:
+        raise core_common._tag(ValueError("Cannot combine --new-tab with --tab."), core_common.ERR_USAGE)
     profile = core_session._resolve_profile(args.profile)
     paths = core_common._paths(profile)
     url = core_common._check_url(args.url, paths, policy.profile_config(core_common._load_config(), profile))
@@ -248,7 +252,16 @@ def _cmd_tabs(args: argparse.Namespace) -> Any:
 
 
 def _cmd_tab(args: argparse.Namespace) -> Any:
-    return _remote(args, "tab", "tab", {"index": args.index, "close": bool(args.close), "discard_changes": bool(args.discard_changes)})
+    raw = args.index if args.index is not None else getattr(args, "tab", None)
+    if raw is None:
+        raise core_common._tag(ValueError("tab needs a tab index (1, 2) or id (t1, t2)."), core_common.ERR_USAGE, hint=core_common._hint("tab_index", getattr(args, "profile", None) or core_common.DEFAULT_PROFILE))
+    if args.index is not None and getattr(args, "tab", None) is not None:
+        idx_spec = core_common._parse_tab_spec(args.index, getattr(args, "profile", None) or core_common.DEFAULT_PROFILE)
+        tab_spec = core_common._parse_tab_spec(args.tab, getattr(args, "profile", None) or core_common.DEFAULT_PROFILE)
+        if idx_spec != tab_spec:
+            raise core_common._tag(ValueError("Conflicting tab targets given as positional argument and --tab."), core_common.ERR_USAGE)
+    target = core_common._parse_tab_spec(raw, getattr(args, "profile", None) or core_common.DEFAULT_PROFILE)
+    return _remote(args, "tab", "tab", {"index": target, "close": bool(args.close), "discard_changes": bool(args.discard_changes)})
 
 
 def _cmd_upload(args: argparse.Namespace) -> Any:
@@ -390,6 +403,7 @@ def _build_parser() -> argparse.ArgumentParser:
                                      epilog=_EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=f"{core_common.TOOL_NAME} {core_common.TOOL_VERSION}")
     parser.add_argument("--profile", metavar="NAME", default=None, help="browser profile (cookies persist per profile; default: the running one, else 'default')")
+    parser.add_argument("--tab", metavar="TAB", default=None, help="target a specific tab by id (t1, t2) or 1-based index without switching the active tab")
     parser.add_argument("--timeout", type=float, metavar="SECONDS", default=None, help="per-action timeout (default 15; goto 30; wait 60, max 100)")
     parser.add_argument("--max-bytes", type=int, metavar="N", default=None, help="snapshot byte budget per response (default 16000)")
     parser.add_argument("--snapshot", action="store_true", default=False, help="return a full snapshot after an action instead of the compact change list")
@@ -397,6 +411,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--profile", metavar="NAME", default=argparse.SUPPRESS)
+    common.add_argument("--tab", metavar="TAB", default=argparse.SUPPRESS)
     common.add_argument("--timeout", type=float, metavar="SECONDS", default=argparse.SUPPRESS)
     common.add_argument("--max-bytes", type=int, metavar="N", default=argparse.SUPPRESS)
     common.add_argument("--snapshot", action="store_true", default=argparse.SUPPRESS)
@@ -482,8 +497,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p = add("reload", _cmd_reload, "reload the page")
     p.add_argument("--discard-changes", action="store_true", help="reload even if the page has unsaved edits")
     add("tabs", _cmd_tabs, "list open tabs")
-    p = add("tab", _cmd_tab, "switch to (or close) a tab by index")
-    p.add_argument("index", type=int)
+    p = add("tab", _cmd_tab, "switch to (or close) a tab by index or id (t1, t2)")
+    p.add_argument("index", nargs="?", default=None)
     p.add_argument("--close", action="store_true")
     p.add_argument("--discard-changes", action="store_true", help="close even if the tab has unsaved edits")
     p = add("upload", _cmd_upload, "attach local file(s) to a file input or a button that opens a chooser")

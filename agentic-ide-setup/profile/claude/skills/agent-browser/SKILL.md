@@ -29,6 +29,9 @@ Profile defaults to `default` or explicit configuration. It never attaches to wh
 profile happens to run. Session identity is explicit `--session`, then CODEX_THREAD_ID,
 CLAUDE_CODE_SESSION_ID, then `manual`. IDs are cooperative routing, not authentication.
 Tabs, refs, receipts, outputs and downloads belong to that ID; cookies/storage are shared.
+Open additional tabs with `goto URL --new-tab` and drive tabs in parallel by passing
+`--tab t2` (stable tab ID from `tabs`/`tab_id`) or `--tab 2` on any command without
+switching the active tab.
 Popups follow their opener. `agent-browser stop` releases only the current session.
 An explicit profile stop closes every session; preserve others' work before using it.
 Caller permission templates ask before `stop --all`, `stop --force`, commit and eval.

@@ -86,6 +86,9 @@ RESERVED_PROFILES = frozenset({"_doctor", "_live"})
 REF_RE = re.compile(r"^(f\d+)?e\d+$")
 
 
+TAB_ID_RE = re.compile(r"^t[1-9]\d*$", re.I)
+
+
 MAX_PROFILE_PATH_CHARS = 180           # Chromium silently falls back to the default profile past MAX_PATH
 
 
@@ -379,7 +382,7 @@ HINTS = {
     "browser_closed": "The browser window was closed. Run: {tool} start --profile {profile} (sign-in is kept)",
     "timeout_client": "The browser did not answer in time. Run: {tool} status --profile {profile}",
     "last_tab": "This is the last tab. Use: {tool} stop --profile {profile} to close the browser.",
-    "tab_index": "Run: {tool} tabs --profile {profile} and use one of the listed indexes.",
+    "tab_index": "Run: {tool} tabs --profile {profile} and use one of the listed tab ids (t1, t2) or indexes (1, 2).",
     "upload_target": "Give a file input or the button that opens the file chooser.",
     "sign_in": "This looks like a sign-in page. Do not fill anything. Tell the user: \"Please sign in in the Edge window (it may be behind this window)\", then run: {tool} wait --signed-in <app host> --profile {profile}",
     "frames_loading": "Some frames were still loading. Run: {tool} wait --text <expected label> --profile {profile}",
@@ -467,6 +470,24 @@ def _validate_profile(name: str) -> str:
     if not _is_profile_name(name):
         raise _tag(ValueError(f"Profile name {name!r} must match {PROFILE_RE.pattern}"), ERR_VALIDATION)
     return name
+
+
+def _parse_tab_spec(value: Any, profile: str = DEFAULT_PROFILE) -> int | str:
+    if isinstance(value, bool) or value is None:
+        raise _tag(ValueError(f"Invalid tab {value!r}; use a 1-based index (1, 2) or tab id (t1, t2)."), ERR_VALIDATION, hint=_hint("tab_index", profile))
+    if isinstance(value, int):
+        if value < 1:
+            raise _tag(ValueError(f"Invalid tab {value!r}; tab index must be >= 1."), ERR_VALIDATION, hint=_hint("tab_index", profile))
+        return value
+    text = str(value).strip()
+    if text.isdigit():
+        idx = int(text)
+        if idx < 1:
+            raise _tag(ValueError(f"Invalid tab {value!r}; tab index must be >= 1."), ERR_VALIDATION, hint=_hint("tab_index", profile))
+        return idx
+    if TAB_ID_RE.match(text):
+        return text.lower()
+    raise _tag(ValueError(f"Invalid tab {value!r}; use a 1-based index (1, 2) or tab id (t1, t2)."), ERR_VALIDATION, hint=_hint("tab_index", profile))
 
 
 @dataclass(frozen=True)

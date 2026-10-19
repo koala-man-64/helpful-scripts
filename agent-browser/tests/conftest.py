@@ -336,12 +336,12 @@ class _FakeMouse:
 
 
 class FakePage(_Emitter):
-    def __init__(self, ctx: "FakeContext", url: str = "http://x/outer.html", title: str = "Outer page") -> None:
+    def __init__(self, ctx: "FakeContext", url: str = "http://x/outer.html", title: str = "Outer page", snapshot_text: str = "") -> None:
         super().__init__()
         self.ctx = ctx
         self.url = url
         self._title = title
-        self.snapshot_text = ""
+        self.snapshot_text = snapshot_text
         self.main_frame = FakeFrame(name="", url=url)
         self.frames: list[FakeFrame] = [self.main_frame]
         self.elements: dict[str, FakeElement] = {}

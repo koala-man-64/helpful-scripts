@@ -11,7 +11,7 @@ def commit(args: argparse.Namespace):
     if not args.arguments or args.arguments[0] in {"commit", "serve", "stop", "start", "clean"}:
         raise common._tag(ValueError("commit needs an action, api, run or journal operation."), common.ERR_USAGE)
     inner = cli._build_parser().parse_args(args.arguments)
-    for key in ("profile", "session", "timeout"):
+    for key in ("profile", "session", "timeout", "tab"):
         if getattr(inner, key, None) is None:
             setattr(inner, key, getattr(args, key, None))
     inner.committing = True

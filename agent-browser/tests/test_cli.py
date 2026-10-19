@@ -218,3 +218,50 @@ def test_main_prints_non_ascii_result_without_raising(monkeypatch: pytest.Monkey
     assert code == 0
     out = capsys.readouterr().out
     assert "caf\u00e9" in out and "\u2713" in out
+
+
+def test_tab_flag_accepts_before_or_after_verb_and_validates_spec(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    captured: list[tuple[str, dict[str, Any]]] = []
+
+    def fake_session_for(args: Any, verb: str, autostart: bool = False) -> tuple[Any, dict[str, Any]]:
+        return core_common._paths("default"), {"port": 1, "token": "t", "profile": "default"}
+
+    def fake_request(session: dict[str, Any], cmd: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+        captured.append((cmd, dict(payload)))
+        return {"ok": True, "tab": 2, "tab_id": "t2"}
+
+    monkeypatch.setattr(core_cli, "_session_for", fake_session_for)
+    monkeypatch.setattr(core_session, "_request", fake_request)
+
+    assert core_cli.main(["click", "e5", "--tab", "t2"]) == 0
+    assert captured[-1][0] == "click" and captured[-1][1]["tab"] == "t2"
+
+    assert core_cli.main(["--tab", "2", "snapshot"]) == 0
+    assert captured[-1][0] == "snapshot" and captured[-1][1]["tab"] == 2
+
+    assert core_cli.main(["tab", "t2", "--close"]) == 0
+    assert captured[-1][0] == "tab" and captured[-1][1]["index"] == "t2" and captured[-1][1]["close"] is True
+
+    assert core_cli.main(["tab", "--tab", "t3"]) == 0
+    assert captured[-1][0] == "tab" and captured[-1][1]["index"] == "t3"
+
+    assert core_cli.main(["commit", "click", "e5", "--tab", "t2"]) == 0
+    assert captured[-1][0] == "commit" and captured[-1][1]["operation"] == "click" and captured[-1][1]["tab"] == "t2"
+    capsys.readouterr()
+
+    assert core_cli.main(["click", "e5", "--tab", "0"]) == 2
+    err = json.loads(capsys.readouterr().err)["error"]
+    assert err["class"] == core_common.ERR_VALIDATION
+
+    assert core_cli.main(["click", "e5", "--tab", "bogus"]) == 2
+    err = json.loads(capsys.readouterr().err)["error"]
+    assert err["class"] == core_common.ERR_VALIDATION
+
+    assert core_cli.main(["goto", "https://example.com", "--new-tab", "--tab", "t1"]) == 2
+    err = json.loads(capsys.readouterr().err)["error"]
+    assert err["class"] == core_common.ERR_USAGE
+
+    assert core_cli.main(["tab", "1", "--tab", "t2"]) == 2
+    err = json.loads(capsys.readouterr().err)["error"]
+    assert err["class"] == core_common.ERR_USAGE
+

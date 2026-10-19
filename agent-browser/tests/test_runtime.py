@@ -217,3 +217,33 @@ def test_terminal_receipt_id_cannot_return_a_prior_pending_artifact(make_daemon,
     (daemon.paths.outputs / (command_id + ".json")).write_text('{"pending":true}', encoding="utf-8")
     result = cli._cmd_output(Namespace(profile=daemon.profile, session="manual", id="r" + command_id, offset=0))
     assert json.loads(result["chunk"])["status"] == "completed"
+
+
+def test_cooperative_wait_on_background_tab_polls_targeted_tab_while_other_tabs_run(make_daemon):
+    daemon, ctx, page1 = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/one"}, 5)
+    daemon.dispatch("goto", {"url": "http://x/two", "new_tab": True}, 5)
+    assert daemon.current is not page1
+
+    # Start a cooperative wait on background tab t1 while t2 remains the active tab
+    pending = daemon.dispatch("wait", {"url_contains": "done", "tab": "t1", "_cooperative": True}, 30)
+    assert pending["pending"] is True
+
+    # Operate on t2 while t1 wait is pending
+    snap2 = daemon.dispatch("snapshot", {"tab": "t2"}, 5)
+    assert snap2["tab_id"] == "t2" and snap2["url"] == "http://x/two"
+
+    # Poll before t1 satisfies the condition
+    still_pending = daemon.dispatch("poll", {"command_id": pending["command_id"]}, 2)
+    assert still_pending["pending"] is True
+
+    # Navigate t1 to satisfy the wait condition without changing active tab t2
+    daemon.dispatch("goto", {"url": "http://x/one-done", "tab": "t1"}, 5)
+    assert daemon.dispatch("tabs", {}, 5)["current_id"] == "t2"
+
+    done = daemon.dispatch("poll", {"command_id": pending["command_id"]}, 2)
+    assert done["pending"] is False
+    assert done["satisfied"] == ["url_contains"]
+    assert done["tab_id"] == "t1"
+    assert done["url"] == "http://x/one-done"
+
