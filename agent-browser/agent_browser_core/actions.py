@@ -59,6 +59,7 @@ class VerifiedActionsMixin:
 
     def h_fill_form(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         deadline = args.get("_deadline", common._now() + timeout)
+        page = self.target_page(args)
         fields = args.get("fields")
         if isinstance(fields, dict) and set(fields) == {"fields"}: fields = fields["fields"]
         if not isinstance(fields, list) or not 1 <= len(fields) <= 100:
@@ -74,8 +75,8 @@ class VerifiedActionsMixin:
             if key in seen:
                 raise common._tag(ValueError("Duplicate form target."), common.ERR_VALIDATION)
             seen.add(key)
-            locator = self.resolve(self.page(), field.get("target"))
-            if self._is_secret(self.page(), locator):
+            locator = self.resolve(page, field.get("target"))
+            if self._is_secret(page, locator):
                 raise common._tag(ValueError("Form contains a credential field; nothing was filled."), common.ERR_GUARDED)
             info = locator.evaluate("""el => ({tag:el.tagName.toLowerCase(),type:el.type,disabled:el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true',readOnly:el.readOnly,
                 multiple:el.multiple,options:el.options ? Array.from(el.options).map(o=>({label:o.label,value:o.value,disabled:o.disabled || (o.parentElement.tagName==='OPTGROUP' && o.parentElement.disabled)})) : []})""")
@@ -106,14 +107,14 @@ class VerifiedActionsMixin:
                 remaining = deadline - common._now()
                 if remaining <= 0: raise common._tag(RuntimeError("Form deadline expired."), common.ERR_TIMEOUT)
                 operation = field.get("operation", "fill")
-                options = {"target": field["target"], "text": field.get("value"), "enter": False,
+                options = {"target": field["target"], "text": field.get("value"), "enter": False, "tab": args.get("tab"),
                            "values": field.get("value") if isinstance(field.get("value"), list) else [field.get("value")]}
                 getattr(self, "h_" + operation)(options, remaining)
                 completed.append(index)
         except Exception as exc:
             exc.details = {"completed_fields": completed, "executed": bool(completed) or self.action_attempted}
             raise
-        return {"ok": True, "action": "fill-form", "effect": "value_set", "completed_fields": completed}
+        return {"ok": True, "action": "fill-form", "effect": "value_set", "completed_fields": completed, "tab": self._tab_index(page), "tab_id": self._tab_id(page)}
 
     def _expect_specs(self, specs: list[Any], page: Any) -> list[dict[str, Any]]:
         parsed = []

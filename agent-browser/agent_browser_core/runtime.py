@@ -14,7 +14,7 @@ class OperatingMixin:
         super().__init__(launch)
         self.config = policy.profile_config(self.config, self.profile)
         self.session_id = "manual"
-        self.sessions = {"manual": {"pages": self.pages, "current": None, "downloads": self.downloads}}
+        self.sessions = {"manual": {"pages": self.pages, "current": None, "downloads": self.downloads, "next_tab_seq": 0}}
         self.page_owners: dict[Any, str] = {}
         self.used_sessions: set[str] = set()
         self.noted_hosts: dict[str, set[str]] = {}
@@ -36,7 +36,9 @@ class OperatingMixin:
             owner = self.page_owners.get(opener, owner)
         elif not self.creating_session and self.current_cmd is None:
             owner = "manual"
-        state = self.sessions.setdefault(owner, {"pages": [], "current": None, "downloads": []})
+        state = self.sessions.setdefault(owner, {"pages": [], "current": None, "downloads": [], "next_tab_seq": 0})
+        state["next_tab_seq"] = state.get("next_tab_seq", 0) + 1
+        self.tab_ids[page] = f"t{state['next_tab_seq']}"
         previous, self.pages = self.pages, state["pages"]
         self.page_owners[page] = owner
         super()._track_page(page)
@@ -47,14 +49,18 @@ class OperatingMixin:
     def _on_page(self, page: Any) -> None:
         self._track_page(page)
         owner = self.page_owners[page]
-        self.sessions[owner]["current"] = page
+        explicit_tab = owner == self.session_id and self.current_cmd is not None and self.cmd_opts.get("tab") is not None
+        if not explicit_tab:
+            self.sessions[owner]["current"] = page
         if owner == self.session_id:
-            self.current = page
+            if not explicit_tab:
+                self.current = page
             if self.current_cmd:
                 self.new_pages.append(page)
 
     def _on_page_closed(self, page: Any) -> None:
         owner = self.page_owners.pop(page, None)
+        self.tab_ids.pop(page, None)
         if owner is None:
             return
         state = self.sessions[owner]
@@ -71,7 +77,7 @@ class OperatingMixin:
 
     def _activate(self, sid: str, create_page: bool) -> None:
         self.sessions[self.session_id].update(pages=self.pages, current=self.current, downloads=self.downloads)
-        state = self.sessions.setdefault(sid, {"pages": [], "current": None, "downloads": []})
+        state = self.sessions.setdefault(sid, {"pages": [], "current": None, "downloads": [], "next_tab_seq": 0})
         self.session_id = sid
         self.paths = common.ProfilePaths(self.profile, self.paths.root, sid)
         self.paths.workspace.mkdir(parents=True, exist_ok=True)
@@ -113,10 +119,11 @@ class OperatingMixin:
         notices.append({"type": kind, "handled": "accepted" if kind == "alert" else "dismissed", "background": True})
         del notices[:-20]
 
-    def _capture(self, command_id: str, when: str) -> str:
+    def _capture(self, command_id: str, when: str, page: Any = None) -> str:
+        target = page if page is not None else self.page()
         self.paths.shots.mkdir(parents=True, exist_ok=True)
         path = self.paths.shots / f"{command_id}-{when}.png"
-        self.page().screenshot(path=str(path), mask=self._secret_masks(self.page()))
+        target.screenshot(path=str(path), mask=self._secret_masks(target))
         return str(path)
 
     def _secret_masks(self, page: Any) -> list[Any]:
@@ -158,13 +165,14 @@ class OperatingMixin:
                 args["url"] = common._check_url(args.get("url", ""), self.paths, self.config)
             if cmd == "upload":
                 args["files"] = [str(self._api_path(str(path), args)) for path in args.get("files", [])]
-            if args.get("_commit") and self.current and cmd != "journal":
-                screenshots.append(self._capture(command_id, "before"))
+            target_page = self.target_page(args) if args.get("tab") is not None else self.current
+            if args.get("_commit") and target_page and cmd != "journal":
+                screenshots.append(self._capture(command_id, "before", target_page))
             args["_command_id"] = command_id
             args["_deadline"] = expectation_deadline
-            specs = self._expect_specs(args.get("expect") or [], self.page()) if args.get("expect") else []
-            expected_page = self.current
-            expected_url, expected_cursor = (self.current.url if self.current else ""), self.response_cursor
+            specs = self._expect_specs(args.get("expect") or [], target_page or self.page()) if args.get("expect") else []
+            expected_page = target_page
+            expected_url, expected_cursor = (expected_page.url if expected_page else ""), self.response_cursor
             if cmd == "wait" and args.get("_cooperative"):
                 result = self._wait_job(command_id, args, timeout)
             else:
@@ -177,11 +185,13 @@ class OperatingMixin:
                 self.jobs[command_id]["before_counts"] = before
             result.update(command_id=command_id, session_id=sid, contract_version=common.CONTRACT_VERSION)
             result["observed"] = {k: self.session_counts.get(sid, {}).get(k, 0) - v for k, v in before.items()}
-            if args.get("_commit") and self.current and cmd != "journal":
-                screenshots.append(self._capture(command_id, "after"))
+            after_page = self.target_page(args) if args.get("tab") is not None and self.pages else self.current
+            if args.get("_commit") and after_page and cmd != "journal":
+                screenshots.append(self._capture(command_id, "after", after_page))
                 result["screenshots"] = screenshots
             result["executed"] = executed
-            host = (urllib.parse.urlsplit(self.current.url).hostname or "").lower() if self.current else ""
+            host_page = after_page or self.current
+            host = (urllib.parse.urlsplit(host_page.url).hostname or "").lower() if host_page else ""
             noted = self.noted_hosts.setdefault(sid, set())
             if (host == "service-now.com" or host.endswith(".service-now.com")) and host not in noted:
                 result["site_notes"] = ["ServiceNow: use the classic record form for sn/add-work-note; verify Number before committing. Preview with run, submit with commit run, and inspect its receipt before any retry. Never enter sign-in credentials."]
@@ -205,7 +215,7 @@ class OperatingMixin:
         conditions = args.get("conditions") or {k: args[k] for k in ("seconds", "url_contains", "signed_in", "text", "ref", "selector") if args.get(k) not in (None, "", 0)}
         if not conditions:
             raise common._tag(ValueError("wait needs a condition."), common.ERR_USAGE)
-        self.jobs[command_id] = {"session": self.session_id, "page": self.page(), "conditions": conditions,
+        self.jobs[command_id] = {"session": self.session_id, "page": self.target_page(args), "conditions": conditions,
                                 "started": common._now(), "deadline": common._now() + timeout}
         return self._poll({"command_id": command_id})
 

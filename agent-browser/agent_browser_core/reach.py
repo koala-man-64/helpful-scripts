@@ -15,7 +15,7 @@ class ReachMixin:
     def h_click(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         target = args.get("target")
         ref = target.get("ref") if isinstance(target, dict) else target
-        page = self.page()
+        page = self.target_page(args)
         if not isinstance(ref, str) or ref not in getattr(self, "table_rows", {}).get(page, set()):
             return super().h_click(args, timeout)
         if self.table_row_epochs.get(page) != self._nav_signature(page):
@@ -38,7 +38,7 @@ class ReachMixin:
 
     def h_screenshot(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         self.journal.require_space()
-        page = self.page()
+        page = self.target_page(args)
         self.paths.shots.mkdir(parents=True, exist_ok=True)
         filename = args.get("path") or str(self.paths.shots / (args.get("_command_id", common._utc_now().replace(":", "")) + ".png"))
         config = dict(self.config)
@@ -82,10 +82,10 @@ class ReachMixin:
                 page.evaluate("() => document.getElementById('__agent_browser_refs__')?.remove()")
         data = path.read_bytes()
         width, height = struct.unpack(">II", data[16:24]) if len(data) >= 24 else (None, None)
-        return {"path": path.as_posix(), "file": path.as_posix(), "width": width, "height": height, "annotated": annotated}
+        return {"path": path.as_posix(), "file": path.as_posix(), "width": width, "height": height, "annotated": annotated, "tab": self._tab_index(page), "tab_id": self._tab_id(page)}
 
     def h_table(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        page = self.page()
+        page = self.target_page(args)
         table = self.resolve(page, args["target"]) if args.get("target") else self.resolve(page, {"role": "table"})
         if table.evaluate("el => el.tagName.toLowerCase() !== 'table' && !['table','grid'].includes(el.getAttribute('role'))"):
             raise common._tag(ValueError("Target is not a table or grid."), common.ERR_VALIDATION)
@@ -107,7 +107,7 @@ class ReachMixin:
             self.table_rows, self.table_row_epochs = {}, {}
         self.table_rows[page] = {row["ref"] for row in rows if row["ref"]}
         self.table_row_epochs[page] = self._nav_signature(page)
-        return {"columns": columns, "rows": rows, "untrusted": ["columns", "rows"]}
+        return {"columns": columns, "rows": rows, "tab": self._tab_index(page), "tab_id": self._tab_id(page), "untrusted": ["columns", "rows"]}
 
     def h_diagnose(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         url = common._check_url(str(args.get("url") or ""), self.paths, self.config)
@@ -146,7 +146,7 @@ class ReachMixin:
     def h_run(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         if args.get("recipe") != "sn/add-work-note" or not re.fullmatch(r"(?:INC|SCTASK|RITM|CHG|PRB)\d{6,12}", str(args.get("number", ""))):
             raise common._tag(ValueError("Unsupported recipe or record number."), common.ERR_VALIDATION)
-        page, number, text = self.page(), args["number"], args.get("text")
+        page, number, text = self.target_page(args), args["number"], args.get("text")
         if not isinstance(text, str) or not text.strip():
             raise common._tag(ValueError("Work note must be nonempty text."), common.ERR_VALIDATION)
         frame = next((f for f in page.frames if f.name == "gsft_main"), None)
@@ -177,8 +177,8 @@ class ReachMixin:
         if not args.get("_commit"):
             return {"preview": {"number": number, "work_note": text}, "requires_commit": True}
         cursor = self.response_cursor
-        self.h_fill({"target": {"label": "Work notes"}, "text": text, "enter": False}, timeout)
-        self.h_click({"target": "button#sysverb_update"}, timeout)
+        self.h_fill({"target": {"label": "Work notes"}, "text": text, "enter": False, "tab": args.get("tab")}, timeout)
+        self.h_click({"target": "button#sysverb_update", "tab": args.get("tab")}, timeout)
         command_id, deadline = args["_command_id"], args.get("_deadline", common._now() + timeout)
         reloaded = False
 

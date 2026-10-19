@@ -115,6 +115,8 @@ class BrowserEngine:
         self.pw: Any = None
         self.ctx: Any = None
         self.pages: list[Any] = []
+        self.tab_ids: dict[Any, str] = {}
+        self.next_tab_seq = 0
         self.current: Any = None
         self.nav_counts: dict[Any, int] = {}
         self.served: dict[Any, Served] = {}
@@ -199,6 +201,9 @@ class BrowserEngine:
         if page in self.pages:
             return
         self.pages.append(page)
+        if page not in self.tab_ids:
+            self.next_tab_seq += 1
+            self.tab_ids[page] = f"t{self.next_tab_seq}"
         page.on("framenavigated", self._on_frame_navigated)
         page.on("download", lambda download: self._on_download(download, page))
         page.on("close", lambda p: self._on_page_closed(p))
@@ -213,12 +218,13 @@ class BrowserEngine:
     def _on_page(self, page: Any) -> None:
         self._track_page(page)
         self.new_pages.append(page)
-        if self.current_cmd is not None:
+        if self.current_cmd is not None and self.cmd_opts.get("tab") is None:
             self.current = page
 
     def _on_page_closed(self, page: Any) -> None:
         if page in self.pages:
             self.pages.remove(page)
+        self.tab_ids.pop(page, None)
         self.served.pop(page, None)
         if self.current is page:
             self.current = self.pages[-1] if self.pages else None
@@ -290,6 +296,35 @@ class BrowserEngine:
                 raise core_common._tag(RuntimeError("The browser has no open tabs."), core_common.ERR_BROWSER_CLOSED, hint=core_common._hint("browser_closed", self.profile))
             self.current = self.pages[-1]
         return self.current
+
+    def _tab_id(self, page: Any) -> str:
+        if page is None or page not in self.pages:
+            return ""
+        tid = self.tab_ids.get(page)
+        if not tid:
+            self.next_tab_seq += 1
+            tid = f"t{self.next_tab_seq}"
+            self.tab_ids[page] = tid
+        return tid
+
+    def _resolve_tab(self, spec: Any) -> Any:
+        if not self.pages:
+            raise core_common._tag(RuntimeError("The browser has no open tabs."), core_common.ERR_BROWSER_CLOSED, hint=core_common._hint("browser_closed", self.profile))
+        parsed = core_common._parse_tab_spec(spec, self.profile)
+        if isinstance(parsed, int):
+            if parsed < 1 or parsed > len(self.pages):
+                raise core_common._tag(ValueError(f"No tab {parsed}; there are {len(self.pages)}."), core_common.ERR_NOT_FOUND, hint=core_common._hint("tab_index", self.profile))
+            return self.pages[parsed - 1]
+        for p in self.pages:
+            if self._tab_id(p) == parsed:
+                return p
+        raise core_common._tag(ValueError(f"No tab {parsed!r}; open tabs are {', '.join(self._tab_id(p) for p in self.pages)}."), core_common.ERR_NOT_FOUND, hint=core_common._hint("tab_index", self.profile))
+
+    def target_page(self, args: dict[str, Any] | None = None) -> Any:
+        spec = (args or {}).get("tab")
+        if spec is None:
+            return self.page()
+        return self._resolve_tab(spec)
 
     def _is_timeout(self, exc: Exception) -> bool:
         return isinstance(exc, self.errors[1]) or "Timeout" in type(exc).__name__ or "exceeded" in str(exc)
@@ -498,8 +533,12 @@ class BrowserEngine:
         nav_at = {f: self.nav_counts.get(f, 0) for f in [page.main_frame] + list(by_prefix.values())}
         served = Served(raw, lines, by_prefix, nav_at, frames, names, prefixes)
         self.served[page] = served
+        text = "\n".join(lines)
         try:
-            self.paths.last_snapshot.write_text("\n".join(lines), encoding="utf-8")
+            self.paths.last_snapshot.write_text(text, encoding="utf-8")
+            tab_id = self._tab_id(page)
+            if tab_id and len(self.pages) > 1:
+                (self.paths.workspace / f"last_snapshot_{tab_id}.txt").write_text(text, encoding="utf-8")
         except OSError:
             pass
         return served
@@ -538,15 +577,16 @@ class BrowserEngine:
     def _tabs(self) -> list[dict[str, Any]]:
         out = []
         for i, p in enumerate(self.pages, 1):
+            tid = self._tab_id(p)
             try:
-                out.append({"index": i, "url": core_common.redact_url(p.url), "title": core_common.sanitize_text(p.title(), 120), "current": p is self.current})
+                out.append({"id": tid, "index": i, "url": core_common.redact_url(p.url), "title": core_common.sanitize_text(p.title(), 120), "current": p is self.current})
             except Exception:  # noqa: BLE001
-                out.append({"index": i, "url": "", "title": "", "current": p is self.current})
+                out.append({"id": tid, "index": i, "url": "", "title": "", "current": p is self.current})
         return out
 
     def _base_fields(self, page: Any) -> dict[str, Any]:
         return {"profile": self.profile, "url": core_common.redact_url(page.url), "title": core_common.sanitize_text(self._safe_title(page), 200),
-                "tab": self._tab_index(page), "tabs": len(self.pages)}
+                "tab": self._tab_index(page), "tab_id": self._tab_id(page), "tabs": len(self.pages)}
 
     def snap_envelope(self, page: Any, *, full: bool = False, find: str | None = None, scope: str | None = None,
                       navigated: bool = False, requested_host: str | None = None, extra: dict[str, Any] | None = None,
@@ -554,8 +594,10 @@ class BrowserEngine:
         served = self._serve_snapshot(page, full=full, find=find, scope=scope)
         lines, truncated = core_snapshots.budget_lines(served.lines, max_bytes)
         env = self._base_fields(page)
+        tab_id = self._tab_id(page)
+        snap_path = (self.paths.workspace / f"last_snapshot_{tab_id}.txt") if (tab_id and len(self.pages) > 1) else self.paths.last_snapshot
         env.update({"frames": served.frames, "lines": len(served.lines), "truncated": truncated,
-                    "snapshot_file": str(self.paths.last_snapshot).replace("\\", "/")})
+                    "snapshot_file": str(snap_path).replace("\\", "/")})
         notes = []
         if truncated:
             notes.append(core_common._hint("truncated", self.profile))
@@ -627,9 +669,9 @@ class BrowserEngine:
         page = self.new_pages[-1]
         self.new_pages = []
         try:
-            return {"index": self._tab_index(page), "url": core_common.redact_url(page.url)}
+            return {"id": self._tab_id(page), "index": self._tab_index(page), "url": core_common.redact_url(page.url)}
         except Exception:  # noqa: BLE001
-            return {"index": self._tab_index(page), "url": ""}
+            return {"id": self._tab_id(page), "index": self._tab_index(page), "url": ""}
 
     def _take_dialogs(self) -> list[dict[str, Any]]:
         out, self.dialog_log = self.dialog_log, []
@@ -671,8 +713,8 @@ class BrowserEngine:
     def _nav_signature(self, page: Any) -> dict[Any, int]:
         return {frame: self.nav_counts.get(frame, 0) for frame in page.frames}
 
-    def _navigated_since(self, before: dict[Any, int]) -> bool:
-        return self._nav_signature(self.page()) != before
+    def _navigated_since(self, before: dict[Any, int], page: Any = None) -> bool:
+        return self._nav_signature(page if page is not None else self.page()) != before
 
     def _before_lines(self, page: Any) -> list[str] | None:
         served = self.served.get(page)
@@ -692,7 +734,8 @@ class BrowserEngine:
         handler = getattr(self, "h_" + cmd.replace("-", "_"), None)
         if handler is None:
             raise core_common._tag(ValueError(f"Unknown daemon command {cmd!r}."), core_common.ERR_USAGE)
-        if cmd not in core_common.OFF_ALLOWLIST_OK and cmd not in policy.CONTROL and self.current is not None and self._off_allowlist(self.current):
+        target_for_guard = self.target_page(args) if args.get("tab") is not None else self.current
+        if cmd not in core_common.OFF_ALLOWLIST_OK and cmd not in policy.CONTROL and target_for_guard is not None and self._off_allowlist(target_for_guard):
             raise core_common._tag(ValueError("The page is outside allowed_hosts; only back, goto, snapshot, text, tabs, and stop are allowed."),
                        core_common.ERR_GUARDED, hint=core_common._hint("off_allowlist", self.profile))
         observed_before = dict(self.telemetry)
@@ -723,7 +766,7 @@ class BrowserEngine:
             except Exception:  # noqa: BLE001
                 pass
         return {"pong": True, "profile": self.profile, "browser_version": self.browser_version, "tabs": self._tabs(),
-                "current_tab": self._tab_index(page) if page is not None else 0, "url": url, "title": title}
+                "current_tab": self._tab_index(page) if page is not None else 0, "current_tab_id": self._tab_id(page), "url": url, "title": title}
 
     def h_stop(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         self._mark_stop("stop")
@@ -765,10 +808,14 @@ class BrowserEngine:
 
     def h_goto(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         url = args["url"]
-        page = self.ctx.new_page() if args.get("new_tab") else self.page()
+        if args.get("new_tab") and args.get("tab") is not None:
+            raise core_common._tag(ValueError("Cannot combine --new-tab with --tab."), core_common.ERR_USAGE)
+        page = self.ctx.new_page() if args.get("new_tab") else self.target_page(args)
         if args.get("new_tab"):
             self._track_page(page)
             self.current = page
+            if hasattr(self, "sessions") and self.session_id in self.sessions:
+                self.sessions[self.session_id]["current"] = page
         ms = self._timeout_ms(timeout)
         self._navigate(page, "goto", lambda: page.goto(url, wait_until=args.get("wait") or "load", timeout=ms), timeout, target_url=url)
         loading = self._settle(page)
@@ -776,13 +823,14 @@ class BrowserEngine:
         return self.snap_envelope(page, navigated=True, requested_host=host, loading=loading, max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES)
 
     def h_snapshot(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        page = self.page()
+        page = self.target_page(args)
         return self.snap_envelope(page, full=bool(args.get("full")), find=args.get("find"), scope=args.get("ref"),
                                   max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES)
 
     def _do_action(self, args: dict[str, Any], timeout: float, action: str, run: Callable[[Any, Any], Any], *,
                    guard: bool = False, value: bool = False, allow_keys: Sequence[str] | None = None) -> dict[str, Any]:
-        page = self.page()
+        explicit_tab = args.get("tab") is not None
+        page = self.target_page(args)
         before_lines = self._before_lines(page)
         target = args.get("target")
         locator = self.resolve(page, target) if target else None
@@ -810,22 +858,26 @@ class BrowserEngine:
         settle_deadline = core_common._now() + 3.0
         new_tab = None
         while True:
-            page = self.page()
+            if not explicit_tab:
+                page = self.page()
+            elif page not in self.pages:
+                page = self.page()
+                explicit_tab = False
             remaining = settle_deadline - core_common._now()
             loading = self._settle(page, cap=remaining) if remaining > 0 else ["new tab"]
             # Page events can arrive while settling the opener, after click returned.
             # Observe the new current page without repeating the action or its wait budget.
-            if self.page() is not page:
+            if not explicit_tab and self.page() is not page:
                 if core_common._now() < settle_deadline:
                     continue
                 page, loading = self.page(), ["new tab"]
-            navigated = self._navigated_since(nav_before)
+            navigated = self._navigated_since(nav_before, page)
             value_after = self._value_of(locator, masked) if (value and locator is not None) else None
             result = self.act_envelope(page, action, target_line, before_lines, navigated=navigated, loading=loading,
                                        value_after=value_after, max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES,
                                        force_full=bool(args.get("snapshot")))
             new_tab = result.get("new_tab") or new_tab
-            if self.page() is page:
+            if explicit_tab or self.page() is page:
                 if new_tab: result["new_tab"] = new_tab
                 return result
             if core_common._now() >= settle_deadline:
@@ -947,7 +999,7 @@ class BrowserEngine:
         return env
 
     def h_text(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        page = self.page()
+        page = self.target_page(args)
         max_chars = int(args.get("max_chars") or core_common.DEFAULT_TEXT_CHARS)
         ms = self._timeout_ms(timeout)
         chunks: list[str] = []
@@ -973,7 +1025,7 @@ class BrowserEngine:
         return env
 
     def h_value(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        page = self.page()
+        page = self.target_page(args)
         loc = self.resolve(page, args.get("target") or "")
         masked = self._is_secret(page, loc)
         env = self._base_fields(page)
@@ -981,7 +1033,7 @@ class BrowserEngine:
         return env
 
     def h_screenshot(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        page = self.page()
+        page = self.target_page(args)
         ms = self._timeout_ms(timeout)
         path = Path(args.get("path") or core_common._unique_path(self.paths.shots, f"{self.profile}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.png"))
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1006,7 +1058,8 @@ class BrowserEngine:
         return env
 
     def h_wait(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        page = self.page()
+        explicit_tab = args.get("tab") is not None
+        page = self.target_page(args)
         conditions = {k: args.get(k) for k in ("url_contains", "text", "ref", "selector", "signed_in", "seconds") if args.get(k) not in (None, "", 0)}
         if not conditions:
             raise core_common._tag(ValueError("wait needs a condition."), core_common.ERR_USAGE, hint=core_common._hint("no_wait_condition", self.profile))
@@ -1014,7 +1067,7 @@ class BrowserEngine:
         deadline = started + timeout
         satisfied: list[str] = []
         while True:
-            page = self.page()
+            page = self.target_page(args) if explicit_tab else self.page()
             satisfied = []
             ok = True
             if "seconds" in conditions:
@@ -1091,27 +1144,28 @@ class BrowserEngine:
         return False
 
     def h_back(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        page = self.page()
+        page = self.target_page(args)
         ms = self._timeout_ms(timeout)
         self._navigate(page, "back", lambda: page.go_back(timeout=ms, wait_until="load"), timeout)
         loading = self._settle(page)
         return self.snap_envelope(page, navigated=True, loading=loading, max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES)
 
     def h_reload(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        page = self.page()
+        page = self.target_page(args)
         ms = self._timeout_ms(timeout)
         self._navigate(page, "reload", lambda: page.reload(timeout=ms, wait_until="load"), timeout)
         loading = self._settle(page)
         return self.snap_envelope(page, navigated=True, loading=loading, max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES)
 
     def h_tabs(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        return {"profile": self.profile, "current": self._tab_index(self.current), "tabs": self._tabs(), "untrusted": core_common.UNTRUSTED_KEYS}
+        return {"profile": self.profile, "current": self._tab_index(self.current), "current_id": self._tab_id(self.current),
+                "tabs": self._tabs(), "untrusted": core_common.UNTRUSTED_KEYS}
 
     def h_tab(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        index = int(args.get("index") or 0)
-        if index < 1 or index > len(self.pages):
-            raise core_common._tag(ValueError(f"No tab {index}; there are {len(self.pages)}."), core_common.ERR_NOT_FOUND, hint=core_common._hint("tab_index", self.profile))
-        page = self.pages[index - 1]
+        raw = args.get("index") if args.get("index") is not None else args.get("tab")
+        if raw is None:
+            raise core_common._tag(ValueError("tab needs a tab index (1, 2) or id (t1, t2)."), core_common.ERR_USAGE, hint=core_common._hint("tab_index", self.profile))
+        page = self._resolve_tab(raw)
         if args.get("close"):
             if len(self.pages) == 1:
                 raise core_common._tag(ValueError("Refusing to close the last tab."), core_common.ERR_VALIDATION, hint=core_common._hint("last_tab", self.profile))
@@ -1124,6 +1178,8 @@ class BrowserEngine:
             page = self.page()
         else:
             self.current = page
+            if hasattr(self, "sessions") and self.session_id in self.sessions:
+                self.sessions[self.session_id]["current"] = page
             try:
                 pass  # focus is reserved for needs-human handoffs
             except Exception:  # noqa: BLE001
@@ -1147,7 +1203,7 @@ class BrowserEngine:
     def h_eval(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         if self.config.get("eval") is False:
             raise core_common._tag(ValueError("eval is disabled by config.json."), core_common.ERR_GUARDED, hint=core_common._hint("eval_disabled"))
-        page = self.page()
+        page = self.target_page(args)
         js = args.get("js") or ""
         if not js.strip():
             raise core_common._tag(ValueError("eval needs a JavaScript expression."), core_common.ERR_USAGE)
@@ -1360,6 +1416,7 @@ class _Handler(socketserver.StreamRequestHandler):
 
 class _Server(socketserver.TCPServer):
     allow_reuse_address = False
+    request_queue_size = 64
     daemon: Daemon
 
 

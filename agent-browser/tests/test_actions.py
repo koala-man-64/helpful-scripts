@@ -278,8 +278,9 @@ def test_popup_becomes_the_new_current_tab(make_daemon, outer_text: str) -> None
 
     result = daemon.dispatch("click", {"target": "e4"}, 5.0)
 
-    assert result["new_tab"] == {"index": 2, "url": "http://x/home.html"}
+    assert result["new_tab"] == {"id": "t2", "index": 2, "url": "http://x/home.html"}
     assert result["tab"] == 2
+    assert result["tab_id"] == "t2"
     assert daemon.current is popup
 
 
@@ -379,6 +380,122 @@ def test_closing_the_last_tab_is_refused(make_daemon, outer_text: str) -> None:
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("tab", {"index": 1, "close": True}, 5.0)
     assert exc.value.error_class == core_common.ERR_VALIDATION
+
+
+def test_per_command_tab_targeting_preserves_current_tab_and_serves_isolated_refs(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page1 = make_daemon(snapshot_text=outer_text, page_url="http://x/tab1")
+    page2 = FakePage(ctx, url="http://x/tab2", title="Tab Two", snapshot_text='- document [ref=e1]:\n  - textbox "Note" [ref=e2]: initial\n  - button "Save" [ref=e3]\n')
+    page2.elements["e2"] = FakeElement(ref="e2", tag="INPUT", value="initial")
+    page2.elements["e3"] = FakeElement(ref="e3", tag="BUTTON")
+    page2.main_frame.body_text = "Second tab body"
+    page1.main_frame.body_text = "First tab body"
+    daemon._track_page(page2)
+
+    assert daemon.current is page1
+    tabs_res = daemon.dispatch("tabs", {}, 5.0)
+    assert tabs_res["current"] == 1
+    assert tabs_res["current_id"] == "t1"
+    assert [t["id"] for t in tabs_res["tabs"]] == ["t1", "t2"]
+
+    snap2 = daemon.dispatch("snapshot", {"tab": "t2"}, 5.0)
+    assert snap2["tab"] == 2
+    assert snap2["tab_id"] == "t2"
+    assert snap2["url"] == "http://x/tab2"
+    assert snap2["snapshot_file"].endswith("last_snapshot_t2.txt")
+    assert (daemon.paths.workspace / "last_snapshot_t2.txt").is_file()
+    assert daemon.current is page1
+
+    fill2 = daemon.dispatch("fill", {"target": "e2", "text": "updated in background", "tab": "t2"}, 5.0)
+    assert fill2["tab"] == 2
+    assert fill2["tab_id"] == "t2"
+    assert fill2["value_after"] == "updated in background"
+    assert daemon.current is page1
+
+    val2 = daemon.dispatch("value", {"target": "e2", "tab": 2}, 5.0)
+    assert val2["value"] == "updated in background"
+    assert val2["tab_id"] == "t2"
+    assert daemon.current is page1
+
+    txt1 = daemon.dispatch("text", {"tab": "t1"}, 5.0)
+    txt2 = daemon.dispatch("text", {"tab": "t2"}, 5.0)
+    assert "First tab body" in txt1["text"] and txt1["tab_id"] == "t1"
+    assert "Second tab body" in txt2["text"] and txt2["tab_id"] == "t2"
+
+    page2.custom_evaluators["1+1"] = 2
+    ev2 = daemon.dispatch("eval", {"js": "1+1", "tab": "t2"}, 5.0)
+    assert ev2["tab"] == 2 and ev2["tab_id"] == "t2" and ev2["value"] == 2
+    assert daemon.current is page1
+
+
+def test_stable_tab_ids_survive_closing_earlier_tabs(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page1 = make_daemon(snapshot_text=outer_text, page_url="http://x/1")
+    page2 = FakePage(ctx, url="http://x/2", title="Two", snapshot_text=outer_text)
+    page3 = FakePage(ctx, url="http://x/3", title="Three", snapshot_text=outer_text)
+    daemon._track_page(page2)
+    daemon._track_page(page3)
+
+    assert [t["id"] for t in daemon.dispatch("tabs", {}, 5.0)["tabs"]] == ["t1", "t2", "t3"]
+
+    daemon.dispatch("tab", {"index": "t1", "close": True}, 5.0)
+    tabs_after = daemon.dispatch("tabs", {}, 5.0)["tabs"]
+    assert [(t["id"], t["index"], t["url"]) for t in tabs_after] == [
+        ("t2", 1, "http://x/2"),
+        ("t3", 2, "http://x/3"),
+    ]
+
+    snap3 = daemon.dispatch("snapshot", {"tab": "t3"}, 5.0)
+    assert snap3["url"] == "http://x/3"
+    assert snap3["tab"] == 2
+    assert snap3["tab_id"] == "t3"
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("snapshot", {"tab": "t1"}, 5.0)
+    assert exc.value.error_class == core_common.ERR_NOT_FOUND
+
+    page4 = FakePage(ctx, url="http://x/4", title="Four", snapshot_text=outer_text)
+    daemon._track_page(page4)
+    assert daemon._tab_id(page4) == "t4"
+
+
+def test_popup_from_background_tab_does_not_steal_current_tab(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page1 = make_daemon(snapshot_text=outer_text, page_url="http://x/1")
+    page2 = FakePage(ctx, url="http://x/2", title="Two", snapshot_text=outer_text)
+    page2.elements["e4"] = FakeElement(ref="e4", tag="BUTTON")
+    daemon._track_page(page2)
+    popup = FakePage(ctx, url="http://x/popup", title="Popup", snapshot_text=outer_text)
+    page2.elements["e4"].click_side_effect = lambda: ctx.emit("page", popup)
+
+    assert daemon.current is page1
+    res = daemon.dispatch("click", {"target": "e4", "tab": "t2"}, 5.0)
+    assert res["tab_id"] == "t2"
+    assert res["new_tab"] == {"id": "t3", "index": 3, "url": "http://x/popup"}
+    assert daemon.current is page1
+
+
+def test_goto_on_background_tab_and_allowlist_per_tab(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page1 = make_daemon(
+        snapshot_text=outer_text,
+        page_url="http://allowed.example/one",
+        config={"allowed_hosts": ["allowed.example"]},
+    )
+    page2 = FakePage(ctx, url="http://other.example/off", title="Off", snapshot_text=outer_text)
+    daemon._track_page(page2)
+
+    snap1 = daemon.dispatch("snapshot", {"tab": "t1"}, 5.0)
+    assert snap1["url"] == "http://allowed.example/one"
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("click", {"target": "e4", "tab": "t2"}, 5.0)
+    assert exc.value.error_class == core_common.ERR_GUARDED
+
+    nav2 = daemon.dispatch("goto", {"url": "http://allowed.example/two", "tab": "t2"}, 5.0)
+    assert nav2["tab_id"] == "t2"
+    assert nav2["url"] == "http://allowed.example/two"
+    assert daemon.current is page1
+    assert page1.url == "http://allowed.example/one"
+
+    with pytest.raises(ValueError) as exc2:
+        daemon.dispatch("goto", {"url": "http://allowed.example/three", "new_tab": True, "tab": "t1"}, 5.0)
+    assert exc2.value.error_class == core_common.ERR_USAGE
 
 
 # ---------------------------------------------------------------------------
