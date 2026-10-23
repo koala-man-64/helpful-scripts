@@ -75,6 +75,17 @@ format correctly. **Specific to Anthropic's Claude Code** — it does not apply
 to Codex, Copilot, Cursor, the claude.ai web app, or direct API usage. See
 [claude-code-token-audit/README.md](claude-code-token-audit/README.md).
 
+## Move a Claude Code setup to another machine
+
+`agentic-ide-setup/scripts/claude_setup.py` is a dependency-free Python tool
+that captures this machine's Claude Code setup and recreates it elsewhere:
+`CLAUDE.md`, agents, skills, the hook release clone and its `settings.json`
+wiring, permissions, the status line, plugins, user-scope MCP servers and
+Docker MCP Toolkit servers. Auto-memory travels in a private zip that never
+enters this repository; credentials are never exported. Restore previews by
+default and is idempotent. See
+[agentic-ide-setup/README.md](agentic-ide-setup/README.md#move-claude-code-to-another-machine).
+
 ## Meeting Booking Agent design
 
 `power-app-meeting-booking/` holds a single self-contained HTML design and

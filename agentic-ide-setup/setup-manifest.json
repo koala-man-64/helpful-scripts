@@ -264,6 +264,82 @@
       ]
     }
   },
+  "claudeSnapshot": {
+    "settingsKeys": [
+      "env",
+      "permissions",
+      "model",
+      "hooks",
+      "statusLine",
+      "enabledPlugins",
+      "extraKnownMarketplaces",
+      "effortLevel",
+      "autoUpdatesChannel",
+      "skipWorkflowUsageWarning",
+      "theme",
+      "switchModelsOnFlag",
+      "agentPushNotifEnabled",
+      "autoMode"
+    ],
+    "tools": [
+      {
+        "name": "Python launcher",
+        "command": "py",
+        "required": true,
+        "winget": "Python.Python.3.13",
+        "purpose": "runs the hooks and the status line"
+      },
+      {
+        "name": "Git",
+        "command": "git",
+        "required": true,
+        "winget": "Git.Git",
+        "purpose": "clones the hook release and plugin repositories"
+      },
+      {
+        "name": "Claude Code",
+        "command": "claude",
+        "required": true,
+        "install": "irm https://claude.ai/install.ps1 | iex",
+        "purpose": "registers plugins and MCP servers"
+      },
+      {
+        "name": "GitHub CLI",
+        "command": "gh",
+        "required": false,
+        "winget": "GitHub.cli",
+        "purpose": "GitHub pull requests in the finish workflow"
+      },
+      {
+        "name": "Docker Desktop",
+        "command": "docker",
+        "required": false,
+        "winget": "Docker.DockerDesktop",
+        "purpose": "the MCP_DOCKER gateway"
+      },
+      {
+        "name": "Azure CLI",
+        "command": "az",
+        "required": false,
+        "winget": "Microsoft.AzureCLI",
+        "purpose": "Azure DevOps work from agents"
+      },
+      {
+        "name": "Node.js",
+        "command": "node",
+        "required": false,
+        "winget": "OpenJS.NodeJS.LTS",
+        "purpose": "the node, npm and npx commands the permissions allow"
+      },
+      {
+        "name": "PowerShell 7",
+        "command": "pwsh",
+        "required": false,
+        "winget": "Microsoft.PowerShell",
+        "purpose": "this bundle's Codex and VS Code installer scripts"
+      }
+    ]
+  },
   "skills": [
     {
       "root": "home",

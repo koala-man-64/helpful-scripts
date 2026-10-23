@@ -1,6 +1,6 @@
 # Agentic IDE Setup
 
-Portable Windows PowerShell setup for the current Antigravity (Gemini), Codex, Claude Code, and VS Code chat workflow. The committed profile contains selected settings, user-authored agents, and required skills. Repository-owned Claude hook source remains available for maintenance but is not installed or activated by this bundle. It deliberately omits account details, sessions, caches, databases, and project-local configuration.
+Portable Windows PowerShell setup for the current Antigravity (Gemini), Codex, Claude Code, and VS Code chat workflow. The committed profile contains selected settings, user-authored agents, and required skills. The PowerShell installer copies files only and never activates the repository-owned Claude hooks. To recreate a whole Claude Code machine, including the hook release clone, settings, plugins and MCP servers, use [`scripts/claude_setup.py`](#move-claude-code-to-another-machine). It deliberately omits account details, sessions, caches, databases, and project-local configuration.
 
 ## Managed baseline
 
@@ -146,9 +146,86 @@ python -m pip install --user -e ..\agent-browser
 agent-browser doctor
 ```
 
+## Move Claude Code to another machine
+
+[`scripts/claude_setup.py`](scripts/claude_setup.py) captures this machine's Claude Code setup and recreates it on another one. It needs Python 3.10 or newer and nothing else: no packages, no PowerShell 7. The hooks themselves need Python 3.11 or newer.
+
+| What | Travels in | Restore recreates it with |
+|---|---|---|
+| `CLAUDE.md` | `profile/claude/CLAUDE.md` | a copy |
+| Agents and skills | `profile/claude/` (repository-owned) | a copy |
+| Settings: permissions, hook wiring, status line, plugins, model, effort, env, preferences | `snapshot/claude/settings.template.json` | a merge into `settings.json` |
+| User-scope MCP servers | `snapshot/claude/mcp-servers.template.json` | `claude mcp add-json --scope user` |
+| Hook release clone and plugin repositories | `snapshot/claude/repositories.json` | `git clone`; the hook release is sparse and pinned to the commit this machine runs |
+| Plugins | the settings' `extraKnownMarketplaces` and `enabledPlugins` | `claude plugin marketplace add`, `claude plugin install` |
+| Docker MCP Toolkit servers | `snapshot/claude/docker-mcp-servers.txt` | `docker mcp server enable` |
+| agent-browser CLI | this repository | `pip install --user -e agent-browser` |
+| Auto-memory | a private zip, never this repository | a copy, with project folders renamed for the new home |
+
+On this machine, from this directory:
+
+```powershell
+py -B .\scripts\claude_setup.py export
+py -B .\scripts\claude_setup.py bundle
+```
+
+`export` refreshes `profile/claude/CLAUDE.md` and `snapshot/claude/`, then lists every entry of `~/.claude` it leaves behind and anything it does not recognize. It writes nothing in these cases:
+
+- installed agents or skills differ from the profile (update the profile through a PR, or pass `--allow-drift`)
+- any captured setting, MCP server field or line of `CLAUDE.md` looks like a credential or personal data:
+  - a credential-named key
+  - a URL with a user name
+  - a token-shaped value
+  - a password passed as an argument or assigned in a command (`PGPASSWORD=...`)
+  - an email address
+
+  A `${NAME}` reference, which the restoring machine resolves, is kept as written.
+- a path stays machine-specific
+- a repository the settings run code from lives anywhere other than `~\.claude\hooks-release` or directly under `~\Projects`
+
+`--exclude-mcp NAME` leaves one MCP server out. Settings keys outside `claudeSnapshot.settingsKeys` in [setup-manifest.json](setup-manifest.json) are reported, not captured. The snapshot also carries the reviewed `deny` and `ask` rules from `profile/claude/settings.template.json`.
+
+This repository is public, and the snapshot is executable configuration: its hooks, status line, MCP servers and plugins run on every machine that restores it. Review a snapshot diff like code before you commit or merge it. Clone URLs are published too, so keep private repositories out of the settings you export.
+
+`bundle` writes `claude-private-bundle-<time>.zip` to your home folder and refuses any folder below a `.git`. It holds your memory notes in plain text, so keep it out of synced folders, move it privately, and delete it after the restore.
+
+On the new machine:
+
+1. Install Git, Python and Claude Code (`irm https://claude.ai/install.ps1 | iex`). Restore checks the other tools and prints a `winget` command for each one that is missing.
+2. Clone this repository and preview the restore. The preview starts with everything the snapshot will run, clone or trust, in full. Then apply it; `--apply` shows the same plan and asks you to type `yes`:
+
+   ```powershell
+   git clone https://github.com/koala-man-64/helpful-scripts.git "$HOME\Projects\helpful-scripts"
+   cd "$HOME\Projects\helpful-scripts\agentic-ide-setup"
+   py -B .\scripts\claude_setup.py restore --private-bundle <zip>
+   py -B .\scripts\claude_setup.py restore --private-bundle <zip> --apply
+   ```
+
+   Without a terminal to confirm in, add `--yes` after reviewing the preview.
+
+3. Follow the manual steps it prints: sign in to Claude Code, authenticate `gh` and `az`, authorize Docker MCP servers that need an account, and run `agent-browser doctor`. Then start a new Claude Code session.
+
+Restore is idempotent; rerun it after fixing anything it reports. Before it changes anything, it refuses a snapshot outside the shapes export writes. Such a snapshot has one of these:
+
+- settings keys outside `claudeSnapshot.settingsKeys`
+- a `bypassPermissions` default
+- a clone outside the two allowed folders
+- a directory marketplace outside the cloned repositories
+- a value that could pass as a command-line option
+
+It never replaces a profile or memory file that differs without `--overwrite`, which backs the file up first.
+
+Each clone is made in a temporary folder and renamed only when every step succeeds. `settings.json` is left untouched until every hook script, status line script and marketplace folder it names exists; a hook whose script is missing would block every tool call. Settings are merged rather than replaced: template values win, lists gain missing entries, and a hook group never registers twice. `settings.json` is backed up before every write, and restore stops if another process changes the file while restore runs.
+
+A user-scope MCP server that already exists with a different definition is left alone. Restore refuses links and junctions on every path it writes. Broken hook wiring or a settings merge that did not land fails the final verification.
+
+`--home <folder>` stages a restore in another folder: `claude` commands run with `CLAUDE_CONFIG_DIR` inside it, and the machine-wide Docker and pip steps are skipped. A restored hook release stays at the pinned commit; deploy later hook changes with the release procedure below.
+
+Left behind on purpose: credentials (sign in again), prompt history, session transcripts, caches, folder trust, and this machine's task state (`state`, `waits`, `task-notes`, `scheduled-tasks`). Paths are stored as `__USERPROFILE__`, `__USERPROFILE_SLASH__` and `__USERPROFILE_POSIX__` markers and `%ProgramFiles%`-style names, so a different user name works.
+
 ## Claude hooks: release clone
 
-The bundle does not install Claude hooks. They run from a pinned release clone of this repository at `%USERPROFILE%\.claude\hooks-release`: a sparse clone, detached at a merged commit, that `settings.json` points at. Nothing is copied, so a hook edited in place shows up in `git status` instead of silently drifting from this repository.
+The PowerShell installer does not install Claude hooks. They run from a pinned release clone of this repository at `%USERPROFILE%\.claude\hooks-release`: a sparse clone, detached at a merged commit, that `settings.json` points at. Nothing is copied, so a hook edited in place shows up in `git status` instead of silently drifting from this repository. On a new machine, `claude_setup.py restore` performs the one-time setup below and wires `settings.json`.
 
 One-time setup:
 

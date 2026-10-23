@@ -11,6 +11,8 @@ Run this after installing the profile files. None of these account details are s
 
 ## Claude Code
 
+To recreate a whole machine's setup, run `claude_setup.py restore` first; see [Move Claude Code to another machine](agentic-ide-setup/README.md#move-claude-code-to-another-machine). It prints the remaining sign-in steps.
+
 1. Install Claude Code and complete its sign-in flow.
 2. Restart Claude Code after copying `CLAUDE.md`, settings, agents, skills, and hooks.
 3. Review hook command paths and permission rules before first use in a new environment.
