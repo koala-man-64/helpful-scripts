@@ -1,0 +1,16 @@
+[
+  {
+    "path": "__USERPROFILE__\\.claude\\hooks-release",
+    "url": "https://github.com/koala-man-64/helpful-scripts.git",
+    "filter": "blob:none",
+    "sparse": [
+      "agentic-ide-setup/profile/claude/hooks"
+    ],
+    "detach": "origin/main"
+  },
+  {
+    "path": "__USERPROFILE__\\Projects\\quota-burndown",
+    "url": "https://github.com/koala-man-64/quota-burndown.git",
+    "branch": "main"
+  }
+]

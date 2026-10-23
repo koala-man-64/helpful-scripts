@@ -1,6 +1,6 @@
 # Agentic IDE Setup
 
-Portable Windows PowerShell setup for the current Antigravity (Gemini), Codex, Claude Code, and VS Code chat workflow. The committed profile contains selected settings, user-authored agents, and required skills. Repository-owned Claude hook source remains available for maintenance but is not installed or activated by this bundle. It deliberately omits account details, sessions, caches, databases, and project-local configuration.
+Portable Windows PowerShell setup for the current Antigravity (Gemini), Codex, Claude Code, and VS Code chat workflow. The committed profile contains selected settings, user-authored agents, and required skills. The PowerShell installer copies files only and never activates the repository-owned Claude hooks. To recreate a whole Claude Code machine, including the hook release clone, settings, plugins and MCP servers, use [`scripts/claude_setup.py`](#move-claude-code-to-another-machine). It deliberately omits account details, sessions, caches, databases, and project-local configuration.
 
 ## Managed baseline
 
@@ -146,9 +146,56 @@ python -m pip install --user -e ..\agent-browser
 agent-browser doctor
 ```
 
+## Move Claude Code to another machine
+
+[`scripts/claude_setup.py`](scripts/claude_setup.py) captures this machine's Claude Code setup and recreates it on another one. It needs Python 3.11 or newer and nothing else: no packages, no PowerShell 7.
+
+| What | Travels in | Restore recreates it with |
+|---|---|---|
+| `CLAUDE.md` | `profile/claude/CLAUDE.md` | a copy |
+| Agents and skills | `profile/claude/` (repository-owned) | a copy |
+| Settings: permissions, hook wiring, status line, plugins, model, effort, env, preferences | `snapshot/claude/settings.template.json` | a merge into `settings.json` |
+| User-scope MCP servers | `snapshot/claude/mcp-servers.template.json` | `claude mcp add-json --scope user` |
+| Hook release clone and plugin repositories | `snapshot/claude/repositories.json` | `git clone`, sparse and detached where the source clone was |
+| Plugins | the settings' `extraKnownMarketplaces` and `enabledPlugins` | `claude plugin marketplace add`, `claude plugin install` |
+| Docker MCP Toolkit servers | `snapshot/claude/docker-mcp-servers.txt` | `docker mcp server enable` |
+| agent-browser CLI | this repository | `pip install --user -e agent-browser` |
+| Auto-memory | a private zip, never this repository | a copy, with project folders renamed for the new home |
+
+On this machine, from this directory:
+
+```powershell
+py -B .\scripts\claude_setup.py export
+py -B .\scripts\claude_setup.py bundle
+```
+
+`export` refreshes `profile/claude/CLAUDE.md` and `snapshot/claude/`, then lists every entry of `~/.claude` it leaves behind and anything it does not recognize. It writes nothing when installed agents or skills differ from the profile (update the profile through a PR, or pass `--allow-drift`), when a value looks like a credential, or when a path stays machine-specific. `--exclude-mcp NAME` leaves one MCP server out. This repository is public, so review the snapshot diff before you commit it. Settings keys outside `claudeSnapshot.settingsKeys` in [setup-manifest.json](setup-manifest.json) are reported, not captured. The snapshot also carries the reviewed `deny` and `ask` rules from `profile/claude/settings.template.json`.
+
+`bundle` writes `claude-private-bundle-<time>.zip` to your home folder and refuses any folder inside a git work tree. It holds your memory notes, so move it privately and delete it after the restore.
+
+On the new machine:
+
+1. Install Git, Python and Claude Code (`irm https://claude.ai/install.ps1 | iex`). Restore checks the other tools and prints a `winget` command for each one that is missing.
+2. Clone this repository, preview the restore, then apply it:
+
+   ```powershell
+   git clone https://github.com/koala-man-64/helpful-scripts.git "$HOME\Projects\helpful-scripts"
+   cd "$HOME\Projects\helpful-scripts\agentic-ide-setup"
+   py -B .\scripts\claude_setup.py restore --private-bundle <zip>
+   py -B .\scripts\claude_setup.py restore --private-bundle <zip> --apply
+   ```
+
+3. Follow the manual steps it prints: sign in to Claude Code, authenticate `gh` and `az`, authorize Docker MCP servers that need an account, and run `agent-browser doctor`. Then start a new Claude Code session.
+
+Restore is idempotent; rerun it after fixing anything it reports. It never replaces a profile or memory file that differs without `--overwrite`, which backs the file up first. It merges settings rather than replacing them: template values win, lists gain missing entries, and a hook group never registers twice. `settings.json` is backed up before every write, and restore stops if another process changes the file while restore runs. A user-scope MCP server that already exists with a different definition is left alone. Restore refuses links and junctions on every path it writes.
+
+`--home <folder>` stages a restore in another folder: `claude` commands run with `CLAUDE_CONFIG_DIR` inside it, and the machine-wide Docker and pip steps are skipped.
+
+Left behind on purpose: credentials (sign in again), prompt history, session transcripts, caches, folder trust, and this machine's task state (`state`, `waits`, `task-notes`, `scheduled-tasks`). Paths are stored as `__USERPROFILE__`, `__USERPROFILE_SLASH__` and `__USERPROFILE_POSIX__` markers and `%ProgramFiles%`-style names, so a different user name works.
+
 ## Claude hooks: release clone
 
-The bundle does not install Claude hooks. They run from a pinned release clone of this repository at `%USERPROFILE%\.claude\hooks-release`: a sparse clone, detached at a merged commit, that `settings.json` points at. Nothing is copied, so a hook edited in place shows up in `git status` instead of silently drifting from this repository.
+The PowerShell installer does not install Claude hooks. They run from a pinned release clone of this repository at `%USERPROFILE%\.claude\hooks-release`: a sparse clone, detached at a merged commit, that `settings.json` points at. Nothing is copied, so a hook edited in place shows up in `git status` instead of silently drifting from this repository. On a new machine, `claude_setup.py restore` performs the one-time setup below and wires `settings.json`.
 
 One-time setup:
 

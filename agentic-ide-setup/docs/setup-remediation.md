@@ -24,10 +24,17 @@ fails when any required source is missing; it does not silently substitute a for
 
 ## Managed dependencies
 
-The bundle never installs or activates hooks. Existing host config/settings/MCP
-files are preserved even with `-Overwrite`, so their hook registration, permissions,
-and trust records cannot be erased by a profile refresh. Historical Claude hook
-source and tests remain in the repository; the profile installer skips that tree.
+The PowerShell installer never installs or activates hooks. Existing host
+config/settings/MCP files are preserved even with `-Overwrite`, so their hook
+registration, permissions, and trust records cannot be erased by a profile refresh.
+Historical Claude hook source and tests remain in the repository; the profile
+installer skips that tree.
+
+`scripts/claude_setup.py restore` is a separate, Claude-only path for recreating a
+whole machine. It clones the hook release, merges the captured snapshot into
+`settings.json` after a backup, and registers plugins and user-scope MCP servers
+through the `claude` CLI. See the README section on moving Claude Code to another
+machine.
 
 Install Codex workflow hooks through the owning `codex-workflow-hooks` repository's
 immutable-release installation procedure and run its `hookctl.py doctor --json`.
@@ -40,7 +47,9 @@ Python 3.11+ supplies the standard-library TOML parser; no Python package is add
 Install the browser CLI, Playwright, and Edge/Chrome as described in the main README.
 Install/authenticate plugins separately from `profile/codex/plugins.txt`; the list
 includes configured entries whether enabled or disabled and grants no permissions.
-Configure MCP servers explicitly; the shipped MCP configuration is empty.
+Configure Codex and VS Code MCP servers explicitly; the shipped VS Code MCP
+configuration is empty. The Claude snapshot carries the user-scope MCP servers that
+export found, with credential-shaped values refused.
 
 ## Validation and rollout
 
