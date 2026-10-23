@@ -101,19 +101,25 @@ CREDENTIAL_PARTS = frozenset({"token", "secret", "secrets", "password", "passwd"
                               "cookie", "bearer", "sas", "signature"})
 CREDENTIAL_PHRASES = ("apikey", "accesskey", "privatekey", "clientsecret", "connectionstring", "accesstoken",
                       "authtoken", "refreshtoken", "sessiontoken", "password", "secret", "credential")
-# ${NAME} is a reference that the restoring machine resolves, not a credential.
+# ${NAME} is a reference that the restoring machine resolves, not a credential. The scan
+# sees it as $REF, so a literal beside it is still checked and "$" values count as variables.
 ENV_REFERENCE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
+REFERENCE_VALUE = re.compile(r"(?i)(?:(?:bearer|basic|token)\s+)?(?:\$\{[A-Za-z_][A-Za-z0-9_]*\})+")
+KEY_ARGUMENTS = "access|account|subscription|storage|sas|signing|encryption|master|private|secret|client|api"
 SECRET_SHAPES = (
     ("a URL with embedded credentials", re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^/\s\"'@]+@")),
     ("a credential in a URL query", re.compile(
         r"(?i)[?&][a-z0-9_.-]*(?:key|token|secret|password|passwd|pwd|sig|signature|auth|credential|sas)=[^&\s\"']")),
     ("a credential passed as an argument", re.compile(
-        r"(?i)(?:^|[\s\"'(])--?(?:[a-z0-9]+[-_])*(?:token|apikey|api-key|api_key|access-key|access_key|secret-key"
-        r"|secret_key|private-key|password|passwd|pwd|secret|pat|auth|credential)(?:=|\s+)(?=[^\s\"'-])")),
-    ("a user and password passed to curl", re.compile(r"(?i)\bcurl\b[^\n]*?\s(?:-u|--user)(?:\s+|=)[^\s:\"']+:[^\s\"']+")),
-    ("a password passed to sshpass", re.compile(r"(?i)\bsshpass\s+-p\s*\S+")),
-    ("a password attached to -p", re.compile(r"(?i:\b(?:mysql|mysqldump|mysqladmin|mariadb)\b)[^\n]*?\s-p(?![\s-])\S+")),
-    ("a credential header", re.compile(r"(?i)\b[a-z0-9-]*(?:authorization|api-key|apikey|-key|-token|-secret)\s*:\s*\S")),
+        r"(?i)(?:^|[\s\"'(])--?(?:[a-z0-9]+[-_])*(?:token|apikey|(?:" + KEY_ARGUMENTS + r")[-_]?key|password|passwd|pwd"
+        r"|secret|pat|auth|credential)(?:=|\s+)(?=[^\s\"'$%-])")),
+    ("a user and password passed to curl",
+     re.compile(r"(?i)\bcurl\b[^\n]*?\s(?:-u|--user)(?:\s+|=)[^\s:\"']+:(?![$%])[^\s\"']+")),
+    ("a password passed to sshpass", re.compile(r"(?i)\bsshpass\s+-p\s*(?![$%])\S+")),
+    ("a password attached to -p", re.compile(r"(?i:\b(?:mysql|mysqldump|mysqladmin|mariadb)\b)[^\n]*?\s-p(?![\s$%-])\S+")),
+    ("a credential header", re.compile(
+        r"(?i)\b[a-z0-9-]*(?:authorization|api-key|apikey|-key|-token|-secret|-auth)\s*:\s*"
+        r"(?!(?:bearer|basic|token)\s+[$%])(?:(?:bearer|basic|token)\s+)?(?![\s$%])\S")),
     ("a known token format", re.compile(
         r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abeoprs]-[A-Za-z0-9-]{10,}"
         r"|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|glpat-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})")),
@@ -124,6 +130,9 @@ AUTH_SCHEME = re.compile(r"(?i)\b(?:bearer|basic)\s+([A-Za-z0-9._~+/=-]{16,})")
 # NAME=value at the start of a command, the way allow rules record a one-off secret.
 ASSIGNMENT = re.compile(r"(?:^|[\s(;&|])([A-Za-z_][A-Za-z0-9_]*)=([^\s\"')]+)")
 TOKEN_RUN = re.compile(r"[A-Za-z0-9+=]{24,}")  # "/" ends a run, so long paths are not tokens
+# Base64 keeps "/" and "+": AWS secret keys and Azure account keys. A run counts when it
+# mixes letter cases and digits and its pieces are longer than folder names usually are.
+BASE64_RUN = re.compile(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/]{32,}={0,2}(?![A-Za-z0-9+/=])")
 # Test-SafeProfileContent's rule from ProfileTools.psm1: a credential-named key assigned
 # a long literal. Every file export writes must also pass the PowerShell bundle's check.
 ASSIGNED_SECRET = re.compile(
@@ -289,32 +298,46 @@ def expand_profile_bytes(data: bytes, home: Path, json_escape: bool) -> bytes:
 # --- credential checks ----------------------------------------------------------------
 
 def credential_name(name: str) -> bool:
+    """A credential word at the end of the name (GITHUB_TOKEN, X-Functions-Key, API_KEY_V2,
+    BASIC_AUTH), or a credential phrase anywhere (PGPASSWORD, clientSecret). Words earlier
+    in the name describe something else: SSH_AUTH_SOCK, KEY_VAULT_NAME."""
     parts = [part.lower() for part in NAME_PART.findall(name)]
+    while parts and parts[-1].isdigit():
+        parts.pop()
     joined = "".join(parts)
-    return bool(CREDENTIAL_PARTS.intersection(parts)) or any(phrase in joined for phrase in CREDENTIAL_PHRASES)
+    if any(phrase in joined for phrase in CREDENTIAL_PHRASES) or CREDENTIAL_PARTS.intersection(parts[-2:]):
+        return True
+    return bool(parts) and parts[-1] == "auth" and joined != "oauth"
+
+
+def _base64_secret(run: str) -> bool:
+    pieces = [piece for piece in re.split(r"[/+]", run.rstrip("=")) if piece]
+    mixed = all(re.search(pattern, run) for pattern in (r"[a-z]", r"[A-Z]", r"[0-9]"))
+    return mixed and ("/" in run or "+" in run or run.endswith("=")) and len(run) / max(len(pieces), 1) >= 10
 
 
 def secret_reason(text: str) -> str | None:
     """Why a value looks like a credential, or None. The value itself is never returned."""
-    bare = ENV_REFERENCE.sub(" ", SYSTEM_TOKEN.sub(" ", HOME_TOKEN.sub(" ", text)))
+    bare = ENV_REFERENCE.sub("$REF", SYSTEM_TOKEN.sub(" ", HOME_TOKEN.sub(" ", text)))
     for reason, pattern in SECRET_SHAPES:
         if pattern.search(bare):
             return reason
-    if any(credential_name(match.group(1)) for match in ASSIGNMENT.finditer(bare)):
+    if any(credential_name(match.group(1)) and not match.group(2).startswith(("$", "%"))
+           for match in ASSIGNMENT.finditer(bare)):
         return "a credential assigned in a command"
     if any(re.search(r"[0-9]", match.group(1)) for match in AUTH_SCHEME.finditer(bare)):
         return "an authorization header value"
     if any(re.search(r"[A-Za-z]", run) and re.search(r"[0-9]", run) for run in TOKEN_RUN.findall(bare)):
         return "a credential-shaped value"
+    if any(_base64_secret(run) for run in BASE64_RUN.findall(bare)):
+        return "a credential-shaped value"
     return None
 
 
 def references_only(value: Any) -> bool:
-    """A value built from ${NAME} references, such as "Bearer ${TOKEN}", holds no secret."""
-    if not isinstance(value, str) or not ENV_REFERENCE.search(value):
-        return False
-    rest = ENV_REFERENCE.sub("", value)
-    return len(rest.strip()) <= 16 and secret_reason(rest) is None
+    """A value that is nothing but ${NAME} references, optionally after an auth scheme
+    ("Bearer ${TOKEN}"), holds no secret; a literal beside a reference still might."""
+    return isinstance(value, str) and bool(REFERENCE_VALUE.fullmatch(value.strip()))
 
 
 def secret_findings(tree: Any, where: str, identifier_maps: Iterable[str] = ()) -> list[str]:
@@ -326,7 +349,10 @@ def secret_findings(tree: Any, where: str, identifier_maps: Iterable[str] = ()) 
         if isinstance(value, Mapping):
             for key, item in value.items():
                 child = f"{path}.{key}"
-                if path not in names_only and credential_name(str(key)) and not references_only(item):
+                in_name = secret_reason(str(key)) if path in names_only else None
+                if in_name:
+                    findings.append(f"{child}: {in_name} in a name")
+                elif path not in names_only and credential_name(str(key)) and not references_only(item):
                     findings.append(f"{child}: credential-named entry")
                 else:
                     walk(item, child)
@@ -458,8 +484,11 @@ def snapshot_problems(settings: Mapping[str, Any], servers: Mapping[str, Any], r
             problems.append(f"{where}.commit: must be a full commit id")
         if "filter" in repo and not (isinstance(repo["filter"], str) and SAFE_FILTER.fullmatch(repo["filter"])):
             problems.append(f"{where}.filter: unsafe clone filter")
-        for path in repo.get("sparse") or []:
-            if not (isinstance(path, str) and SAFE_SPARSE.fullmatch(path) and ".." not in path.split("/")):
+        if not _strings(repo.get("sparse", [])):
+            problems.append(f"{where}.sparse: not a list of paths")
+            continue
+        for path in repo.get("sparse", []):
+            if not (SAFE_SPARSE.fullmatch(path) and ".." not in path.split("/")):
                 problems.append(f"{where}.sparse: unsafe path {path!r}")
     problems += [f"mcpServers.{name}: unsafe server name" for name in servers if not SAFE_NAME.fullmatch(name)]
     problems += [f"settings.enabledPlugins.{plugin}: unsafe plugin id"

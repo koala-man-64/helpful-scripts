@@ -4,6 +4,7 @@ Git runs for real against local bare repositories; Claude, Docker and pip calls 
 through a recording fake. No live ~/.claude, network or PowerShell is needed, except
 for the one test that CLAUDE_SETUP_LIVE=1 opts into.
 """
+import base64
 import hashlib
 import importlib.util
 import json
@@ -247,6 +248,21 @@ def test_ordinary_names_are_not_credentials(name):
     {"permissions": {"allow": ["Bash(sshpass -p hunter2 ssh host)"]}},
     {"permissions": {"allow": ["Bash(mysql -u root -phunter2 db)"]}},
     {"permissions": {"allow": ["Bash(git config user.email alice@example.test)"]}},
+    # Base64 keeps "/" and "+": AWS secret keys and Azure account keys.
+    {"permissions": {"allow": ["Bash(aws configure set aws_secret_access_key wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY)"]}},
+    {"env": {"FOO": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}},
+    {"env": {"FOO": base64.b64encode(hashlib.sha512(b"azure").digest()).decode()}},
+    {"permissions": {"allow": ["Bash(az storage blob list --account-key abc123XYZ)"]}},
+    {"permissions": {"allow": ["Bash(tool --subscription-key s3cr3t)"]}},
+    {"env": {"BASIC_AUTH": "user:pw"}},
+    {"env": {"HTTP_AUTH": "x"}},
+    {"permissions": {"allow": ['Bash(curl -H "X-Auth: opaque123" https://x.test)']}},
+    {"permissions": {"allow": ["Bash(BASIC_AUTH=user:pw tool)"]}},
+    # A literal beside a reference is still a literal.
+    {"env": {"DB_PASSWORD": "hunter2${X}"}},
+    {"env": {"DB_PASSWORD": "${X}hunter2"}},
+    {"env": {"API_TOKEN": "abc123def${X}"}},
+    {"permissions": {"allow": ["Bash(curl -u ${U}:hunter2 https://x.test)"]}},
 ])
 def test_export_settings_scans_every_captured_field(live):
     _, _, problems = setup.export_settings(live, KEYS, {}, SOURCE, ENV)
@@ -257,14 +273,18 @@ def test_export_settings_scans_every_captured_field(live):
 @windows_only
 def test_secret_scan_leaves_ordinary_settings_alone():
     live = {
-        "env": {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000", "SSH_AUTH_SOCK": "x", "CLAUDE_CODE_SKIP_AUTH_LOGIN": "1"},
+        "env": {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000", "SSH_AUTH_SOCK": "x", "CLAUDE_CODE_SKIP_AUTH_LOGIN": "1",
+                "GITHUB_TOKEN": "${GITHUB_TOKEN}", "API_KEY": "Bearer ${API_KEY}"},
         "permissions": {"allow": ["Bash(git push *--force-*)", "Bash(docker login --password-stdin)",
                                   "Bash(tool --path ./x)", "Skill(update-config:*)",
                                   "mcp__cf514a11-bd65-4fe6-932b-647c42e01df3__send_message",
                                   "Bash(git -C * push *:refs/heads/production*)", "Bash(DISABLE_DOTENV=1 *)",
                                   "Bash(./scripts/build2/release/run1.sh)", "Read(//tmp/Repos2/Backend/ServiceOne1/**)",
                                   "Bash(tool --cache-key v1)", "Bash(docker run -u 1000:1000 image)",
-                                  "Bash(mysql -P3306 db)", "Bash(git clone git@github.com:owner/repo.git)"]},
+                                  "Bash(mysql -P3306 db)", "Bash(git clone git@github.com:owner/repo.git)",
+                                  "Bash(KEY_VAULT_NAME=kv tool)", "Bash(curl -u $USER:$PASS https://x.test)",
+                                  'Bash(curl -H "Authorization: Bearer ${T}" https://x.test)', "Bash(tool --token $TOKEN)",
+                                  "Bash(git checkout refs/heads/feature/PROJ1234AddNewThing)"]},
         "hooks": {"Stop": [{"hooks": [{"type": "command", "statusMessage": "Checking team closeout",
                                        "command": r'py "C:\Users\alice\.claude\hooks-release\x\stop_team_closeout.py"'}]}]},
         "enabledPlugins": {"key-tools@market": True},
@@ -852,6 +872,7 @@ def _set(path, value):
     (setup.REPOS_FILE, _set([0, "commit"], "HEAD~1")),
     (setup.REPOS_FILE, _set([1, "commit"], "0" * 40)),
     (setup.REPOS_FILE, _set([0, "sparse"], ["../outside"])),
+    (setup.REPOS_FILE, _set([0, "sparse"], 5)),
     (setup.MCP_FILE, _set(["mcpServers", "--scope"], {})),
     (setup.SETTINGS_FILE, _set(["apiKeyHelper"], "evil.cmd")),
     (setup.SETTINGS_FILE, _set(["permissions", "defaultMode"], "bypassPermissions")),

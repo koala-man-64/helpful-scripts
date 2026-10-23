@@ -172,7 +172,14 @@ py -B .\scripts\claude_setup.py bundle
 `export` refreshes `profile/claude/CLAUDE.md` and `snapshot/claude/`, then lists every entry of `~/.claude` it leaves behind and anything it does not recognize. It writes nothing in these cases:
 
 - installed agents or skills differ from the profile (update the profile through a PR, or pass `--allow-drift`)
-- any captured setting, MCP server field or line of `CLAUDE.md` looks like a credential: a credential-named key, a URL with a user name, a token-shaped value, or a password passed as an argument
+- any captured setting, MCP server field or line of `CLAUDE.md` looks like a credential or personal data:
+  - a credential-named key
+  - a URL with a user name
+  - a token-shaped value
+  - a password passed as an argument or assigned in a command (`PGPASSWORD=...`)
+  - an email address
+
+  A `${NAME}` reference, which the restoring machine resolves, is kept as written.
 - a path stays machine-specific
 - a repository the settings run code from lives anywhere other than `~\.claude\hooks-release` or directly under `~\Projects`
 
