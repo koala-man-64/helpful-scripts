@@ -2,16 +2,20 @@
 
 export   Refresh profile/claude/CLAUDE.md from ~/.claude and write snapshot/claude/:
          portable settings, user-scope MCP servers, the Docker MCP gateway's servers
-         and the git repositories the settings run code from. Agents and skills are
+         and the git repositories the settings run code from, with the hook release
+         pinned to the commit this machine runs. Agents and skills are
          repository-owned, so export only checks them for drift.
 bundle   Write auto-memory (~/.claude/projects/*/memory) to a private zip outside any
          git work tree. This repository is public, so memory never goes in it.
-restore  Preview by default; --apply recreates the setup: profile files, repositories,
-         plugins, MCP servers, the settings merge, Docker MCP servers, agent-browser
-         and memory, then runs the drift checks.
+restore  Preview by default. --apply shows the same plan, asks for confirmation, then
+         recreates the setup: profile files, repositories, plugins, MCP servers, the
+         settings merge, Docker MCP servers, agent-browser and memory, then runs the
+         drift checks.
 
-Standard library only, Python 3.11+. Export fails closed on credential-shaped values
-and on machine paths it cannot make portable. Credentials are never read or written.
+Standard library only, Python 3.10+. The snapshot is public and it is executable
+configuration, so export refuses anything credential-shaped or machine-specific and
+restore refuses any snapshot outside the shapes export writes. Credentials are never
+read or written.
 """
 import argparse
 import copy
@@ -63,21 +67,59 @@ HOME_TOKEN = re.compile(r"__USERPROFILE(?:_SLASH|_POSIX)?__")
 SYSTEM_FOLDERS = ("ProgramFiles(x86)", "ProgramFiles", "ProgramData", "SystemRoot")
 SYSTEM_TOKEN = re.compile("%(" + "|".join(re.escape(name) for name in SYSTEM_FOLDERS) + ")%")
 AFTER_PATH = r"(?=[\\/\"'\s)*]|$)"
-DRIVE_PATH = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]")
-POSIX_USER_PATH = re.compile(r"(?<![A-Za-z0-9])/[A-Za-z]/Users/", re.IGNORECASE)
+MACHINE_PATHS = (
+    re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]"),                      # C:\ and C:/
+    re.compile(r"(?<![A-Za-z0-9])/[A-Za-z]/Users/", re.IGNORECASE),      # /c/Users/
+    re.compile(r"(?<![A-Za-z0-9])/(?:mnt|cygdrive)/[A-Za-z]/", re.IGNORECASE),  # WSL and Cygwin
+)
 QUOTED = re.compile(r'"([^"]*)"')
 
-RESTRICTED_TERMS = ("api_key", "api-key", "apikey", "token", "secret", "secrets", "password",
-                    "passwd", "credential", "credentials", "authorization", "cookie",
-                    "private_key", "access_key")
-RESTRICTED_NAME = re.compile(
-    r"(?i)(?:^|[._-])(?:" + "|".join(map(re.escape, RESTRICTED_TERMS)) + r")(?:[._-]|$)")
+# Restore clones only these: the hook release, and folders directly under ~/Projects.
+HOOKS_CLONE = HOME_MARKER + "\\.claude\\hooks-release"
+PROJECTS_DIR = HOME_MARKER + "\\Projects"
+# Restore applies only the permission keys export captures; a bypass default never travels.
+PERMISSION_KEYS = ("allow", "deny", "ask", "additionalDirectories", "defaultMode", "disableBypassPermissionsMode")
+REFUSED_MODES = ("bypassPermissions",)
+
+# Restore passes snapshot values to git and claude as arguments, so each one must look
+# like what export writes: nothing that starts with "-", no ".." and no shell characters.
+SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+SAFE_PLUGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*@[A-Za-z0-9][A-Za-z0-9_.-]*")
+SAFE_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
+SAFE_COMMIT = re.compile(r"[0-9a-f]{40}")
+SAFE_URL = re.compile(r"https://[A-Za-z0-9.-]+(?::[0-9]+)?(?:/[A-Za-z0-9._~/-]*)?"
+                      r"|(?:ssh://)?git@[A-Za-z0-9.-]+[:/][A-Za-z0-9._~/-]+")
+SAFE_FILTER = re.compile(r"[a-z]+(?::[A-Za-z0-9=._-]+)?")
+SAFE_SPARSE = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_./ -]*")
+GITHUB_REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*")
+
+# Credential detection. Names split on separators and camelCase, so authToken, GH_PAT
+# and X-Functions-Key all match; values are checked for the shapes credentials take.
+NAME_PART = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
+CREDENTIAL_PARTS = frozenset({"token", "secret", "secrets", "password", "passwd", "pwd", "passphrase",
+                              "credential", "credentials", "pat", "apikey", "key", "auth", "authorization",
+                              "cookie", "bearer", "sas", "signature"})
+CREDENTIAL_PHRASES = ("apikey", "accesskey", "privatekey", "clientsecret", "connectionstring", "accesstoken",
+                      "authtoken", "refreshtoken", "sessiontoken", "password", "secret", "credential")
+SECRET_SHAPES = (
+    ("a URL with embedded credentials", re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^/\s\"'@]+@")),
+    ("a credential in a URL query", re.compile(
+        r"(?i)[?&][a-z0-9_.-]*(?:key|token|secret|password|passwd|pwd|sig|signature|auth|credential|sas)=[^&\s\"']")),
+    ("a credential passed as an argument", re.compile(
+        r"(?i)(?:^|[\s\"'(])--?(?:[a-z0-9]+[-_])*(?:token|apikey|api-key|api_key|key|password|passwd|pwd|secret|pat"
+        r"|auth|credential)(?:=|\s+)(?=[^\s\"'-])")),
+    ("a credential header", re.compile(r"(?i)\b[a-z0-9-]*(?:authorization|api-key|apikey|-key|-token|-secret)\s*:\s*\S")),
+    ("a known token format", re.compile(
+        r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abeoprs]-[A-Za-z0-9-]{10,}"
+        r"|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|glpat-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})")),
+)
+AUTH_SCHEME = re.compile(r"(?i)\b(?:bearer|basic)\s+([A-Za-z0-9._~+/=-]{16,})")
+TOKEN_RUN = re.compile(r"[A-Za-z0-9+/=]{24,}")
 # Test-SafeProfileContent's rule from ProfileTools.psm1: a credential-named key assigned
 # a long literal. Every file export writes must also pass the PowerShell bundle's check.
 ASSIGNED_SECRET = re.compile(
     r"(?im)^\s*['\"]?[A-Za-z0-9_.-]*(?:api_key|token|secret|password|credential|authorization)"
     r"[A-Za-z0-9_.-]*['\"]?\s*[:=]\s*['\"][A-Za-z0-9_./+=-]{20,}['\"]")
-TOKEN_RUN = re.compile(r"[A-Za-z0-9+/=_]{20,}")
 
 # What happens to each top-level entry of ~/.claude. Anything not listed is reported,
 # so a new kind of configuration cannot be left behind silently.
@@ -194,14 +236,10 @@ def iter_strings(value: Any, where: str = "$") -> Iterator[tuple[str, str]]:
             yield from iter_strings(item, f"{where}.{key}")
 
 
-def is_portable_reference(text: str) -> bool:
-    return bool(HOME_TOKEN.search(text) or SYSTEM_TOKEN.search(text))
-
-
 def unportable(tree: Any, label: str) -> list[str]:
     problems = []
     for where, text in iter_strings(tree, label):
-        if DRIVE_PATH.search(text) or POSIX_USER_PATH.search(text):
+        if any(pattern.search(text) for pattern in MACHINE_PATHS):
             problems.append(f"{where}: machine-specific path")
         for token in MARKER_TOKEN.findall(text):
             if token not in SNAPSHOT_MARKERS:
@@ -209,66 +247,10 @@ def unportable(tree: Any, label: str) -> list[str]:
     return problems
 
 
-# Restore passes snapshot values to git and claude as arguments, so each one must look
-# like what export writes: nothing that starts with "-", no ".." and no shell characters.
-SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
-SAFE_PLUGIN = re.compile(SAFE_NAME.pattern + "@" + SAFE_NAME.pattern)
-SAFE_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
-SAFE_URL = re.compile(r"(?:https://|ssh://|git@)[^\s\"'<>|^%`]+")
-SAFE_FILTER = re.compile(r"[a-z]+(?::[A-Za-z0-9=._-]+)?")
-SAFE_SPARSE = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_./ -]*")
-GITHUB_REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
-
-
-def _home_folder(path: Any) -> bool:
-    """A portable path inside the home directory, without parent-folder steps."""
-    if not isinstance(path, str) or not path.startswith(HOME_MARKER + "\\"):
-        return False
-    return ".." not in path.replace("/", "\\").split("\\")
-
-
-def snapshot_problems(settings: Mapping[str, Any], servers: Mapping[str, Any], repos: Any, docker: list[str]) -> list[str]:
-    """Everything that would make restore act outside the home or pass an unsafe argument."""
-    problems = []
-    for label, tree in (("settings", settings), ("mcpServers", servers), ("repositories", repos)):
-        problems += unportable(tree, label)
-    if not isinstance(repos, list):
-        return problems + ["repositories: not a list"]
-    for index, repo in enumerate(repos):
-        where = f"repositories[{index}]"
-        if not isinstance(repo, Mapping):
-            problems.append(f"{where}: not an object")
-            continue
-        if not _home_folder(repo.get("path")):
-            problems.append(f"{where}.path: must be a folder under {HOME_MARKER}")
-        if not (isinstance(repo.get("url"), str) and SAFE_URL.fullmatch(repo["url"])):
-            problems.append(f"{where}.url: must be an https or ssh URL")
-        if ("branch" in repo) == ("detach" in repo):
-            problems.append(f"{where}: needs exactly one of branch or detach")
-        if "branch" in repo and not (isinstance(repo["branch"], str) and SAFE_REF.fullmatch(repo["branch"])):
-            problems.append(f"{where}.branch: unsafe branch name")
-        if "detach" in repo and not (isinstance(repo["detach"], str) and repo["detach"].startswith("origin/")
-                                     and SAFE_REF.fullmatch(repo["detach"])):
-            problems.append(f"{where}.detach: must name an origin/ branch")
-        if "filter" in repo and not (isinstance(repo["filter"], str) and SAFE_FILTER.fullmatch(repo["filter"])):
-            problems.append(f"{where}.filter: unsafe clone filter")
-        for path in repo.get("sparse") or []:
-            if not (isinstance(path, str) and SAFE_SPARSE.fullmatch(path) and ".." not in path.split("/")):
-                problems.append(f"{where}.sparse: unsafe path {path!r}")
-    problems += [f"mcpServers.{name}: unsafe server name" for name in servers if not SAFE_NAME.fullmatch(name)]
-    problems += [f"settings.enabledPlugins.{plugin}: unsafe plugin id"
-                 for plugin in (settings.get("enabledPlugins") or {}) if not SAFE_PLUGIN.fullmatch(plugin)]
-    for name, entry in (settings.get("extraKnownMarketplaces") or {}).items():
-        source = (entry or {}).get("source") or {} if isinstance(entry, Mapping) else {}
-        kind = source.get("source")
-        valid = {"directory": _home_folder(source.get("path")),
-                 "github": isinstance(source.get("repo"), str) and bool(GITHUB_REPO.fullmatch(source["repo"])),
-                 "git": isinstance(source.get("url"), str) and bool(SAFE_URL.fullmatch(source["url"])),
-                 "url": isinstance(source.get("url"), str) and source["url"].startswith("https://")}.get(kind, False)
-        if not SAFE_NAME.fullmatch(name) or not valid:
-            problems.append(f"settings.extraKnownMarketplaces.{name}: unsafe name or unsupported source")
-    problems += [f"Docker MCP server {name!r}: unsafe name" for name in docker if not SAFE_NAME.fullmatch(name)]
-    return problems
+def user_path_problems(text: str, home: Path, label: str) -> list[str]:
+    """A path that still names this user, in any spelling export did not replace."""
+    pattern = re.compile(r"(?i)(?:users|home)(?:\\\\|\\|/)+" + re.escape(home.name) + AFTER_PATH)
+    return [f"{label}: still contains a path with your user name"] if pattern.search(text) else []
 
 
 def to_profile_text(text: str, home: Path) -> str:
@@ -285,7 +267,10 @@ def expand_profile_bytes(data: bytes, home: Path, json_escape: bool) -> bytes:
              "__LOCALAPPDATA__": home / "AppData" / "Local"}
     if not any(marker.encode() in data for marker in roots):
         return data
-    text = data.decode("utf-8")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise SetupError(f"has a path marker but is not UTF-8 ({error.reason})") from error
     for marker, root in roots.items():
         value = str(root).replace("\\", "\\\\") if json_escape else str(root)
         text = text.replace(marker, value)
@@ -294,30 +279,132 @@ def expand_profile_bytes(data: bytes, home: Path, json_escape: bool) -> bytes:
 
 # --- credential checks ----------------------------------------------------------------
 
-def looks_secret(value: str) -> bool:
-    """A long run of token characters that mixes letters and digits."""
-    return any(re.search(r"[A-Za-z]", run) and re.search(r"[0-9]", run) for run in TOKEN_RUN.findall(value))
+def credential_name(name: str) -> bool:
+    parts = [part.lower() for part in NAME_PART.findall(name)]
+    joined = "".join(parts)
+    return bool(CREDENTIAL_PARTS.intersection(parts)) or any(phrase in joined for phrase in CREDENTIAL_PHRASES)
 
 
-def credential_problems(entries: Mapping[str, Any], where: str) -> list[str]:
-    """Credential-named keys and credential-shaped values; values are never echoed."""
+def secret_reason(text: str) -> str | None:
+    """Why a value looks like a credential, or None. The value itself is never returned."""
+    bare = SYSTEM_TOKEN.sub(" ", HOME_TOKEN.sub(" ", text))
+    for reason, pattern in SECRET_SHAPES:
+        if pattern.search(bare):
+            return reason
+    if any(re.search(r"[0-9]", match.group(1)) for match in AUTH_SCHEME.finditer(bare)):
+        return "an authorization header value"
+    if any(re.search(r"[A-Za-z]", run) and re.search(r"[0-9]", run) for run in TOKEN_RUN.findall(bare)):
+        return "a credential-shaped value"
+    return None
+
+
+def secret_findings(tree: Any, where: str) -> list[str]:
+    """Every credential-named key and credential-shaped string in a JSON tree."""
+    findings = []
+
+    def walk(value: Any, path: str) -> None:
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                child = f"{path}.{key}"
+                if credential_name(str(key)):
+                    findings.append(f"{child}: credential-named entry")
+                else:
+                    walk(item, child)
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                walk(item, f"{path}[{index}]")
+        elif isinstance(value, str):
+            reason = secret_reason(value)
+            if reason:
+                findings.append(f"{path}: {reason}")
+
+    walk(tree, where)
+    return findings
+
+
+def text_secret_findings(text: str, label: str) -> list[str]:
+    findings = [f"{label}: line {number}: {reason}" for number, line in enumerate(text.splitlines(), 1)
+                if (reason := secret_reason(line))]
+    if ASSIGNED_SECRET.search(text):
+        findings.append(f"{label}: a credential-named key holds a long literal")
+    return findings
+
+
+# --- snapshot shape -------------------------------------------------------------------
+
+def repository_path_ok(path: Any) -> bool:
+    if not isinstance(path, str):
+        return False
+    if path.lower() == HOOKS_CLONE.lower():
+        return True
+    prefix = PROJECTS_DIR.lower() + "\\"
+    return path.lower().startswith(prefix) and bool(SAFE_NAME.fullmatch(path[len(prefix):]))
+
+
+def _inside(path: str, roots: Iterable[str]) -> bool:
+    lowered = path.lower().rstrip("\\")
+    return any(lowered == root.lower() or lowered.startswith(root.lower() + "\\") for root in roots)
+
+
+def snapshot_problems(settings: Mapping[str, Any], servers: Mapping[str, Any], repos: Any,
+                      docker: list[str], settings_keys: Iterable[str]) -> list[str]:
+    """Everything that would make restore act outside the shapes export writes: other
+    settings keys, a bypass default, clones outside the allowed folders, marketplaces
+    outside the cloned repositories, or values that could pass as options."""
     problems = []
-    for key, value in entries.items():
-        if RESTRICTED_NAME.search(str(key)):
-            problems.append(f"{where}.{key}: credential-named entry")
-        elif isinstance(value, str) and not is_portable_reference(value) and looks_secret(value):
-            problems.append(f"{where}.{key}: credential-shaped value")
-    return problems
-
-
-def server_credential_problems(server: Mapping[str, Any], where: str) -> list[str]:
-    problems = []
-    for section in ("env", "headers"):
-        if isinstance(server.get(section), Mapping):
-            problems += credential_problems(server[section], f"{where}.{section}")
-    for path, text in iter_strings({k: v for k, v in server.items() if k not in ("env", "headers")}, where):
-        if not is_portable_reference(text) and looks_secret(text):
-            problems.append(f"{path}: credential-shaped value")
+    for label, tree in (("settings", settings), ("mcpServers", servers), ("repositories", repos)):
+        problems += unportable(tree, label)
+    allowed = set(settings_keys)
+    problems += [f"settings.{key}: not in claudeSnapshot.settingsKeys" for key in settings if key not in allowed]
+    permissions = settings.get("permissions")
+    if permissions is not None and not isinstance(permissions, Mapping):
+        problems.append("settings.permissions: not an object")
+    elif permissions:
+        problems += [f"settings.permissions.{key}: restore does not apply it"
+                     for key in permissions if key not in PERMISSION_KEYS]
+        if permissions.get("defaultMode") in REFUSED_MODES:
+            problems.append(f"settings.permissions.defaultMode: {permissions['defaultMode']} never travels in a snapshot")
+    if not isinstance(repos, list):
+        return problems + ["repositories: not a list"]
+    repo_paths = []
+    for index, repo in enumerate(repos):
+        where = f"repositories[{index}]"
+        if not isinstance(repo, Mapping):
+            problems.append(f"{where}: not an object")
+            continue
+        if repository_path_ok(repo.get("path")):
+            repo_paths.append(repo["path"])
+        else:
+            problems.append(f"{where}.path: must be {HOOKS_CLONE} or a folder directly under {PROJECTS_DIR}")
+        if not (isinstance(repo.get("url"), str) and SAFE_URL.fullmatch(repo["url"])):
+            problems.append(f"{where}.url: must be an https URL without a user name, or a git@ ssh URL")
+        if ("branch" in repo) == ("commit" in repo):
+            problems.append(f"{where}: needs exactly one of branch or commit")
+        if "branch" in repo and not (isinstance(repo["branch"], str) and SAFE_REF.fullmatch(repo["branch"])):
+            problems.append(f"{where}.branch: unsafe branch name")
+        if "commit" in repo and not (isinstance(repo["commit"], str) and SAFE_COMMIT.fullmatch(repo["commit"])):
+            problems.append(f"{where}.commit: must be a full commit id")
+        if "filter" in repo and not (isinstance(repo["filter"], str) and SAFE_FILTER.fullmatch(repo["filter"])):
+            problems.append(f"{where}.filter: unsafe clone filter")
+        for path in repo.get("sparse") or []:
+            if not (isinstance(path, str) and SAFE_SPARSE.fullmatch(path) and ".." not in path.split("/")):
+                problems.append(f"{where}.sparse: unsafe path {path!r}")
+    problems += [f"mcpServers.{name}: unsafe server name" for name in servers if not SAFE_NAME.fullmatch(name)]
+    problems += [f"settings.enabledPlugins.{plugin}: unsafe plugin id"
+                 for plugin in settings.get("enabledPlugins") or {} if not SAFE_PLUGIN.fullmatch(plugin)]
+    for name, entry in (settings.get("extraKnownMarketplaces") or {}).items():
+        source = ((entry or {}).get("source") or {}) if isinstance(entry, Mapping) else {}
+        kind, target = source.get("source"), source.get("path") or source.get("repo") or source.get("url")
+        valid = isinstance(target, str) and {
+            "directory": lambda: _inside(target, repo_paths),
+            "github": lambda: bool(GITHUB_REPO.fullmatch(target)),
+            "git": lambda: bool(SAFE_URL.fullmatch(target)),
+            "url": lambda: target.startswith("https://") and bool(SAFE_URL.fullmatch(target)),
+        }.get(kind, lambda: False)()
+        if not SAFE_NAME.fullmatch(name) or not valid:
+            problems.append(f"settings.extraKnownMarketplaces.{name}: unsafe name, or a source outside the snapshot's "
+                            "repositories, GitHub or https")
+    problems += [f"Docker MCP server {name!r}: unsafe name" for name in docker if not SAFE_NAME.fullmatch(name)]
     return problems
 
 
@@ -390,7 +477,11 @@ def git(*args: str) -> str | None:
 
 
 def inside_git_worktree(directory: Path) -> bool:
-    probe = directory
+    """Fails closed: a .git anywhere above the folder counts even when git cannot read
+    it (missing git, another owner), and so does git saying it is a work tree."""
+    probe = directory.resolve()
+    if any((candidate / ".git").exists() for candidate in (probe, *probe.parents)):
+        return True
     while not probe.exists() and probe != probe.parent:
         probe = probe.parent
     return git("-C", str(probe), "rev-parse", "--is-inside-work-tree") == "true"
@@ -422,10 +513,7 @@ def export_settings(live: Mapping[str, Any], keys: Iterable[str], restrictions: 
             if rule not in rules:
                 rules.append(rule)
     template = map_strings(template, lambda text: portable_text(text, home, environ))
-    problems = []
-    if isinstance(template.get("env"), Mapping):
-        problems += credential_problems(template["env"], "settings.env")
-    return template, uncaptured, problems + unportable(template, "settings")
+    return template, uncaptured, secret_findings(template, "settings") + unportable(template, "settings")
 
 
 def uses_docker_gateway(server: Mapping[str, Any]) -> bool:
@@ -443,7 +531,13 @@ def export_mcp(config: Mapping[str, Any], home: Path, environ: Mapping[str, str]
             notes.append(f"MCP server {name}: excluded on request")
             continue
         portable = map_strings(copy.deepcopy(server), lambda text: portable_text(text, home, environ))
-        found = server_credential_problems(portable, f"mcpServers.{name}") + unportable(portable, f"mcpServers.{name}")
+        found = secret_findings(portable, f"mcpServers.{name}") + unportable(portable, f"mcpServers.{name}")
+        args = portable.get("args")
+        if isinstance(args, list) and all(isinstance(arg, str) for arg in args):
+            # A flag and its value arrive as separate arguments: --token hunter2.
+            reason = secret_reason(" ".join(args))
+            if reason and not any(item.startswith(f"mcpServers.{name}.args") for item in found):
+                found.append(f"mcpServers.{name}.args: {reason}")
         if found:
             problems += found
         else:
@@ -457,22 +551,25 @@ def export_mcp(config: Mapping[str, Any], home: Path, environ: Mapping[str, str]
 
 
 def docker_servers(registry: Path) -> list[str] | None:
-    """Server names in the Docker MCP Toolkit's registry.yaml; None when it is absent."""
+    """Server names in the Docker MCP Toolkit's registry.yaml; None when the file is
+    absent or not in the shape this parser knows, so an unknown format never empties
+    the snapshot's list."""
     try:
         lines = registry.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return None
-    names, inside = [], False
+    names, inside, recognized = [], False, False
     for line in lines:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         if not line.startswith(" "):
             inside = line.rstrip() == "registry:"
+            recognized = recognized or inside or line.strip() == "registry: {}"
             continue
         match = re.fullmatch(r"  ([A-Za-z0-9][A-Za-z0-9_.-]*):\s*", line)
         if inside and match:
             names.append(match.group(1))
-    return names
+    return names if recognized else None
 
 
 def referenced_paths(settings: Mapping[str, Any], servers: Mapping[str, Any]) -> set[str]:
@@ -497,9 +594,9 @@ def describe_repository(top: Path, home: Path, environ: Mapping[str, str]) -> tu
     url = git("-C", str(top), "config", "--get", "remote.origin.url")  # as configured, before insteadOf
     if not url:
         return None, [], [f"{portable}: no origin remote, so restore cannot clone it"]
-    if re.match(r"^[a-z][a-z0-9+.-]*://[^/@]*:[^/@]*@", url, re.IGNORECASE):
-        return None, [], [f"{portable}: the origin URL embeds a credential"]
-    if DRIVE_PATH.search(url) or url.startswith(("/", "\\", ".", "file:")):
+    if re.match(r"(?i)^[a-z][a-z0-9+.-]*://[^/]*@", url) and not re.match(r"(?i)^ssh://git@", url):
+        return None, [], [f"{portable}: the origin URL embeds a user name or credential"]
+    if any(pattern.search(url) for pattern in MACHINE_PATHS) or url.startswith(("/", "\\", ".", "file:")):
         return None, [], [f"{portable}: origin is a local path that another machine cannot clone"]
     entry: dict[str, Any] = {"path": portable, "url": url}
     notes, problems = [], []
@@ -518,11 +615,15 @@ def describe_repository(top: Path, home: Path, environ: Mapping[str, str]) -> tu
         elif (git("-C", str(top), "rev-list", "--count", f"origin/{branch}..HEAD") or "0") != "0":
             notes.append(f"{portable}: commits not pushed to origin/{branch} stay on this machine")
     else:
-        head = git("-C", str(top), "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
-        if not head:
-            problems.append(f"{portable}: detached, and origin/HEAD is unset (git remote set-head origin --auto)")
+        # A detached clone is a release deployment: pin the exact commit this machine runs.
+        head = git("-C", str(top), "rev-parse", "HEAD")
+        default = git("-C", str(top), "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
+        if not head or not default:
+            problems.append(f"{portable}: detached, and HEAD or origin/HEAD cannot be read (git remote set-head origin --auto)")
+        elif git("-C", str(top), "merge-base", "--is-ancestor", "HEAD", default) is None:
+            problems.append(f"{portable}: HEAD is not on {default.removeprefix('refs/remotes/')}; deploy a merged commit first")
         else:
-            entry["detach"] = head.removeprefix("refs/remotes/")
+            entry["commit"] = head
     if git("-C", str(top), "status", "--porcelain"):
         notes.append(f"{portable}: uncommitted changes stay on this machine")
     return entry, notes, problems
@@ -585,8 +686,8 @@ def export(home: Path, *, profile: Path = PROFILE_DIR, snapshot: Path = SNAPSHOT
     claude_home = home / ".claude"
     keys = list(settings_keys) if settings_keys is not None else load_manifest()["settingsKeys"]
     live = read_json(claude_home / "settings.json")
-    if live is None:
-        raise SetupError(f"{claude_home / 'settings.json'} does not exist")
+    if not isinstance(live, dict):
+        raise SetupError(f"{claude_home / 'settings.json'} is missing or does not hold a JSON object")
     restrictions = ((read_json(profile / SETTINGS_FILE) or {}).get("permissions") or {})
     settings, uncaptured, problems = export_settings(live, keys, restrictions, home, environ)
     mcp, notes, mcp_problems = export_mcp(read_json(home / ".claude.json") or {}, home, environ, exclude_mcp)
@@ -594,13 +695,21 @@ def export(home: Path, *, profile: Path = PROFILE_DIR, snapshot: Path = SNAPSHOT
     repos, repo_notes, repo_problems = locate_repositories(referenced_paths(settings, mcp["mcpServers"]), home, environ)
     notes += repo_notes
     problems += repo_problems
-    docker = None
-    if any(uses_docker_gateway(server) for server in mcp["mcpServers"].values()):
-        docker = docker_servers(home / ".docker" / "mcp" / "registry.yaml")
-        if docker is None:
-            notes.append("the Docker MCP Toolkit registry is missing, so no gateway servers are captured")
+    gateway = any(uses_docker_gateway(server) for server in mcp["mcpServers"].values())
+    docker = docker_servers(home / ".docker" / "mcp" / "registry.yaml") if gateway else []
+    if docker is None:
+        notes.append("the Docker MCP Toolkit registry is missing or unrecognized; the snapshot keeps its previous list")
     claude_md = claude_home / "CLAUDE.md"
-    if not claude_md.is_file():
+    md_text = b""
+    if claude_md.is_file():
+        try:
+            text = to_profile_text(claude_md.read_bytes().decode("utf-8"), home)
+        except UnicodeDecodeError:
+            problems.append(f"{claude_md} is not UTF-8")
+        else:
+            md_text = text.encode("utf-8")
+            problems += text_secret_findings(text, "CLAUDE.md") + user_path_problems(text, home, "CLAUDE.md")
+    else:
         problems.append(f"{claude_md} does not exist")
     if not allow_drift:
         installed_md = os.path.normcase(str(claude_md))
@@ -617,14 +726,14 @@ def export(home: Path, *, profile: Path = PROFILE_DIR, snapshot: Path = SNAPSHOT
     for name, text in outputs.items():
         if ASSIGNED_SECRET.search(text):
             problems.append(f"{name}: a credential-named key holds a long literal")
+        problems += user_path_problems(text, home, name)
     # The same checks restore runs, so a snapshot that exports also restores.
-    problems += [problem for problem in snapshot_problems(settings, mcp["mcpServers"], repos, docker or [])
+    problems += [problem for problem in snapshot_problems(settings, mcp["mcpServers"], repos, docker or [], keys)
                  if problem not in problems]
     if problems:
         raise SetupError("export stopped; nothing was written:\n  " + "\n  ".join(problems))
 
     written = []
-    md_text = to_profile_text(claude_md.read_bytes().decode("utf-8"), home).encode("utf-8")
     if not (profile / "CLAUDE.md").is_file() or (profile / "CLAUDE.md").read_bytes() != md_text:
         write_atomic(profile / "CLAUDE.md", md_text)
         written.append(str(profile / "CLAUDE.md"))
@@ -635,7 +744,7 @@ def export(home: Path, *, profile: Path = PROFILE_DIR, snapshot: Path = SNAPSHOT
             if not target.is_file() or target.read_bytes() != data:
                 write_atomic(target, data)
                 written.append(str(target))
-        elif target.exists():
+        elif target.exists() and not (name == DOCKER_FILE and docker is None):
             target.unlink()
             written.append(f"{target} (removed)")
     captured, left, unknown = classify_home(claude_home)
@@ -647,7 +756,14 @@ def export(home: Path, *, profile: Path = PROFILE_DIR, snapshot: Path = SNAPSHOT
 # Claude Code names project folders with [A-Za-z0-9-]; memory files are plain names.
 PROJECT_PART = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*")
 FILE_PART = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]*")
-RESERVED_NAME = re.compile(r"(?i)(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\..*)?")
+RESERVED_STEMS = frozenset({"con", "prn", "aux", "nul", "conin$", "conout$",
+                            *(f"com{digit}" for digit in "0123456789"), *(f"lpt{digit}" for digit in "0123456789")})
+
+
+def reserved_name(part: str) -> bool:
+    """Windows device names, which Windows also matches with spaces before the dot."""
+    isreserved = getattr(os.path, "isreserved", None)  # Python 3.13+ on Windows
+    return part.split(".", 1)[0].rstrip(" ").lower() in RESERVED_STEMS or bool(isreserved and isreserved(part))
 
 
 def safe_member(name: str) -> bool:
@@ -659,7 +775,7 @@ def safe_member(name: str) -> bool:
         return False
     if not PROJECT_PART.fullmatch(parts[1]):
         return False
-    return all(FILE_PART.fullmatch(part) and not RESERVED_NAME.fullmatch(part) and not part.endswith((".", " "))
+    return all(FILE_PART.fullmatch(part) and not reserved_name(part) and not part.endswith((".", " "))
                for part in parts[3:])
 
 
@@ -810,13 +926,13 @@ def merge_hooks(existing: Mapping[str, Any], template: Mapping[str, Any]) -> dic
     return merged
 
 
-def _short(value: Any, limit: int = 110) -> str:
-    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-    return text if len(text) <= limit else text[: limit - 3] + "..."
+def _text(value: Any) -> str:
+    return value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
 
 
 def describe_changes(before: Any, after: Any, path: str = "") -> list[str]:
-    """Readable settings changes; new list entries are itemized up to 60 per list."""
+    """Every settings change in full. Only long deny and ask lists, which can only
+    restrict, are counted instead of itemized."""
     if isinstance(after, Mapping):
         old = before if isinstance(before, Mapping) else {}
         lines = []
@@ -827,14 +943,12 @@ def describe_changes(before: Any, after: Any, path: str = "") -> list[str]:
     if isinstance(after, list):
         old = before if isinstance(before, list) else []
         added = [item for item in after if item not in old]
-        if not added:
-            return []
-        if len(added) > 60:
-            return [f"+ {path}: {len(added)} entries"]
-        return [f"+ {path}: {_short(item)}" for item in added]
+        if len(added) > 60 and path.rsplit(".", 1)[-1] in ("deny", "ask"):
+            return [f"+ {path}: {len(added)} entries (restrictions)"]
+        return [f"+ {path}: {_text(item)}" for item in added]
     if before is None:
-        return [f"+ {path} = {_short(after)}"]
-    return [f"~ {path}: {_short(before)} -> {_short(after)}"]
+        return [f"+ {path} = {_text(after)}"]
+    return [f"~ {path}: {_text(before)} -> {_text(after)}"]
 
 
 def settings_gaps(live: Mapping[str, Any], template: Mapping[str, Any]) -> list[str]:
@@ -876,6 +990,10 @@ class Restore:
 
     def claude_config_file(self) -> Path:
         return self.claude_home / ".claude.json" if self.staged else self.home / ".claude.json"
+
+    def will_exist(self, path: str) -> bool:
+        """True when the path exists, or sits in a clone this preview plans."""
+        return Path(path).exists() or _inside(os.path.normcase(path), self.planned_paths)
 
     def section(self, title: str) -> None:
         self.out(f"\n== {title}")
@@ -925,20 +1043,65 @@ class Restore:
         return result.stdout.strip() if result.returncode == 0 else None
 
 
-def load_snapshot(ctx: Restore) -> tuple[dict, dict, list[dict], list[str]]:
+@dataclass
+class Snapshot:
+    settings: dict
+    servers: dict
+    repos: list[dict]
+    docker: list[str]
+    references: list[str]
+
+
+def load_snapshot(ctx: Restore, settings_keys: Iterable[str]) -> Snapshot:
     settings = read_json(ctx.snapshot / SETTINGS_FILE)
     if settings is None:
         settings = read_json(ctx.profile / SETTINGS_FILE) or {}
         ctx.out(f"No snapshot at {ctx.snapshot}; using the profile's baseline settings.")
-    servers = (read_json(ctx.snapshot / MCP_FILE) or {}).get("mcpServers") or {}
+    mcp = read_json(ctx.snapshot / MCP_FILE) or {}
     repos = read_json(ctx.snapshot / REPOS_FILE) or []
+    if not isinstance(settings, dict) or not isinstance(mcp, dict) or not isinstance(mcp.get("mcpServers", {}), dict):
+        raise SetupError("snapshot settings and MCP files must hold JSON objects")
+    servers = mcp.get("mcpServers") or {}
     docker_file = ctx.snapshot / DOCKER_FILE
-    docker = [line.strip() for line in docker_file.read_text(encoding="utf-8").splitlines() if line.strip()] if docker_file.is_file() else []
-    problems = snapshot_problems(settings, servers, repos, docker)
+    try:
+        docker = [line.strip() for line in docker_file.read_text(encoding="utf-8").splitlines() if line.strip()] \
+            if docker_file.is_file() else []
+    except (OSError, UnicodeDecodeError) as error:
+        raise SetupError(f"cannot read {docker_file}: {error}") from error
+    problems = snapshot_problems(settings, servers, repos, docker, settings_keys)
     if problems:
         raise SetupError("snapshot is not portable or not safe to run; nothing was changed:\n  " + "\n  ".join(problems))
     expand = lambda tree: map_strings(tree, lambda text: expand_text(text, ctx.home, ctx.environ))  # noqa: E731
-    return expand(settings), expand(servers), expand(repos), docker
+    references = sorted(expand_text(path, ctx.home, ctx.environ) for path in referenced_paths(settings, {}))
+    return Snapshot(expand(settings), expand(servers), expand(repos), docker, references)
+
+
+def show_trust(ctx: Restore, snap: Snapshot) -> None:
+    """Everything the snapshot will run, clone or trust, in full, before any change."""
+    ctx.section("What this snapshot runs and trusts (review it before --apply)")
+    for event, groups in (snap.settings.get("hooks") or {}).items():
+        for group in groups or []:
+            matcher = f" [{group['matcher']}]" if isinstance(group, Mapping) and group.get("matcher") else ""
+            for hook in (group.get("hooks") or []) if isinstance(group, Mapping) else []:
+                ctx.out(f"  hook     {event}{matcher}: {hook.get('command')}")
+    status = snap.settings.get("statusLine") or {}
+    if isinstance(status, Mapping) and status.get("command"):
+        ctx.out(f"  status   {status['command']}")
+    for repo in snap.repos:
+        at = f"commit {repo['commit']}" if repo.get("commit") else f"branch {repo['branch']}"
+        ctx.out(f"  clone    {repo['url']} at {at} into {repo['path']}")
+    for name, entry in (snap.settings.get("extraKnownMarketplaces") or {}).items():
+        source = (entry or {}).get("source") or {}
+        ctx.out(f"  market   {name}: {source.get('source')} {source.get('path') or source.get('repo') or source.get('url')}")
+    for plugin, on in (snap.settings.get("enabledPlugins") or {}).items():
+        if on is True:
+            ctx.out(f"  plugin   {plugin}")
+    for name, server in snap.servers.items():
+        launch = " ".join([str(server.get("command") or server.get("url") or "")] + [str(a) for a in server.get("args") or []])
+        ctx.out(f"  mcp      {name}: {launch}")
+    permissions = snap.settings.get("permissions") or {}
+    ctx.out(f"  grants   {len(permissions.get('allow') or [])} allow rules and "
+            f"{len(permissions.get('additionalDirectories') or [])} extra directories, listed under Settings")
 
 
 def step_tools(ctx: Restore, tools: list[dict]) -> None:
@@ -954,7 +1117,7 @@ def step_tools(ctx: Restore, tools: list[dict]) -> None:
         else:
             ctx.out(f"  absent   {tool['name']} ({tool['purpose']}): {hint}")
     version = ctx.probe(["py", "-c", "import sys; print('%d.%d' % sys.version_info[:2])"])
-    if version and tuple(int(part) for part in version.split(".")) < (3, 11):
+    if version and re.fullmatch(r"\d+\.\d+", version) and tuple(int(part) for part in version.split(".")) < (3, 11):
         ctx.out(f"  WARNING  py starts Python {version}; the hooks need 3.11 or newer")
 
 
@@ -975,25 +1138,41 @@ def step_files(ctx: Restore) -> None:
     added, replaced, kept, unchanged = [], [], [], 0
     for relative, source in profile_files(ctx.profile):
         target = ctx.claude_home / relative
-        data = expand_profile_bytes(source.read_bytes(), ctx.home, json_escape=source.suffix in (".json", ".toml"))
-        exists = target.is_file()
-        if exists and same_text(target.read_bytes(), data):
-            unchanged += 1
-            continue
-        if exists and not ctx.overwrite:
-            kept.append(relative)
-            continue
-        if ctx.apply:
-            try:
-                replace_file(target, data, backup=exists)
-            except (OSError, SetupError) as error:
-                ctx.fail(f"{relative}: {error}")
+        try:
+            data = expand_profile_bytes(source.read_bytes(), ctx.home, json_escape=source.suffix in (".json", ".toml"))
+            exists = target.is_file()
+            if exists and same_text(target.read_bytes(), data):
+                unchanged += 1
                 continue
+            if exists and not ctx.overwrite:
+                kept.append(relative)
+                continue
+            if ctx.apply:
+                replace_file(target, data, backup=exists)
+        except (OSError, SetupError) as error:
+            ctx.fail(f"{relative}: {error}")
+            continue
         (replaced if exists else added).append(relative)
     verb = "" if ctx.apply else "would be "
     ctx.out(f"  {len(added)} {verb}added, {len(replaced)} {verb}replaced (backed up), {unchanged} unchanged")
     for relative in kept:
         ctx.out(f"  kept     {relative}: differs from the profile; --overwrite replaces it after a backup")
+
+
+def clone_steps(repo: Mapping[str, Any], target: Path) -> list[list[str]]:
+    clone = ["git", "clone"]
+    if repo.get("filter"):
+        clone.append(f"--filter={repo['filter']}")
+    if repo.get("sparse") or repo.get("commit"):
+        clone.append("--no-checkout")
+    if repo.get("branch"):
+        clone += ["--branch", repo["branch"]]
+    steps = [clone + ["--", repo["url"], str(target)]]
+    if repo.get("sparse"):
+        steps.append(["git", "-C", str(target), "sparse-checkout", "set", "--cone", *repo["sparse"]])
+    if repo.get("commit"):
+        steps.append(["git", "-C", str(target), "switch", "--detach", repo["commit"]])
+    return steps
 
 
 def step_repositories(ctx: Restore, repos: list[dict]) -> None:
@@ -1002,34 +1181,37 @@ def step_repositories(ctx: Restore, repos: list[dict]) -> None:
         path, url = Path(repo["path"]), repo["url"]
         if (path / ".git").exists():
             origin = ctx.probe(["git", "-C", str(path), "config", "--get", "remote.origin.url"])
-            if same_url(origin, url):
-                ctx.out(f"  present  {path}")
-            else:
+            if not same_url(origin, url):
                 ctx.fail(f"{path} exists but its origin is {origin or 'unset'}, not {url}; move it aside and rerun")
+                continue
+            head = ctx.probe(["git", "-C", str(path), "rev-parse", "HEAD"]) or ""
+            if repo.get("commit") and head != repo["commit"]:
+                ctx.out(f"  present  {path} at {head[:12] or 'unknown'}; the snapshot pins {repo['commit'][:12]} "
+                        "(deploy hook changes through the release procedure)")
+            else:
+                ctx.out(f"  present  {path}")
             continue
         if path.exists() and any(path.iterdir()):
             ctx.fail(f"{path} exists and is not a clone of {url}; move it aside and rerun")
             continue
-        if ctx.apply:
-            assert_no_reparse(path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-        clone = ["git", "clone"]
-        if repo.get("filter"):
-            clone.append(f"--filter={repo['filter']}")
-        if repo.get("sparse") or repo.get("detach"):
-            clone.append("--no-checkout")
-        if repo.get("branch"):
-            clone += ["--branch", repo["branch"]]
-        steps = [clone + ["--", url, str(path)]]
-        if repo.get("sparse"):
-            steps.append(["git", "-C", str(path), "sparse-checkout", "set", "--cone", *repo["sparse"]])
-        if repo.get("detach"):
-            steps.append(["git", "-C", str(path), "switch", "--detach", repo["detach"]])
-        for args in steps:
-            if not ctx.command(args):
-                break
-        else:
+        if not ctx.apply:
+            for args in clone_steps(repo, path):
+                ctx.command(args)
+            ctx.out("  (each clone is made in a temporary folder and renamed only when every step succeeds)")
             ctx.planned_paths.add(os.path.normcase(str(path)))
+            continue
+        # Clone beside the target and rename only on success, so a failed step can never
+        # leave a half-made clone that a rerun would mistake for a finished one.
+        assert_no_reparse(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        staging = path.with_name(f"{path.name}.restore-{uuid.uuid4().hex[:8]}")
+        if all(ctx.command(args) for args in clone_steps(repo, staging)):
+            if path.exists():
+                path.rmdir()  # an empty folder, checked above
+            os.replace(staging, path)
+            ctx.out(f"  cloned   {path}")
+        elif staging.exists():
+            ctx.fail(f"the partial clone is left at {staging} for inspection; delete it, then rerun")
 
 
 def step_plugins(ctx: Restore, settings: Mapping[str, Any]) -> None:
@@ -1056,9 +1238,9 @@ def step_plugins(ctx: Restore, settings: Mapping[str, Any]) -> None:
                   "git": source.get("url"), "url": source.get("url")}.get(kind)
         if not target:
             ctx.fail(f"marketplace {name}: unsupported source {kind!r}")
-        elif kind == "directory" and not Path(target).is_dir() and os.path.normcase(target) not in ctx.planned_paths:
+        elif kind == "directory" and not ctx.will_exist(target):
             ctx.fail(f"marketplace {name}: {target} is missing")
-        elif ctx.claude(["plugin", "marketplace", "add", target]):
+        elif ctx.claude(["plugin", "marketplace", "add", "--", target]):
             continue
         unavailable.add(name)
     for plugin in enabled:
@@ -1068,7 +1250,7 @@ def step_plugins(ctx: Restore, settings: Mapping[str, Any]) -> None:
         elif marketplace in unavailable:
             ctx.out(f"  skipped  plugin {plugin}: marketplace {marketplace} was not added")
         else:
-            ctx.claude(["plugin", "install", plugin, "--scope", "user"])
+            ctx.claude(["plugin", "install", "--scope", "user", "--", plugin])
 
 
 def step_mcp(ctx: Restore, servers: Mapping[str, Any]) -> None:
@@ -1082,7 +1264,7 @@ def step_mcp(ctx: Restore, servers: Mapping[str, Any]) -> None:
     existing = (read_json(ctx.claude_config_file()) or {}).get("mcpServers") or {}
     for name, server in servers.items():
         if name not in existing:
-            ctx.claude(["mcp", "add-json", name, json.dumps(server), "--scope", "user"])
+            ctx.claude(["mcp", "add-json", "--scope", "user", "--", name, json.dumps(server)])
         elif existing[name] == server:
             ctx.out(f"  present  {name}")
         else:
@@ -1090,14 +1272,24 @@ def step_mcp(ctx: Restore, servers: Mapping[str, Any]) -> None:
                     f"`claude mcp remove {name} --scope user` and rerun restore")
 
 
-def step_settings(ctx: Restore, template: Mapping[str, Any]) -> None:
+def step_settings(ctx: Restore, template: Mapping[str, Any], references: list[str]) -> None:
     ctx.section("Settings (~/.claude/settings.json)")
     path = ctx.claude_home / "settings.json"
+    # Hooks that point at missing scripts exit 2, which Claude Code treats as a block on
+    # every tool call and prompt, so settings wait until everything they run exists.
+    missing = [reference for reference in references if not ctx.will_exist(reference)]
+    if missing:
+        ctx.fail("settings.json left unchanged, because it would run or load what is missing: "
+                 + ", ".join(missing) + "; fix the repositories step and rerun")
+        return
     original = path.read_bytes() if path.is_file() else None
     try:
         existing = json.loads(original.decode("utf-8-sig")) if original else {}
     except ValueError as error:
         ctx.fail(f"{path} is not valid JSON ({error}); fix it and rerun")
+        return
+    if not isinstance(existing, dict):
+        ctx.fail(f"{path} does not hold a JSON object; fix it and rerun")
         return
     merged = merge_settings(existing, template)
     changes = describe_changes(existing, merged)
@@ -1109,12 +1301,11 @@ def step_settings(ctx: Restore, template: Mapping[str, Any]) -> None:
     if not ctx.apply:
         return
     assert_no_reparse(path)
-    current = path.read_bytes() if path.is_file() else None
-    if current != original:
+    if (path.read_bytes() if path.is_file() else None) != original:
         ctx.fail(f"{path} changed while restore was running; rerun restore")
         return
     if original is not None:
-        shutil.copy2(path, backup_path(path))
+        write_atomic(backup_path(path), original)  # the exact bytes the merge started from
     write_atomic(path, dump_json(merged).encode("utf-8"))
     ctx.out(f"  wrote {path}" + (" (previous file backed up beside it)" if original is not None else ""))
 
@@ -1204,34 +1395,43 @@ def step_verify(ctx: Restore, repos: list[dict], template: Mapping[str, Any]) ->
     settings_path = ctx.claude_home / "settings.json"
     clone = next((Path(repo["path"]) for repo in repos if any("profile/claude/hooks" in p for p in repo.get("sparse") or [])),
                  ctx.claude_home / "hooks-release")
-    findings = drift.release_drift(clone) if clone.exists() else [f"hook release clone missing: {clone}"]
-    findings += drift.wiring_drift(settings_path, clone)
-    findings += drift.copy_drift(ctx.profile, ctx.claude_home)
-    live = read_json(settings_path) or {}
-    findings += [f"settings.json lacks {gap}" for gap in settings_gaps(live, template)]
-    for finding in findings:
-        ctx.out(f"  drift    {finding}")
-    ctx.out("  no drift" if not findings else f"  {len(findings)} finding(s)")
+    # Broken hook wiring or a settings merge that did not land is a failure; a profile
+    # file kept because it differs was already reported and stays a warning.
+    blocking = drift.release_drift(clone) if clone.exists() else [f"hook release clone missing: {clone}"]
+    blocking += drift.wiring_drift(settings_path, clone)
+    gaps = settings_gaps(read_json(settings_path) or {}, template)
+    if gaps:
+        blocking.append(f"settings.json lacks {len(gaps)} snapshot entr{'y' if len(gaps) == 1 else 'ies'}, "
+                        f"for example {gaps[0]}")
+    for finding in blocking:
+        ctx.fail(f"drift: {finding}")
+    warnings = drift.copy_drift(ctx.profile, ctx.claude_home)
+    for finding in warnings:
+        ctx.out(f"  warning  {finding}")
+    if not blocking and not warnings:
+        ctx.out("  no drift")
 
 
-def restore(ctx: Restore, *, tools: list[dict], bundle: Path | None = None, skip: Iterable[str] = ()) -> int:
+def restore(ctx: Restore, *, tools: list[dict], settings_keys: Iterable[str], bundle: Path | None = None,
+            skip: Iterable[str] = ()) -> int:
     skipped = set(skip)
-    settings, servers, repos, docker = load_snapshot(ctx)
-    mode = "Applying" if ctx.apply else "Preview (nothing changes; add --apply)"
+    snap = load_snapshot(ctx, settings_keys)
+    mode = "Applying" if ctx.apply else "Preview (nothing changes)"
     ctx.out(f"{mode}: Claude Code setup into {ctx.home}" + (" (staged home)" if ctx.staged else ""))
     if bundle is not None:
         read_bundle(bundle)  # reject a bad bundle before anything is written
+    show_trust(ctx, snap)
     steps = [
         ("tools", lambda: step_tools(ctx, tools)),
         ("files", lambda: step_files(ctx)),
-        ("repositories", lambda: step_repositories(ctx, repos)),
-        ("plugins", lambda: step_plugins(ctx, settings)),
-        ("mcp", lambda: step_mcp(ctx, servers)),
-        ("settings", lambda: step_settings(ctx, settings)),
-        ("docker", lambda: step_docker(ctx, docker)),
+        ("repositories", lambda: step_repositories(ctx, snap.repos)),
+        ("plugins", lambda: step_plugins(ctx, snap.settings)),
+        ("mcp", lambda: step_mcp(ctx, snap.servers)),
+        ("settings", lambda: step_settings(ctx, snap.settings, snap.references)),
+        ("docker", lambda: step_docker(ctx, snap.docker)),
         ("agent-browser", lambda: step_agent_browser(ctx)),
         ("memory", lambda: step_memory(ctx, bundle)),
-        ("verify", lambda: step_verify(ctx, repos, settings)),
+        ("verify", lambda: step_verify(ctx, snap.repos, snap.settings)),
     ]
     for name, run_step in steps:
         if name in skipped:
@@ -1239,8 +1439,8 @@ def restore(ctx: Restore, *, tools: list[dict], bundle: Path | None = None, skip
             continue
         try:
             run_step()
-        except (SetupError, OSError) as error:
-            ctx.fail(f"{name}: {error}")
+        except Exception as error:  # the boundary of one step: record it, keep the summary
+            ctx.fail(f"{name}: {type(error).__name__}: {error}")
     ctx.manual += [
         "Sign in: run `claude` and complete the login (credentials are never exported)",
         "Authenticate the CLIs your agents use, for example `gh auth login` and `az login`",
@@ -1252,7 +1452,7 @@ def restore(ctx: Restore, *, tools: list[dict], bundle: Path | None = None, skip
     if ctx.failures:
         ctx.out(f"\n{len(ctx.failures)} failure(s); fix them and rerun (restore is idempotent).")
         return 1
-    ctx.out("\nDone." if ctx.apply else "\nPreview only; rerun with --apply.")
+    ctx.out("\nDone." if ctx.apply else "\nPreview only: nothing changed.")
     return 0
 
 
@@ -1293,8 +1493,9 @@ def main(argv: list[str] | None = None) -> int:
     bundle_cmd.add_argument("--output", type=Path, help="zip path outside any git work tree (default: in your home folder)")
     restore_cmd = commands.add_parser("restore", help="recreate the setup (preview unless --apply)")
     restore_cmd.add_argument("--home", type=Path, default=Path.home(),
-                             help="target home; any other folder than yours is a staged, files-only home")
-    restore_cmd.add_argument("--apply", action="store_true", help="make the changes")
+                             help="target home; any other folder than yours is a staged home")
+    restore_cmd.add_argument("--apply", action="store_true", help="show the plan, confirm, then make the changes")
+    restore_cmd.add_argument("--yes", action="store_true", help="with --apply, skip the confirmation prompt")
     restore_cmd.add_argument("--overwrite", action="store_true",
                              help="replace profile and memory files that differ, after backing them up")
     restore_cmd.add_argument("--private-bundle", type=Path, help="zip written by the bundle command")
@@ -1313,14 +1514,39 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Wrote {count} memory file(s) to {output.resolve()}")
             for item in left_out:
                 print(f"  left out: {item}")
-            print("It holds personal notes: move it privately, restore with --private-bundle, then delete it.")
+            print("It holds personal notes in plain text: keep it out of synced folders, move it privately, "
+                  "restore with --private-bundle, then delete it.")
             return 0
         home = args.home.resolve()
         staged = os.path.normcase(str(home)) != os.path.normcase(str(Path.home().resolve()))
         if not staged and os.environ.get("CLAUDE_CONFIG_DIR"):
             raise SetupError("CLAUDE_CONFIG_DIR is set; unset it so restore targets ~/.claude")
-        ctx = Restore(home=home, apply=args.apply, overwrite=args.overwrite, staged=staged)
-        return restore(ctx, tools=load_manifest()["tools"], bundle=args.private_bundle, skip=args.skip)
+        manifest = load_manifest()
+
+        def run(apply: bool) -> int:
+            ctx = Restore(home=home, apply=apply, overwrite=args.overwrite, staged=staged)
+            return restore(ctx, tools=manifest["tools"], settings_keys=manifest["settingsKeys"],
+                           bundle=args.private_bundle, skip=args.skip)
+
+        if not args.apply:
+            code = run(False)
+            print("Rerun with --apply to make these changes.")
+            return code
+        if not args.yes:
+            code = run(False)
+            if code:
+                return code
+            no_terminal = "no terminal to confirm in; review the plan above, then rerun with --apply --yes"
+            if not sys.stdin.isatty():
+                raise SetupError(no_terminal)
+            try:
+                answer = input("\nApply this plan? Type yes to continue: ")
+            except EOFError:  # Windows reports NUL as a terminal
+                raise SetupError(no_terminal) from None
+            if answer.strip().lower() != "yes":
+                print("Nothing changed.")
+                return 1
+        return run(True)
     except SetupError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

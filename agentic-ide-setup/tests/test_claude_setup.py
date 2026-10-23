@@ -1,13 +1,15 @@
 """Offline checks for claude_setup.py: export, private bundle and restore.
 
 Git runs for real against local bare repositories; Claude, Docker and pip calls go
-through a recording fake. No live ~/.claude, network or PowerShell is needed.
+through a recording fake. No live ~/.claude, network or PowerShell is needed, except
+for the one test that CLAUDE_SETUP_LIVE=1 opts into.
 """
 import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -15,7 +17,8 @@ import zipfile
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("claude_setup", ROOT / "scripts" / "claude_setup.py")
+SCRIPT = ROOT / "scripts" / "claude_setup.py"
+spec = importlib.util.spec_from_file_location("claude_setup", SCRIPT)
 setup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(setup)
 
@@ -136,6 +139,10 @@ def restore_context(home, profile, snapshot, **overrides):
     return setup.Restore(**options), lines
 
 
+def run_restore(ctx, **options):
+    return setup.restore(ctx, tools=[], settings_keys=KEYS, **options)
+
+
 def offline_git(tmp_path: Path, origins: dict[str, Path]):
     """Run real git with the snapshot's https URLs rewritten to the local bare repositories."""
     config = tmp_path / "gitconfig"
@@ -145,6 +152,14 @@ def offline_git(tmp_path: Path, origins: dict[str, Path]):
         merged = dict(env or os.environ, GIT_CONFIG_GLOBAL=str(config), GIT_CONFIG_NOSYSTEM="1")
         return subprocess.run(args, env=merged, cwd=cwd, capture_output=True, text=True)
     return run
+
+
+def git_and_fake_claude(tmp_path, origins):
+    real, claude = offline_git(tmp_path, origins), FakeRunner()
+
+    def run(args, env=None, cwd=None):
+        return real(args, env, cwd) if Path(args[0]).stem.lower() == "git" else claude(args, env, cwd)
+    return run, claude
 
 
 # --- portable paths -------------------------------------------------------------------
@@ -180,17 +195,71 @@ def test_system_folders_follow_the_restoring_machine():
     assert setup.portable_text(r"C:\ProgramData\x", SOURCE, upper) == r"%ProgramData%\x"
 
 
+def test_wsl_and_cygwin_paths_are_machine_specific():
+    problems = setup.unportable({"a": "/mnt/c/tools/x", "b": "/cygdrive/d/x", "c": "//tmp/**"}, "s")
+    assert problems == ["s.a: machine-specific path", "s.b: machine-specific path"]
+
+
 @windows_only
 def test_profile_markers_expand_like_the_powershell_installer(tmp_path):
     data = b'{"p": "__USERPROFILE__\\\\x", "q": "__LOCALAPPDATA__\\\\y"}'
     expanded = json.loads(setup.expand_profile_bytes(data, tmp_path, json_escape=True))
     assert expanded == {"p": str(tmp_path / "x"), "q": str(tmp_path / "AppData" / "Local" / "y")}
     assert setup.expand_profile_bytes(b"no markers \xff", tmp_path, json_escape=False) == b"no markers \xff"
+    with pytest.raises(setup.SetupError, match="not UTF-8"):
+        setup.expand_profile_bytes(b"__USERPROFILE__ \xff", tmp_path, json_escape=False)
     assert setup.to_profile_text(r'C:\Users\alice\a C:\\Users\\alice\\b C:/Users/alice/c', SOURCE) == \
         r"__USERPROFILE__\a __USERPROFILE__\\b __USERPROFILE__/c"
 
 
-# --- export pieces --------------------------------------------------------------------
+# --- credential checks ----------------------------------------------------------------
+
+@pytest.mark.parametrize("name", ["GITHUB_TOKEN", "authToken", "accessToken", "clientSecret", "GH_PAT",
+                                  "AZURE_DEVOPS_EXT_PAT", "X-Functions-Key", "Ocp-Apim-Subscription-Key",
+                                  "ANTHROPIC_API_KEY", "Authorization", "OAuth", "db_password"])
+def test_credential_names_are_recognized(name):
+    assert setup.credential_name(name)
+
+
+@pytest.mark.parametrize("name", ["CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+                                  "LOCALAPPDATA", "ProgramData", "statusMessage", "author", "keybindings",
+                                  "extraKnownMarketplaces", "agentPushNotifEnabled"])
+def test_ordinary_names_are_not_credentials(name):
+    assert not setup.credential_name(name)
+
+
+@windows_only
+@pytest.mark.parametrize("live", [
+    {"permissions": {"allow": ['Bash(curl -H "Authorization: Bearer abcdefgh12345678" https://x.test)']}},
+    {"permissions": {"allow": ["Bash(az login --password hunter2)"]}},
+    {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": 'curl -H "X-Api-Token: abc" https://x.test'}]}]}},
+    {"env": {"HTTPS_PROXY": "http://svc:Winter2024@proxy:8080"}},
+    {"env": {"authToken": "x"}},
+    {"env": {"AZURE_DEVOPS_EXT_PAT": "x"}},
+    {"env": {"OPENAI": "sk-abcdefghijklmnopqrstuvwxyz"}},
+    {"statusLine": {"type": "command", "command": r"C:\Users\alice\srv.js --apikey Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9"}},
+    {"extraKnownMarketplaces": {"m": {"source": {"source": "url", "url": "https://x.test/m.json?sig=abc"}}}},
+])
+def test_export_settings_scans_every_captured_field(live):
+    _, _, problems = setup.export_settings(live, KEYS, {}, SOURCE, ENV)
+    assert problems
+    assert not any(secret in " ".join(problems) for secret in ("hunter2", "Winter2024", "abcdefgh1234", "Ab1Cd2"))
+
+
+@windows_only
+def test_secret_scan_leaves_ordinary_settings_alone():
+    live = {
+        "env": {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000"},
+        "permissions": {"allow": ["Bash(git push *--force-*)", "Bash(docker login --password-stdin)",
+                                  "Bash(tool --path ./x)", "Skill(update-config:*)",
+                                  "mcp__cf514a11-bd65-4fe6-932b-647c42e01df3__send_message",
+                                  "Bash(git -C * push *:refs/heads/production*)"]},
+        "hooks": {"Stop": [{"hooks": [{"type": "command", "statusMessage": "Checking team closeout",
+                                       "command": r'py "C:\Users\alice\.claude\hooks-release\x\stop_team_closeout.py"'}]}]},
+    }
+    _, _, problems = setup.export_settings(live, KEYS, {}, SOURCE, ENV)
+    assert problems == []
+
 
 @windows_only
 def test_export_settings_keeps_listed_keys_and_adds_reviewed_restrictions():
@@ -210,9 +279,9 @@ def test_export_settings_refuses_credentials_and_machine_paths_without_echoing_t
     live = {"env": {"GITHUB_TOKEN": "x", "OTHER": secret, "MAX_OUTPUT_TOKENS": "64000"},
             "statusLine": {"command": r"D:\tools\line.exe"}}
     _, _, problems = setup.export_settings(live, ["env", "statusLine"], {}, SOURCE, ENV)
-    assert any("GITHUB_TOKEN: credential-named" in p for p in problems)
-    assert any("OTHER: credential-shaped" in p for p in problems)
-    assert any("statusLine.command: machine-specific path" in p for p in problems)
+    assert "settings.env.GITHUB_TOKEN: credential-named entry" in problems
+    assert "settings.env.OTHER: a known token format" in problems
+    assert "settings.statusLine.command: machine-specific path" in problems
     assert not any("MAX_OUTPUT_TOKENS" in p for p in problems)
     assert not any(secret in p for p in problems)
 
@@ -240,10 +309,25 @@ def test_export_mcp_makes_paths_portable_and_refuses_credentials():
     assert setup.uses_docker_gateway(servers["mcpServers"]["gateway"])
 
 
+@windows_only
+@pytest.mark.parametrize("server", [
+    {"command": "srv", "args": ["--token", "hunter2"]},
+    {"type": "http", "url": "https://user:pw@mcp.example/x"},
+    {"type": "http", "url": "https://mcp.example/x?api_key=short1"},
+    {"type": "http", "url": "https://mcp.example/x", "oauth": {"clientSecret": "s3cr3t-ab"}},
+    {"command": r"C:\Users\alice\srv.js", "args": ["--apikey", "Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9"]},
+])
+def test_export_mcp_scans_every_field_and_argument_list(server):
+    servers, _, problems = setup.export_mcp({"mcpServers": {"s": server}}, SOURCE, ENV)
+    assert problems and servers["mcpServers"] == {}
+
+
 def test_docker_registry_names(tmp_path):
     registry = write(tmp_path / "registry.yaml", 'registry:\n  azure:\n    ref: ""\n  github:\n    ref: ""\nother:\n  x:\n')
     assert setup.docker_servers(registry) == ["azure", "github"]
     assert setup.docker_servers(tmp_path / "missing.yaml") is None
+    assert setup.docker_servers(write(tmp_path / "empty.yaml", "registry: {}\n")) == []
+    assert setup.docker_servers(write(tmp_path / "other.yaml", "servers:\n  - azure\n")) is None
 
 
 def test_referenced_paths_cover_code_not_patterns_or_data():
@@ -267,9 +351,10 @@ def test_repositories_need_a_shareable_origin(tmp_path):
     git(tmp_path, "clone", "-q", str(origin), str(clone))
     _, _, problems = setup.locate_repositories({"__USERPROFILE__\\r\\a.py"}, home, {})
     assert problems == ["__USERPROFILE__\\r: origin is a local path that another machine cannot clone"]
-    git(clone, "remote", "set-url", "origin", "https://user:hunter2@example.test/r.git")
-    _, _, problems = setup.locate_repositories({"__USERPROFILE__\\r\\a.py"}, home, {})
-    assert problems == ["__USERPROFILE__\\r: the origin URL embeds a credential"]
+    for url in ("https://user:hunter2@example.test/r.git", "https://ghp_abcdefghijklmnop1234@github.com/o/r.git"):
+        git(clone, "remote", "set-url", "origin", url)
+        _, _, problems = setup.locate_repositories({"__USERPROFILE__\\r\\a.py"}, home, {})
+        assert problems == ["__USERPROFILE__\\r: the origin URL embeds a user name or credential"]
     write(home / "loose" / "tool.py", "x\n")
     (home / "folder").mkdir()
     repos, notes, problems = setup.locate_repositories(
@@ -294,9 +379,10 @@ def test_export_writes_a_portable_snapshot_and_refreshes_guidance(tmp_path):
     assert settings["hooks"]["Stop"][0]["hooks"][0]["command"] == 'py "__USERPROFILE__\\.claude\\hooks-release\\hooks\\guard.py"'
     mcp = json.loads((snapshot / setup.MCP_FILE).read_text(encoding="utf-8"))
     assert mcp["mcpServers"]["MCP_DOCKER"]["env"] == {"LOCALAPPDATA": "__USERPROFILE__\\AppData\\Local"}
+    pinned = git(home / ".claude" / "hooks-release", "rev-parse", "HEAD")
     assert json.loads((snapshot / setup.REPOS_FILE).read_text(encoding="utf-8")) == [
         {"path": "__USERPROFILE__\\.claude\\hooks-release", "url": "https://example.test/hooks.git",
-         "filter": "blob:none", "sparse": ["hooks"], "detach": "origin/main"},
+         "filter": "blob:none", "sparse": ["hooks"], "commit": pinned},
         {"path": "__USERPROFILE__\\Projects\\tool", "url": "https://example.test/tool.git", "branch": "main"},
     ]
     assert (snapshot / setup.DOCKER_FILE).read_text(encoding="utf-8") == "github\nplaywright\n"
@@ -323,6 +409,29 @@ def test_export_stops_on_drift_or_credentials_and_writes_nothing(tmp_path):
         setup.export(home, profile=profile, snapshot=snapshot, settings_keys=KEYS, environ={})
     assert "ANTHROPIC_API_KEY" in str(error.value) and "abcdefghij" not in str(error.value)
     assert {path: path.read_bytes() for path in before} == before
+
+
+@windows_only
+@pytest.mark.parametrize("guidance, reason", [
+    ("# rules\nuse ghp_abcdefghijklmnopqrstuvwxyz0123456789 for the API\n", "CLAUDE.md: line 2: a known token format"),
+    ("# rules\nnotes live in /mnt/c/Users/source-home/notes\n", "CLAUDE.md: still contains a path with your user name"),
+])
+def test_export_scans_the_guidance_it_publishes(tmp_path, guidance, reason):
+    home, profile, snapshot, _ = build_source(tmp_path)
+    write(home / ".claude" / "CLAUDE.md", guidance)
+    with pytest.raises(setup.SetupError) as error:
+        setup.export(home, profile=profile, snapshot=snapshot, settings_keys=KEYS, environ={})
+    assert reason in str(error.value) and "ghp_abc" not in str(error.value)
+    assert (profile / "CLAUDE.md").read_text(encoding="utf-8") == "# rules\nlatest\n"
+
+
+@windows_only
+def test_export_keeps_the_docker_list_when_the_registry_is_unreadable(tmp_path):
+    home, profile, snapshot, _ = build_source(tmp_path)
+    write(home / ".docker" / "mcp" / "registry.yaml", "servers:\n  - something\n")
+    result = setup.export(home, profile=profile, snapshot=snapshot, settings_keys=KEYS, environ={})
+    assert (snapshot / setup.DOCKER_FILE).read_text(encoding="utf-8") == "github\nplaywright\n"
+    assert any("keeps its previous list" in note for note in result.notes)
 
 
 # --- private bundle -------------------------------------------------------------------
@@ -367,6 +476,10 @@ def test_bundle_refuses_existing_or_git_tracked_destinations(tmp_path):
     with pytest.raises(setup.SetupError, match="git work tree"):
         setup.write_bundle(tmp_path / "home", repo / "nested" / "bundle.zip")
     assert not (repo / "nested").exists()
+    # A .git that git itself cannot read (another owner, a broken gitfile) still counts.
+    write(tmp_path / "outer" / ".git", "gitdir: nowhere\n")
+    with pytest.raises(setup.SetupError, match="git work tree"):
+        setup.write_bundle(tmp_path / "home", tmp_path / "outer" / "x" / "bundle.zip")
     write(tmp_path / "taken.zip", "x")
     with pytest.raises(setup.SetupError, match="already exists"):
         setup.write_bundle(tmp_path / "home", tmp_path / "taken.zip")
@@ -386,9 +499,10 @@ def bundle_with(tmp_path: Path, members: dict[str, bytes], listed: dict[str, byt
 
 @pytest.mark.parametrize("name", [
     "projects/x/memory/../../evil.md", "projects/x/notes/a.md", "/projects/x/memory/a.md",
-    "projects/x/memory/CON", "projects/x/memory/nul.txt", "projects/C:/memory/a.md",
+    "projects/x/memory/CON", "projects/x/memory/nul.txt", "projects/x/memory/con .md", "projects/x/memory/NUL .txt",
+    "projects/C:/memory/a.md", "projects/x/memory/trailing.", "projects/../memory/a.md",
     # zipfile turns backslashes into "/" on Windows; elsewhere safe_member refuses them.
-    "projects/x/memory/..\\..\\evil.md", "projects/x/memory/trailing.", "projects/../memory/a.md",
+    "projects/x/memory/..\\..\\evil.md",
 ])
 def test_read_bundle_rejects_unsafe_members(tmp_path, name):
     with pytest.raises(setup.SetupError, match="unsafe path"):
@@ -437,46 +551,50 @@ def test_merge_hooks_replaces_the_same_group_and_never_registers_twice():
     assert setup.merge_settings(merged, template) == merged
 
 
-def test_describe_changes_itemizes_grants_and_counts_long_lists():
+def test_describe_changes_prints_everything_in_full_except_long_restriction_lists():
+    long_rule = "Bash(" + "x" * 200 + " && payload)"
     lines = setup.describe_changes({"theme": "light"}, {"theme": "dark", "permissions": {
-        "allow": ["PowerShell(*)"], "deny": [f"rule {n}" for n in range(61)]}})
-    assert lines == ["~ theme: light -> dark", "+ permissions.allow: PowerShell(*)", "+ permissions.deny: 61 entries"]
+        "allow": [f"rule {n}" for n in range(65)] + [long_rule], "deny": [f"rule {n}" for n in range(61)]}})
+    assert lines[0] == "~ theme: light -> dark"
+    assert f"+ permissions.allow: {long_rule}" in lines and len(lines) == 1 + 66 + 1
+    assert lines[-1] == "+ permissions.deny: 61 entries (restrictions)"
 
 
 # --- restore --------------------------------------------------------------------------
 
 @windows_only
-def test_restore_preview_changes_nothing(tmp_path):
+def test_restore_preview_changes_nothing_and_shows_what_it_would_run(tmp_path):
     _, profile, snapshot, _ = build_source(tmp_path)
     target = tmp_path / "new-home"
     ctx, lines = restore_context(target, profile, snapshot, apply=False)
-    assert setup.restore(ctx, tools=[]) == 0
+    assert run_restore(ctx) == 0, "\n".join(lines)
     assert not target.exists()
     assert ctx.run.commands() == []
     output = "\n".join(lines)
-    assert "would run: git clone --filter=blob:none --no-checkout -- https://example.test/hooks.git" in output
-    assert "would run: claude plugin marketplace add" in output
-    assert "would run: claude mcp add-json MCP_DOCKER" in output
-    assert "Preview only" in output
+    clone = target / ".claude" / "hooks-release"
+    assert f'hook     Stop: py "{clone}\\hooks\\guard.py"' in output
+    assert f"clone    https://example.test/hooks.git at commit " in output
+    assert f"would run: git clone --filter=blob:none --no-checkout -- https://example.test/hooks.git {clone}" in output
+    assert "would run: claude plugin marketplace add -- " in output
+    assert "would run: claude mcp add-json --scope user -- MCP_DOCKER" in output
+    assert "Preview only: nothing changed." in output
 
 
 @windows_only
 def test_restore_staged_home_end_to_end_with_real_git(tmp_path):
     _, profile, snapshot, origins = build_source(tmp_path)
     target = tmp_path / "Users" / "bob"
-    runner = offline_git(tmp_path, origins)
-    claude_calls = FakeRunner()
-
-    def run(args, env=None, cwd=None):
-        return runner(args, env, cwd) if Path(args[0]).stem.lower() == "git" else claude_calls(args, env, cwd)
-    ctx, lines = restore_context(target, profile, snapshot, run=run,
-                                 which=lambda name: {"git": "git", "claude": "C:/bin/claude.exe"}.get(name))
-    assert setup.restore(ctx, tools=[]) == 0, "\n".join(lines)
+    run, claude_calls = git_and_fake_claude(tmp_path, origins)
+    which = lambda name: {"git": "git", "claude": "C:/bin/claude.exe"}.get(name)  # noqa: E731
+    ctx, lines = restore_context(target, profile, snapshot, run=run, which=which)
+    assert run_restore(ctx) == 0, "\n".join(lines)
 
     clone = target / ".claude" / "hooks-release"
+    pinned = json.loads((snapshot / setup.REPOS_FILE).read_text(encoding="utf-8"))[0]["commit"]
     assert (clone / "hooks" / "guard.py").is_file() and not (clone / "docs").exists()  # sparse
     assert git(clone, "config", "--get", "remote.origin.partialclonefilter") == "blob:none"
-    assert git(clone, "rev-parse", "HEAD") == git(clone, "rev-parse", "origin/main")
+    assert git(clone, "rev-parse", "HEAD") == pinned
+    assert not list(clone.parent.glob("hooks-release.restore-*"))
     assert git(target / "Projects" / "tool", "symbolic-ref", "--short", "HEAD") == "main"
     settings = json.loads((target / ".claude" / "settings.json").read_text(encoding="utf-8"))
     assert settings["hooks"]["Stop"][0]["hooks"][0]["command"] == f'py "{clone}\\hooks\\guard.py"'
@@ -490,9 +608,9 @@ def test_restore_staged_home_end_to_end_with_real_git(tmp_path):
     mcp = {"type": "stdio", "command": "docker", "args": ["mcp", "gateway", "run"],
            "env": {"LOCALAPPDATA": str(target / "AppData" / "Local")}}
     assert claude_calls.commands() == [
-        ["plugin", "marketplace", "add", tool],
-        ["plugin", "install", "tool@local", "--scope", "user"],
-        ["mcp", "add-json", "MCP_DOCKER", json.dumps(mcp), "--scope", "user"],
+        ["plugin", "marketplace", "add", "--", tool],
+        ["plugin", "install", "--scope", "user", "--", "tool@local"],
+        ["mcp", "add-json", "--scope", "user", "--", "MCP_DOCKER", json.dumps(mcp)],
     ]
     assert all(env["CLAUDE_CONFIG_DIR"] == str(target / ".claude") for _, env in claude_calls.calls)
     assert claude_calls.cwds == [target] * 3  # never the project settings of the caller's directory
@@ -504,12 +622,42 @@ def test_restore_staged_home_end_to_end_with_real_git(tmp_path):
     write(target / ".claude" / "plugins" / "known_marketplaces.json", json.dumps({"local": {}}))
     write(target / ".claude" / "plugins" / "installed_plugins.json", json.dumps({"plugins": {"tool@local": []}}))
     before = (target / ".claude" / "settings.json").read_bytes()
-    rerun, rerun_lines = restore_context(target, profile, snapshot, run=run,
-                                         which=lambda name: {"git": "git", "claude": "C:/bin/claude.exe"}.get(name))
-    assert setup.restore(rerun, tools=[]) == 0, "\n".join(rerun_lines)
+    rerun, rerun_lines = restore_context(target, profile, snapshot, run=run, which=which)
+    assert run_restore(rerun) == 0, "\n".join(rerun_lines)
     assert (target / ".claude" / "settings.json").read_bytes() == before
     assert len(claude_calls.calls) == 3
     assert not list((target / ".claude").glob("settings.json" + setup.BACKUP_TAG + "*"))
+
+    # A hook edited in place in the release clone fails verification.
+    write(clone / "hooks" / "guard.py", "print('edited in place')\n")
+    check, _ = restore_context(target, profile, snapshot, run=run, which=which)
+    setup.step_verify(check, setup.load_snapshot(check, KEYS).repos, setup.load_snapshot(check, KEYS).settings)
+    assert any("local edits" in failure for failure in check.failures)
+
+
+@windows_only
+def test_a_failed_clone_step_leaves_settings_alone_and_a_rerun_repairs_it(tmp_path):
+    _, profile, snapshot, origins = build_source(tmp_path)
+    target = tmp_path / "Users" / "bob"
+    real = offline_git(tmp_path, origins)
+
+    def sparse_fails(args, env=None, cwd=None):
+        if "sparse-checkout" in args:
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="simulated failure")
+        return real(args, env, cwd)
+    which = lambda name: {"git": "git"}.get(name)  # noqa: E731
+    ctx, lines = restore_context(target, profile, snapshot, run=sparse_fails, which=which)
+    assert run_restore(ctx) == 1
+    clone = target / ".claude" / "hooks-release"
+    assert not clone.exists()
+    assert any("partial clone is left at" in failure for failure in ctx.failures)
+    assert any("settings.json left unchanged" in failure for failure in ctx.failures)
+    assert not (target / ".claude" / "settings.json").exists()  # no hook can point at a missing script
+
+    rerun, rerun_lines = restore_context(target, profile, snapshot, run=real, which=which)
+    assert run_restore(rerun) == 0, "\n".join(rerun_lines)
+    assert (clone / "hooks" / "guard.py").is_file()
+    assert (target / ".claude" / "settings.json").is_file()
 
 
 @windows_only
@@ -522,7 +670,7 @@ def test_restore_real_home_runs_machine_wide_steps(tmp_path):
     write(home / ".claude.json", json.dumps(config))
     ctx, lines = restore_context(home, profile, snapshot, staged=False,
                                  which=fake_which("git", "claude", "py", "docker"))
-    assert setup.restore(ctx, tools=[], skip=["repositories", "verify"]) == 0, "\n".join(lines)
+    assert run_restore(ctx, skip=["repositories", "verify"]) == 0, "\n".join(lines)
     commands = ctx.run.commands()
     assert ["mcp", "server", "enable", "playwright"] in commands
     pip = next(env for args, env in ctx.run.calls if args[1:4] == ["-m", "pip", "install"])
@@ -551,6 +699,20 @@ def test_restore_keeps_differing_files_unless_asked_and_backs_them_up(tmp_path):
 
 
 @windows_only
+def test_restore_reports_a_bad_file_and_keeps_installing_the_rest(tmp_path):
+    _, profile, snapshot, _ = build_source(tmp_path)
+    (profile / "agents" / "bad.md").write_bytes(b"__USERPROFILE__ \xff")
+    target = tmp_path / "new-home"
+    ctx, _ = restore_context(target, profile, snapshot)
+    setup.step_files(ctx)
+    assert len(ctx.failures) == 1 and "agents/bad.md" in ctx.failures[0] and "not UTF-8" in ctx.failures[0]
+    assert (target / ".claude" / "agents" / "a.md").is_file()
+    settings = write(target / ".claude" / "settings.json", "null")
+    setup.step_settings(ctx, setup.load_snapshot(ctx, KEYS).settings, [])
+    assert "does not hold a JSON object" in ctx.failures[-1] and settings.read_text() == "null"
+
+
+@windows_only
 def test_restore_refuses_to_write_through_a_junction(tmp_path):
     _, profile, snapshot, _ = build_source(tmp_path)
     target, outside = tmp_path / "new-home", tmp_path / "outside"
@@ -559,7 +721,7 @@ def test_restore_refuses_to_write_through_a_junction(tmp_path):
     subprocess.run(["cmd", "/c", "mklink", "/J", str(target / ".claude" / "agents"), str(outside)],
                    check=True, capture_output=True)
     ctx, lines = restore_context(target, profile, snapshot)
-    assert setup.restore(ctx, tools=[], skip=["repositories", "plugins", "mcp", "verify"]) == 1
+    assert run_restore(ctx, skip=["repositories", "plugins", "mcp", "verify"]) == 1
     assert any("reparse point" in failure for failure in ctx.failures)
     assert list(outside.iterdir()) == []
 
@@ -574,10 +736,17 @@ def test_restore_settings_notices_a_concurrent_writer(tmp_path):
         if line.startswith("  +") and settings.read_text() == '{"theme": "light"}':
             settings.write_text('{"theme": "another writer"}')
     ctx, _ = restore_context(target, profile, snapshot, out=out)
-    template, _, _, _ = setup.load_snapshot(ctx)
-    setup.step_settings(ctx, template)
+    setup.step_settings(ctx, setup.load_snapshot(ctx, KEYS).settings, [])
     assert settings.read_text() == '{"theme": "another writer"}'
     assert ctx.failures and "changed while restore was running" in ctx.failures[0]
+
+
+@windows_only
+def test_restore_refuses_batch_shims_with_cmd_metacharacters(tmp_path):
+    ctx, _ = restore_context(tmp_path / "home", tmp_path / "p", tmp_path / "s",
+                             which=lambda name: "C:/npm/claude.cmd")
+    assert not ctx.command(["claude", "mcp", "add-json", "x", '{"args": ["a&b"]}'])
+    assert "batch shim" in ctx.failures[0] and ctx.run.calls == []
 
 
 def test_plugin_install_waits_for_its_marketplace(tmp_path):
@@ -588,7 +757,7 @@ def test_plugin_install_waits_for_its_marketplace(tmp_path):
         "enabledPlugins": {"tool@local": True, "other@official": True, "off@local": False}})
     assert ctx.failures == [f"marketplace local: {missing} is missing"]
     assert any("skipped  plugin tool@local: marketplace local was not added" in line for line in lines)
-    assert ctx.run.commands() == [["plugin", "install", "other@official", "--scope", "user"]]
+    assert ctx.run.commands() == [["plugin", "install", "--scope", "user", "--", "other@official"]]
 
 
 def test_one_unwritable_memory_file_does_not_stop_the_rest(tmp_path):
@@ -602,39 +771,49 @@ def test_one_unwritable_memory_file_does_not_stop_the_rest(tmp_path):
 
 
 @windows_only
-def test_restore_refuses_batch_shims_with_cmd_metacharacters(tmp_path):
-    ctx, _ = restore_context(tmp_path / "home", tmp_path / "p", tmp_path / "s",
-                             which=lambda name: "C:/npm/claude.cmd")
-    assert not ctx.command(["claude", "mcp", "add-json", "x", '{"args": ["a&b"]}'])
-    assert "batch shim" in ctx.failures[0] and ctx.run.calls == []
-
-
-@windows_only
 def test_restore_rejects_a_bad_bundle_or_snapshot_before_writing(tmp_path):
     _, profile, snapshot, _ = build_source(tmp_path)
     target = tmp_path / "new-home"
     write(tmp_path / "bad.zip", "not a zip")
     ctx, _ = restore_context(target, profile, snapshot)
     with pytest.raises(setup.SetupError, match="cannot read private bundle"):
-        setup.restore(ctx, tools=[], bundle=tmp_path / "bad.zip")
+        run_restore(ctx, bundle=tmp_path / "bad.zip")
     assert not target.exists()
     write(snapshot / setup.REPOS_FILE, json.dumps([{"path": r"C:\Users\alice\x", "url": "https://example.test/x.git"}]))
     with pytest.raises(setup.SetupError, match="not portable"):
-        setup.restore(ctx, tools=[])
+        run_restore(ctx)
     assert not target.exists()
+
+
+def _set(path, value):
+    def change(tree):
+        node = tree
+        for key in path[:-1]:
+            node = node[key]
+        node[path[-1]] = value
+    return change
 
 
 @windows_only
 @pytest.mark.parametrize("file_name, change", [
-    (setup.REPOS_FILE, lambda repos: repos[0].update(path="__USERPROFILE__\\..\\..\\Windows\\x")),
-    (setup.REPOS_FILE, lambda repos: repos[0].update(url="--upload-pack=calc.exe")),
-    (setup.REPOS_FILE, lambda repos: repos[1].update(branch="--orphan")),
-    (setup.REPOS_FILE, lambda repos: repos[0].update(detach="HEAD~1")),
-    (setup.REPOS_FILE, lambda repos: repos[0].update(sparse=["../outside"])),
-    (setup.REPOS_FILE, lambda repos: repos[1].update(detach="origin/main")),
-    (setup.MCP_FILE, lambda mcp: mcp["mcpServers"].update({"--scope": {}})),
-    (setup.SETTINGS_FILE, lambda s: s["enabledPlugins"].update({"-x@local": True})),
-    (setup.SETTINGS_FILE, lambda s: s["extraKnownMarketplaces"]["local"]["source"].update(path="__USERPROFILE__\\..\\x")),
+    (setup.REPOS_FILE, _set([0, "path"], "__USERPROFILE__\\..\\..\\Windows\\x")),
+    (setup.REPOS_FILE, _set([1, "path"], "__USERPROFILE__\\.ssh")),
+    (setup.REPOS_FILE, _set([1, "path"], "__USERPROFILE__\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\x")),
+    (setup.REPOS_FILE, _set([1, "path"], "__USERPROFILE__\\Projects\\x:ads")),
+    (setup.REPOS_FILE, _set([1, "path"], "__USERPROFILE__\\Projects\\a\\b")),
+    (setup.REPOS_FILE, _set([0, "url"], "--upload-pack=calc.exe")),
+    (setup.REPOS_FILE, _set([0, "url"], "https://ghp_abcdefghijklmnop1234@github.com/o/r.git")),
+    (setup.REPOS_FILE, _set([1, "branch"], "--orphan")),
+    (setup.REPOS_FILE, _set([0, "commit"], "HEAD~1")),
+    (setup.REPOS_FILE, _set([1, "commit"], "0" * 40)),
+    (setup.REPOS_FILE, _set([0, "sparse"], ["../outside"])),
+    (setup.MCP_FILE, _set(["mcpServers", "--scope"], {})),
+    (setup.SETTINGS_FILE, _set(["apiKeyHelper"], "evil.cmd")),
+    (setup.SETTINGS_FILE, _set(["permissions", "defaultMode"], "bypassPermissions")),
+    (setup.SETTINGS_FILE, _set(["permissions", "something"], [])),
+    (setup.SETTINGS_FILE, _set(["enabledPlugins", "-x@local"], True)),
+    (setup.SETTINGS_FILE, _set(["extraKnownMarketplaces", "local", "source", "path"], "__USERPROFILE__\\Downloads\\m")),
+    (setup.SETTINGS_FILE, _set(["extraKnownMarketplaces", "gh"], {"source": {"source": "github", "repo": "-x/y"}})),
 ])
 def test_restore_refuses_a_tampered_snapshot_before_running_anything(tmp_path, file_name, change):
     _, profile, snapshot, _ = build_source(tmp_path)
@@ -644,7 +823,7 @@ def test_restore_refuses_a_tampered_snapshot_before_running_anything(tmp_path, f
     target = tmp_path / "new-home"
     ctx, _ = restore_context(target, profile, snapshot)
     with pytest.raises(setup.SetupError, match="not safe to run"):
-        setup.restore(ctx, tools=[])
+        run_restore(ctx)
     assert ctx.run.calls == [] and not target.exists()
 
 
@@ -660,7 +839,30 @@ def test_inventory_classifies_every_entry(tmp_path):
 
 def test_cli_restore_preview_leaves_the_target_alone(tmp_path):
     target = tmp_path / "preview-home"
-    result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts" / "claude_setup.py"), "restore", "--home", str(target)],
+    result = subprocess.run([sys.executable, "-B", str(SCRIPT), "restore", "--home", str(target)],
                             capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Preview" in result.stdout and not target.exists()
+
+
+def test_cli_apply_without_a_terminal_needs_yes(tmp_path):
+    target = tmp_path / "apply-home"
+    result = subprocess.run([sys.executable, "-B", str(SCRIPT), "restore", "--home", str(target), "--apply"],
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "--apply --yes" in result.stderr and not target.exists()
+
+
+@pytest.mark.skipif(os.environ.get("CLAUDE_SETUP_LIVE") != "1" or not shutil.which("claude"),
+                    reason="set CLAUDE_SETUP_LIVE=1 to run against the real claude CLI")
+def test_live_claude_config_dir_keeps_the_real_config_untouched(tmp_path):
+    real = Path.home() / ".claude.json"
+    before = json.loads(real.read_text(encoding="utf-8")).get("mcpServers")
+    home = tmp_path / "home"
+    home.mkdir()
+    ctx, lines = restore_context(home, tmp_path / "p", tmp_path / "s", run=setup.run_command, which=shutil.which)
+    assert ctx.claude(["mcp", "add-json", "--scope", "user", "--", "isolation-probe",
+                       json.dumps({"type": "stdio", "command": "echo"})]), lines
+    staged = json.loads((home / ".claude" / ".claude.json").read_text(encoding="utf-8"))
+    assert "isolation-probe" in staged["mcpServers"]
+    assert json.loads(real.read_text(encoding="utf-8")).get("mcpServers") == before

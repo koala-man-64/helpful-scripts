@@ -6,7 +6,7 @@
     "sparse": [
       "agentic-ide-setup/profile/claude/hooks"
     ],
-    "detach": "origin/main"
+    "commit": "0dff70368903cd5475c26b988cac47fa30e82a0f"
   },
   {
     "path": "__USERPROFILE__\\Projects\\quota-burndown",
