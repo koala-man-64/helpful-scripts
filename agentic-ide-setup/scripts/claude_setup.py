@@ -97,24 +97,33 @@ GITHUB_REPO = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*
 # and X-Functions-Key all match; values are checked for the shapes credentials take.
 NAME_PART = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
 CREDENTIAL_PARTS = frozenset({"token", "secret", "secrets", "password", "passwd", "pwd", "passphrase",
-                              "credential", "credentials", "pat", "apikey", "key", "auth", "authorization",
+                              "credential", "credentials", "pat", "apikey", "key", "authorization",
                               "cookie", "bearer", "sas", "signature"})
 CREDENTIAL_PHRASES = ("apikey", "accesskey", "privatekey", "clientsecret", "connectionstring", "accesstoken",
                       "authtoken", "refreshtoken", "sessiontoken", "password", "secret", "credential")
+# ${NAME} is a reference that the restoring machine resolves, not a credential.
+ENV_REFERENCE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 SECRET_SHAPES = (
     ("a URL with embedded credentials", re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^/\s\"'@]+@")),
     ("a credential in a URL query", re.compile(
         r"(?i)[?&][a-z0-9_.-]*(?:key|token|secret|password|passwd|pwd|sig|signature|auth|credential|sas)=[^&\s\"']")),
     ("a credential passed as an argument", re.compile(
-        r"(?i)(?:^|[\s\"'(])--?(?:[a-z0-9]+[-_])*(?:token|apikey|api-key|api_key|key|password|passwd|pwd|secret|pat"
-        r"|auth|credential)(?:=|\s+)(?=[^\s\"'-])")),
+        r"(?i)(?:^|[\s\"'(])--?(?:[a-z0-9]+[-_])*(?:token|apikey|api-key|api_key|access-key|access_key|secret-key"
+        r"|secret_key|private-key|password|passwd|pwd|secret|pat|auth|credential)(?:=|\s+)(?=[^\s\"'-])")),
+    ("a user and password passed to curl", re.compile(r"(?i)\bcurl\b[^\n]*?\s(?:-u|--user)(?:\s+|=)[^\s:\"']+:[^\s\"']+")),
+    ("a password passed to sshpass", re.compile(r"(?i)\bsshpass\s+-p\s*\S+")),
+    ("a password attached to -p", re.compile(r"(?i:\b(?:mysql|mysqldump|mysqladmin|mariadb)\b)[^\n]*?\s-p(?![\s-])\S+")),
     ("a credential header", re.compile(r"(?i)\b[a-z0-9-]*(?:authorization|api-key|apikey|-key|-token|-secret)\s*:\s*\S")),
     ("a known token format", re.compile(
         r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abeoprs]-[A-Za-z0-9-]{10,}"
         r"|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|glpat-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})")),
+    ("an email address", re.compile(
+        r"(?<![A-Za-z0-9._%+-])(?!git@)[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")),
 )
 AUTH_SCHEME = re.compile(r"(?i)\b(?:bearer|basic)\s+([A-Za-z0-9._~+/=-]{16,})")
-TOKEN_RUN = re.compile(r"[A-Za-z0-9+/=]{24,}")
+# NAME=value at the start of a command, the way allow rules record a one-off secret.
+ASSIGNMENT = re.compile(r"(?:^|[\s(;&|])([A-Za-z_][A-Za-z0-9_]*)=([^\s\"')]+)")
+TOKEN_RUN = re.compile(r"[A-Za-z0-9+=]{24,}")  # "/" ends a run, so long paths are not tokens
 # Test-SafeProfileContent's rule from ProfileTools.psm1: a credential-named key assigned
 # a long literal. Every file export writes must also pass the PowerShell bundle's check.
 ASSIGNED_SECRET = re.compile(
@@ -287,10 +296,12 @@ def credential_name(name: str) -> bool:
 
 def secret_reason(text: str) -> str | None:
     """Why a value looks like a credential, or None. The value itself is never returned."""
-    bare = SYSTEM_TOKEN.sub(" ", HOME_TOKEN.sub(" ", text))
+    bare = ENV_REFERENCE.sub(" ", SYSTEM_TOKEN.sub(" ", HOME_TOKEN.sub(" ", text)))
     for reason, pattern in SECRET_SHAPES:
         if pattern.search(bare):
             return reason
+    if any(credential_name(match.group(1)) for match in ASSIGNMENT.finditer(bare)):
+        return "a credential assigned in a command"
     if any(re.search(r"[0-9]", match.group(1)) for match in AUTH_SCHEME.finditer(bare)):
         return "an authorization header value"
     if any(re.search(r"[A-Za-z]", run) and re.search(r"[0-9]", run) for run in TOKEN_RUN.findall(bare)):
@@ -298,15 +309,24 @@ def secret_reason(text: str) -> str | None:
     return None
 
 
-def secret_findings(tree: Any, where: str) -> list[str]:
-    """Every credential-named key and credential-shaped string in a JSON tree."""
-    findings = []
+def references_only(value: Any) -> bool:
+    """A value built from ${NAME} references, such as "Bearer ${TOKEN}", holds no secret."""
+    if not isinstance(value, str) or not ENV_REFERENCE.search(value):
+        return False
+    rest = ENV_REFERENCE.sub("", value)
+    return len(rest.strip()) <= 16 and secret_reason(rest) is None
+
+
+def secret_findings(tree: Any, where: str, identifier_maps: Iterable[str] = ()) -> list[str]:
+    """Every credential-named key and credential-shaped string in a JSON tree. Keys of
+    the maps in identifier_maps are names (plugin ids, hook events), not credentials."""
+    findings, names_only = [], set(identifier_maps)
 
     def walk(value: Any, path: str) -> None:
         if isinstance(value, Mapping):
             for key, item in value.items():
                 child = f"{path}.{key}"
-                if credential_name(str(key)):
+                if path not in names_only and credential_name(str(key)) and not references_only(item):
                     findings.append(f"{child}: credential-named entry")
                 else:
                     walk(item, child)
@@ -346,12 +366,64 @@ def _inside(path: str, roots: Iterable[str]) -> bool:
     return any(lowered == root.lower() or lowered.startswith(root.lower() + "\\") for root in roots)
 
 
+def _strings(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _string_map(value: Any) -> bool:
+    return isinstance(value, Mapping) and all(isinstance(item, str) for item in value.values())
+
+
+def shape_problems(settings: Mapping[str, Any], servers: Mapping[str, Any]) -> list[str]:
+    """The JSON types restore relies on, so a malformed snapshot is refused, not a crash."""
+    problems = []
+    hooks = settings.get("hooks", {})
+    if not isinstance(hooks, Mapping):
+        problems.append("settings.hooks: not an object")
+    else:
+        for event, groups in hooks.items():
+            if not isinstance(groups, list) or not all(
+                    isinstance(group, Mapping) and isinstance(group.get("matcher", ""), str)
+                    and isinstance(group.get("hooks", []), list)
+                    and all(isinstance(hook, Mapping) and isinstance(hook.get("command", ""), str)
+                            for hook in group.get("hooks", []))
+                    for group in groups):
+                problems.append(f"settings.hooks.{event}: not a list of hook groups")
+    status = settings.get("statusLine", {})
+    if not (isinstance(status, Mapping) and isinstance(status.get("command", ""), str)):
+        problems.append("settings.statusLine: not an object with a command")
+    plugins = settings.get("enabledPlugins", {})
+    if not (isinstance(plugins, Mapping) and all(isinstance(on, bool) for on in plugins.values())):
+        problems.append("settings.enabledPlugins: not a map of true or false")
+    markets = settings.get("extraKnownMarketplaces", {})
+    if not (isinstance(markets, Mapping) and all(
+            isinstance(entry, Mapping) and _string_map(entry.get("source", {})) for entry in markets.values())):
+        problems.append("settings.extraKnownMarketplaces: not a map of sources")
+    if not _string_map(settings.get("env", {})):
+        problems.append("settings.env: not a map of strings")
+    permissions = settings.get("permissions", {})
+    if not isinstance(permissions, Mapping):
+        problems.append("settings.permissions: not an object")
+    else:
+        problems += [f"settings.permissions.{key}: not a list of strings"
+                     for key in ("allow", "deny", "ask", "additionalDirectories")
+                     if key in permissions and not _strings(permissions[key])]
+    for name, server in servers.items():
+        if not (isinstance(server, Mapping) and isinstance(server.get("command", ""), str)
+                and isinstance(server.get("url", ""), str) and _strings(server.get("args", []))
+                and _string_map(server.get("env", {})) and _string_map(server.get("headers", {}))):
+            problems.append(f"mcpServers.{name}: not a server definition")
+    return problems
+
+
 def snapshot_problems(settings: Mapping[str, Any], servers: Mapping[str, Any], repos: Any,
                       docker: list[str], settings_keys: Iterable[str]) -> list[str]:
     """Everything that would make restore act outside the shapes export writes: other
     settings keys, a bypass default, clones outside the allowed folders, marketplaces
     outside the cloned repositories, or values that could pass as options."""
-    problems = []
+    problems = shape_problems(settings, servers)
+    if problems:
+        return problems
     for label, tree in (("settings", settings), ("mcpServers", servers), ("repositories", repos)):
         problems += unportable(tree, label)
     allowed = set(settings_keys)
@@ -513,7 +585,8 @@ def export_settings(live: Mapping[str, Any], keys: Iterable[str], restrictions: 
             if rule not in rules:
                 rules.append(rule)
     template = map_strings(template, lambda text: portable_text(text, home, environ))
-    return template, uncaptured, secret_findings(template, "settings") + unportable(template, "settings")
+    names = ("settings.enabledPlugins", "settings.extraKnownMarketplaces", "settings.hooks")
+    return template, uncaptured, secret_findings(template, "settings", names) + unportable(template, "settings")
 
 
 def uses_docker_gateway(server: Mapping[str, Any]) -> bool:
@@ -1099,6 +1172,10 @@ def show_trust(ctx: Restore, snap: Snapshot) -> None:
     for name, server in snap.servers.items():
         launch = " ".join([str(server.get("command") or server.get("url") or "")] + [str(a) for a in server.get("args") or []])
         ctx.out(f"  mcp      {name}: {launch}")
+        for key, value in {**(server.get("env") or {}), **(server.get("headers") or {})}.items():
+            ctx.out(f"             {key}={value}")
+    for key, value in (snap.settings.get("env") or {}).items():
+        ctx.out(f"  env      {key}={value}")
     permissions = snap.settings.get("permissions") or {}
     ctx.out(f"  grants   {len(permissions.get('allow') or [])} allow rules and "
             f"{len(permissions.get('additionalDirectories') or [])} extra directories, listed under Settings")
@@ -1206,10 +1283,14 @@ def step_repositories(ctx: Restore, repos: list[dict]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         staging = path.with_name(f"{path.name}.restore-{uuid.uuid4().hex[:8]}")
         if all(ctx.command(args) for args in clone_steps(repo, staging)):
-            if path.exists():
-                path.rmdir()  # an empty folder, checked above
-            os.replace(staging, path)
-            ctx.out(f"  cloned   {path}")
+            try:
+                if path.exists():
+                    path.rmdir()  # an empty folder, checked above
+                os.replace(staging, path)
+            except OSError as error:  # for example antivirus or a git process holding the folder
+                ctx.fail(f"could not rename {staging} to {path} ({error}); close what holds it, delete it, then rerun")
+            else:
+                ctx.out(f"  cloned   {path}")
         elif staging.exists():
             ctx.fail(f"the partial clone is left at {staging} for inspection; delete it, then rerun")
 

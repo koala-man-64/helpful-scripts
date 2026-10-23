@@ -216,14 +216,15 @@ def test_profile_markers_expand_like_the_powershell_installer(tmp_path):
 
 @pytest.mark.parametrize("name", ["GITHUB_TOKEN", "authToken", "accessToken", "clientSecret", "GH_PAT",
                                   "AZURE_DEVOPS_EXT_PAT", "X-Functions-Key", "Ocp-Apim-Subscription-Key",
-                                  "ANTHROPIC_API_KEY", "Authorization", "OAuth", "db_password"])
+                                  "ANTHROPIC_API_KEY", "Authorization", "PGPASSWORD", "db_password"])
 def test_credential_names_are_recognized(name):
     assert setup.credential_name(name)
 
 
 @pytest.mark.parametrize("name", ["CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
                                   "LOCALAPPDATA", "ProgramData", "statusMessage", "author", "keybindings",
-                                  "extraKnownMarketplaces", "agentPushNotifEnabled"])
+                                  "extraKnownMarketplaces", "agentPushNotifEnabled", "OAuth", "SSH_AUTH_SOCK",
+                                  "CLAUDE_CODE_SKIP_AUTH_LOGIN", "DISABLE_DOTENV"])
 def test_ordinary_names_are_not_credentials(name):
     assert not setup.credential_name(name)
 
@@ -239,6 +240,13 @@ def test_ordinary_names_are_not_credentials(name):
     {"env": {"OPENAI": "sk-abcdefghijklmnopqrstuvwxyz"}},
     {"statusLine": {"type": "command", "command": r"C:\Users\alice\srv.js --apikey Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9"}},
     {"extraKnownMarketplaces": {"m": {"source": {"source": "url", "url": "https://x.test/m.json?sig=abc"}}}},
+    # One-off commands that "always allow" records with the secret inside the rule.
+    {"permissions": {"allow": ["Bash(PGPASSWORD=hunter2 psql -h db)"]}},
+    {"permissions": {"allow": ["Bash(GITHUB_TOKEN=short gh api user)"]}},
+    {"permissions": {"allow": ["Bash(curl -u svc:hunter2 https://x.test)"]}},
+    {"permissions": {"allow": ["Bash(sshpass -p hunter2 ssh host)"]}},
+    {"permissions": {"allow": ["Bash(mysql -u root -phunter2 db)"]}},
+    {"permissions": {"allow": ["Bash(git config user.email alice@example.test)"]}},
 ])
 def test_export_settings_scans_every_captured_field(live):
     _, _, problems = setup.export_settings(live, KEYS, {}, SOURCE, ENV)
@@ -249,13 +257,17 @@ def test_export_settings_scans_every_captured_field(live):
 @windows_only
 def test_secret_scan_leaves_ordinary_settings_alone():
     live = {
-        "env": {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000"},
+        "env": {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000", "SSH_AUTH_SOCK": "x", "CLAUDE_CODE_SKIP_AUTH_LOGIN": "1"},
         "permissions": {"allow": ["Bash(git push *--force-*)", "Bash(docker login --password-stdin)",
                                   "Bash(tool --path ./x)", "Skill(update-config:*)",
                                   "mcp__cf514a11-bd65-4fe6-932b-647c42e01df3__send_message",
-                                  "Bash(git -C * push *:refs/heads/production*)"]},
+                                  "Bash(git -C * push *:refs/heads/production*)", "Bash(DISABLE_DOTENV=1 *)",
+                                  "Bash(./scripts/build2/release/run1.sh)", "Read(//tmp/Repos2/Backend/ServiceOne1/**)",
+                                  "Bash(tool --cache-key v1)", "Bash(docker run -u 1000:1000 image)",
+                                  "Bash(mysql -P3306 db)", "Bash(git clone git@github.com:owner/repo.git)"]},
         "hooks": {"Stop": [{"hooks": [{"type": "command", "statusMessage": "Checking team closeout",
                                        "command": r'py "C:\Users\alice\.claude\hooks-release\x\stop_team_closeout.py"'}]}]},
+        "enabledPlugins": {"key-tools@market": True},
     }
     _, _, problems = setup.export_settings(live, KEYS, {}, SOURCE, ENV)
     assert problems == []
@@ -320,6 +332,16 @@ def test_export_mcp_makes_paths_portable_and_refuses_credentials():
 def test_export_mcp_scans_every_field_and_argument_list(server):
     servers, _, problems = setup.export_mcp({"mcpServers": {"s": server}}, SOURCE, ENV)
     assert problems and servers["mcpServers"] == {}
+
+
+def test_export_mcp_keeps_variable_references_and_ordinary_names():
+    server = {"type": "http", "url": "https://mcp.example/x", "env": {"GITHUB_TOKEN": "${GITHUB_TOKEN}"},
+              "headers": {"Authorization": "Bearer ${API_TOKEN}"}}
+    servers, _, problems = setup.export_mcp({"mcpServers": {"auth0-tools": server}}, SOURCE, ENV)
+    assert problems == [] and servers["mcpServers"] == {"auth0-tools": server}
+    leaked = dict(server, headers={"Authorization": "Bearer ${API_TOKEN} plus-a-literal-secret-tail"})
+    _, _, problems = setup.export_mcp({"mcpServers": {"s": leaked}}, SOURCE, ENV)
+    assert problems == ["mcpServers.s.headers.Authorization: credential-named entry"]
 
 
 def test_docker_registry_names(tmp_path):
@@ -573,7 +595,10 @@ def test_restore_preview_changes_nothing_and_shows_what_it_would_run(tmp_path):
     output = "\n".join(lines)
     clone = target / ".claude" / "hooks-release"
     assert f'hook     Stop: py "{clone}\\hooks\\guard.py"' in output
-    assert f"clone    https://example.test/hooks.git at commit " in output
+    assert "clone    https://example.test/hooks.git at commit " in output
+    assert "mcp      MCP_DOCKER: docker mcp gateway run" in output
+    assert f"             LOCALAPPDATA={target / 'AppData' / 'Local'}" in output
+    assert "env      CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1" in output
     assert f"would run: git clone --filter=blob:none --no-checkout -- https://example.test/hooks.git {clone}" in output
     assert "would run: claude plugin marketplace add -- " in output
     assert "would run: claude mcp add-json --scope user -- MCP_DOCKER" in output
@@ -658,6 +683,26 @@ def test_a_failed_clone_step_leaves_settings_alone_and_a_rerun_repairs_it(tmp_pa
     assert run_restore(rerun) == 0, "\n".join(rerun_lines)
     assert (clone / "hooks" / "guard.py").is_file()
     assert (target / ".claude" / "settings.json").is_file()
+
+
+@windows_only
+def test_a_rename_the_system_blocks_is_reported_with_the_folder_left_behind(tmp_path, monkeypatch):
+    _, profile, snapshot, origins = build_source(tmp_path)
+    target = tmp_path / "Users" / "bob"
+    real_replace = os.replace
+
+    def locked(source, destination):
+        if ".restore-" in str(source):
+            raise PermissionError(5, "Access is denied")
+        return real_replace(source, destination)
+    monkeypatch.setattr(setup.os, "replace", locked)
+    ctx, _ = restore_context(target, profile, snapshot, run=offline_git(tmp_path, origins),
+                             which=lambda name: {"git": "git"}.get(name))
+    assert run_restore(ctx) == 1
+    rename = next(failure for failure in ctx.failures if failure.startswith("could not rename"))
+    assert "hooks-release.restore-" in rename and "Access is denied" in rename
+    assert list((target / ".claude").glob("hooks-release.restore-*"))
+    assert not (target / ".claude" / "settings.json").exists()
 
 
 @windows_only
@@ -814,6 +859,13 @@ def _set(path, value):
     (setup.SETTINGS_FILE, _set(["enabledPlugins", "-x@local"], True)),
     (setup.SETTINGS_FILE, _set(["extraKnownMarketplaces", "local", "source", "path"], "__USERPROFILE__\\Downloads\\m")),
     (setup.SETTINGS_FILE, _set(["extraKnownMarketplaces", "gh"], {"source": {"source": "github", "repo": "-x/y"}})),
+    # Malformed types are refused before show_trust or a step can trip over them.
+    (setup.SETTINGS_FILE, _set(["hooks"], [1, 2])),
+    (setup.SETTINGS_FILE, _set(["hooks", "Stop"], {"hooks": []})),
+    (setup.SETTINGS_FILE, _set(["enabledPlugins", "tool@local"], "yes")),
+    (setup.SETTINGS_FILE, _set(["env"], ["x"])),
+    (setup.SETTINGS_FILE, _set(["permissions", "allow"], "Bash(*)")),
+    (setup.MCP_FILE, _set(["mcpServers", "MCP_DOCKER", "args"], "mcp gateway run")),
 ])
 def test_restore_refuses_a_tampered_snapshot_before_running_anything(tmp_path, file_name, change):
     _, profile, snapshot, _ = build_source(tmp_path)
@@ -853,16 +905,47 @@ def test_cli_apply_without_a_terminal_needs_yes(tmp_path):
     assert "--apply --yes" in result.stderr and not target.exists()
 
 
+class Terminal:
+    def isatty(self):
+        return True
+
+
+ONLY_FILES = ["--skip", "repositories", "--skip", "plugins", "--skip", "mcp", "--skip", "settings", "--skip", "docker",
+              "--skip", "agent-browser", "--skip", "memory", "--skip", "verify"]
+
+
+@pytest.mark.parametrize("answer, code, applied", [("no", 1, False), ("", 1, False), ("YES", 0, True)])
+def test_cli_apply_asks_before_changing_anything(tmp_path, monkeypatch, capsys, answer, code, applied):
+    target = tmp_path / "confirm-home"
+    monkeypatch.setattr(setup.sys, "stdin", Terminal())
+    monkeypatch.setattr("builtins.input", lambda prompt: answer)
+    assert setup.main(["restore", "--home", str(target), "--apply", *ONLY_FILES]) == code
+    assert (target / ".claude" / "CLAUDE.md").is_file() == applied
+    assert ("Nothing changed." in capsys.readouterr().out) != applied
+
+
 @pytest.mark.skipif(os.environ.get("CLAUDE_SETUP_LIVE") != "1" or not shutil.which("claude"),
                     reason="set CLAUDE_SETUP_LIVE=1 to run against the real claude CLI")
 def test_live_claude_config_dir_keeps_the_real_config_untouched(tmp_path):
-    real = Path.home() / ".claude.json"
-    before = json.loads(real.read_text(encoding="utf-8")).get("mcpServers")
+    real_home = Path.home()
+    watched = [real_home / ".claude" / "settings.json", real_home / ".claude" / "plugins" / "known_marketplaces.json",
+               real_home / ".claude" / "plugins" / "installed_plugins.json"]
+
+    def fingerprint():
+        files = {str(path): path.read_bytes() for path in watched if path.is_file()}
+        servers = json.loads((real_home / ".claude.json").read_text(encoding="utf-8")).get("mcpServers")
+        return files, servers
+    before = fingerprint()
     home = tmp_path / "home"
+    market = tmp_path / "market"
+    write(market / ".claude-plugin" / "marketplace.json",
+          json.dumps({"name": "isolation-probe-market", "owner": {"name": "test"}, "plugins": []}))
     home.mkdir()
     ctx, lines = restore_context(home, tmp_path / "p", tmp_path / "s", run=setup.run_command, which=shutil.which)
     assert ctx.claude(["mcp", "add-json", "--scope", "user", "--", "isolation-probe",
                        json.dumps({"type": "stdio", "command": "echo"})]), lines
+    assert ctx.claude(["plugin", "marketplace", "add", "--", str(market)]), lines
     staged = json.loads((home / ".claude" / ".claude.json").read_text(encoding="utf-8"))
     assert "isolation-probe" in staged["mcpServers"]
-    assert json.loads(real.read_text(encoding="utf-8")).get("mcpServers") == before
+    assert "isolation-probe-market" in json.loads((home / ".claude" / "plugins" / "known_marketplaces.json").read_text())
+    assert fingerprint() == before
