@@ -24,6 +24,12 @@ Antigravity functions as the **Engineering Lead, System Architect, and Orchestra
 
 ## 2. Load-Bearing Canon & Working Agreements
 
+For portable delegation context rules, use the
+[minimal subagent history guide](docs/minimal-subagent-history.md). It includes
+the copyable instruction, current global/workspace rule mapping, and synthetic
+checks; workspace inheritance is separate from dialogue history. Applying the
+guide is a manual step and does not install hook enforcement.
+
 Antigravity operates under the strict engineering canon defined in [`rudy-working-agreements.md`](file:///C:/Users/rdpro/.agents/rules/rudy-working-agreements.md):
 
 > 本手, 火候, 知足, 改善, 初心, 頑張る, 職人気質, and ἀρετή, always. Own the work without making yourself indispensable. Find or make a path through informed action. показуха, aktionismus and 無駄 forbidden.
