@@ -1,14 +1,16 @@
 """PreToolUse guard for Bash and PowerShell: the shell permission authority.
 
 The command is parsed into the statements it runs (shell_parse), and every rule
-reads a statement's program and arguments, never quoted data or heredoc bodies.
+reads a statement's program and arguments. Interpreter inline source is inspected
+as code; ordinary quoted data and non-executed heredoc bodies stay data.
 
 - Tier 1 denies, whoever asks: discarding work, force pushes (--force-with-lease
   included), pushes to a protected branch, recursive deletes or moves outside
   the repository, printing secrets into the transcript, approving production
   gates, voting on or completing an Azure DevOps pull request through the REST
   API, and bypassing branch policy by any route.
-- Tier 2 asks: force-deleting an unmerged branch, deletes whose targets are
+- Tier 2 asks: recognized interpreter delete APIs, force-deleting an unmerged
+  branch, deletes whose targets are
   unresolved or many, Azure resource writes outside boards/repos/pipelines/
   devops, `checkout <rev> -- <paths>`, and destructive-looking commands that
   could not be parsed.
@@ -26,6 +28,7 @@ and a value is used only when nothing else in the command may change it
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import posixpath
@@ -834,6 +837,110 @@ def check_files(statement: shell_parse.Statement, cwd: Path | None, ctx: Context
     if kind == "delete":
         # Counted across the whole command, so `rm a; rm b; rm c` is the same bulk delete as `rm a b c`.
         ctx.delete_targets.extend(t for t, p in zip(targets, resolved) if not is_scratch(p, ctx))
+    return None
+
+
+def interpreter_code(statement: shell_parse.Statement) -> tuple[str, str] | None:
+    """Read inline source only, stopping at a script filename or an option terminator."""
+    program = statement.program
+    python = bool(re.fullmatch(r"(?:python|pypy)(?:\d+(?:\.\d+)*)?|py", program))
+    if not python and program not in {"node", "nodejs"}:
+        return None
+    language = "Python" if python else "Node"
+    options = {"-c"} if python else {"-e", "--eval", "-p", "--print", "-pe", "-ep"}
+    values = {"-W", "-X", "--check-hash-based-pycs"} if python else {
+        "-r", "--require", "--import", "--loader", "--experimental-loader", "--input-type",
+    }
+    args = statement.argv[1:]
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in options:
+            return (language, args[index + 1]) if index + 1 < len(args) else None
+        if not python and arg.startswith(("--eval=", "--print=")):
+            return language, arg.partition("=")[2]
+        attached = re.match(r"^-[bBdEiIOPqRsSuvVx]*c(.*)$" if python else r"^-(?:pe|ep|e|p)(.+)$", arg)
+        if attached:
+            if attached.group(1):
+                return language, attached.group(1)
+            return (language, args[index + 1]) if index + 1 < len(args) else None
+        if arg in {"--", "-", "-m"} or not arg.startswith("-"):
+            break
+        index += 2 if arg in values else 1
+    return None
+
+
+def python_delete_api(code: str) -> bool:
+    """Recognize delete references without evaluating source, including aliases.
+
+    This is a bounded check, not a Python sandbox or a proof of path ownership.
+    Attribute calls may be rebound at runtime, so even literal in-repo paths ask.
+    """
+    methods = {"rmtree", "unlink", "rmdir", "removedirs"}
+    modules = {"os", "posix", "nt"}
+    functions: set[str] = set()
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError):
+        # Shell expansions can leave source unparsable until runtime. Fail safe
+        # for visible delete calls without treating all interpreter use as risky.
+        return bool(re.search(r"\b(?:rmtree|unlink|rmdir|removedirs|remove)\s*\(", code))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.asname or alias.name for alias in node.names if alias.name in modules)
+        if isinstance(node, ast.ImportFrom) and node.module in {"os", "posix", "nt", "shutil"}:
+            functions.update(alias.asname or alias.name for alias in node.names if alias.name in methods | {"remove"})
+    if functions:
+        return True  # importing an API can hand it to another name or callback
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            if node.attr in methods:
+                return True
+            if node.attr == "remove" and isinstance(node.value, ast.Name) and node.value.id in modules:
+                return True
+    return False
+
+
+def node_delete_api(code: str) -> bool:
+    """Ignore comments and ordinary string literals, retaining API references.
+
+    This is not a JavaScript parser: templates/regex literals stay conservative,
+    and same-named methods on non-filesystem objects can also ask. Keep member
+    references and destructured bindings, since they can alias a delete API.
+    """
+    tokens = r"//[^\n]*|/\*[\s\S]*?(?:\*/|$)|'(?:\\[\s\S]|[^'\\])*'|\"(?:\\[\s\S]|[^\"\\])*\""
+    visible = re.sub(tokens, " ", code)
+    if "/" in visible:
+        # A regex literal can contain apparent comments/quotes that the simple
+        # scanner would remove along with later code. Do not trust that scan.
+        return bool(re.search(r"\b(?:rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync)\b", code))
+    return bool(re.search(
+        r"\b(?:rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync)\b\s*(?:\?\.\s*)?(?:\(|(?=[.,}:;=\]]|$))",
+        visible,
+    ))
+
+
+def interpreter_delete(statement: shell_parse.Statement) -> str | None:
+    """Ask about named delete APIs; do not pretend runtime expressions are paths.
+
+    Dynamic API lookup, arbitrary script files and other languages are outside
+    this bounded check. PowerShell runners/encoded commands are expanded by
+    shell_parse. No detected API's runtime path is trusted, even if literal.
+    """
+    source = interpreter_code(statement)
+    if source:
+        language, code = source
+        found = python_delete_api(code) if language == "Python" else node_delete_api(code)
+    else:
+        language = "PowerShell"
+        found = statement.dialect == "powershell" and bool(
+            re.search(r"(?:\.|::)delete\s*\(", statement.argv[0], re.IGNORECASE)
+        )
+    if found:
+        return (
+            f"This {language} command names a filesystem delete API. The guard cannot verify "
+            "its runtime targets or scope. Confirm the expanded path list and task ownership first."
+        )
     return None
 
 
@@ -2028,7 +2135,7 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
             return verdict
         if verdict:
             asks.append(verdict[1])
-        for check in (azure_write, lambda s: gate_change(s, ctx)):
+        for check in (interpreter_delete, azure_write, lambda s: gate_change(s, ctx)):
             reason = check(statement)
             if reason:
                 asks.append(reason)
