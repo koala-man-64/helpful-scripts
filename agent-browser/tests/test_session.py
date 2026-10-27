@@ -312,6 +312,30 @@ def test_start_session_spawns_and_writes_launch_file(monkeypatch: pytest.MonkeyP
     assert argv[0] == core_common.sys.executable
 
 
+def test_launch_record_carries_an_absolute_home_for_the_daemon(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # The daemon runs with cwd = the profile folder and rebuilds every path from launch["home"].
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AGENT_BROWSER_HOME", "rel-home")
+    assert core_common._home() == tmp_path / "rel-home"
+    for paths in (core_common._paths("default"), core_common.ProfilePaths("default", Path("rel-home"))):
+        home = Path(core_session._launch_record(paths, _start_args(), "tok")["home"])
+        assert home.is_absolute() and home == tmp_path / "rel-home"
+
+
+def test_start_session_refuses_overlong_profile_path_before_spawning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    paths = core_common.ProfilePaths("default", tmp_path / ("a" * 120))  # built directly, bypassing _paths()
+
+    def refuse_spawn(*a: Any, **k: Any) -> Any:
+        raise AssertionError("_spawn_daemon must not be called for an overlong profile path")
+
+    monkeypatch.setattr(core_common, "_spawn_daemon", refuse_spawn)
+    with pytest.raises(RuntimeError) as exc:
+        core_session.start_session(paths, _start_args())
+    assert exc.value.error_class == core_common.ERR_CONFIG
+    assert exc.value.hint == core_common._hint("profile_path")
+    assert not paths.launch.exists()
+
+
 def test_start_session_on_a_stale_session_removes_it_and_kills_leftovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
     paths = core_common._paths("default")
     core_session._write_json_atomic(paths.session, _valid_session(paths))  # stale: no lock held

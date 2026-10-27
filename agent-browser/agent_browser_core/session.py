@@ -217,7 +217,7 @@ def _launch_record(paths: core_common.ProfilePaths, args: argparse.Namespace, to
     exe = core_common._check_browser_exe(getattr(args, "exe", None) or os.getenv("AGENT_BROWSER_EXE") or None)
     headless = bool(getattr(args, "headless", False)) or core_common._env_flag("AGENT_BROWSER_HEADLESS")
     return {
-        "profile": paths.profile, "home": str(paths.root), "log": str(paths.log), "token": token,
+        "profile": paths.profile, "home": str(core_common._absolute(paths.root)), "log": str(paths.log), "token": token,
         "browser": browser, "exe": exe, "headless": headless,
         "window_size": getattr(args, "window_size", None) or core_common.DEFAULT_WINDOW_SIZE,
         "code_hash": core_common._code_hash(), "config": core_common._load_config(),
@@ -227,6 +227,7 @@ def _launch_record(paths: core_common.ProfilePaths, args: argparse.Namespace, to
 
 
 def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, timeout: float = core_common.START_TIMEOUT) -> dict[str, Any]:
+    core_common._check_profile_path_length(paths)  # the one place a browser is spawned, whoever built `paths`
     state, session = _transport_state(paths)
     if state == "incompatible":
         raise _restart_required(paths)

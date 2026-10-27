@@ -114,6 +114,89 @@ def test_api_path_rejects_relative_caller_cwd(make_daemon):
     assert error.value.error_class == common.ERR_VALIDATION
 
 
+@pytest.mark.parametrize("operation", ["upload", "api", "screenshot"])
+@pytest.mark.parametrize("name", ["session.json", "launch.json", "user-data/Default/Cookies"])
+def test_daemon_cwd_in_profile_dir_does_not_expose_token_files(make_daemon, tmp_path, monkeypatch, operation, name):
+    daemon, ctx, page = make_daemon(snapshot_text='- button "Upload" [ref=e2]\n')
+    page.elements["e2"].is_file_input = True
+    store_file = daemon.paths.dir / name
+    store_file.parent.mkdir(parents=True, exist_ok=True)
+    store_file.write_text('{"token": "daemon-token"}', encoding="utf-8")
+    caller = tmp_path / "caller"
+    caller.mkdir()
+    monkeypatch.chdir(daemon.paths.dir)  # the daemon's real cwd
+    calls = []
+    ctx.request = SimpleNamespace(fetch=lambda url, **kwargs: calls.append(kwargs))
+    args = {"_cwd": str(caller)}
+    # A screenshot into an existing file already fails ("already exists"), so aim it at a new .png in the store.
+    shot = store_file.with_suffix(".png")
+    if operation == "upload":
+        command = "upload"
+        args.update(target="e2", files=[str(store_file)])
+    elif operation == "api":
+        command = "commit"
+        args.update(operation="api", url="/items", method="POST", body_file=str(store_file))
+    else:
+        command = "screenshot"
+        args.update(path=str(shot))
+    with pytest.raises(ValueError) as error:
+        daemon.dispatch(command, args, 5)
+    assert error.value.error_class == common.ERR_GUARDED
+    assert "agent-browser state folder" in str(error.value)
+    assert not calls and not page.elements["e2"].calls
+    assert not shot.exists()
+
+
+@pytest.mark.parametrize("cwd", ["store", 5])
+def test_caller_cwd_inside_the_store_or_not_a_string_is_refused(make_daemon, monkeypatch, cwd):
+    daemon, _, page = make_daemon(snapshot_text='- button "Upload" [ref=e2]\n')
+    page.elements["e2"].is_file_input = True
+    daemon.paths.session.write_text('{"token": "daemon-token"}', encoding="utf-8")
+    monkeypatch.chdir(daemon.paths.dir)
+    args = {"target": "e2", "files": ["session.json"], "_cwd": str(daemon.paths.dir) if cwd == "store" else cwd}
+    with pytest.raises(ValueError) as error:
+        daemon.dispatch("upload", args, 5)
+    if cwd == "store":
+        assert error.value.error_class == common.ERR_GUARDED and "agent-browser state folder" in str(error.value)
+    else:
+        assert error.value.error_class == common.ERR_VALIDATION
+    assert not page.elements["e2"].calls
+
+
+def test_transfer_without_caller_cwd_never_uses_daemon_cwd(make_daemon, tmp_path, monkeypatch):
+    daemon, _, page = make_daemon(snapshot_text='- button "Upload" [ref=e2]\n')
+    page.elements["e2"].is_file_input = True
+    workdir = tmp_path / "daemon-cwd"
+    workdir.mkdir()
+    (workdir / "payload.json").write_bytes(b"{}")
+    monkeypatch.chdir(workdir)
+    with pytest.raises(ValueError) as error:
+        daemon.dispatch("upload", {"target": "e2", "files": ["payload.json"]}, 5)
+    assert error.value.error_class == common.ERR_VALIDATION
+    assert not error.value.details["executed"]
+    with pytest.raises(ValueError) as error:
+        daemon.dispatch("upload", {"target": "e2", "files": [str(workdir / "payload.json")]}, 5)
+    assert error.value.error_class == common.ERR_GUARDED
+    assert not page.elements["e2"].calls
+    staged = daemon.paths.downloads / "payload.json"
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    staged.write_bytes(b"{}")
+    result = daemon.dispatch("upload", {"target": "e2", "files": [str(staged)]}, 5)
+    assert result["files"] == [str(staged).replace("\\", "/")]
+
+
+@pytest.mark.parametrize("cwd", [None, "relative"])
+def test_screenshot_relative_path_never_resolves_against_daemon_cwd(make_daemon, tmp_path, monkeypatch, cwd):
+    daemon, _, _ = make_daemon()
+    (tmp_path / "relative").mkdir()
+    monkeypatch.chdir(tmp_path)
+    args = {"path": "shot.png", **({"_cwd": cwd} if cwd else {})}
+    with pytest.raises(ValueError) as error:
+        daemon.dispatch("screenshot", args, 5)
+    assert error.value.error_class == common.ERR_VALIDATION
+    assert not list(tmp_path.rglob("shot.png"))
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows drive-relative paths")
 @pytest.mark.parametrize("operation", ["api", "upload"])
 def test_transfer_rejects_other_drive_relative_path_before_file_lookup(make_daemon, monkeypatch, operation):
@@ -144,7 +227,7 @@ def test_transfer_rejects_other_drive_relative_path_before_file_lookup(make_daem
 ])
 def test_api_path_preserves_same_drive_relative_and_absolute_paths(make_daemon, monkeypatch, candidate, expected):
     daemon, _, _ = make_daemon()
-    monkeypatch.setattr(common, "_check_local_path", lambda value, *_: Path(value))
+    monkeypatch.setattr(common, "_check_local_path", lambda value, *_, **__: Path(value))
     assert daemon._api_path(candidate, {"_cwd": "C:/caller"}) == Path(expected)
 
 

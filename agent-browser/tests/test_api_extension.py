@@ -167,6 +167,33 @@ def test_mcp_uses_the_same_dispatch_permission_gate(make_daemon, monkeypatch):
     assert mcp_server.browser_commit("click", "manual", target="e1")["error"]["class"] == "guarded"
 
 
+def test_mcp_upload_and_body_file_cannot_read_profile_token_files(make_daemon, tmp_path, monkeypatch):
+    daemon, ctx, page = make_daemon(snapshot_text='- button "Upload" [ref=e1]\n')
+    page.elements["e1"].is_file_input = True
+    for target in (daemon.paths.session, daemon.paths.launch):
+        target.write_text('{"token": "daemon-token"}', encoding="utf-8")
+    calls = request_context(ctx, Response())
+    monkeypatch.chdir(daemon.paths.dir)  # the daemon's own cwd
+
+    def invoke(command, arguments, *, committing=False, **kwargs):
+        # client.invoke sends the MCP server's cwd. An IDE often starts it in the user's home,
+        # an ancestor of the default state folder, so that cwd root covers the store.
+        arguments = {**arguments, "_cwd": str(tmp_path)}
+        return daemon.dispatch("commit" if committing else command,
+                               {**arguments, **({"operation": command} if committing else {})}, 1)
+
+    monkeypatch.setattr(mcp_server.client, "invoke", invoke)
+    results = [
+        mcp_server.browser_action("upload", "manual", target="e1", files=[str(daemon.paths.launch)]),
+        mcp_server.browser_commit("upload", "manual", target="e1", files=[str(daemon.paths.session)]),
+        mcp_server.browser_commit("api", "manual", url="/items", method="POST", body_file=str(daemon.paths.session)),
+    ]
+    for result in results:
+        assert result["error"]["class"] == "guarded", result
+        assert "agent-browser state folder" in result["error"]["message"], result
+    assert not calls and not page.elements["e1"].calls
+
+
 def test_screenshot_refuses_to_replace_existing_file(make_daemon, tmp_path):
     daemon, ctx, page = make_daemon()
     target = tmp_path / "existing.png"

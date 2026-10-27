@@ -178,8 +178,10 @@ overrides live under `profiles` in config, for example
 `{"profiles":{"snow-read":{"permission":"read","eval":false}}}`.
 `read` permits observation/navigation, `act` adds ordinary interaction, and `commit`
 adds declared submissions, write APIs, mutating recipes and arbitrary eval.
-`uploads: false` blocks file uploads and file-backed API bodies; `upload_roots`
-constrains permitted paths when enabled. Both capabilities remain enabled by default.
+`uploads: false` blocks file uploads and file-backed API bodies. `upload_roots` adds
+folders that file inputs and `--path` targets may use, on top of the caller's current
+folder and the session's `downloads`/`shots`; it never restricts them. To forbid file
+transfer entirely, set `uploads: false`. Both capabilities remain enabled by default.
 Generic UI actions can autosave. Approval-sensitive workflows must disable eval
 and use declared commits under caller approval rules. These are cooperative
 controls; writable config/session files cannot sandbox a hostile local process.
@@ -188,7 +190,7 @@ Real environment variables, read lazily; no `.env` loading (the tool must run ba
 
 | Variable | Meaning |
 |---|---|
-| `AGENT_BROWSER_HOME` | State root (default `%LOCALAPPDATA%\agent-browser`, POSIX `~/.agent-browser`). Keep it short: profile paths over 180 chars are refused. |
+| `AGENT_BROWSER_HOME` | State root (default `%LOCALAPPDATA%\agent-browser`, POSIX `~/.agent-browser`); a relative value is taken from the current folder. Keep it short: profile paths over 180 chars are refused. |
 | `AGENT_BROWSER_PROFILE` | Default `--profile`. Without either, always `default`. |
 | `AGENT_BROWSER_BROWSER` / `AGENT_BROWSER_EXE` | `msedge` (default) or `chrome`; an explicit executable. |
 | `AGENT_BROWSER_HEADLESS` | `true` = no window (tests). A human cannot sign in headless. |
@@ -264,8 +266,16 @@ raised by a human navigation is accepted.
   script itself, like page and `--frame` eval, can read or set any field, so approval-sensitive profiles set
   `"eval": false`. The human types in the window and the agent waits with `wait --signed-in`.
 - `goto` opens only `http`/`https` (and `about:blank`); `edge://`, `file:`, `javascript:` are refused.
-- Uploads and `--path` targets must sit under the current folder, the profile's `downloads`/`shots`, or
-  `upload_roots`; UNC paths, hidden folders, and key files are refused.
+- Uploads, file-backed inputs (`--text-file`, `--js-file`, `--json-file`, `fill-form --file`) and `--path` targets
+  must sit under the caller's current folder, this session's `downloads`/`shots`, or `upload_roots`. The daemon
+  checks them against the caller's folder, never its own. Apart from this session's `downloads`/`shots`, the state
+  folder (`profiles\` with `session.json`, `launch.json`, `user-data\` and saved `outputs\`, plus `config.json`) is
+  refused, even when the current folder or an upload root contains it. Also refused: UNC and device (`\\?\`) paths,
+  alternate data streams, files not on a fixed local drive (network and removable drives), key files, dot-named
+  files and folders at or below the allowed folder, and dot-folders directly under your home except `.claude` and
+  the agent-browser home (so `~/.ssh`, `~/.aws` and `~/.config` stay out). A dot-folder above your working folder,
+  such as the `.claude\worktrees\` of a Claude Code worktree, is fine. These are best-effort guards, not a sandbox:
+  a hard link, or a file swapped after the check, is not detected.
 - Page-derived strings are sanitized (control and bidi characters stripped, lines capped) and only ever appear
   under keys named in `untrusted`; hints are static templates. URLs are redacted (`code`, `token`, `id_token`,
   `SAMLResponse`, ... masked, fragment dropped) in output and logs.
