@@ -11,9 +11,14 @@ def commit(args: argparse.Namespace):
     if not args.arguments or args.arguments[0] in {"commit", "serve", "stop", "start", "clean"}:
         raise common._tag(ValueError("commit needs an action, api, run or journal operation."), common.ERR_USAGE)
     inner = cli._build_parser().parse_args(args.arguments)
-    for key in ("profile", "session", "timeout", "tab"):
+    for key in ("profile", "session", "timeout", "tab", "max_bytes"):
         if getattr(inner, key, None) is None:
             setattr(inner, key, getattr(args, key, None))
+    if getattr(args, "snapshot", False) and not getattr(inner, "snapshot", False):
+        inner.snapshot = True
+    outer_expect = list(getattr(args, "expect", None) or [])
+    if outer_expect:
+        inner.expect = outer_expect + list(getattr(inner, "expect", None) or [])
     inner.committing = True
     return inner.func(inner)
 

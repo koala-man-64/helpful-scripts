@@ -18,7 +18,7 @@ def invoke(command: str, arguments: dict[str, Any], *, profile: str | None = Non
         arguments["operation"], command = command, "commit"
     result = session._request(state, command, arguments, timeout)
     while result.get("pending") and result.get("status") != "needs_human":
-        time.sleep(.2)
+        common._sleep(.2)
         result = session._request(state, "poll", {"command_id": result["command_id"], "_session_id": arguments["_session_id"]}, 2)
     return result
 

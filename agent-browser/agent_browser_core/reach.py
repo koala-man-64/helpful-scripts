@@ -44,15 +44,15 @@ class ReachMixin:
         config = dict(self.config)
         if args.get("_cwd"): config["upload_roots"] = list(config.get("upload_roots", [])) + [args["_cwd"]]
         path = common._check_local_path(filename, self.paths, config, must_exist=False)
-        if path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
-            raise common._tag(ValueError("Screenshot path must end in .png, .jpg or .jpeg."), common.ERR_VALIDATION)
+        if path.suffix.lower() != ".png":
+            raise common._tag(ValueError("Screenshot path must end in .png."), common.ERR_VALIDATION)
+        target = self.resolve(page, args["target"]) if args.get("target") else page
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with path.open("xb"):
                 pass
         except FileExistsError as exc:
             raise common._tag(ValueError("Screenshot destination already exists; choose a new path."), common.ERR_GUARDED) from exc
-        target = self.resolve(page, args["target"]) if args.get("target") else page
         annotated = 0
         try:
             if args.get("annotate"):
@@ -60,8 +60,11 @@ class ReachMixin:
                 labels = []
                 for ref in dict.fromkeys(re.findall(r"\[ref=([^\]]+)\]", "\n".join(served.lines))):
                     if len(labels) >= 200: break
-                    locator = self.resolve(page, ref)
-                    box = locator.bounding_box(timeout=500)
+                    try:
+                        locator = self.resolve(page, ref)
+                        box = locator.bounding_box(timeout=500)
+                    except Exception:
+                        continue
                     if box: labels.append({"ref": ref, **box})
                 page.evaluate("""labels => {
                     const root = document.createElement('div'); root.id = '__agent_browser_refs__';
@@ -74,15 +77,23 @@ class ReachMixin:
                     document.documentElement.append(root);
                 }""", labels)
                 annotated = len(labels)
-            options = {"path": str(path), "mask": self._secret_masks(page)}
-            if target is page: options["full_page"] = bool(args.get("full_page"))
+            options = {"path": str(path), "mask": self._secret_masks(page), "timeout": self._timeout_ms(timeout)}
+            if target is page:
+                options["full_page"] = bool(args.get("full_page"))
+                options["scale"] = "css"
             target.screenshot(**options)
+        except (ValueError, RuntimeError):
+            path.unlink(missing_ok=True)
+            raise
+        except Exception as exc:
+            path.unlink(missing_ok=True)
+            raise self._classify(exc, "screenshot") from exc
         finally:
             if args.get("annotate"):
                 page.evaluate("() => document.getElementById('__agent_browser_refs__')?.remove()")
         data = path.read_bytes()
-        width, height = struct.unpack(">II", data[16:24]) if len(data) >= 24 else (None, None)
-        return {"path": path.as_posix(), "file": path.as_posix(), "width": width, "height": height, "annotated": annotated, "tab": self._tab_index(page), "tab_id": self._tab_id(page)}
+        width, height = struct.unpack(">II", data[16:24]) if len(data) >= 24 and data[:8] == b"\x89PNG\r\n\x1a\n" else (None, None)
+        return {"path": path.as_posix(), "file": path.as_posix(), "bytes": len(data), "width": width, "height": height, "annotated": annotated, "tab": self._tab_index(page), "tab_id": self._tab_id(page)}
 
     def h_table(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         page = self.target_page(args)
@@ -91,6 +102,8 @@ class ReachMixin:
             raise common._tag(ValueError("Target is not a table or grid."), common.ERR_VALIDATION)
         columns = [common.sanitize_text(loc.inner_text(), 500) for loc in table.get_by_role("columnheader").all() if loc.is_visible()]
         frame = table.element_handle().owner_frame()
+        if page not in self.served:
+            self._serve_snapshot(page)
         served = self.served[page]
         prefix = next((p for p, f in served.frame_by_prefix.items() if f is frame), "")
         rows = []

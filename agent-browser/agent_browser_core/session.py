@@ -335,7 +335,11 @@ def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = 
                 paths.session.unlink(missing_ok=True)
         if state in ("stale", "none"):
             out["killed_pids"].extend(core_common._kill_browsers_using(paths.user_data, dry_run=dry_run))
-        for folder in (paths.downloads,):
+        download_dirs = [paths.downloads]
+        sessions_dir = paths.dir / "sessions"
+        if sessions_dir.is_dir():
+            download_dirs.extend(child / "downloads" for child in sorted(sessions_dir.iterdir()) if child.is_dir())
+        for folder in download_dirs:
             if folder.is_dir():
                 for item in folder.iterdir():
                     try:
@@ -430,7 +434,13 @@ def doctor(browser: str | None = None, exe: str | None = None, live: bool = Fals
     config = core_common._home() / "config.json"
     if config.is_file():
         try:
-            _check(checks, "config_json", "ok", json.dumps(core_common._load_config()))
+            from . import policy as core_policy
+            loaded = core_common._load_config()
+            core_policy.profile_config(loaded, core_common.DEFAULT_PROFILE)
+            if isinstance(loaded.get("profiles"), dict):
+                for prof_name in loaded["profiles"]:
+                    core_policy.profile_config(loaded, prof_name)
+            _check(checks, "config_json", "ok", json.dumps(loaded))
         except RuntimeError as exc:
             _check(checks, "config_json", "fail", str(exc))
     else:

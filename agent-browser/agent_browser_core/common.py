@@ -11,7 +11,8 @@ Requirements:
 
 Commands (run `agent-browser --help` for full detail):
   start stop status goto snapshot click fill type press select check uncheck hover scroll
-  text value screenshot wait back reload tabs tab upload downloads eval focus doctor clean
+  text value screenshot wait back reload tabs tab upload downloads eval doctor clean output
+  commit state journal needs-human fill-form table api run diff
 
 Environment (real env vars, read lazily - no .env loading):
   AGENT_BROWSER_HOME             state root (default %LOCALAPPDATA%/agent-browser, POSIX ~/.agent-browser)

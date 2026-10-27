@@ -14,13 +14,14 @@ class OperatingMixin:
         super().__init__(launch)
         self.config = policy.profile_config(self.config, self.profile)
         self.session_id = "manual"
-        self.sessions = {"manual": {"pages": self.pages, "current": None, "downloads": self.downloads, "next_tab_seq": 0}}
+        self.sessions = {"manual": {"pages": self.pages, "current": None, "downloads": self.downloads, "next_tab_seq": 0, "dialog_log": self.dialog_log, "new_pages": self.new_pages}}
         self.page_owners: dict[Any, str] = {}
         self.used_sessions: set[str] = set()
         self.noted_hosts: dict[str, set[str]] = {}
         self.session_counts: dict[str, dict[str, int]] = {}
         self.jobs: dict[str, dict[str, Any]] = {}
         self.creating_session = False
+        self._cmd_target_page: Any = None
         self.journal = evidence.Journal(self.paths.dir, self.config.get("evidence_max_bytes", evidence.DEFAULT_QUOTA))
 
     def start_browser(self) -> None:
@@ -36,7 +37,7 @@ class OperatingMixin:
             owner = self.page_owners.get(opener, owner)
         elif not self.creating_session and self.current_cmd is None:
             owner = "manual"
-        state = self.sessions.setdefault(owner, {"pages": [], "current": None, "downloads": [], "next_tab_seq": 0})
+        state = self.sessions.setdefault(owner, {"pages": [], "current": None, "downloads": [], "next_tab_seq": 0, "dialog_log": [], "new_pages": []})
         state["next_tab_seq"] = state.get("next_tab_seq", 0) + 1
         self.tab_ids[page] = f"t{state['next_tab_seq']}"
         previous, self.pages = self.pages, state["pages"]
@@ -76,13 +77,17 @@ class OperatingMixin:
             self.table_row_epochs.pop(page, None)
 
     def _activate(self, sid: str, create_page: bool) -> None:
-        self.sessions[self.session_id].update(pages=self.pages, current=self.current, downloads=self.downloads)
-        state = self.sessions.setdefault(sid, {"pages": [], "current": None, "downloads": [], "next_tab_seq": 0})
+        self.sessions[self.session_id].update(pages=self.pages, current=self.current, downloads=self.downloads, dialog_log=self.dialog_log, new_pages=self.new_pages)
+        state = self.sessions.setdefault(sid, {"pages": [], "current": None, "downloads": [], "next_tab_seq": 0, "dialog_log": [], "new_pages": []})
+        state.setdefault("dialog_log", [])
+        state.setdefault("new_pages", [])
         self.session_id = sid
         self.paths = common.ProfilePaths(self.profile, self.paths.root, sid)
         self.paths.workspace.mkdir(parents=True, exist_ok=True)
         self.pages, self.current = state["pages"], state["current"]
         self.downloads = state["downloads"]
+        self.dialog_log = state["dialog_log"]
+        self.new_pages = state["new_pages"]
         if create_page and self.current is None:
             self.creating_session = True
             try:
@@ -107,8 +112,11 @@ class OperatingMixin:
             self.downloads = previous
 
     def _on_dialog(self, dialog: Any) -> None:
-        owner = self.page_owners.get(getattr(dialog, "page", None), self.session_id)
-        if owner == self.session_id:
+        dialog_page = getattr(dialog, "page", None)
+        owner = self.page_owners.get(dialog_page, self.session_id)
+        same_target = (dialog_page is None or self._cmd_target_page is None or
+                       dialog_page is self._cmd_target_page or dialog_page in self.new_pages)
+        if owner == self.session_id and same_target:
             return super()._on_dialog(dialog)
         kind = getattr(dialog, "type", "confirm")
         if kind == "alert":
@@ -131,14 +139,37 @@ class OperatingMixin:
         masks = []
         for frame in page.frames:
             masks.append(frame.locator('input[type="password"],input[autocomplete="one-time-code"],input[name*="password" i],input[name*="token" i]'))
-            inputs = frame.locator("input,textarea")
+            inputs = frame.locator('input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]),textarea')
             if hasattr(inputs, "all"):
                 masks.extend(loc for loc in inputs.all() if self._is_secret(page, loc))
         return masks
 
+    def h_ping(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
+        result = super().h_ping(args, timeout)
+        if not args.get("_session_id"):
+            extra_tabs = []
+            for sid, state in self.sessions.items():
+                if sid == self.session_id:
+                    continue
+                for idx, page in enumerate((p for p in state.get("pages", []) if not getattr(p, "closed", False)), start=1):
+                    extra_tabs.append({
+                        "id": self._tab_id(page),
+                        "index": idx,
+                        "session": sid,
+                        "url": common.redact_url(page.url),
+                        "title": common.sanitize_text(self._safe_title(page), cap=120),
+                    })
+            if extra_tabs:
+                result["tabs"] = list(result["tabs"]) + extra_tabs
+                if result.get("url") in (None, "", "about:blank"):
+                    result["url"] = extra_tabs[0]["url"]
+                    result["title"] = extra_tabs[0]["title"]
+        return result
+
     def dispatch(self, cmd: str, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         args = dict(args)
-        sid = common.session_identity(args.get("_session_id") or "manual")
+        raw_session = args.get("_session_id")
+        sid = common.session_identity(raw_session or "manual")
         self._activate(sid, cmd not in policy.CONTROL)
         if cmd not in {"ping", "poll", "state", "journal"}:
             self.used_sessions.add(sid)
@@ -146,12 +177,14 @@ class OperatingMixin:
             return self._poll(args)
         if cmd == "commit":
             cmd = str(args.pop("operation", ""))
-            if cmd not in {"click", "fill", "type", "press", "select", "check", "uncheck", "upload", "api", "run", "journal", "state"}:
+            if cmd not in {"click", "fill", "type", "press", "select", "check", "uncheck", "upload", "fill-form", "api", "run", "journal", "state"}:
                 raise common._tag(ValueError("Unsupported commit operation."), common.ERR_USAGE)
             args["_commit"] = True
         command_id = secrets.token_hex(16)
         before = dict(self.session_counts.get(sid, dict.fromkeys(self.telemetry, 0)))
-        self.journal.start(command_id, sid, ("commit " if args.get("_commit") else "") + cmd, args, self.current.url if self.current else "")
+        record_receipt = not (cmd in {"state", "journal"} and not args.get("resolve") and not args.get("clear"))
+        if record_receipt:
+            self.journal.start(command_id, sid, ("commit " if args.get("_commit") else "") + cmd, args, self.current.url if self.current else "")
         executed, screenshots = False, []
         self.action_attempted = False
         expectation_deadline = common._now() + timeout
@@ -166,6 +199,7 @@ class OperatingMixin:
             if cmd == "upload":
                 args["files"] = [str(self._api_path(str(path), args)) for path in args.get("files", [])]
             target_page = self.target_page(args) if args.get("tab") is not None else self.current
+            self._cmd_target_page = target_page
             if args.get("_commit") and target_page and cmd != "journal":
                 screenshots.append(self._capture(command_id, "before", target_page))
             args["_command_id"] = command_id
@@ -197,26 +231,30 @@ class OperatingMixin:
                 result["site_notes"] = ["ServiceNow: use the classic record form for sn/add-work-note; verify Number before committing. Preview with run, submit with commit run, and inspect its receipt before any retry. Never enter sign-in credentials."]
                 noted.add(host)
             status = "unknown" if result.get("write_outcome") == "unknown" else "pending" if result.get("pending") else "completed"
-            self.journal.finish(command_id, status, result)
+            if record_receipt:
+                self.journal.finish(command_id, status, result)
             if "snapshot" in result:
                 result["snapshot"] = result.pop("snapshot")
             return result
         except Exception as exc:
             executed = executed or self.action_attempted or bool(getattr(exc, "executed", False))
-            self.journal.finish(command_id, "unknown" if executed else "failed", {
-                "error_class": getattr(exc, "error_class", "daemon"), "executed": executed, "screenshots": screenshots,
-                "completed_fields": (getattr(exc, "details", None) or {}).get("completed_fields", [])})
+            if record_receipt:
+                self.journal.finish(command_id, "unknown" if executed else "failed", {
+                    "error_class": getattr(exc, "error_class", "daemon"), "executed": executed, "screenshots": screenshots,
+                    "completed_fields": (getattr(exc, "details", None) or {}).get("completed_fields", [])})
             details = dict(getattr(exc, "details", None) or {})
             details.update(command_id=command_id, executed=executed, receipt="state --command " + command_id)
             exc.details = details
             raise
+        finally:
+            self._cmd_target_page = None
 
     def _wait_job(self, command_id: str, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         conditions = args.get("conditions") or {k: args[k] for k in ("seconds", "url_contains", "signed_in", "text", "ref", "selector") if args.get(k) not in (None, "", 0)}
         if not conditions:
             raise common._tag(ValueError("wait needs a condition."), common.ERR_USAGE)
         self.jobs[command_id] = {"session": self.session_id, "page": self.target_page(args), "conditions": conditions,
-                                "started": common._now(), "deadline": common._now() + timeout}
+                                "started": common._now(), "deadline": common._now() + timeout, "max_bytes": args.get("max_bytes")}
         return self._poll({"command_id": command_id})
 
     def _poll(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -248,18 +286,31 @@ class OperatingMixin:
             elif key == "url_contains": ok = str(value).lower() in page.url.lower()
             elif key == "signed_in": ok = self._signed_in(page, str(value))
             elif key == "text": ok = self._page_has_text(page, str(value))
-            elif key in {"ref", "selector"}:
+            elif key == "ref":
                 try:
                     ok = self.resolve(page, str(value)).is_visible()
                 except ValueError as exc:
                     if getattr(exc, "error_class", None) == common.ERR_VALIDATION:
                         raise
                     ok = False
+            elif key == "selector":
+                ok = False
+                for scope in (page, *page.frames):
+                    try:
+                        loc = scope.locator(str(value))
+                        if loc.count() > 0 and loc.first.is_visible():
+                            ok = True
+                            break
+                    except Exception as exc:
+                        classified = self._classify(exc, f"selector {value!r}")
+                        if getattr(classified, "error_class", None) == common.ERR_VALIDATION:
+                            raise classified from exc
             else: raise common._tag(ValueError("Unknown wait condition."), common.ERR_USAGE)
             if ok: satisfied.append(key)
         result = {"command_id": command_id, "session_id": self.session_id, "contract_version": common.CONTRACT_VERSION}
         if len(satisfied) == len(job["conditions"]):
-            result.update(self.snap_envelope(page, loading=[]))
+            loading = self._settle(page, cap=2.0)
+            result.update(self.snap_envelope(page, loading=loading, max_bytes=job.get("max_bytes") or common.DEFAULT_MAX_BYTES))
             result.update(pending=False, satisfied=satisfied, waited_s=round(common._now() - job["started"], 2))
             self.jobs.pop(command_id)
             self.journal.finish(command_id, "completed", result)
@@ -321,8 +372,9 @@ class OperatingMixin:
             if not resolved.is_relative_to(root) or resolved == root:
                 raise common._tag(ValueError("Unsafe evidence path."), common.ERR_GUARDED)
             if resolved.is_dir(): shutil.rmtree(resolved)
-        for name in ("last_output.json", "last_snapshot.txt"):
-            (self.paths.workspace / name).unlink(missing_ok=True)
+        (self.paths.workspace / "last_output.json").unlink(missing_ok=True)
+        for snap_path in self.paths.workspace.glob("last_snapshot*.txt"):
+            snap_path.unlink(missing_ok=True)
         return {"cleared_commands": count}
 
     def h_needs_human(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:

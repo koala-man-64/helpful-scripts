@@ -58,18 +58,21 @@ no runtime dependencies, works fully offline from a vendored `vendor/` folder.
 
 ## Project: agent-browser
 
-Modular Playwright CLI (`agent-browser/agent_browser.py` thin entry point, console script
-`agent-browser`) that gives an AI agent a visible Edge/Chrome window through a
-per-profile background daemon: JSON in and out, elements addressed by refs
-from accessibility snapshots, sign-ins kept per profile.
+Playwright CLI + MCP server (`agent-browser/agent_browser.py` shim +
+`agent-browser/agent_browser_core/` package, console scripts `agent-browser` and
+`agent-browser-mcp`) that gives an AI agent a visible Edge/Chrome window through a
+per-profile background daemon: JSON in and out, elements addressed by refs (`e12`,
+`f2e5`) or semantic locators (`--role`, `--name`, `--label`), multi-session tab
+ownership (`--session`), and durable SQLite command receipts (`state`, `journal`).
 
 - Install: `python -m pip install --user "playwright>=1.61,<2"` then
-  `python -m pip install --user -e agent-browser` (same pip-index prefix as mcp-chatbot;
+  `python -m pip install --user -e "agent-browser[mcp]"` (same pip-index prefix as mcp-chatbot;
   no `playwright install`, the installed Edge/Chrome is used).
 - Test: `cd agent-browser; python -m pytest` (offline; no browser, Playwright never imported).
 - Live: `$env:AGENT_BROWSER_LIVE = "1"; python -m pytest -m live` (headless Edge against
   `tests/fixtures`, ~50 s) and `agent-browser doctor --live`.
-- Run: `agent-browser goto URL`, `click e12`, `fill f2e5 "text"`, `wait --signed-in HOST`,
+- Run: `agent-browser goto URL`, `click e12`, `fill f2e5 "text"`, `fill-form --file form.json`,
+  `table`, `api URL`, `commit <op> ...`, `state`, `journal`, `wait --signed-in HOST`,
   `text`, `screenshot`, `stop`; config via `AGENT_BROWSER_*` env vars read lazily (no .env
   loading), policy via the human-written `%LOCALAPPDATA%\agent-browser\config.json`.
 - Skill: the Claude Code skill lives in `agentic-ide-setup/profile/claude/skills/agent-browser/`

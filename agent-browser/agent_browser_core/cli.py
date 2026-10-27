@@ -106,7 +106,7 @@ def _remote(args: argparse.Namespace, verb: str, cmd: str, payload: dict[str, An
         payload["snapshot"] = True
     result = core_session._request(session, cmd, payload, timeout)
     while result.get("pending") and result.get("status") != "needs_human":
-        time.sleep(0.2)
+        core_common._sleep(0.2)
         result = core_session._request(session, "poll", {"command_id": result["command_id"], "_session_id": payload["_session_id"]}, 2.0)
     return _finish(result, session)
 
@@ -189,7 +189,7 @@ def _cmd_select(args: argparse.Namespace) -> Any:
 
 
 def _cmd_check(args: argparse.Namespace) -> Any:
-    if args.target.startswith(("http://", "https://")):
+    if args.target.lower().startswith(("http://", "https://")):
         return _remote(args, "check", "diagnose", {"url": args.target}, autostart=True)
     return _remote(args, "check", "check", {"target": args.target})
 
@@ -402,7 +402,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = JsonArgumentParser(prog=core_common.TOOL_NAME, description="Drive a real, visible Edge/Chrome window; JSON in and out, refs from snapshots.",
                                      epilog=_EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=f"{core_common.TOOL_NAME} {core_common.TOOL_VERSION}")
-    parser.add_argument("--profile", metavar="NAME", default=None, help="browser profile (cookies persist per profile; default: the running one, else 'default')")
+    parser.add_argument("--profile", metavar="NAME", default=None, help="browser profile (cookies persist per profile; default: 'default')")
     parser.add_argument("--tab", metavar="TAB", default=None, help="target a specific tab by id (t1, t2) or 1-based index without switching the active tab")
     parser.add_argument("--timeout", type=float, metavar="SECONDS", default=None, help="per-action timeout (default 15; goto 30; wait 60, max 100)")
     parser.add_argument("--max-bytes", type=int, metavar="N", default=None, help="snapshot byte budget per response (default 16000)")
@@ -514,7 +514,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--live", action="store_true", help="also boot a headless browser and click a ref")
     p.add_argument("--browser", choices=("msedge", "chrome"), default=None)
     p.add_argument("--exe")
-    p = add("clean", _cmd_clean, "remove stale sessions, orphaned browsers, old screenshots/downloads")
+    p = add("clean", _cmd_clean, "remove stale sessions, orphaned browsers, and old downloads")
     p.add_argument("--purge-profile", metavar="NAME", help="delete a profile folder (sign-in lost)")
     p.add_argument("--dry-run", action="store_true")
     p = sub.add_parser("serve", help=argparse.SUPPRESS)

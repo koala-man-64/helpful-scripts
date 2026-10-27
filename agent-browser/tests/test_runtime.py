@@ -247,3 +247,137 @@ def test_cooperative_wait_on_background_tab_polls_targeted_tab_while_other_tabs_
     assert done["tab_id"] == "t1"
     assert done["url"] == "http://x/one-done"
 
+
+def test_state_and_journal_reads_do_not_pollute_journal(make_daemon):
+    daemon, ctx, page = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/one"}, 5)
+    assert len(daemon.journal.rows("manual")) == 1
+
+    state_res = daemon.dispatch("state", {}, 1)
+    journal_res = daemon.dispatch("journal", {}, 1)
+    assert len(state_res["commands"]) == 1
+    assert len(journal_res["commands"]) == 1
+    assert len(daemon.journal.rows("manual")) == 1
+
+
+def test_ping_reports_tabs_across_sessions_for_status(make_daemon):
+    daemon, ctx, page = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/session-a", "_session_id": "a"}, 5)
+    pong = daemon.dispatch("ping", {}, 1)
+    urls = [t["url"] for t in pong["tabs"]]
+    assert "http://x/session-a" in urls
+    assert any(t.get("session") == "a" for t in pong["tabs"])
+
+
+def test_cooperative_wait_selector_multi_match_and_max_bytes(make_daemon):
+    daemon, ctx, page = make_daemon(snapshot_text="- generic [ref=e1]:\n  - button \"A\" [ref=e2]\n  - button \"B\" [ref=e3]\n")
+    page.selector_matches[".row-item"] = 3
+    res = daemon.dispatch("wait", {"selector": ".row-item", "max_bytes": 12, "_cooperative": True}, 5)
+    assert res["pending"] is False
+    assert res["satisfied"] == ["selector"]
+    assert res["truncated"] is True
+
+
+def test_expect_gone_succeeds_when_handle_disposed_on_navigation(make_daemon, monkeypatch):
+    from types import SimpleNamespace
+    daemon, ctx, page = make_daemon(snapshot_text="- generic [ref=e1]:\n  - button \"Submit\" [ref=e2]\n")
+    daemon.dispatch("snapshot", {}, 1)
+    disposed = {"after_click": False}
+
+    def is_visible():
+        if disposed["after_click"]:
+            raise Exception("Execution context was destroyed, most likely because of a navigation")
+        return True
+
+    page.elements["e2"].click_side_effect = lambda: disposed.update(after_click=True)
+    monkeypatch.setattr(daemon.resolve(page, "e2").__class__, "element_handle", lambda self, timeout=None: SimpleNamespace(is_visible=is_visible))
+
+    res = daemon.dispatch("click", {"target": "e2", "expect": ["gone:e2"]}, 5)
+    assert res["pending"] is False
+    assert res["expectations"] == [{"kind": "gone", "passed": True}]
+
+
+def test_table_with_css_selector_before_snapshot(make_daemon, monkeypatch):
+    from types import SimpleNamespace
+    daemon, ctx, page = make_daemon()
+    assert page not in daemon.served
+
+    cell = SimpleNamespace(inner_text=lambda: "Rudy", is_visible=lambda: True)
+    row = SimpleNamespace(
+        is_visible=lambda: True,
+        get_by_role=lambda role: SimpleNamespace(count=lambda: 0),
+        locator=lambda sel: SimpleNamespace(all=lambda: [cell]),
+        aria_snapshot=lambda mode="ai": '- row "Rudy" [ref=e9]',
+    )
+    header = SimpleNamespace(inner_text=lambda: "Owner", is_visible=lambda: True)
+    fake_table = SimpleNamespace(
+        evaluate=lambda js: False,
+        get_by_role=lambda role: SimpleNamespace(all=lambda: [header] if role == "columnheader" else [row]),
+        element_handle=lambda: SimpleNamespace(owner_frame=lambda: page.main_frame),
+    )
+    monkeypatch.setattr(daemon, "resolve", lambda p, t: fake_table)
+
+    res = daemon.dispatch("table", {"target": "table.grid"}, 5)
+    assert res["columns"] == ["Owner"]
+    assert res["rows"] == [{"ref": "e9", "cells": ["Rudy"]}]
+
+
+def test_screenshot_cleans_up_empty_file_on_failure_and_passes_timeout(make_daemon, tmp_path, monkeypatch):
+    daemon, ctx, page = make_daemon()
+    out = tmp_path / "shot.png"
+    seen_opts = {}
+
+    def fail_shot(**kwargs):
+        seen_opts.update(kwargs)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(page, "screenshot", fail_shot)
+    with pytest.raises(RuntimeError, match="boom"):
+        daemon.dispatch("screenshot", {"path": str(out), "_cwd": str(tmp_path)}, 7.5)
+    assert not out.exists()
+    assert seen_opts["timeout"] == 7500
+    assert seen_opts["scale"] == "css"
+
+
+def test_profile_policy_normalizes_uppercase_allowed_hosts_and_doctor_validates(tmp_path, monkeypatch):
+    from agent_browser_core import policy, session
+    cfg = policy.profile_config({"profiles": {"work": {"allowed_hosts": ["  Sub.Example.COM  ", ""]}}}, "work")
+    assert cfg["allowed_hosts"] == ["sub.example.com"]
+
+    config_file = common._home() / "config.json"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text(json.dumps({"profiles": {"bad_prof": {"permission": "invalid"}}}), encoding="utf-8")
+    res = session.doctor()
+    assert "config_json" in res["failed"]
+
+
+def test_commit_forwards_outer_flags_and_supports_fill_form(monkeypatch):
+    from argparse import Namespace
+    from agent_browser_core import cli, commands
+
+    captured = []
+    monkeypatch.setattr(cli, "_remote", lambda args, verb, cmd, payload, *a, **kw: captured.append((verb, cmd, payload, getattr(args, "committing", False), getattr(args, "snapshot", False), getattr(args, "expect", []), getattr(args, "max_bytes", None))) or {"ok": True})
+    parser = cli._build_parser()
+    ns = parser.parse_args(["commit", "--snapshot", "--max-bytes", "9000", "--expect", "url:changed", "click", "e2", "--expect", "gone:e2"])
+    ns.func(ns)
+    verb, cmd, payload, committing, snap, exp, max_b = captured[-1]
+    assert verb == "click" and committing is True and snap is True and max_b == 9000
+    assert exp == ["url:changed", "gone:e2"]
+
+
+def test_clean_prunes_session_downloads_and_evidence_usage_excludes_downloads(tmp_path):
+    import os
+    from agent_browser_core import session
+    sess_paths = common.ProfilePaths("default", common._home(), "worker-1")
+    sess_paths.downloads.mkdir(parents=True, exist_ok=True)
+    old_dl = sess_paths.downloads / "report.csv"
+    old_dl.write_bytes(b"x" * 4096)
+    old_time = time.time() - (common.ARTIFACT_RETENTION_DAYS + 1) * 86400
+    os.utime(old_dl, (old_time, old_time))
+
+    assert evidence.evidence_usage(sess_paths.dir) == 0
+    cleaned = session.clean(profile="default")
+    assert cleaned["artifacts_removed"] == 1
+    assert not old_dl.exists()
+
+

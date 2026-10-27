@@ -49,9 +49,9 @@ class ApiMixin:
             for frame in page.frames:
                 try:
                     if origin(frame.url or page.url) != origin(page.url): continue
-                except ValueError:
+                    value = frame.evaluate("() => typeof window.g_ck === 'string' ? window.g_ck : null")
+                except Exception:
                     continue
-                value = frame.evaluate("() => typeof window.g_ck === 'string' ? window.g_ck : null")
                 if isinstance(value, str) and value and len(value) < 4096:
                     session_key = value
                     break
