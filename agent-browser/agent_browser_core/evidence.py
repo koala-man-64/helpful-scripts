@@ -20,8 +20,10 @@ def evidence_usage(directory: Path) -> int:
     """Count retained evidence without touching active journal receipts or browser storage."""
     total = 0
     for folder, names, files in os.walk(directory, followlinks=False):
-        names[:] = [name for name in names if name != "user-data"]
+        names[:] = [name for name in names if name not in {"user-data", "downloads"}]
         for name in files:
+            if name == "daemon.log":
+                continue
             try:
                 total += (Path(folder) / name).stat().st_size
             except FileNotFoundError:

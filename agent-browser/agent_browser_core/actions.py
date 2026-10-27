@@ -34,28 +34,31 @@ class VerifiedActionsMixin:
             raise common._tag(ValueError("Target must contain ref, label, or role with optional name."), common.ERR_USAGE)
         if any(not isinstance(v, str) or not v for v in target.values()):
             raise common._tag(ValueError("Semantic target values must be nonempty strings."), common.ERR_VALIDATION)
-        self._serve_snapshot(page)
-        matches, candidates = [], []
+        matches: list[ tuple[Any, Any] ] = []
         for frame in page.frames:
             locator = (frame.get_by_label(target["label"], exact=True) if "label" in target else
                        frame.get_by_role(target["role"], **({"name": target["name"], "exact": True} if "name" in target else {})))
             for index in range(locator.count()):
                 element = locator.nth(index)
                 if element.is_visible():
-                    matches.append(element)
-                    if len(candidates) < 10:
-                        snapshot = element.aria_snapshot(mode="ai")
-                        ref = re.search(r"\[ref=([^\]]+)\]", snapshot)
-                        prefix = next((p for p, f in self.served[page].frame_by_prefix.items() if f is frame), "")
-                        value = ref.group(1) if ref else None
-                        if value and prefix and not value.startswith("f"): value = prefix + value
-                        candidates.append({"ref": value, "frame": common.sanitize_text(frame.name, 80),
-                                           "description": common.sanitize_text(snapshot.splitlines()[0], 200)})
-        self._serve_snapshot(page)  # restore the full ref map after scoped candidate snapshots
+                    matches.append((element, frame))
         if len(matches) != 1:
+            candidates = []
+            if matches:
+                if page not in self.served:
+                    self._serve_snapshot(page)
+                for element, frame in matches[:10]:
+                    snapshot = element.aria_snapshot(mode="ai")
+                    ref = re.search(r"\[ref=([^\]]+)\]", snapshot)
+                    prefix = next((p for p, f in self.served[page].frame_by_prefix.items() if f is frame), "")
+                    value = ref.group(1) if ref else None
+                    if value and prefix and not value.startswith("f"): value = prefix + value
+                    candidates.append({"ref": value, "frame": common.sanitize_text(frame.name, 80),
+                                       "description": common.sanitize_text(snapshot.splitlines()[0], 200)})
+                self._serve_snapshot(page)  # restore the full ref map after scoped candidate snapshots
             raise common._tag(ValueError(f"Semantic target matched {len(matches)} visible elements."),
                               common.ERR_AMBIGUOUS if matches else common.ERR_NOT_FOUND, details={"candidates": candidates})
-        return matches[0]
+        return matches[0][0]
 
     def h_fill_form(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         deadline = args.get("_deadline", common._now() + timeout)
@@ -112,7 +115,9 @@ class VerifiedActionsMixin:
                 getattr(self, "h_" + operation)(options, remaining)
                 completed.append(index)
         except Exception as exc:
-            exc.details = {"completed_fields": completed, "executed": bool(completed) or self.action_attempted}
+            details = dict(getattr(exc, "details", None) or {})
+            details.update(completed_fields=completed, executed=bool(completed) or self.action_attempted)
+            exc.details = details
             raise
         return {"ok": True, "action": "fill-form", "effect": "value_set", "completed_fields": completed, "tab": self._tab_index(page), "tab_id": self._tab_id(page)}
 
@@ -142,16 +147,31 @@ class VerifiedActionsMixin:
     def _verify_result(self, command_id, result, specs, page, url, cursor, deadline):
         def check():
             satisfied = []
+            check_page = self.current if self.current is not None and result.get("new_tab") else page
             for spec in specs:
                 kind = spec["kind"]
-                if kind == "text": ok = self._page_has_text(page, spec["value"])
-                elif kind == "url": ok = page.url != url
+                if kind == "text":
+                    ok = self._page_has_text(page, spec["value"]) or (check_page is not page and self._page_has_text(check_page, spec["value"]))
+                elif kind == "url":
+                    ok = page.url != url or (check_page is not page and check_page.url != url)
                 elif kind == "gone":
-                    try: ok = not spec["element"].is_visible()
-                    except Exception:
-                        raise common._tag(RuntimeError("The disappearance check became unavailable; inspect the receipt before repeating an action."), "verification_unavailable") from None
+                    try:
+                        ok = not spec["element"].is_visible()
+                    except Exception as exc:
+                        msg = str(exc).lower()
+                        if any(token in msg for token in (
+                            "execution context was destroyed",
+                            "element is not attached",
+                            "frame was detached",
+                            "cannot find context",
+                            "object doesn't exist",
+                            "disposed",
+                        )):
+                            ok = True
+                        else:
+                            raise common._tag(RuntimeError("The disappearance check became unavailable; inspect the receipt before repeating an action."), "verification_unavailable") from None
                 else:
-                    ok = any(seq > cursor and p is page and method == spec["method"] and fnmatch.fnmatchcase(request_url, spec["glob"]) and fnmatch.fnmatchcase(str(status), spec["status"])
+                    ok = any(seq > cursor and (p is page or p is check_page) and method == spec["method"] and fnmatch.fnmatchcase(request_url, spec["glob"]) and fnmatch.fnmatchcase(str(status), spec["status"])
                              for seq, p, method, request_url, status in self.response_events)
                 satisfied.append({"kind": kind, "passed": ok})
             reply = {**result, "command_id": command_id, "session_id": self.session_id,

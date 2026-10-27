@@ -96,16 +96,17 @@ def browser_eval(js: str, session_id: str, profile: str | None = None) -> dict[s
     return _call("eval", {"js": js}, session_id, profile)
 
 
-def browser_commit(operation: Literal["click", "fill", "type", "press", "select", "check", "uncheck", "upload", "api", "run", "journal", "state"],
+def browser_commit(operation: Literal["click", "fill", "type", "press", "select", "check", "uncheck", "upload", "fill-form", "api", "run", "journal", "state"],
                    session_id: str, profile: str | None = None, target: str | Target | None = None,
                    text: str | None = None, key: str | None = None, values: list[str] | None = None,
-                   files: list[str] | None = None, url: str | None = None, method: Literal["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE"] = "GET",
+                   files: list[str] | None = None, fields: list[dict[str, Any]] | None = None,
+                   url: str | None = None, method: Literal["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE"] = "GET",
                    body_file: str | None = None, servicenow: bool = False, recipe: Literal["sn/add-work-note"] | None = None,
                    number: str | None = None, clear: bool = False, handoff_id: str | None = None,
                    resolve: bool = False, expect: list[str] | None = None) -> dict[str, Any]:
     """Explicit committing operation. Require caller approval when the workflow requires human approval."""
     return _call(operation, {"target": target, "text": text, "key": key, "values": values or [], "files": files or [],
-                             "url": url, "method": method, "body_file": body_file, "servicenow": servicenow,
+                             "fields": fields or [], "url": url, "method": method, "body_file": body_file, "servicenow": servicenow,
                              "recipe": recipe, "number": number, "clear": clear, "handoff_id": handoff_id,
                              "resolve": resolve, "expect": expect or []}, session_id, profile, committing=True)
 
