@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Upload path audit</title></head>
+<body>
+  <label for="payload">Upload payload</label>
+  <input id="payload" type="file">
+  <pre id="contents"></pre>
+  <script>
+    document.querySelector("#payload").addEventListener("change", async event => {
+      document.querySelector("#contents").textContent = await event.target.files[0].text();
+    });
+  </script>
+</body>
+</html>

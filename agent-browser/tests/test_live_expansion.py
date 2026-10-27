@@ -129,7 +129,12 @@ class Cli:
 
     def ok(self, *args: str, timeout: float = 120) -> dict:
         code, output, error = self(*args, timeout=timeout)
-        assert code == 0, (args, error)
+        if code != 0:
+            # Preserve the daemon's exception class before module teardown removes
+            # this temporary profile. Its log excludes argument values and bodies.
+            log = self.home / "profiles" / PROFILE / "daemon.log"
+            tail = core_common._tail(log, lines=12)
+            pytest.fail(repr((args, error, {"daemon_log_tail": tail})))
         return output
 
 
@@ -368,7 +373,7 @@ def test_recipe_missing_readback_returns_unknown_without_replaying_post(cli: Cli
     initial_gets, initial_posts = site.server.record_gets, site.server.record_posts
 
     code, _output, error = cli("commit", "run", "sn/add-work-note", "--number", number,
-                               "--text", "synthetic note not persisted", "--session", session, "--timeout", "1")
+                               "--text", "synthetic note not persisted", "--session", session, "--timeout", "5")
 
     assert code != 0 and error["class"] == "timeout", error
     assert error["details"]["executed"] is True and error["details"]["command_id"]

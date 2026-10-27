@@ -117,4 +117,11 @@ class ApiMixin:
             cwd = Path(args["_cwd"])
             if not cwd.is_absolute(): raise common._tag(ValueError("Caller cwd must be absolute."), common.ERR_VALIDATION)
             config["upload_roots"] = list(config.get("upload_roots", [])) + [str(cwd)]
+            if candidate.strip():
+                path = Path(candidate.strip()).expanduser()
+                if not path.is_absolute():
+                    path = cwd / path
+                    if not path.is_absolute():
+                        raise common._tag(ValueError("File path cannot be resolved against the caller cwd."), common.ERR_VALIDATION)
+                    candidate = str(path)
         return common._check_local_path(candidate, self.paths, config)

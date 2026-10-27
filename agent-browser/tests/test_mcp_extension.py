@@ -11,6 +11,22 @@ from agent_browser_core import common, mcp_server
 pytest.importorskip("mcp", reason="Install the optional mcp extra to validate the SDK surface")
 
 
+def test_mcp_lifecycle_annotations_describe_browser_mutation():
+    tools = asyncio.run(mcp_server.make_server().list_tools())
+    annotations = {tool.name: tool.annotations for tool in tools}
+    for name, destructive in (
+        ("browser_goto", True),
+        ("browser_start", False),
+        ("browser_stop", True),
+        ("browser_needs_human", False),
+    ):
+        assert annotations[name].readOnlyHint is False, name
+        assert annotations[name].destructiveHint is destructive, name
+    for name in ("browser_snapshot", "browser_read", "browser_api", "browser_recipe"):
+        assert annotations[name].readOnlyHint is True, name
+        assert annotations[name].destructiveHint is False, name
+
+
 def test_mcp_schema_and_complete_result_budget(monkeypatch):
     monkeypatch.setattr(mcp_server.client, "invoke", lambda *a, **kw: {"value": "😀\\\"" * 15000})
 
