@@ -13,8 +13,9 @@ one command at a time. Playwright does the driving; the model only ever sees JSO
   filtered to what an agent can act on and capped so it never overflows the Bash tool's output limit.
 - Guardrails live in code: password and one-time-code fields (and fields the tool cannot inspect) are refused
   for typing and as an `eval --ref` target, only `http(s)` URLs open, uploads
-  come only from the working folder or the profile folder, page text never reaches a hint, and URLs are
-  redacted before they are printed or logged.
+  come only from the working folder or the profile folder, page text never reaches a hint, and URLs (link targets
+  in snapshots too) are redacted before they are printed or logged. What a person typed into such a field shows
+  as `***` in snapshots.
 
 ## Quickstart
 
@@ -80,7 +81,7 @@ qualification requires a separately authorized test record.
 | `stop [--all] [--force]` | Release only this session; all/force explicitly affect the shared profile. Cookies stay. |
 | `status [--all]` | Running, pid, tabs, uptime, `stale_code`. Always exit 0. |
 | `goto URL [--wait load\|domcontentloaded] [--new-tab] [--discard-changes]` | Navigate (starts the browser if needed) and return the page. |
-| `snapshot [--full] [--find TEXT] [--ref REF]` | The page as refs. `--find` keeps matching lines plus parents. |
+| `snapshot [--full] [--find TEXT] [--ref REF]` | The page as refs. `--find` keeps matching lines plus parents; it matches what is shown, so not a masked value or a redacted link. |
 | `click REF [--double] [--right] [--accept-dialog] [--dialog-text T] [--discard-changes]` | Click. Popups become the current tab. |
 | `fill REF TEXT [--enter]` | Replace a field's text. Refuses password and code fields. |
 | `type REF TEXT [--delay MS] [--append] [--enter]` | Type key by key (typeahead fields); clears first unless `--append`. |
@@ -265,6 +266,19 @@ raised by a human navigation is accepted.
   still redirect keys. `eval` is arbitrary page JavaScript: `--ref` refuses a credential field as `el`, but the
   script itself, like page and `--frame` eval, can read or set any field, so approval-sensitive profiles set
   `"eval": false`. The human types in the window and the agent waits with `wait --signed-in`.
+- Playwright's snapshot prints what a field holds, so every input line with a value is checked like a `fill`
+  target first. The value and contents of a credential-looking field show as `***`, and so do those of a field
+  that cannot be inspected, a field with no ref, and every field past the per-snapshot budget (200 checks, 500 ms
+  each, 2 s in all). A masked value is also removed from the names of the rows, cells, buttons and links around
+  it, which repeat a field's value in their accessible name. A confirmed credential's value of four or more
+  characters is removed from every line, including a label elsewhere that embeds the field. This holds for
+  `snapshot` and its `--full`, `--find` and `--ref` forms, `last_snapshot*.txt`, an action's `changes` and
+  `target_line`, ambiguity candidates, and overflow output. Each check costs about
+  5-15 ms per snapshot, so on a form with more than about a hundred filled fields, some ordinary values can show
+  as `***`. Inputs are found by the textbox, searchbox, combobox, spinbutton and slider roles and by any role the
+  page puts on an input that holds a value. A frame that cannot be read is checked by the standard roles alone,
+  and a contenteditable field is checked only when it has the textbox role. A `last_snapshot*.txt` written by an
+  older version keeps its content until the next snapshot rewrites it or `commit journal --clear` removes it.
 - `goto` opens only `http`/`https` (and `about:blank`); `edge://`, `file:`, `javascript:` are refused.
 - Uploads, file-backed inputs (`--text-file`, `--js-file`, `--json-file`, `fill-form --file`) and `--path` targets
   must sit under the caller's current folder, this session's `downloads`/`shots`, or `upload_roots`. The daemon
@@ -278,7 +292,11 @@ raised by a human navigation is accepted.
   a hard link, or a file swapped after the check, is not detected.
 - Page-derived strings are sanitized (control and bidi characters stripped, lines capped) and only ever appear
   under keys named in `untrusted`; hints are static templates. URLs are redacted (`code`, `token`, `id_token`,
-  `SAMLResponse`, ... masked, fragment dropped) in output and logs.
+  `SAMLResponse`, ... masked, fragment dropped) in output and logs. That includes `/url` link targets in `snapshot
+  --full` and `--find`. A same-page `#anchor` shows as `#`, a URL is cut at 500 characters, and a URL whose host
+  cannot be parsed shows as `***`. Visible page text, including a URL printed as link text, is not rewritten.
+  Snapshot lines are split only at real line breaks, so a name or link that holds U+2028 or U+0085 cannot pose as
+  an extra line with its own ref.
 - Environment variables, profile policy, caller allowlists and the socket credential
   are cooperative controls. A hostile local process can rewrite config or call the
   socket directly. Eval remains enabled by default; approval-sensitive workflows
@@ -334,7 +352,7 @@ Small modules behind a thin entry point; every OS edge is a module-level seam th
 |---|---|
 | Constants | Timeouts, byte budgets, role sets for the snapshot filter, secret-field and sign-in heuristics, error classes, the static hint table. |
 | Config helpers | `_tag()` rides `error_class`/`hint`/`details` on builtin exceptions; lazy env reads; `ProfilePaths`; the human-written `config.json`. |
-| Text hygiene | `sanitize_text`, `redact_url`, `safe_name`. |
+| Text hygiene | `sanitize_text`, `redact_url`, `redact_href` (with `yaml_unquote`), `safe_name`. |
 | Browser discovery | `find_browser` (explicit > env > PATH > known folders > App Paths), version from the install folder, Edge and Chrome policy decoding. |
 | Process seams | detached spawn with the breakaway retry and the WMI fallback, lock files, Job Object facts, CIM process listing by full profile path. |
 | Session store | atomic `session.json`, lock liveness, explicit profile/session selection and protocol compatibility. |

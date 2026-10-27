@@ -249,6 +249,42 @@ def test_credential_guard_covers_shadow_roots_and_eval_refs(cli: Cli, base_url: 
     assert cli.ok("eval", "closedValue()")["value"] == ""
 
 
+TYPE_LIKE_A_PERSON = """(() => {
+  for (const [id, text] of [['pw', 'hunter2'], ['again', 'hunter2'], ['card', '4111111111111111'], ['key', 'hunter2'], ['pin', 'hunter2']]) {
+    document.getElementById(id).focus();
+    document.execCommand('insertText', false, text);
+  }
+  document.activeElement.blur();
+  return document.getElementById('pw').value.length;
+})()"""
+
+
+def test_typed_secrets_never_reach_a_snapshot(cli: Cli, base_url: str) -> None:
+    env = cli.ok("goto", f"{base_url}/typed.html")
+    # The CLI refuses to type into these fields; insertText stands in for the person at the keyboard.
+    assert cli.ok("eval", TYPE_LIKE_A_PERSON)["value"] == 7
+    filled = cli.ok("fill", ref(env, r'textbox "Username"'), "rudy")
+    assert "hunter2" not in json.dumps(filled) and "4111" not in json.dumps(filled)
+    for extra in ((), ("--find", "Password"), ("--find", "Key"), ("--full",)):
+        reply = cli.ok("snapshot", *extra)
+        saved = Path(reply["snapshot_file"]).read_text(encoding="utf-8")  # last_snapshot.txt, rewritten by every snapshot
+        for secret in ("hunter2", "4111", "SECRET1"):
+            assert secret not in json.dumps(reply) and secret not in saved, (extra, secret, reply["snapshot"])
+    full = reply
+    for pattern in (r'textbox "Password" [^:]*\[ref=\w+\]: \*\*\*$', r'textbox "Card #" [^:]*\[ref=\w+\]: \*\*\*$',
+                    r'button "Key" [^:]*\[ref=\w+\]: \*\*\*$', r'textbox "Username" [^:]*\[ref=\w+\]: rudy$',
+                    r'textbox "Confirm" [^:]*\[ref=\w+\]:$', r'^\s+- text: \*\*\*$', r'/url: callback\.html\?code=\*\*\*&keep=1$',
+                    r'row "PIN \*\*\*" \[ref=\w+\]:$', r'cell "\*\*\*" \[ref=\w+\]:$'):
+        assert any(re.search(pattern, line) for line in full["snapshot"]), (pattern, full["snapshot"])
+    # U+2028 in an href and U+0085 in a name stay inside their own line.
+    assert not any(line.lstrip().startswith('- button "Forged"') for line in full["snapshot"])
+    assert len(saved.splitlines()) == full["lines"] and not full["truncated"]
+    default = cli.ok("snapshot")
+    assert not any("e66" in line or '"Pay"' in line for line in default["snapshot"]), default["snapshot"]
+    assert all(len(line.splitlines()) == 1 for line in default["snapshot"] + full["snapshot"])
+    assert cli.ok("snapshot", "--find", "hunter2")["snapshot"] == []
+
+
 def test_wait_signed_in_ignores_the_login_page(cli: Cli, base_url: str) -> None:
     env = cli.ok("goto", f"{base_url}/login.html")
     assert env["sign_in_suspected"] is True

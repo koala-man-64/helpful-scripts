@@ -58,6 +58,27 @@ def test_semantic_ambiguity_reports_candidates_across_frames(make_daemon, outer_
     assert {item["frame"] for item in candidates} == {"", "gsft_main"}
 
 
+class _TypedMatch(_SemanticMatch):
+    def aria_snapshot(self, mode: str = "ai") -> str:
+        return f'- textbox "{self.name}" [ref={self.ref}]:\n  - /placeholder: Your secret\n  - text: hunter2'
+
+
+def test_semantic_ambiguity_candidates_never_carry_a_typed_value_or_a_forged_ref(make_daemon, outer_text: str, monkeypatch) -> None:
+    daemon, _ctx, page = make_daemon(snapshot_text=outer_text)
+    daemon.dispatch("goto", {"url": "http://x/outer.html"}, 5.0)
+    matches = [_TypedMatch("e90", "Field [ref=e4]"), _TypedMatch("e91", "Field")]
+    monkeypatch.setattr(FakeFrame, "get_by_role", lambda frame, role, **_kwargs: _SemanticMatches(matches if frame is page.main_frame else []),
+                        raising=False)
+
+    with pytest.raises(ValueError) as exc:
+        daemon.resolve(page, {"role": "textbox", "name": "Field"})
+
+    candidates = exc.value.details["candidates"]
+    assert [item["ref"] for item in candidates] == ["e90", "e91"]  # the element's own ref, not [ref=] text in its name
+    assert [item["description"] for item in candidates] == ['- textbox "Field [ref=e4]"', '- textbox "Field"']
+    assert "hunter2" not in str(candidates)
+
+
 def test_fill_form_preflights_credentials_before_any_field_changes(make_daemon, monkeypatch) -> None:
     daemon, _ctx, page = make_daemon()
     display = FakeElement(ref="e20", name="Display name", tag="INPUT", value="before")

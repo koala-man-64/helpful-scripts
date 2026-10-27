@@ -76,6 +76,19 @@ VISIBLE_SECRET_JS = """() => {
 }"""
 
 
+# Playwright prints the value of any input or textarea whatever role the page gives it; list the roles in use.
+INPUT_ROLES_JS = """() => {
+  const roles = new Set();
+  const visit = root => {
+    for (const el of root.querySelectorAll('input[role], textarea[role]'))
+      if (!['checkbox', 'radio', 'file'].includes(el.type) && el.value) roles.add(el.getAttribute('role'));
+    for (const el of root.querySelectorAll('*')) if (el.shadowRoot) visit(el.shadowRoot);
+  };
+  visit(document);
+  return Array.from(roles);
+}"""
+
+
 OPTIONS_JS = "el => el.tagName === 'SELECT' ? Array.from(el.options).map(o => [o.label, o.value, o.selected]) : null"
 
 
@@ -566,6 +579,43 @@ class BrowserEngine:
                 pass
         return by_prefix, frames, names, prefixes
 
+    def _value_masks(self, page: Any, parsed: Sequence[core_snapshots.SnapLine]) -> tuple[set[str], set[str], frozenset[str]]:
+        """(refs whose typed value is hidden, the ones among them confirmed secret, roles that hold input values).
+        Each valued input line is checked like a fill target; a field that is secret, cannot be checked, or falls past
+        the cap or the time budget is masked."""
+        deadline = core_common._now() + core_common.SECRET_SCAN_BUDGET
+        roles = set(core_common.INPUT_VALUE_ROLES)
+        try:
+            frames = list(page.frames)
+        except Exception:  # noqa: BLE001
+            frames = []
+        for frame in frames:
+            try:
+                found = frame.evaluate(INPUT_ROLES_JS) or []
+            except Exception:  # noqa: BLE001 - a detached or navigating frame; best effort (see README)
+                continue
+            # Playwright only honours ARIA role names; its own text/iframe/none lines never take a role attribute.
+            roles.update(token for role in found if isinstance(role, str) for token in role.split()
+                         if token.isalpha() and token.islower() and token not in ("text", "iframe", "none", "presentation"))
+        masked: set[str] = set()
+        secret: set[str] = set()
+        checked = 0
+        for line in core_snapshots.input_value_lines(parsed, roles):
+            if line.ref is None:
+                continue  # filter_snapshot masks a ref-less field: there is nothing to check it through
+            remaining_ms = int((deadline - core_common._now()) * 1000)
+            if checked >= core_common.SECRET_SCAN_CAP or remaining_ms <= 0:
+                masked.add(line.ref)
+                continue
+            checked += 1
+            locator = page.locator("aria-ref=" + line.ref)
+            verdict = self._secret_check(page, locator, timeout_ms=min(core_common.SECRET_SCAN_TIMEOUT_MS, remaining_ms))
+            if verdict != "clear":
+                masked.add(line.ref)
+            if verdict == "secret":
+                secret.add(line.ref)
+        return masked, secret, frozenset(roles)
+
     def _serve_snapshot(self, page: Any, *, full: bool = False, find: str | None = None, scope: str | None = None) -> Served:
         try:
             if scope:
@@ -576,7 +626,9 @@ class BrowserEngine:
             raise self._classify(exc, "snapshot") from exc
         parsed = core_snapshots.parse_ai_snapshot(raw)
         by_prefix, frames, names, prefixes = self._frame_map(page, parsed)
-        lines = core_snapshots.filter_snapshot(raw, full=full, find=find, frame_names=names)
+        mask_refs, secret_refs, value_roles = self._value_masks(page, parsed)
+        lines = core_snapshots.filter_snapshot(raw, full=full, find=find, frame_names=names, mask_refs=mask_refs,
+                                               value_roles=value_roles, secret_refs=secret_refs)
         nav_at = {f: self.nav_counts.get(f, 0) for f in [page.main_frame] + list(by_prefix.values())}
         served = Served(raw, lines, by_prefix, nav_at, frames, names, prefixes)
         self.served[page] = served

@@ -6,7 +6,7 @@ import json
 import re
 from collections import deque
 from typing import Any
-from . import common
+from . import common, snapshots
 
 
 class VerifiedActionsMixin:
@@ -49,12 +49,13 @@ class VerifiedActionsMixin:
                     self._serve_snapshot(page)
                 for element, frame in matches[:10]:
                     snapshot = element.aria_snapshot(mode="ai")
-                    ref = re.search(r"\[ref=([^\]]+)\]", snapshot)
+                    # The element's own line, parsed: a typed value is left out and [ref=] text in a name is not a ref.
+                    own = next(iter(snapshots.parse_ai_snapshot(snapshot)), None)
                     prefix = next((p for p, f in self.served[page].frame_by_prefix.items() if f is frame), "")
-                    value = ref.group(1) if ref else None
+                    value = own.ref if own else None
                     if value and prefix and not value.startswith("f"): value = prefix + value
                     candidates.append({"ref": value, "frame": common.sanitize_text(frame.name, 80),
-                                       "description": common.sanitize_text(snapshot.splitlines()[0], 200)})
+                                       "description": snapshots.describe_line(snapshot)})
                 self._serve_snapshot(page)  # restore the full ref map after scoped candidate snapshots
             raise common._tag(ValueError(f"Semantic target matched {len(matches)} visible elements."),
                               common.ERR_AMBIGUOUS if matches else common.ERR_NOT_FOUND, details={"candidates": candidates})

@@ -39,6 +39,13 @@ Preflight includes uniqueness, credentials, editable control type, disabled/read
 state, and select options. Execution can still fail if the page changes afterwards.
 `completed_fields` contains zero-based field indexes. No field submits the form.
 
+Snapshot values: each field line with a value is checked before it is shown, under a
+budget of 200 checks and 2 s per snapshot. A credential-looking field, one that cannot
+be checked, one with no ref, and any past the budget show `***` for the value and the
+field's contents. `/url` lines in `--full` and `--find` are redacted like other URLs:
+query secrets become `***`, the fragment is dropped, and a bare `#anchor` shows `#`.
+`--find` searches only the text as shown. Semantic-target candidates leave out the value.
+
 Expectations accept exact `text:...` presence, an initially visible ref `gone:e12`,
 `url:changed`, and `response:METHOD URL_GLOB:STATUS` with a three-digit status or
 `2xx`-style mask. Responses must occur after observation starts on the same page.

@@ -163,6 +163,23 @@ ACTIONABLE_ROLES = frozenset({
 })
 
 
+# The roles HTML gives a text-entry input or textarea. Playwright prints any input's value whatever its role, so a
+# snapshot also checks the roles the page puts on valued inputs (daemon.INPUT_ROLES_JS).
+INPUT_VALUE_ROLES = frozenset({"textbox", "searchbox", "combobox", "spinbutton", "slider"})
+
+
+# Typed values in a snapshot: each valued input line costs one SECRET_JS check; past the cap or the budget it is masked.
+SECRET_SCAN_CAP = 200
+SECRET_SCAN_TIMEOUT_MS = 500
+SECRET_SCAN_BUDGET = 2.0
+
+
+MASK = "***"
+
+
+SCRUB_MIN = 4  # a confirmed credential's value this long is also replaced wherever else the page repeats it
+
+
 CONTEXT_ROLES = frozenset({"heading", "dialog", "alertdialog", "alert", "status", "tablist", "table", "listbox", "menu"})
 
 
@@ -238,10 +255,31 @@ BROWSER_BASENAMES = frozenset({
 CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 
 
-LINE_RE = re.compile(
-    r'^(?P<indent>\s*)- (?P<role>[A-Za-z/]+)(?: "(?P<name>(?:[^"\\]|\\.)*)")?'
-    r'(?P<attrs>(?: \[[^\]]*\])*)(?P<colon>:)?(?: (?P<value>.*))?$'
-)
+# A snapshot key is role, name and [attrs]. Playwright prints a name that starts and ends with / bare instead of
+# JSON-quoted, and single-quotes the whole key ('' for ') when it holds ": ", " #", braces or a backtick.
+# A value only ever follows ": ", so a name cannot pass forged [ref=...] text off as the line's attrs.
+SNAP_KEY = r'(?P<role>[A-Za-z/]+)(?: (?:"(?P<name>(?:[^"\\]|\\.)*)"|(?P<rname>/.*?/)))?(?P<attrs>(?: \[[^\]]*\])*)'
+
+
+LINE_RE = re.compile(r'^(?P<indent>\s*)- ' + SNAP_KEY + r'(?:(?P<colon>:)(?: (?P<value>.*))?)?$')
+
+
+QUOTED_LINE_RE = re.compile(r"^(?P<indent>\s*)- '(?P<key>(?:[^']|'')*)'(?:(?P<colon>:)(?: (?P<value>.*))?)?$")
+
+
+SNAP_KEY_RE = re.compile("^" + SNAP_KEY + "$")
+
+
+# Everything str.splitlines() breaks on; a rendered snapshot line must hold none of them.
+LINE_BREAKS = str.maketrans(dict.fromkeys("\n\r\x0b\x0c\x1c\x1d\x1e\x85  ", " "))
+
+
+# YAML double-quoted escapes (Playwright emits \\ \" \b \f \n \r \t and \xNN; the rest are decoded for completeness).
+YAML_ESCAPES = {"0": "\0", "a": "\a", "b": "\b", "t": "\t", "\t": "\t", "n": "\n", "v": "\v", "f": "\f", "r": "\r",
+                "e": "\x1b", " ": " ", '"': '"', "/": "/", "\\": "\\", "N": "\x85", "_": "\xa0", "L": " ", "P": " "}
+
+
+YAML_ESCAPE_RE = re.compile(r"\\(x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.)", re.S)
 
 
 EDGE_CANDIDATES = (
@@ -665,8 +703,8 @@ def redact_url(url: Any) -> str:
         return ""
     try:
         parts = urllib.parse.urlsplit(str(url))
-    except ValueError:
-        return sanitize_text(url, 500)
+    except ValueError:  # a malformed host ([..., NFKC tricks) hides where userinfo and the query start
+        return MASK
     netloc = parts.netloc.rsplit("@", 1)[-1]  # drop user:pass@ userinfo
     if not parts.query:
         return sanitize_text(urllib.parse.urlunsplit((parts.scheme, netloc, parts.path, "", "")), 500)
@@ -674,6 +712,30 @@ def redact_url(url: Any) -> str:
     masked = [(k, "***" if k.lower() in REDACT_QUERY_KEYS else v) for k, v in pairs]
     query = urllib.parse.urlencode(masked, safe="/:*")
     return sanitize_text(urllib.parse.urlunsplit((parts.scheme, netloc, parts.path, query, "")), 500)
+
+
+def _yaml_escape(m: re.Match[str]) -> str:
+    esc = m.group(1)
+    if len(esc) > 1 and esc[0] in "xuU":
+        code = int(esc[1:], 16)
+        return m.group(0) if 0xD800 <= code <= 0xDFFF or code > 0x10FFFF else chr(code)  # no lone surrogates
+    return YAML_ESCAPES.get(esc, m.group(0))  # an unknown escape stays as written
+
+
+def yaml_unquote(value: str) -> str:
+    """A YAML scalar as written: double-quoted with backslash escapes, single-quoted with '' for ', or plain."""
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        return YAML_ESCAPE_RE.sub(_yaml_escape, value[1:-1])
+    return value
+
+
+def redact_href(value: Any) -> str:
+    """A snapshot /url value as shown: unquoted, then redacted like any URL. A same-page #fragment shows as #."""
+    href = yaml_unquote(str(value or ""))
+    redacted = redact_url(href)
+    return "#" if not redacted and href.startswith("#") else redacted
 
 
 def _is_idp_host(host: str) -> bool:
