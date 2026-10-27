@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Collection, Iterable, Sequence
+from typing import Any, Callable, Collection, Iterable, Mapping, Sequence
 
 from . import common as core_common
 
@@ -67,17 +67,30 @@ def _carries_input(lines: Sequence[SnapLine], i: int) -> bool:
     """Whether line i shows something typed: a value, or any child beyond its /placeholder-style props."""
     if lines[i].value is not None:
         return True
-    for child in lines[i + 1:]:
-        if child.level <= lines[i].level:
+    for j in range(i + 1, len(lines)):
+        if lines[j].level <= lines[i].level:
             return False
-        if not child.role.startswith("/"):
+        if not lines[j].role.startswith("/"):
             return True
     return False
 
 
-def input_value_lines(lines: Sequence[SnapLine], roles: Collection[str] = core_common.INPUT_VALUE_ROLES) -> list[SnapLine]:
-    """Lines whose value or contents may be what was typed into a field (Playwright prints input values)."""
-    return [line for i, line in enumerate(lines) if line.role in roles and line.parsed and _carries_input(lines, i)]
+def _is_field(line: SnapLine, input_values: Mapping[str, Collection[str]]) -> bool:
+    """A text-entry line, or a line with a role the page gave an input whose value this line shows."""
+    if not line.parsed:
+        return False
+    if line.role in core_common.INPUT_VALUE_ROLES:
+        return True
+    values = input_values.get(line.role)
+    return bool(values) and line.value is not None and core_common.yaml_unquote(line.value) in values
+
+
+def input_value_lines(lines: Sequence[SnapLine], input_values: Mapping[str, Collection[str]] | None = None) -> list[SnapLine]:
+    """Lines whose value or contents may be what was typed into a field (Playwright prints input values).
+
+    input_values maps a role the page put on a valued <input>/<textarea> to the values such inputs hold."""
+    extra = input_values or {}
+    return [line for i, line in enumerate(lines) if _is_field(line, extra) and _carries_input(lines, i)]
 
 
 def is_ref(target: str) -> bool:
@@ -137,15 +150,15 @@ def _scrub(text: str | None, hidden: Sequence[str]) -> str | None:
     return text
 
 
-def _shown(line: SnapLine, masked: str | None, hidden: Sequence[str]) -> tuple[str | None, str | None]:
-    """(name, value) as printed. masked is 'field' for a field whose typed value is hidden, 'inside' for its contents;
-    hidden lists masked values this line's text may repeat."""
+def _shown(line: SnapLine, masked: str | None, hidden: Sequence[str] | None) -> tuple[str | None, str | None]:
+    """(name, value) as printed. masked is 'field' for a field whose typed value is hidden (or a line that could not be
+    parsed), 'inside' for its contents; hidden lists masked values this line's text may repeat, None for too many."""
     mask = core_common.MASK
     if not line.parsed:
         return None, mask
     if masked == "field":
-        return _scrub(line.name, hidden), mask if line.value is not None else None
-    if masked == "inside" and not line.role.startswith("/"):
+        return (mask if line.name is not None and hidden is None else _scrub(line.name, hidden or ())), mask if line.value is not None else None
+    if (masked == "inside" and not line.role.startswith("/")) or hidden is None:
         return (mask if line.name is not None else None), (mask if line.value is not None else None)
     if line.role == "/url" and line.value is not None:
         return _scrub(line.name, hidden), _scrub(core_common.redact_href(line.value), hidden)
@@ -153,9 +166,9 @@ def _shown(line: SnapLine, masked: str | None, hidden: Sequence[str]) -> tuple[s
 
 
 def _typed(value: str) -> list[str]:
-    """A shown value the way an accessible name repeats it: unquoted, whitespace collapsed, and JSON-escaped as
-    Playwright prints names (parse_ai_snapshot only undoes \\")."""
-    text = " ".join(core_common.yaml_unquote(value).replace("​", "").replace("­", "").split())
+    """A shown value the way an accessible name repeats it: unquoted and whitespace-normalised like Playwright does,
+    plus the JSON-escaped form Playwright prints names in (parse_ai_snapshot only undoes \\")."""
+    text = core_common.js_normalize_space(core_common.yaml_unquote(value))
     escaped = json.dumps(text, ensure_ascii=False)[1:-1].replace('\\"', '"')
     return [t for t in dict.fromkeys((text, escaped)) if t]
 
@@ -171,11 +184,15 @@ def _parents(lines: Sequence[SnapLine]) -> list[int | None]:
     return parents
 
 
-def _hidden_texts(lines: Sequence[SnapLine], states: Sequence[str | None], secret_refs: Collection[str]) -> list[list[str]]:
-    """Per line, the masked values its name or value may repeat. A row, cell, button, link or heading takes the values
-    of fields inside it into its accessible name, and a label can embed a field elsewhere. So a masked value is removed
-    from every line that contains its field, and a confirmed credential's value of SCRUB_MIN or more characters from
-    every line."""
+def _hidden_texts(lines: Sequence[SnapLine], states: Sequence[str | None], secret_refs: Collection[str]) -> list[list[str] | None]:
+    """Per line, the masked values its name or value may repeat, longest first; None when there are more than
+    SCRUB_LINE_CAP, so the line shows *** instead.
+
+    A row, cell, button, link or heading takes the values of fields inside it into its accessible name, so every
+    masked value, a field's contents included, is removed from the lines that contain the field. A label elsewhere can
+    embed a field too, so a confirmed credential's own value (SCRUB_MIN characters or more, at most SCRUB_PAGE_CAP of
+    them) is removed from every line."""
+    cap = core_common.SCRUB_LINE_CAP
     parents = _parents(lines)
     per_line: list[set[str]] = [set() for _ in lines]
     everywhere: set[str] = set()
@@ -185,18 +202,23 @@ def _hidden_texts(lines: Sequence[SnapLine], states: Sequence[str | None], secre
             field = i
         if state not in ("field", "inside") or line.value is None or not line.parsed:
             continue
-        for text in _typed(line.value):
-            k = parents[field]
-            while k is not None:
-                per_line[k].add(text)
-                k = parents[k]
-            if lines[field].ref in secret_refs and len(text) >= core_common.SCRUB_MIN:
-                everywhere.add(text)
-    return [sorted(texts | everywhere, key=len, reverse=True) for texts in per_line]
+        texts = _typed(line.value)
+        k = parents[field]
+        while k is not None:
+            if len(per_line[k]) <= cap:
+                per_line[k].update(texts)
+            k = parents[k]
+        own = i == field or (line.role == "text" and parents[i] == field)  # an input's value, inline or after its props
+        if own and lines[field].ref in secret_refs and len(everywhere) < core_common.SCRUB_PAGE_CAP:
+            everywhere.update(t for t in texts if len(t) >= core_common.SCRUB_MIN)
+    page = sorted(everywhere, key=len, reverse=True)
+    return [None if len(texts) > cap else sorted(texts | everywhere, key=len, reverse=True) if texts else page
+            for texts in per_line]
 
 
-def _mask_states(lines: Sequence[SnapLine], mask_refs: Collection[str], value_roles: Collection[str]) -> list[str | None]:
-    """A valued input line is masked when its ref is in mask_refs or it has no ref to check; so is all it contains."""
+def _mask_states(lines: Sequence[SnapLine], mask_refs: Collection[str], input_values: Mapping[str, Collection[str]]) -> list[str | None]:
+    """A field line is masked when its ref is in mask_refs or it has no ref to check, and so is all it contains.
+    A line that could not be parsed is masked the same way: it may be a field."""
     states: list[str | None] = []
     field_level: int | None = None
     for i, line in enumerate(lines):
@@ -204,7 +226,7 @@ def _mask_states(lines: Sequence[SnapLine], mask_refs: Collection[str], value_ro
             field_level = None
         if field_level is not None:
             states.append("inside")
-        elif line.role in value_roles and line.parsed and (line.ref is None or line.ref in mask_refs) and _carries_input(lines, i):
+        elif not line.parsed or (_is_field(line, input_values) and (line.ref is None or line.ref in mask_refs) and _carries_input(lines, i)):
             states.append("field")
             field_level = line.level
         else:
@@ -212,31 +234,37 @@ def _mask_states(lines: Sequence[SnapLine], mask_refs: Collection[str], value_ro
     return states
 
 
-def describe_line(text: str) -> str:
-    """The first line of an element's own snapshot without its value: role, name and state. Nothing in it was
-    checked, so the values of every field inside are kept out of the name."""
+def _display(lines: Sequence[SnapLine], mask_refs: Collection[str], input_values: Mapping[str, Collection[str]],
+             secret_refs: Collection[str]) -> list[tuple[str | None, str | None]]:
+    states = _mask_states(lines, mask_refs, input_values)
+    return [_shown(line, state, hidden) for line, state, hidden in zip(lines, states, _hidden_texts(lines, states, secret_refs))]
+
+
+def describe_refs(text: str, refs: Collection[str], *, mask_refs: Collection[str] = (),
+                  input_values: Mapping[str, Collection[str]] | None = None, secret_refs: Collection[str] = ()) -> dict[str, str]:
+    """Role, name and state of each ref's line in a page snapshot, masked as filter_snapshot shows it, without its
+    value. A ref missing from the snapshot gets no entry."""
     lines = parse_ai_snapshot(text)
-    if not lines or not lines[0].parsed:
-        return ""
-    states = _mask_states(lines, {line.ref for line in lines if line.ref}, core_common.INPUT_VALUE_ROLES)
-    name, _value = _shown(lines[0], None, _hidden_texts(lines, states, ())[0])
-    rendered = _render(lines[0], False, None, {}, name, None, cap=200)
-    return rendered[:-1] if rendered.endswith(":") else rendered
+    out: dict[str, str] = {}
+    for line, (name, _value) in zip(lines, _display(lines, mask_refs, input_values or {}, secret_refs)):
+        if line.ref in refs and line.ref not in out:
+            rendered = _render(line, False, None, {}, name, None, cap=200)
+            out[line.ref] = rendered[:-1] if rendered.endswith(":") else rendered
+    return out
 
 
 def filter_snapshot(text: str, *, full: bool = False, find: str | None = None, frame_names: dict[str, str] | None = None,
-                    mask_refs: Collection[str] = (), value_roles: Collection[str] = core_common.INPUT_VALUE_ROLES,
+                    mask_refs: Collection[str] = (), input_values: Mapping[str, Collection[str]] | None = None,
                     secret_refs: Collection[str] = ()) -> list[str]:
     """Reduce Playwright's ai-mode tree to what a small model can act on. Pure function.
 
-    Typed values never pass through: an input-role line in value_roles whose ref is in mask_refs, or that has no ref,
-    shows *** for its value and contents, and its value is removed from the names of the lines around it (and, for
-    secret_refs, from every line). /url lines are redacted. --find matches only what is shown.
+    Typed values never pass through: a field line (see input_value_lines) whose ref is in mask_refs, or that has no
+    ref, shows *** for its value and contents, and its value is removed from the names of the lines around it (and, for
+    secret_refs, from every line). /url lines are redacted. --find never matches a masked value or a redacted link.
     """
     lines = parse_ai_snapshot(text)
     prefixes = frame_prefixes(lines)
-    states = _mask_states(lines, mask_refs, value_roles)
-    shown = [_shown(line, state, hidden) for line, state, hidden in zip(lines, states, _hidden_texts(lines, states, secret_refs))]
+    shown = _display(lines, mask_refs, input_values or {}, secret_refs)
     needle = (find or "").strip().lower()
     keep: list[tuple[bool, bool]] = []  # (keep line, keep ref)
     stack: list[tuple[int, str]] = []   # (level, role) of ancestors

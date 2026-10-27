@@ -47,16 +47,20 @@ class VerifiedActionsMixin:
             if matches:
                 if page not in self.served:
                     self._serve_snapshot(page)
+                found = []
                 for element, frame in matches[:10]:
-                    snapshot = element.aria_snapshot(mode="ai")
-                    # The element's own line, parsed: a typed value is left out and [ref=] text in a name is not a ref.
-                    own = next(iter(snapshots.parse_ai_snapshot(snapshot)), None)
+                    # The element's own line, parsed, so [ref=] text in a name is not taken for its ref.
+                    own = next(iter(snapshots.parse_ai_snapshot(element.aria_snapshot(mode="ai"))), None)
                     prefix = next((p for p, f in self.served[page].frame_by_prefix.items() if f is frame), "")
                     value = own.ref if own else None
                     if value and prefix and not value.startswith("f"): value = prefix + value
-                    candidates.append({"ref": value, "frame": common.sanitize_text(frame.name, 80),
-                                       "description": snapshots.describe_line(snapshot)})
-                self._serve_snapshot(page)  # restore the full ref map after scoped candidate snapshots
+                    found.append((value, frame))
+                served = self._serve_snapshot(page)  # restore the full ref map after scoped candidate snapshots
+                # Describe each candidate from the masked page snapshot: a name can repeat a field from anywhere on it.
+                described = snapshots.describe_refs(served.raw, {ref for ref, _frame in found if ref}, mask_refs=served.mask_refs,
+                                                    input_values=served.input_values, secret_refs=served.secret_refs)
+                candidates = [{"ref": ref, "frame": common.sanitize_text(frame.name, 80), "description": described.get(ref, "")}
+                              for ref, frame in found]
             raise common._tag(ValueError(f"Semantic target matched {len(matches)} visible elements."),
                               common.ERR_AMBIGUOUS if matches else common.ERR_NOT_FOUND, details={"candidates": candidates})
         return matches[0][0]

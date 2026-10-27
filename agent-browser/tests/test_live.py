@@ -250,7 +250,8 @@ def test_credential_guard_covers_shadow_roots_and_eval_refs(cli: Cli, base_url: 
 
 
 TYPE_LIKE_A_PERSON = """(() => {
-  for (const [id, text] of [['pw', 'hunter2'], ['again', 'hunter2'], ['card', '4111111111111111'], ['key', 'hunter2'], ['pin', 'hunter2']]) {
+  for (const [id, text] of [['pw', 'hunter2'], ['again', 'hunter2'], ['card', '4111111111111111'], ['key', 'hunter2'], ['pin', 'hunter2'],
+                            ['slash', 'hunter2'], ['wrapped', 'hunter2']]) {
     document.getElementById(id).focus();
     document.execCommand('insertText', false, text);
   }
@@ -283,6 +284,10 @@ def test_typed_secrets_never_reach_a_snapshot(cli: Cli, base_url: str) -> None:
     assert not any("e66" in line or '"Pay"' in line for line in default["snapshot"]), default["snapshot"]
     assert all(len(line.splitlines()) == 1 for line in default["snapshot"] + full["snapshot"])
     assert cli.ok("snapshot", "--find", "hunter2")["snapshot"] == []
+    # Ambiguity candidates are described from the masked page, so a name labelled by the field's wrapper is clean.
+    code, _out, err = cli("click", "--role", "button")
+    assert code != 0 and err["class"] == "ambiguous" and err["details"]["candidates"], err
+    assert "hunter2" not in json.dumps(err) and any('"Pw: ***"' in c["description"] for c in err["details"]["candidates"]), err
 
 
 def test_wait_signed_in_ignores_the_login_page(cli: Cli, base_url: str) -> None:

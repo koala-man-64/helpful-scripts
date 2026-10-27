@@ -313,7 +313,7 @@ class FakeFrame:
         # a SECRET_JS-shaped dict, or an Exception to raise.
         self.active_info: Any = None
         self.detached = False
-        # What INPUT_ROLES_JS reports: the role attributes of this frame's valued inputs, or an Exception to raise.
+        # What INPUT_ROLES_JS reports: [role attribute, value] for this frame's valued inputs, or an Exception to raise.
         self.input_roles: Any = []
 
     def is_detached(self) -> bool:

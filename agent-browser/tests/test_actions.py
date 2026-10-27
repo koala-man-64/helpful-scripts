@@ -434,15 +434,28 @@ def test_snapshot_checks_inputs_the_page_gives_another_role(make_daemon) -> None
     daemon, ctx, page = make_daemon(snapshot_text='- button "Key" [ref=e2]: rolesecret\n- button "Caption" [ref=e3]: shown\n')
     page.elements["e2"].secret_info = PASSWORD_INFO
     assert daemon.dispatch("snapshot", {"full": True}, 5.0)["snapshot"][0].endswith(": rolesecret")  # a plain button caption
-    page.main_frame.input_roles = ["button link"]
+    page.main_frame.input_roles = [["button link", "rolesecret"]]
     assert daemon.dispatch("snapshot", {"full": True}, 5.0)["snapshot"] == ['- button "Key" [ref=e2]: ***', '- button "Caption" [ref=e3]: shown']
     page.main_frame.input_roles = FakePlaywrightError("Execution context was destroyed")  # a frame mid-navigation
     assert daemon.dispatch("snapshot", {"full": True}, 5.0)["snapshot"][0].endswith(": rolesecret")
 
 
+def test_a_page_given_role_only_makes_lines_that_show_an_inputs_value_fields(make_daemon, monkeypatch) -> None:
+    # One hidden <input role=listitem value=x> must not turn 400 list items into fields to check and mask.
+    items = "".join(f'- listitem [ref=e{10 + i}]:\n  - link "Item {i}" [ref=e{1000 + i}]\n' for i in range(400))
+    daemon, ctx, page = make_daemon(snapshot_text=items + '- listitem [ref=e5]: x\n')
+    page.main_frame.input_roles = [["listitem", "x"], ["text", "Item 1"], [7, "y"], "junk"]
+    calls: list[int] = []
+    original = daemon._secret_info
+    monkeypatch.setattr(daemon, "_secret_info", lambda locator, timeout_ms=3000: calls.append(timeout_ms) or original(locator, timeout_ms))
+    env = daemon.dispatch("snapshot", {"full": True, "max_bytes": 200000}, 5.0)
+    assert len(calls) == 1 and '- link "Item 399" [ref=e1399]' in [line.strip() for line in env["snapshot"]]
+    assert not any("***" in line for line in env["snapshot"])
+
+
 def test_a_role_attribute_cannot_hide_playwright_text_lines(make_daemon) -> None:
     daemon, ctx, page = make_daemon(snapshot_text='- paragraph [ref=e2]:\n  - text: visible\n- iframe [ref=e3]\n')
-    page.main_frame.input_roles = ["text /url iframe"]
+    page.main_frame.input_roles = [["text /url iframe", "visible"]]
     assert daemon.dispatch("snapshot", {"full": True}, 5.0)["snapshot"] == ["- paragraph [ref=e2]:", "  - text: visible", '- iframe "gsft_main" [ref=e3]']
 
 
