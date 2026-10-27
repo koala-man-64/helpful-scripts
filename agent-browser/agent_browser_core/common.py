@@ -182,10 +182,15 @@ IDP_HOSTS = (
 SIGNIN_PATH_RE = re.compile(r"/(login|logout|auth_redirect|login_with_sso|saml_redirector|sso_login|signin|sign-in|oauth2|authorize|mfa)\b", re.I)
 
 
-LOGIN_PAGE_RE = re.compile(r"login|signin|sign-in|sso|mfa|auth|verify", re.I)
+# Substring heuristics that fail safe. Concatenated names (adminlogin, UserSignIn, userauth) still match;
+# only words that merely contain the letters (author, lessons, Associate, designing, signing) are excluded.
+LOGIN_PAGE_RE = re.compile(r"log-?(in|on)|sign[-_]?(in|on)(?!g)|(?<![a-z])sign (in|on)(?![a-z])|(?<![a-z])sso|sso(?![a-z])"
+                           r"|mfa|saml|oauth|auth(?!or(?!iz))|verif(y|ication)", re.I)
 
 
-SECRET_STRONG_RE = re.compile(r"pass(word|code|phrase)?\b|pwd|\botp\b|\bmfa\b|totp|secret|token|\bssn\b|\bcvv\b|card ?number|(verification|security|auth(entication)?) ?code", re.I)
+# Bare "pass" stays a match after any prefix (userpass, txtpass, userPass) except the few English words ending in it.
+SECRET_STRONG_RE = re.compile(r"pass(word|code|phrase|wd)|(?<!com)(?<!by)(?<!sur)(?<!tres)(?<!over)(?<!under)pass\b|pwd|\botp\b|\bmfa\b"
+                              r"|totp|secret|token|\bssn\b|\bcvv\b|card ?number|(verification|security|auth(entication)?) ?code", re.I)
 
 
 SECRET_WEAK_RE = re.compile(r"\bcode\b|\bpin\b", re.I)
@@ -359,6 +364,8 @@ HINTS = {
     "ambiguous_profile": "Several browsers are running. Add --profile NAME (see: {tool} status --all)",
     "guarded_secret": "This field takes a password or code. Ask the user to type it in the browser window, then run: {tool} wait --signed-in <app host> --profile {profile}",
     "guarded_key": "Only Enter, Tab, and Escape may be pressed on a password or code field.",
+    "guarded_eval_secret": "eval cannot target a password or code field. Pick a ref to another element; never read or set credential values with eval.",
+    "secret_unverified": "Could not confirm the field is not a password or code field. Run: {tool} snapshot --profile {profile} and retry with a fresh ref; if a press without a ref keeps failing, give it a ref.",
     "guarded_scheme": "Only http:// and https:// URLs can be opened.",
     "guarded_host": "That host is not in allowed_hosts (config.json). Ask the user before continuing.",
     "guarded_path": "The file must be under the current folder or the profile's downloads/shots folders.",

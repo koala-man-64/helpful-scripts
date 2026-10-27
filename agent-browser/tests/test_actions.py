@@ -13,8 +13,8 @@ import re
 import pytest
 
 import agent_browser as ab
-from agent_browser_core import common as core_common
-from conftest import FakeDialog, FakeDownload, FakeElement, FakeLocator, FakePage
+from agent_browser_core import common as core_common, daemon as core_daemon
+from conftest import FakeDialog, FakeDownload, FakeElement, FakeLocator, FakePage, FakePlaywrightError
 
 # ---------------------------------------------------------------------------
 # goto / snapshot envelope shape
@@ -227,6 +227,77 @@ def test_press_on_secret_target_guards_unsafe_keys_but_allows_tab(make_daemon, o
     result = daemon.dispatch("press", {"key": "Tab", "target": "f1e3"}, 5.0)
     assert result["ok"] is True
     assert result["value_after"] == "***"
+
+
+# ---------------------------------------------------------------------------
+# credential guard: a field that cannot be checked is treated as a credential field
+
+
+@pytest.mark.parametrize("cmd, extra", [("fill", {"text": "Abel"}), ("type", {"text": "Abel"}),
+                                        ("select", {"values": ["a"]}), ("press", {"key": "a"})])
+def test_guarded_verbs_fail_closed_when_the_secret_check_errors(make_daemon, outer_text: str, cmd: str, extra: dict) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    el = page.elements["f1e3"]
+    el.options = [("Choice A", "a", False)]
+    el.raise_on["secret_check"] = FakePlaywrightError("Execution context was destroyed")
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch(cmd, {"target": "f1e3", **extra}, 5.0)
+    assert exc.value.error_class == core_common.ERR_ACTION_FAILED
+    assert exc.value.hint == core_common._hint("secret_unverified", daemon.profile)
+    assert exc.value.details["executed"] is False
+    assert el.calls == [] and el.value == ""
+
+
+def test_unverifiable_field_still_takes_safe_keys_and_reads_back_masked(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    el = page.elements["f1e3"]
+    el.value = "typed-by-the-user"
+    el.raise_on["secret_check"] = FakePlaywrightError("Execution context was destroyed")
+
+    result = daemon.dispatch("press", {"key": "Tab", "target": "f1e3"}, 5.0)
+    assert el.calls == [("press", "Tab")] and result["value_after"] == "***"
+    read = daemon.dispatch("value", {"target": "f1e3"}, 5.0)
+    assert read["masked"] is True and read["value"] == "***"
+
+
+def test_targetless_press_fails_closed_when_a_frame_check_errors(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    inner = page.frames[1]
+    inner.active_info = FakePlaywrightError("Execution context was destroyed")
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("press", {"key": "a"}, 5.0)
+    assert exc.value.error_class == core_common.ERR_ACTION_FAILED
+    assert exc.value.details["executed"] is False
+    assert page.keyboard.presses == []
+
+    daemon.dispatch("press", {"key": "Enter"}, 5.0)  # safe keys still go through
+    assert page.keyboard.presses == ["Enter"]
+
+    # Only one document holds focus: a frame reporting a normal focused field rules out the frame that errored.
+    page.main_frame.active_info = {"tag": "INPUT", "type": "text", "text": "Caller"}
+    daemon.dispatch("press", {"key": "a"}, 5.0)
+    assert page.keyboard.presses == ["Enter", "a"]
+
+    # A detached frame cannot hold focus, so its error does not count.
+    page.main_frame.active_info = None
+    inner.detached = True
+    daemon.dispatch("press", {"key": "b"}, 5.0)
+    assert page.keyboard.presses == ["Enter", "a", "b"]
+
+
+def test_targetless_press_sees_a_credential_inside_an_open_shadow_root(make_daemon, outer_text: str) -> None:
+    # The fakes cannot run page JS; test_live drives the shadow-root walk in a real browser.
+    assert "shadowRoot.activeElement" in core_daemon.ACTIVE_SECRET_JS
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    page.main_frame.active_info = {"tag": "INPUT", "type": "password", "text": ""}
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("press", {"key": "a"}, 5.0)
+    assert exc.value.error_class == core_common.ERR_GUARDED
+    assert exc.value.hint == core_common._hint("guarded_key", daemon.profile)
+    assert page.keyboard.presses == []
 
 
 # ---------------------------------------------------------------------------
@@ -508,6 +579,37 @@ def test_eval_disabled_by_config_is_guarded(make_daemon, outer_text: str) -> Non
         daemon.dispatch("eval", {"js": "1+1"}, 5.0)
     assert exc.value.error_class == core_common.ERR_GUARDED
     assert exc.value.hint == core_common._hint("eval_disabled")
+
+
+def test_eval_on_a_password_ref_is_guarded_and_never_evaluated(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    el = page.elements["f1e3"]
+    el.secret_info = {"type": "password"}
+    ran: list[str] = []
+    el.custom_evaluators["el => el.value"] = lambda: ran.append("eval") or "typed-by-the-user"
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("eval", {"js": "el => el.value", "target": "f1e3"}, 5.0)
+    assert exc.value.error_class == core_common.ERR_GUARDED
+    assert exc.value.hint == core_common._hint("guarded_eval_secret")
+    assert exc.value.details["executed"] is False
+    assert "typed-by-the-user" not in str(exc.value)
+
+    el.secret_info = None
+    el.raise_on["secret_check"] = FakePlaywrightError("Execution context was destroyed")
+    with pytest.raises(ValueError) as unverified:
+        daemon.dispatch("eval", {"js": "el => el.value", "target": "f1e3"}, 5.0)
+    assert unverified.value.error_class == core_common.ERR_ACTION_FAILED
+    assert unverified.value.details["executed"] is False
+    assert ran == []
+
+
+def test_eval_on_a_normal_ref_still_returns_its_value(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    page.elements["f1e3"].custom_evaluators["el => el.value"] = "Abel"
+
+    result = daemon.dispatch("eval", {"js": "el => el.value", "target": "f1e3"}, 5.0)
+    assert result["value"] == "Abel" and result["executed"] is True
 
 
 def test_downloads_are_saved_under_the_profile_downloads_folder(make_daemon, outer_text: str) -> None:

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Account settings</title>
+</head>
+<body>
+  <h1>Account settings</h1>
+  <label for="nick">Nickname</label>
+  <input id="nick" type="text" value="Abel">
+  <div id="host"></div>
+  <script>
+    const root = document.getElementById('host').attachShadow({mode: 'open'});
+    root.innerHTML = '<label for="pw">New password</label><input id="pw" type="password">';
+  </script>
+</body>
+</html>

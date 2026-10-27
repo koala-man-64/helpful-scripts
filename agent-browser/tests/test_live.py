@@ -213,6 +213,20 @@ def test_secret_fields_are_refused(cli: Cli, base_url: str) -> None:
     assert cli.ok("value", ref(env, r'textbox "Password"'))["masked"] is True
 
 
+def test_credential_guard_reaches_open_shadow_roots_and_eval_refs(cli: Cli, base_url: str) -> None:
+    env = cli.ok("goto", f"{base_url}/shadow.html")
+    pw_ref = ref(env, r'textbox "New password"')
+    # Focus inside an open shadow root leaves document.activeElement on the host; the guard must look past it.
+    cli.ok("click", pw_ref)
+    code, _out, err = cli("press", "x")
+    assert code == 2 and err["class"] == "guarded", err
+    code, _out, err = cli("eval", "--ref", pw_ref, "el => el.value")
+    assert code == 2 and err["class"] == "guarded" and err["details"]["executed"] is False, err
+    assert cli.ok("eval", "--ref", ref(env, r'textbox "Nickname"'), "el => el.value")["value"] == "Abel"
+    # Untargeted eval stays outside the guard (documented); here it proves no key reached the field.
+    assert cli.ok("eval", "document.getElementById('host').shadowRoot.getElementById('pw').value")["value"] == ""
+
+
 def test_wait_signed_in_ignores_the_login_page(cli: Cli, base_url: str) -> None:
     env = cli.ok("goto", f"{base_url}/login.html")
     assert env["sign_in_suspected"] is True
