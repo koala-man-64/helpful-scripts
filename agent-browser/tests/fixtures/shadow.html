@@ -9,9 +9,16 @@
   <label for="nick">Nickname</label>
   <input id="nick" type="text" value="Abel">
   <div id="host"></div>
+  <secure-field id="closed"></secure-field>
   <script>
     const root = document.getElementById('host').attachShadow({mode: 'open'});
     root.innerHTML = '<label for="pw">New password</label><input id="pw" type="password">';
+    // Page script outside the component cannot reach a closed root; these helpers stand in for a user click.
+    const closedInput = document.createElement('input');
+    closedInput.type = 'password';
+    document.getElementById('closed').attachShadow({mode: 'closed'}).appendChild(closedInput);
+    window.focusClosed = () => closedInput.focus();
+    window.closedValue = () => closedInput.value;
   </script>
 </body>
 </html>

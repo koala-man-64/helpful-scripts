@@ -226,6 +226,10 @@ class FakeLocator:
         self.element.value = text
         self.element.calls.append(("fill", text))
 
+    def focus(self, timeout: float | None = None) -> None:
+        # Where focus lands is modelled by FakeFrame.active_info, not here.
+        self._raise_if_configured("focus")
+
     def press(self, key: str, timeout: float | None = None) -> None:
         self._raise_if_configured("press")
         self.element.calls.append(("press", key))
@@ -276,6 +280,9 @@ class FakeLocator:
             if el.secret_info is not None:
                 return el.secret_info
             return {"tag": el.tag, "type": "", "autocomplete": "", "inputmode": "", "maxlength": -1, "text": el.name, "contenteditable": False}
+        if js == core_daemon.FILL_FOCUS_JS:
+            self._raise_if_configured("focus")
+            return None
         if js == core_daemon.OPTIONS_JS:
             return el.options
         if js == core_daemon.VALUE_JS:

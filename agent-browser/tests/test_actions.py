@@ -275,8 +275,14 @@ def test_targetless_press_fails_closed_when_a_frame_check_errors(make_daemon, ou
     daemon.dispatch("press", {"key": "Enter"}, 5.0)  # safe keys still go through
     assert page.keyboard.presses == ["Enter"]
 
-    # Only one document holds focus: a frame reporting a normal focused field rules out the frame that errored.
-    page.main_frame.active_info = {"tag": "INPUT", "type": "text", "text": "Caller"}
+    # A stale active element in a document without focus proves nothing about the frame that errored...
+    page.main_frame.active_info = {"tag": "INPUT", "type": "text", "text": "Caller", "has_focus": False}
+    with pytest.raises(ValueError) as stale:
+        daemon.dispatch("press", {"key": "a"}, 5.0)
+    assert stale.value.error_class == core_common.ERR_ACTION_FAILED
+
+    # ...but only one document has focus, so a normal field in it rules the errored frame out.
+    page.main_frame.active_info = {"tag": "INPUT", "type": "text", "text": "Caller", "has_focus": True}
     daemon.dispatch("press", {"key": "a"}, 5.0)
     assert page.keyboard.presses == ["Enter", "a"]
 
@@ -298,6 +304,50 @@ def test_targetless_press_sees_a_credential_inside_an_open_shadow_root(make_daem
     assert exc.value.error_class == core_common.ERR_GUARDED
     assert exc.value.hint == core_common._hint("guarded_key", daemon.profile)
     assert page.keyboard.presses == []
+
+    # Focus inside a closed shadow root cannot be inspected (ACTIVE_SECRET_JS reports it as unknown).
+    page.main_frame.active_info = {"unknown": True, "has_focus": True}
+    with pytest.raises(ValueError) as closed:
+        daemon.dispatch("press", {"key": "a"}, 5.0)
+    assert closed.value.error_class == core_common.ERR_ACTION_FAILED
+    assert page.keyboard.presses == []
+
+
+@pytest.mark.parametrize("cmd, extra, hint", [("fill", {"text": "Abel"}, "guarded_focus"), ("type", {"text": "Abel", "append": True}, "guarded_focus"),
+                                              ("press", {"key": "a"}, "guarded_key")])
+def test_keys_never_land_in_a_focused_credential_through_a_clear_target(make_daemon, outer_text: str, cmd: str, extra: dict, hint: str) -> None:
+    # Playwright focuses the target and then types into whatever holds focus; a target that cannot take
+    # focus (a heading, a disabled field) leaves the keys on the previously focused password field.
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    el = page.elements["f1e3"]
+    page.frames[1].active_info = {"tag": "INPUT", "type": "password", "text": "", "has_focus": True}
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch(cmd, {"target": "f1e3", **extra}, 5.0)
+    assert exc.value.error_class == core_common.ERR_GUARDED
+    assert exc.value.hint == core_common._hint(hint, daemon.profile)
+    assert exc.value.details["executed"] is False
+    assert el.calls == []
+
+
+def test_safe_keys_may_still_land_on_a_focused_credential(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    page.frames[1].active_info = {"tag": "INPUT", "type": "password", "text": "", "has_focus": True}
+    result = daemon.dispatch("press", {"key": "Tab", "target": "f1e3"}, 5.0)
+    assert page.elements["f1e3"].calls == [("press", "Tab")] and result["value_after"] == "***"
+
+
+def test_fill_form_reports_an_unverifiable_field_as_retryable(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    el = page.elements["f1e3"]
+    el.raise_on["secret_check"] = FakePlaywrightError("Execution context was destroyed")
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("fill-form", {"fields": [{"target": "f1e3", "value": "Abel"}]}, 5.0)
+    assert exc.value.error_class == core_common.ERR_ACTION_FAILED
+    assert exc.value.hint == core_common._hint("secret_unverified", daemon.profile)
+    assert exc.value.details["executed"] is False
+    assert el.calls == [] and el.value == ""
 
 
 # ---------------------------------------------------------------------------

@@ -29,7 +29,15 @@ def _playwright_version() -> str | None:
         return None
 
 
+# Playwright's follow-label retarget: fill and select act on the control of an enclosing label.
+LABEL_CONTROL_JS = """if (el.matches && !el.matches('a, input, textarea, button, select, [role=link], [role=button], [role=checkbox], [role=radio]') && !el.isContentEditable) {
+    const label = el.closest('label');
+    if (label && label.control) el = label.control;
+  }"""
+
+
 SECRET_JS = """el => {
+  %s
   const a = n => (el.getAttribute && el.getAttribute(n)) || '';
   const labels = Array.from(el.labels || []).map(l => l.textContent || '').join(' ');
   const root = el.getRootNode && el.getRootNode().getElementById ? el.getRootNode() : document;
@@ -38,15 +46,25 @@ SECRET_JS = """el => {
           inputmode: String(el.inputMode || a('inputmode')).toLowerCase(), maxlength: typeof el.maxLength === 'number' ? el.maxLength : -1,
           text: [a('name'), el.id || '', a('aria-label'), a('placeholder'), a('title'), labels, by, String(el.className || ''), Object.keys(el.dataset || {}).join(' ')].join(' '),
           contenteditable: !!el.isContentEditable, context_url: el.ownerDocument.URL, context_title: el.ownerDocument.title};
-}"""
+}""" % LABEL_CONTROL_JS
+
+
+# fill focuses the retargeted control before it types; press and type focus the element itself (locator.focus).
+FILL_FOCUS_JS = """el => {
+  %s
+  el.focus();
+}""" % LABEL_CONTROL_JS
 
 
 ACTIVE_SECRET_JS = """() => {
   let el = document.activeElement;
   while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
   if (!el || el === document.body || el.tagName === 'IFRAME') return null;
+  const focus = {has_focus: document.hasFocus()};
+  // A custom element that cannot take focus itself holds it only for a closed shadow root, which page script cannot inspect.
+  if (!el.shadowRoot && el.tagName.includes('-') && !el.hasAttribute('tabindex') && !el.isContentEditable) return Object.assign({unknown: true}, focus);
   const f = %s;
-  return f(el);
+  return Object.assign(f(el), focus);
 }""" % SECRET_JS
 
 
@@ -437,21 +455,25 @@ class BrowserEngine:
         return self._secret_check(page, locator) != "clear"
 
     def _focused_secret_check(self, page: Any) -> str:
-        """The element that would receive a targetless key press, in whichever frame holds focus."""
-        errored = focused = False
+        """The element that would receive keyboard input, in whichever frame holds focus."""
+        uncertain = focused = False
         for frame in page.frames:
             try:
                 info = frame.evaluate(ACTIVE_SECRET_JS)
             except Exception:  # noqa: BLE001
-                errored = errored or not self._frame_detached(frame)
+                uncertain = uncertain or not self._frame_detached(frame)
                 continue
             if not info:
                 continue
-            if self._verdict(page, info, frame.url) != "clear":
-                return "secret"
-            focused = True
-        # Only one document holds focus, so a frame that reported a normal focused field rules out the ones that errored.
-        return "unknown" if errored and not focused else "clear"
+            verdict = self._verdict(page, info, frame.url)
+            if verdict == "secret" or (verdict == "unknown" and info.get("has_focus")):
+                return verdict
+            if verdict == "unknown":
+                uncertain = True
+            elif info.get("has_focus"):
+                focused = True
+        # Only one document has focus, so a normal field in it rules out frames that errored or could not be inspected.
+        return "unknown" if uncertain and not focused else "clear"
 
     @staticmethod
     def _frame_detached(frame: Any) -> bool:
@@ -853,7 +875,8 @@ class BrowserEngine:
                                   max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES)
 
     def _do_action(self, args: dict[str, Any], timeout: float, action: str, run: Callable[[Any, Any], Any], *,
-                   guard: bool = False, value: bool = False, allow_keys: Sequence[str] | None = None) -> dict[str, Any]:
+                   guard: bool = False, value: bool = False, allow_keys: Sequence[str] | None = None,
+                   focus: Callable[[Any], Any] | None = None) -> dict[str, Any]:
         explicit_tab = args.get("tab") is not None
         page = self.target_page(args)
         before_lines = self._before_lines(page)
@@ -865,12 +888,24 @@ class BrowserEngine:
         if guard:
             verdict = (self._secret_check(page, locator) if locator is not None
                        else self._focused_secret_check(page) if allow_keys is not None else "clear")
+            landed = False
+            if verdict == "clear" and focus is not None and locator is not None:
+                # Playwright focuses the target and then sends keys to whatever holds focus, so a target that cannot
+                # take focus leaves them on the previously focused field. Focus as the action will, then check.
+                try:
+                    focus(locator)
+                except Exception as exc:  # noqa: BLE001
+                    raise self._classify(exc, action) from exc
+                verdict, landed = self._focused_secret_check(page), True
             if verdict != "clear":
                 if allow_keys is not None and args.get("key") in core_common.SAFE_KEYS_ON_SECRET:
                     masked = True
                 elif verdict == "unknown":
                     raise core_common._tag(ValueError("Could not confirm the field is not a password or one-time-code field; nothing was entered."),
                                core_common.ERR_ACTION_FAILED, hint=core_common._hint("secret_unverified", self.profile))
+                elif landed:
+                    raise core_common._tag(ValueError("The keys would land in a focused password or one-time-code field; nothing was entered."), core_common.ERR_GUARDED,
+                               hint=core_common._hint("guarded_key" if allow_keys is not None else "guarded_focus", self.profile))
                 else:
                     raise core_common._tag(ValueError("This field takes a password or one-time code; the tool never types those."), core_common.ERR_GUARDED,
                                hint=core_common._hint("guarded_key" if allow_keys is not None else "guarded_secret", self.profile))
@@ -929,7 +964,7 @@ class BrowserEngine:
             loc.fill(args.get("text") or "", timeout=ms)
             if args.get("enter"):
                 loc.press("Enter", timeout=ms)
-        return self._do_action(args, timeout, "fill", run, guard=True, value=True)
+        return self._do_action(args, timeout, "fill", run, guard=True, value=True, focus=lambda loc: loc.evaluate(FILL_FOCUS_JS, timeout=ms))
 
     def h_type(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         ms = self._timeout_ms(timeout)
@@ -940,7 +975,7 @@ class BrowserEngine:
             loc.press_sequentially(args.get("text") or "", delay=int(args.get("delay") or 30), timeout=ms)
             if args.get("enter"):
                 loc.press("Enter", timeout=ms)
-        return self._do_action(args, timeout, "type", run, guard=True, value=True)
+        return self._do_action(args, timeout, "type", run, guard=True, value=True, focus=lambda loc: loc.focus(timeout=ms))
 
     def h_press(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         ms = self._timeout_ms(timeout)
@@ -953,7 +988,8 @@ class BrowserEngine:
                 loc.press(key, timeout=ms)
             else:
                 page.keyboard.press(key)
-        return self._do_action(args, timeout, "press", run, guard=True, allow_keys=list(core_common.SAFE_KEYS_ON_SECRET), value=bool(args.get("target")))
+        return self._do_action(args, timeout, "press", run, guard=True, allow_keys=list(core_common.SAFE_KEYS_ON_SECRET), value=bool(args.get("target")),
+                               focus=lambda loc: loc.focus(timeout=ms))
 
     def h_select(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         ms = self._timeout_ms(timeout)

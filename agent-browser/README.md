@@ -93,7 +93,7 @@ qualification requires a separately authorized test record.
 | `wait [--url-contains S] [--text S] [--ref R] [--selector S] [--signed-in HOST] [--seconds N] [--timeout S]` | Conditions AND-ed; cooperative polling; inspect the receipt after timeout before deciding what to do next. |
 | `back` / `reload` / `tabs` / `tab TAB [--close]` | Navigation and tabs (`TAB` is a stable id `t1`, `t2` or 1-based index). Pass `--tab TAB` on any command to drive tabs in parallel without switching focus. Closing the last tab is refused. |
 | `upload REF FILE...` / `downloads` | Attach local files; save and list files the page downloaded. |
-| `eval JS [--ref REF] [--frame NAME]` | Run JavaScript. Off when `config.json` says `"eval": false`. Refuses a credential field as `--ref`; page and `--frame` eval are not guarded. |
+| `eval JS [--ref REF] [--frame NAME]` | Run JavaScript. Off when `config.json` says `"eval": false`. Refuses a credential field as `--ref`; the script itself, like page and `--frame` eval, can still reach any field. |
 | `needs-human [--signed-in HOST]` | Focus/flash for human input; returns a durable handoff ID. |
 | `doctor [--live]` | Preflight rows; `--live` boots a headless browser, checks refs, clicks, stops. |
 | `clean [--profile P] [--purge-profile P] [--dry-run]` | Stale sessions/orphans and old download staging files. Evidence stays until explicitly cleared. |
@@ -244,11 +244,14 @@ raised by a human navigation is accepted.
 - Playwright talks to the browser over a pipe. No DevTools TCP port is opened on the signed-in profile.
 - The daemon listens on `127.0.0.1` only, behind a per-session token stored in `session.json` under your user profile;
   a wrong token is dropped without a reply, a request has 5 s to arrive and a 2 MiB input budget.
-- The tool never types into password, one-time-code, or credential-looking fields, and no flag overrides that. A
-  field it cannot inspect counts as one (`action_failed`; retry after a fresh `snapshot`). Open shadow roots are
-  inspected; closed ones are invisible to the tool. `eval` is arbitrary page JavaScript: it refuses a credential
-  field as its `--ref` target, but page and `--frame` eval can still read or set any field, so approval-sensitive
-  profiles set `"eval": false`. The human types in the window and the agent waits with `wait --signed-in`.
+- The tool never types into password, one-time-code, or credential-looking fields, and no flag overrides that. It
+  checks where input lands: the label's control for `fill`, and the focused element for key presses (a target that
+  cannot take focus leaves keys on the previous field). Open shadow roots are inspected. A field it cannot inspect,
+  including focus inside a closed shadow root, counts as one (`action_failed`; retry after a fresh `snapshot`).
+  The check runs just before the action, so a page that moves focus or changes a field's type during a `type` can
+  still redirect keys. `eval` is arbitrary page JavaScript: `--ref` refuses a credential field as `el`, but the
+  script itself, like page and `--frame` eval, can read or set any field, so approval-sensitive profiles set
+  `"eval": false`. The human types in the window and the agent waits with `wait --signed-in`.
 - `goto` opens only `http`/`https` (and `about:blank`); `edge://`, `file:`, `javascript:` are refused.
 - Uploads and `--path` targets must sit under the current folder, the profile's `downloads`/`shots`, or
   `upload_roots`; UNC paths, hidden folders, and key files are refused.
@@ -339,8 +342,8 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 | `not_running` on every command | No daemon for that profile. `agent-browser start --profile <p>`; `goto` starts one by itself unless `AGENT_BROWSER_AUTOSTART=false`. |
 | `protocol_mismatch` | Explicitly restart the shared profile after preserving every session's work. |
 | `stale_ref` / `ref_not_found` | The page or its frame navigated, or a scoped snapshot was taken. `agent-browser snapshot` and pick again. |
-| `guarded` on `fill` | The field looks like a password or code field. The human types it in the window; then `wait --signed-in <host>`. |
-| `action_failed` "Could not confirm the field…" | The credential check could not inspect the field (page navigating, frame detached). Take a fresh `snapshot` and retry; give `press` a ref if a press without one keeps failing. |
+| `guarded` on `fill` / `type` / `press` | The field, or the focused field the keys would land in, looks like a password or code field. The human types it in the window; then `wait --signed-in <host>`. |
+| `action_failed` "Could not confirm the field…" | The credential check could not inspect the field (page navigating, frame detached, focus inside a closed shadow root). Take a fresh `snapshot` and retry; give `press` a ref if a press without one keeps failing. |
 | `unsaved_changes` | The page has edits. Click its Save/Update button or re-run with `--discard-changes`. |
 | `Profile path is too long` (class `config`) | Set `AGENT_BROWSER_HOME` to a short path such as `C:\ab`. |
 | `browser_launch` with a log tail | Read `daemon.log`; `agent-browser doctor` decodes Edge and Chrome policies (`DeveloperToolsAvailability=2`, `ForceEphemeralProfiles`). Try `--browser chrome`. |

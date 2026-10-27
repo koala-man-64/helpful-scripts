@@ -285,11 +285,13 @@ def test_is_secret_field_matrix(info: dict | None, url: str, title: str, expecte
 
 @pytest.mark.parametrize("text", ["adminlogin", "ssologin", "/UserLogin.aspx", "/userauth", "/AdminSignIn.aspx", "/usersignin",
                                   "/Account/LogOn", "/sign_in", "Sign in to your account", "Sign-in to Contoso", "https://auth0.com/u/login",
-                                  "/oauth2/authorize", "sso.contoso.com", "/saml2/sso", "/mfa", "Verify email"])
+                                  "/oauth2/authorize", "sso.contoso.com", "/saml2/sso", "/mfa", "Verify email",
+                                  "/SignInGate", "UserSignInGoogle", "/CorpSSOCallback", "MySSOPage", "/oauth/authorise"])
 def test_login_page_regex_matches_sign_in_pages(text: str) -> None:
     assert core_common.LOGIN_PAGE_RE.search(text)
 
 
-@pytest.mark.parametrize("text", ["author", "/authority", "lessons", "Associate", "designing", "Signing documents", "Design in progress"])
+@pytest.mark.parametrize("text", ["author", "/authority", "lessons", "Associate", "designing", "Signing documents", "Design in progress",
+                                  "LESSONS", "ASSOCIATE", "DesignInGuide"])
 def test_login_page_regex_skips_words_that_only_contain_its_letters(text: str) -> None:
     assert not core_common.LOGIN_PAGE_RE.search(text)

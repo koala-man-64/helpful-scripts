@@ -182,10 +182,11 @@ IDP_HOSTS = (
 SIGNIN_PATH_RE = re.compile(r"/(login|logout|auth_redirect|login_with_sso|saml_redirector|sso_login|signin|sign-in|oauth2|authorize|mfa)\b", re.I)
 
 
-# Substring heuristics that fail safe. Concatenated names (adminlogin, UserSignIn, userauth) still match;
-# only words that merely contain the letters (author, lessons, Associate, designing, signing) are excluded.
-LOGIN_PAGE_RE = re.compile(r"log-?(in|on)|sign[-_]?(in|on)(?!g)|(?<![a-z])sign (in|on)(?![a-z])|(?<![a-z])sso|sso(?![a-z])"
-                           r"|mfa|saml|oauth|auth(?!or(?!iz))|verif(y|ication)", re.I)
+# Substring heuristics that fail safe. Concatenated and camelCase names (adminlogin, UserSignInGate, CorpSSOCallback,
+# userauth, authorise) still match; only words that merely contain the letters (author, lessons, Associate, designing,
+# signing) are excluded. The (?-i:...) parts read camelCase boundaries, so they are case-sensitive.
+LOGIN_PAGE_RE = re.compile(r"log-?(in|on)|sign[-_]?(in|on)(?!g)|(?-i:Sign[-_]?(In|On)(?=[A-Z]))|(?<![a-z])sign (in|on)(?![a-z])"
+                           r"|(?<![a-z])sso|sso(?![a-z])|(?-i:SSO(?=[A-Z][a-z]))|mfa|saml|oauth|auth(?!or(?!i[sz]))|verif(y|ication)", re.I)
 
 
 # Bare "pass" stays a match after any prefix (userpass, txtpass, userPass) except the few English words ending in it.

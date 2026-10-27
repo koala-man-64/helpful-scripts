@@ -213,7 +213,23 @@ def test_secret_fields_are_refused(cli: Cli, base_url: str) -> None:
     assert cli.ok("value", ref(env, r'textbox "Password"'))["masked"] is True
 
 
-def test_credential_guard_reaches_open_shadow_roots_and_eval_refs(cli: Cli, base_url: str) -> None:
+def test_keys_aimed_elsewhere_never_land_in_a_password(cli: Cli, base_url: str) -> None:
+    env = cli.ok("goto", f"{base_url}/secret.html")
+    cli.ok("click", ref(env, r'textbox "Password" \['))
+    # Playwright focuses the target, then sends keys to whatever holds focus; a heading cannot take focus.
+    # fill retargets a label to its control.
+    for args in (("press", "a", "h1"), ("type", "h1", "x", "--append"), ("fill", "label[for=pw]", "x")):
+        code, _out, err = cli(*args)
+        assert code == 2 and err["class"] == "guarded", (args, err)
+    assert cli.ok("eval", "document.getElementById('pw').value")["value"] == ""
+    # A focusable target takes the focus, so the keys land where intended.
+    assert cli.ok("press", "a", ref(env, r'textbox "Username"'))["value_after"] == "a"
+    cli.ok("click", ref(env, r'textbox "Password" \['))
+    cli.ok("fill", "label[for=user]", "rudy")
+    assert cli.ok("eval", "document.getElementById('user').value")["value"] == "rudy"
+
+
+def test_credential_guard_covers_shadow_roots_and_eval_refs(cli: Cli, base_url: str) -> None:
     env = cli.ok("goto", f"{base_url}/shadow.html")
     pw_ref = ref(env, r'textbox "New password"')
     # Focus inside an open shadow root leaves document.activeElement on the host; the guard must look past it.
@@ -225,6 +241,12 @@ def test_credential_guard_reaches_open_shadow_roots_and_eval_refs(cli: Cli, base
     assert cli.ok("eval", "--ref", ref(env, r'textbox "Nickname"'), "el => el.value")["value"] == "Abel"
     # Untargeted eval stays outside the guard (documented); here it proves no key reached the field.
     assert cli.ok("eval", "document.getElementById('host').shadowRoot.getElementById('pw').value")["value"] == ""
+    # Focus inside a closed shadow root cannot be inspected, so only safe keys go through.
+    cli.ok("eval", "focusClosed()")
+    code, _out, err = cli("press", "x")
+    assert code == 2 and err["class"] == "action_failed", err
+    cli.ok("press", "Tab")
+    assert cli.ok("eval", "closedValue()")["value"] == ""
 
 
 def test_wait_signed_in_ignores_the_login_page(cli: Cli, base_url: str) -> None:
