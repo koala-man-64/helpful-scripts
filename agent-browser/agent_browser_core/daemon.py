@@ -3,6 +3,8 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import select
+import socket
 import socketserver
 import struct
 import sys
@@ -695,15 +697,34 @@ class BrowserEngine:
         self.discarded_unsaved = False
         self.new_pages = []
         self.last_activity = core_common._now()
-        if cmd != "ping" and self.port:
-            self.write_session(self.port)  # `busy` is visible to `status` while a long action runs
 
     def _end(self) -> None:
-        was = self.current_cmd
         self.current_cmd = None
         self.cmd_opts = {}
-        if was != "ping" and self.port:
+
+    request_busy: dict[str, Any] | None = None
+
+    def _mark_busy(self, cmd: str, timeout: float) -> None:
+        """Publish the whole request in session.json so `status` can tell this daemon busy from hung.
+
+        `until` is when the caller itself stops waiting; past it, a daemon still in this request is hung.
+        Pings and polls are short and frequent, so they are not published.
+        """
+        if cmd in ("ping", "poll") or not self.port:
+            return
+        self.request_busy = {"cmd": cmd, "since": core_common._utc_now(), "until": core_common._utc_after(timeout + core_common.CLIENT_GRACE)}
+        self._publish_busy()
+
+    def _mark_idle(self) -> None:
+        if self.request_busy is not None:
+            self.request_busy = None
+            self._publish_busy()
+
+    def _publish_busy(self) -> None:
+        try:
             self.write_session(self.port)
+        except OSError as exc:  # diagnostics only: never fail or lose a command's reply over it; the heartbeat rewrites it
+            self.dlog(f"cannot publish busy state: {type(exc).__name__}")
 
     def _check_blocks(self) -> None:
         if self.unsaved_blocked:
@@ -1244,7 +1265,7 @@ class BrowserEngine:
             "launcher": existing.get("launcher"),
             "browser": self.launch.get("browser"), "browser_version": self.browser_version, "headless": bool(self.launch.get("headless")),
             "user_data_dir": str(self.paths.user_data), "log": str(self.paths.log), "started": self.started_at,
-            "heartbeat": core_common._utc_now(), "busy": ({"cmd": self.current_cmd, "since": self.cmd_started} if self.current_cmd else None),
+            "heartbeat": core_common._utc_now(), "busy": self.request_busy,
             "code_hash": self.launch.get("code_hash"), "tool_version": core_common.TOOL_VERSION, "python": sys.executable,
             "playwright": _playwright_version(),
         })
@@ -1326,6 +1347,15 @@ class Daemon(runtime.OperatingMixin, actions.VerifiedActionsMixin, api.ApiMixin,
     """One browser owner thread, with a separate logical page set per caller session."""
 
 
+def _caller_gone(sock: socket.socket) -> bool:
+    """True when the caller closed or reset its end while its one-line request waited in the queue."""
+    try:
+        readable, _, _ = select.select([sock], [], [], 0)
+        return bool(readable) and sock.recv(1, socket.MSG_PEEK) == b""
+    except OSError:  # reset by a killed caller
+        return True
+
+
 class _Handler(socketserver.StreamRequestHandler):
     def handle(self) -> None:  # noqa: D102
         daemon: Daemon = self.server.daemon  # type: ignore[attr-defined]
@@ -1366,9 +1396,25 @@ class _Handler(socketserver.StreamRequestHandler):
             self._reply({"ok": False, "error": {"class": core_common.ERR_VALIDATION, "message": "Timeout must be finite and between 0 and 86400 seconds."}})
             return
         timeout = float(raw_timeout)
+        start_by = message.get("start_by")
+        if start_by is not None and (type(start_by) not in (float, int) or not math.isfinite(start_by)):
+            self._reply({"ok": False, "error": {"class": core_common.ERR_VALIDATION, "message": "start_by must be a finite number of epoch seconds."}})
+            return
+        # Requests queue behind other sessions' commands. One picked up after its caller's start_by, or
+        # after its caller was killed or cancelled, would run with nobody waiting for the result, so it
+        # is refused unrun. A poll only observes an operation that already started, so it always runs.
+        if start_by is not None and cmd != "poll" and core_common._wall() > start_by:
+            daemon.dlog(f"{cmd} refused: not started before its caller's queue deadline")
+            self._reply({"ok": False, "error": {"class": core_common.ERR_BUSY, "message": "Another command held the browser past this request's queue deadline; it was not run.",
+                                                "hint": core_common._hint("busy", daemon.profile), "details": {"executed": False}}})
+            return
+        if cmd != "poll" and _caller_gone(self.request):
+            daemon.dlog(f"{cmd} skipped: its caller disconnected while it was queued")
+            return
         self.request.settimeout(timeout + core_common.CLIENT_GRACE + 30)
         started = core_common._now()
         try:
+            daemon._mark_busy(cmd, timeout)
             result = daemon.dispatch(cmd, args, timeout)
             reply: dict[str, Any] = {"ok": True, "result": result}
             daemon.dlog(f"{cmd} ok {round((core_common._now() - started) * 1000)}ms")
@@ -1380,6 +1426,8 @@ class _Handler(socketserver.StreamRequestHandler):
             daemon.dlog(f"{cmd} crashed: {type(exc).__name__}")
             reply = {"ok": False, "error": {"class": core_common.ERR_DAEMON, "message": "Command failed unexpectedly; inspect its journal receipt before repeating an action.",
                                             "hint": core_common._hint("daemon_unresponsive", daemon.profile)}}
+        finally:
+            daemon._mark_idle()
         self._reply(reply)
 
     def _reply(self, reply: dict[str, Any]) -> None:
