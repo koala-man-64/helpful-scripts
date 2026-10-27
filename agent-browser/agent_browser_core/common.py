@@ -278,7 +278,7 @@ CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200b-\u200
 # instead of JSON-quoted, and single-quotes the whole key ('' for ') when it holds ": ", " #", braces or a backtick.
 # A value only ever follows ": ", so a name cannot pass forged [ref=...] text off as the line's attrs.
 SNAP_KEY = (r'(?P<role>[A-Za-z/]+)(?: (?:"(?P<name>(?:[^"\\]|\\.)*)"|(?P<rname>/(?= \[|:|$)|/.*?/(?= \[|:|$))))?'
-            r'(?P<attrs>(?: \[[^\]]*\])*)')
+            r'(?P<attrs>(?: \[[^\[\]]*\])*)')  # Playwright's attrs never hold a bracket; a bare name's " [x" is not one
 
 
 LINE_RE = re.compile(r'^(?P<indent>\s*)- ' + SNAP_KEY + r'(?:(?P<colon>:)(?: (?P<value>.*))?)?$')
