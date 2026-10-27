@@ -107,6 +107,7 @@ separately identifiable. Read [interfaces](references/interfaces.md) for example
 | `ambiguous_profile` | Select the intended profile explicitly. |
 | `not_running` | Open the authorized URL to start a session. |
 | `timeout` | Inspect current state; repeat an authorized wait when appropriate. |
+| `busy` | Another session held the browser; the command was not run. Repeat it. |
 | `protocol_mismatch` | Explicitly restart the shared profile; do not replay a write. |
 | `journal_full` | Inspect and explicitly clear evidence when authorized. |
 

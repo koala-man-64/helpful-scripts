@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 import socket
 import threading
+import time
+from datetime import datetime, timezone
 from typing import Any, Callable, Iterator
 
 import pytest
@@ -27,15 +29,21 @@ from agent_browser_core import common as core_common, daemon as core_daemon, ses
 class _ServerHarness:
     """Owns a `Daemon` + `_Server` living entirely on one background thread.
 
-    `fail_next_ping` (a threading.Event) is the only cross-thread control: when set, the next
-    `ping` dispatched on the server thread raises once, then clears itself and behaves normally.
+    Cross-thread controls are threading.Events: `fail_next_ping` makes the next `ping` raise once;
+    `slow_next_tabs` makes the next `tabs` set `in_slow` and hold the server thread until the test sets
+    `release_tabs`, as another session's long command would. `publish=True` gives the daemon its port
+    and writes session.json, so the busy record a real daemon publishes is on disk.
     """
 
-    def __init__(self, build: Callable[..., tuple[Any, Any, Any]], **build_kwargs: Any) -> None:
+    def __init__(self, build: Callable[..., tuple[Any, Any, Any]], publish: bool = False, **build_kwargs: Any) -> None:
         self._build = build
         self._build_kwargs = build_kwargs
+        self._publish = publish
         self.fail_next_ping = threading.Event()
         self.large_next_ping = threading.Event()
+        self.slow_next_tabs = threading.Event()
+        self.in_slow = threading.Event()
+        self.release_tabs = threading.Event()
         self.stop_event = threading.Event()
         self._ready = threading.Event()
         self.info: dict[str, Any] = {}
@@ -55,10 +63,23 @@ class _ServerHarness:
             return real_h_ping(args, timeout)
 
         daemon.h_ping = guarded_h_ping
+        real_h_tabs = daemon.h_tabs
+
+        def slow_h_tabs(args: dict[str, Any], timeout: float) -> dict[str, Any]:
+            if self.slow_next_tabs.is_set():
+                self.slow_next_tabs.clear()
+                self.in_slow.set()
+                self.release_tabs.wait(10.0)
+            return real_h_tabs(args, timeout)
+
+        daemon.h_tabs = slow_h_tabs
 
         server = core_daemon._Server(("127.0.0.1", 0), core_daemon._Handler)
         server.daemon = daemon
         server.timeout = 0.2
+        if self._publish:
+            daemon.port = server.server_address[1]
+            daemon.write_session(daemon.port)
         self.info = {"port": server.server_address[1], "token": daemon.token, "profile": daemon.profile}
         self._ready.set()
         try:
@@ -82,6 +103,7 @@ class _ServerHarness:
         return {"token": self.info["token"], "port": self.info["port"], "profile": self.info["profile"]}
 
     def stop(self) -> None:
+        self.release_tabs.set()
         self.stop_event.set()
         self.thread.join(timeout=2.0)
 
@@ -198,6 +220,156 @@ def test_stop_sets_stop_reason_and_the_loop_exits(daemon_server: _ServerHarness)
     daemon_server.thread.join(timeout=2.0)
     assert not daemon_server.thread.is_alive()
     assert daemon_server.info["stop_reason"] == "stop"
+
+
+# ---------------------------------------------------------------------------
+# Several callers on one profile: the daemon serves them one at a time.
+
+
+def _hold_daemon(harness: _ServerHarness) -> tuple[threading.Thread, list[Any]]:
+    """Another session's long command: a `tabs` that holds the server thread until `release_tabs` is set."""
+    outcome: list[Any] = []
+
+    def run() -> None:
+        try:
+            outcome.append(core_session._request(harness.session, "tabs", {}, timeout=5.0))
+        except Exception as exc:  # noqa: BLE001 - surfaced by the assertions on `outcome`
+            outcome.append(exc)
+
+    harness.slow_next_tabs.set()
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    assert harness.in_slow.wait(3.0), "the holding command never reached the server thread"
+    return thread, outcome
+
+
+def _queue_raw(port: int, message: dict[str, Any]) -> socket.socket:
+    sock = socket.create_connection(("127.0.0.1", port), timeout=5.0)
+    sock.sendall((json.dumps(message) + "\n").encode())
+    return sock
+
+
+def test_request_still_queued_at_its_start_by_is_refused_unrun(daemon_server: _ServerHarness) -> None:
+    holder, outcome = _hold_daemon(daemon_server)
+    start_by = time.time() + 0.2
+    message = {**daemon_server.session, "protocol_version": core_common.PROTOCOL_VERSION, "cmd": "stop", "start_by": start_by}
+    with _queue_raw(daemon_server.info["port"], message) as sock:
+        while time.time() <= start_by + 0.1:
+            time.sleep(0.05)
+        daemon_server.release_tabs.set()
+        with sock.makefile("rb") as reader:
+            reply = json.loads(reader.readline())
+    holder.join(timeout=5.0)
+
+    assert reply["error"]["class"] == core_common.ERR_BUSY
+    assert reply["error"]["details"] == {"executed": False}
+    assert isinstance(outcome[0], dict), outcome
+    # A stop that ran would have ended the serve loop; the daemon still answers.
+    assert core_session._request(daemon_server.session, "ping", {}, timeout=2.0)["pong"] is True
+
+
+def test_request_whose_caller_disconnected_while_queued_is_skipped(daemon_server: _ServerHarness) -> None:
+    holder, _outcome = _hold_daemon(daemon_server)
+    message = {**daemon_server.session, "protocol_version": core_common.PROTOCOL_VERSION, "cmd": "stop", "start_by": time.time() + 60}
+    _queue_raw(daemon_server.info["port"], message).close()  # a caller killed or cancelled while queued
+    daemon_server.release_tabs.set()
+    holder.join(timeout=5.0)
+    assert core_session._request(daemon_server.session, "ping", {}, timeout=2.0)["pong"] is True
+    assert daemon_server.thread.is_alive()
+
+
+def test_queued_request_keeps_its_full_timeout_after_waiting_its_turn(daemon_server: _ServerHarness) -> None:
+    holder, _outcome = _hold_daemon(daemon_server)
+    answered: list[Any] = []
+
+    def ping() -> None:
+        try:
+            answered.append(core_session._request(daemon_server.session, "ping", {}, timeout=0.2, grace=0.0, queue_wait=5.0))
+        except Exception as exc:  # noqa: BLE001 - surfaced by the assertion
+            answered.append(exc)
+
+    caller = threading.Thread(target=ping, daemon=True)
+    caller.start()
+    time.sleep(0.6)  # longer than the 0.2 s that used to be this request's whole patience
+    daemon_server.release_tabs.set()
+    caller.join(timeout=6.0)
+    holder.join(timeout=5.0)
+    assert isinstance(answered[0], dict) and answered[0]["pong"] is True, answered
+
+
+def test_late_poll_still_runs_because_it_only_observes(daemon_server: _ServerHarness) -> None:
+    message = {**daemon_server.session, "protocol_version": core_common.PROTOCOL_VERSION, "cmd": "poll",
+               "args": {"command_id": "0" * 32}, "start_by": time.time() - 60}
+    reply = json.loads(_raw_send(daemon_server.info["port"], (json.dumps(message) + "\n").encode()))
+    assert reply["error"]["class"] == core_common.ERR_NOT_FOUND  # dispatched, not refused as busy
+
+
+@pytest.mark.parametrize("start_by", ["soon", float("nan"), float("inf"), True, [1]])
+def test_invalid_start_by_is_rejected_without_dispatch(daemon_server: _ServerHarness, start_by: Any) -> None:
+    message = {**daemon_server.session, "protocol_version": core_common.PROTOCOL_VERSION, "cmd": "stop", "start_by": start_by}
+    reply = json.loads(_raw_send(daemon_server.info["port"], (json.dumps(message) + "\n").encode()))
+    assert reply["error"]["class"] == core_common.ERR_VALIDATION
+    assert core_session._request(daemon_server.session, "ping", {}, timeout=2.0)["pong"] is True
+
+
+def test_status_reports_a_daemon_held_by_another_command_as_busy_not_unresponsive(
+    make_daemon: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness = _ServerHarness(make_daemon, publish=True).start()
+    try:
+        paths = core_common._paths(harness.info["profile"])
+        paths.lock.touch()
+        monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
+        real_ping = core_session._ping
+        monkeypatch.setattr(core_session, "_ping", lambda session, timeout=None: real_ping(session, timeout=0.25))
+        holder, outcome = _hold_daemon(harness)
+
+        state, record = core_session._liveness(paths)
+        status = core_session.status_session(paths)
+        harness.release_tabs.set()
+        holder.join(timeout=5.0)
+
+        assert state == "busy" and record["busy"]["cmd"] == "tabs"
+        assert status["running"] is True and status["busy"]["cmd"] == "tabs"
+        assert status["note"] == core_common._hint("busy_status", paths.profile)
+        assert "--force" not in json.dumps(status)
+        assert "tabs" not in status  # unknown while the command runs, not an empty list
+        assert isinstance(outcome[0], dict), outcome
+        assert core_session._read_session(paths)["busy"] is None
+        monkeypatch.setattr(core_session, "_ping", real_ping)
+        assert core_session._liveness(paths)[0] == "running"
+    finally:
+        harness.stop()
+
+
+def test_busy_record_spans_the_callers_deadline_and_clears_after(make_daemon: Any) -> None:
+    daemon, _ctx, _page = make_daemon()
+    daemon.port = 4321
+    daemon._mark_busy("poll", 15.0)
+    assert core_session._read_session(daemon.paths) is None  # pings and polls are not published
+
+    daemon._mark_busy("click", 15.0)
+    busy = core_session._read_session(daemon.paths)["busy"]
+    until = datetime.strptime(busy["until"], core_common.UTC_FORMAT).replace(tzinfo=timezone.utc)
+    remaining = (until - datetime.now(timezone.utc)).total_seconds()
+    assert busy["cmd"] == "click"
+    assert 15.0 + core_common.CLIENT_GRACE - 2 <= remaining <= 15.0 + core_common.CLIENT_GRACE
+
+    daemon._mark_idle()
+    assert core_session._read_session(daemon.paths)["busy"] is None
+
+
+def test_unpublishable_busy_state_never_fails_the_command(make_daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    daemon, _ctx, _page = make_daemon()
+    daemon.port = 4321
+
+    def full_disk(port: int) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(daemon, "write_session", full_disk)
+    daemon._mark_busy("click", 15.0)
+    daemon._mark_idle()
+    assert daemon.request_busy is None
 
 
 def test_idle_connection_does_not_block_a_following_legitimate_request(
