@@ -59,7 +59,8 @@ FILL_FOCUS_JS = """el => {
 ACTIVE_SECRET_JS = """() => {
   let el = document.activeElement;
   while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
-  if (!el || el === document.body || el.tagName === 'IFRAME') return null;
+  // A focused frame element means focus is in its child document, which reports for itself.
+  if (!el || el === document.body || ['IFRAME', 'FRAME', 'OBJECT', 'EMBED'].includes(el.tagName)) return null;
   const focus = {has_focus: document.hasFocus()};
   // A custom element that cannot take focus itself holds it only for a closed shadow root, which page script cannot inspect.
   if (!el.shadowRoot && el.tagName.includes('-') && !el.hasAttribute('tabindex') && !el.isContentEditable) return Object.assign({unknown: true}, focus);

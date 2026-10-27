@@ -246,8 +246,9 @@ raised by a human navigation is accepted.
   a wrong token is dropped without a reply, a request has 5 s to arrive and a 2 MiB input budget.
 - The tool never types into password, one-time-code, or credential-looking fields, and no flag overrides that. It
   checks where input lands: the label's control for `fill`, and the focused element for key presses (a target that
-  cannot take focus leaves keys on the previous field). Open shadow roots are inspected. A field it cannot inspect,
-  including focus inside a closed shadow root, counts as one (`action_failed`; retry after a fresh `snapshot`).
+  cannot take focus leaves keys on the previous field). Open shadow roots are inspected. A field it cannot inspect
+  counts as one (`action_failed`; retry after a fresh `snapshot`), and so does focus inside a custom element's
+  closed shadow root; a closed root on a plain element, or on a host with its own `tabindex`, is not detected.
   The check runs just before the action, so a page that moves focus or changes a field's type during a `type` can
   still redirect keys. `eval` is arbitrary page JavaScript: `--ref` refuses a credential field as `el`, but the
   script itself, like page and `--frame` eval, can read or set any field, so approval-sensitive profiles set
@@ -343,7 +344,7 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 | `protocol_mismatch` | Explicitly restart the shared profile after preserving every session's work. |
 | `stale_ref` / `ref_not_found` | The page or its frame navigated, or a scoped snapshot was taken. `agent-browser snapshot` and pick again. |
 | `guarded` on `fill` / `type` / `press` | The field, or the focused field the keys would land in, looks like a password or code field. The human types it in the window; then `wait --signed-in <host>`. |
-| `action_failed` "Could not confirm the field…" | The credential check could not inspect the field (page navigating, frame detached, focus inside a closed shadow root). Take a fresh `snapshot` and retry; give `press` a ref if a press without one keeps failing. |
+| `action_failed` "Could not confirm the field…" | The credential check could not inspect the field (page navigating, frame detached, focus inside a custom element's closed shadow root). Take a fresh `snapshot` and retry; give `press` a ref if a press without one keeps failing. |
 | `unsaved_changes` | The page has edits. Click its Save/Update button or re-run with `--discard-changes`. |
 | `Profile path is too long` (class `config`) | Set `AGENT_BROWSER_HOME` to a short path such as `C:\ab`. |
 | `browser_launch` with a log tail | Read `daemon.log`; `agent-browser doctor` decodes Edge and Chrome policies (`DeveloperToolsAvailability=2`, `ForceEphemeralProfiles`). Try `--browser chrome`. |

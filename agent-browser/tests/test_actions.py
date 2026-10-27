@@ -296,6 +296,7 @@ def test_targetless_press_fails_closed_when_a_frame_check_errors(make_daemon, ou
 def test_targetless_press_sees_a_credential_inside_an_open_shadow_root(make_daemon, outer_text: str) -> None:
     # The fakes cannot run page JS; test_live drives the shadow-root walk in a real browser.
     assert "shadowRoot.activeElement" in core_daemon.ACTIVE_SECRET_JS
+    assert all(f"'{tag}'" in core_daemon.ACTIVE_SECRET_JS for tag in ("IFRAME", "FRAME", "OBJECT", "EMBED"))
     daemon, ctx, page = make_daemon(snapshot_text=outer_text)
     page.main_frame.active_info = {"tag": "INPUT", "type": "password", "text": ""}
 
