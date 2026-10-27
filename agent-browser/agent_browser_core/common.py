@@ -178,11 +178,17 @@ MASK = "***"
 
 
 # Where a masked value is removed from other lines' names: a confirmed credential's own value this long, from every
-# line (at most SCRUB_PAGE_CAP values); any masked value, from the lines around its field. A line with more than
-# SCRUB_LINE_CAP values to remove shows *** instead, so the cost stays linear in the snapshot.
+# line (at most SCRUB_PAGE_CAP values); any masked value, from the named lines around its field. Past
+# SCRUB_WORK_CAP (line, value) pairs, the remaining named lines around masked fields show *** as their name instead,
+# so a hostile page cannot make the scrub quadratic.
 SCRUB_MIN = 3
 SCRUB_PAGE_CAP = 64
-SCRUB_LINE_CAP = 64
+SCRUB_WORK_CAP = 200_000
+
+
+# Lines with a role the page put on a valued input: at most this many are checked per snapshot (they share the time
+# budget); past it, such lines that may still be one of those inputs are masked.
+REMAP_SCAN_CAP = 20
 
 
 JS_SPACE_RE = re.compile(r"[\t\n\x0b\x0c\r \xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+")  # JS \s
@@ -218,10 +224,13 @@ LOGIN_PAGE_RE = re.compile(r"log-?(in|on)|sign[-_]?(in|on)(?!g)|(?-i:[Ss]ign[-_]
 
 
 # Bare "pass" stays a match after any prefix (userpass, txtpass, userPass) except the few English words ending in it.
-SECRET_STRONG_RE = re.compile(r"pass(word|code|phrase|wd)|(?<!com)(?<!by)(?<!sur)(?<!tres)(?<!over)(?<!under)pass\b|pwd|(?<![a-z])pw(?![a-z])"
-                              r"|\botp\b|\bmfa\b|totp|secret|token|\bssn\b|social[-_ ]?security|\bcvv\b|\bcvc\b"
+# Short forms are bounded by non-letters, not \b, so ssn_last4, mfa_code, otpInput and cvv2 match; no English word
+# ends in "pw".
+SECRET_STRONG_RE = re.compile(r"pass(word|code|phrase|wd|wrd)|(?<!com)(?<!by)(?<!sur)(?<!tres)(?<!over)(?<!under)pass\b|pwd|pw(?![a-z])"
+                              r"|(?<![a-z])(otp|mfa|ssn)(?-i:(?![a-z]))|totp|secret|token|social[-_ ]?security|(?<![a-z])cv[vcn]\d?(?![a-z])"
                               r"|card[-_ ]?(number|num|no)\b|\bcc[-_ ]?(number|num|no)\b"
-                              r"|(verification|security|auth(entication)?|recovery|backup)[-_ ]?code|(api|recovery|private|access)[-_ ]?keys?(?![a-z])", re.I)
+                              r"|(verification|security|auth(entication)?|recovery|backup|sms|2fa|one[-_ ]?time)[-_ ]?code"
+                              r"|(api|recovery|private|access)[-_ ]?keys?(?![a-z])", re.I)
 
 
 SECRET_WEAK_RE = re.compile(r"\bcode\b|\bpin\b", re.I)
@@ -268,7 +277,8 @@ CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200b-\u200
 # A snapshot key is role, name and [attrs]. Playwright prints a name that starts and ends with / (a lone / too) bare
 # instead of JSON-quoted, and single-quotes the whole key ('' for ') when it holds ": ", " #", braces or a backtick.
 # A value only ever follows ": ", so a name cannot pass forged [ref=...] text off as the line's attrs.
-SNAP_KEY = r'(?P<role>[A-Za-z/]+)(?: (?:"(?P<name>(?:[^"\\]|\\.)*)"|(?P<rname>/(?:.*?/)?)))?(?P<attrs>(?: \[[^\]]*\])*)'
+SNAP_KEY = (r'(?P<role>[A-Za-z/]+)(?: (?:"(?P<name>(?:[^"\\]|\\.)*)"|(?P<rname>/(?= \[|:|$)|/.*?/(?= \[|:|$))))?'
+            r'(?P<attrs>(?: \[[^\]]*\])*)')
 
 
 LINE_RE = re.compile(r'^(?P<indent>\s*)- ' + SNAP_KEY + r'(?:(?P<colon>:)(?: (?P<value>.*))?)?$')

@@ -427,11 +427,78 @@ def test_scrub_cost_stays_linear_when_a_secret_field_holds_many_lines() -> None:
     started = time.perf_counter()
     out = core_snapshots.filter_snapshot(text, full=True, mask_refs={"e3"}, secret_refs={"e3"})
     assert time.perf_counter() - started < 5.0
-    assert '  - region "***" [ref=e2]:' in out  # too many values to remove from its name: masked whole
+    assert '  - region "Area" [ref=e2]:' in out  # its name holds none of the values, so it stays
     assert '  - button "Button 11999" [ref=e111999]' in out  # contents are scrubbed only around the field
     # A secret field's own value of three or more characters is removed page-wide; its contents are not.
     page = '- textbox "x" [ref=e1]: Cancel\n- combobox "y" [ref=e2]:\n  - paragraph: Delete\n- button "Cancel Delete" [ref=e3]\n'
     assert core_snapshots.filter_snapshot(page, full=True, mask_refs={"e1", "e2"}, secret_refs={"e1", "e2"})[-1] == '- button "*** Delete" [ref=e3]'
+
+def test_scrub_work_is_capped_on_deep_trees(monkeypatch: pytest.MonkeyPatch) -> None:
+    import time
+    depth = 4000  # named ancestors all the way up, each holding every masked value below it
+    head = "".join("  " * d + f'- group "G{d}" [ref=e{d + 1}]:\n' for d in range(depth))
+    inner = "".join("  " * (depth + 1) + f"- paragraph: v{i:05d}\n" for i in range(20000))
+    text = head + "  " * depth + '- combobox "x" [ref=e9999]:\n' + inner
+    started = time.perf_counter()
+    out = core_snapshots.filter_snapshot(text, full=True, mask_refs={"e9999"})
+    assert time.perf_counter() - started < 5.0
+    assert out[0] == '- group "***" [ref=e1]:'  # past the work cap a name that might repeat a value shows ***
+    monkeypatch.setattr(core_common, "SCRUB_WORK_CAP", 10**9)
+    small = '- row "Pw hunter2" [ref=e1]:\n  - textbox [ref=e2]: hunter2\n- row "Other" [ref=e3]\n'
+    assert core_snapshots.filter_snapshot(small, full=True, mask_refs={"e2"})[0] == '- row "Pw ***" [ref=e1]:'
+    monkeypatch.setattr(core_common, "SCRUB_WORK_CAP", 0)
+    assert core_snapshots.filter_snapshot(small, full=True, mask_refs={"e2"}) == [
+        '- row "***" [ref=e1]:', "  - textbox [ref=e2]: ***", '- row "Other" [ref=e3]']
+
+# A Python port of how Playwright 1.61 prints a line (yamlEscapeKeyIfNeeded, yamlEscapeValueIfNeeded, the bare /name/).
+def _pw_needs_quotes(s: str) -> bool:
+    import re as _re
+    return (not s or bool(_re.search(r"^\s|\s$", s)) or bool(_re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", s))
+            or s.startswith("-") or bool(_re.search(r"[\n:](\s|$)", s)) or bool(_re.search(r"\s#", s)) or bool(_re.search(r"[\n\r]", s))
+            or bool(_re.match(r"[&*\],?!>|@\"'#%]", s)) or bool(_re.search(r"[{}`]", s)) or s.startswith("[")
+            or s.lower() in ("y", "n", "yes", "no", "true", "false", "on", "off", "null") or _is_number(s))
+
+def _is_number(s: str) -> bool:
+    try:
+        float(s.strip() or "x")
+        return True
+    except ValueError:
+        return False
+
+def _pw_value(s: str) -> str:
+    if not _pw_needs_quotes(s):
+        return s
+    named = {"\\": "\\\\", '"': '\\"', "\b": "\\b", "\f": "\\f", "\n": "\\n", "\r": "\\r", "\t": "\\t"}
+    return '"' + "".join(named.get(c, "\\x%02x" % ord(c) if ord(c) < 0x20 or 0x7f <= ord(c) <= 0x9f else c) for c in s) + '"'
+
+def _pw_line(role: str, name: str, attrs: str, value: str | None) -> str:
+    key = role
+    if name:
+        key += " " + (name if name.startswith("/") and name.endswith("/") else json.dumps(name, ensure_ascii=False))
+    key += attrs
+    key = "'" + key.replace("'", "''") + "'" if _pw_needs_quotes(key) else key
+    return "- " + key + ("" if value is None else ": " + _pw_value(value))
+
+def test_parse_round_trips_what_playwright_prints() -> None:
+    import random
+    pieces = ["/", " ", "[", "]", "[ref=e9]", ":", ": ", '"', "'", "\\", "#", " #", "{", "}", "`", "-", "a", "Pw", "1",
+              "\u2028", "\x85", "\x1c", "/ [ref=e1]", "]: x", "''"]
+    attr_sets = ["", " [active]", " [ref=e5]", " [checked] [ref=f1e5]", " [level=2] [ref=e5] [cursor=pointer]"]
+    rng = random.Random(20261027)
+    for _ in range(4000):
+        raw_name = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 6)))
+        name = core_common.js_normalize_space(raw_name)
+        value = None if rng.random() < 0.3 else core_common.js_normalize_space("".join(rng.choice(pieces) for _ in range(rng.randint(0, 5))))
+        attrs = rng.choice(attr_sets)
+        role = rng.choice(["textbox", "button", "link", "heading"])
+        line = _pw_line(role, name, attrs, value)
+        parsed = core_snapshots.parse_ai_snapshot(line + "\n")
+        assert len(parsed) == 1 and parsed[0].parsed, line
+        got = parsed[0]
+        expected_ref = next((a[5:-1] for a in attrs.split(" ") if a.startswith("[ref=")), None)
+        expected_name = (name if name.startswith("/") and name.endswith("/") else json.dumps(name, ensure_ascii=False)[1:-1].replace('\\"', '"')) if name else None
+        assert (got.role, got.name, got.ref) == (role, expected_name, expected_ref), line
+        assert (None if got.value is None else core_common.yaml_unquote(got.value)) == value, line
 
 # ---------------------------------------------------------------------------
 # budget_lines / diff_lines / find_line
@@ -541,10 +608,12 @@ def test_safe_name_caps_length() -> None:
         *[({"text": name}, "", "", True) for name in ("card-number", "card_number", "cardnum", "Card no", "cc-number", "ccnum",
                                                        "security_code", "cvc", "API key", "apiKey", "api_keys", "Recovery key",
                                                        "recovery-code", "backup code", "Social security", "private_key",
-                                                       "Access key", "Login pw", "txt_pw")],
+                                                       "Access key", "Login pw", "txt_pw", "cvv2", "cvc2", "cvn", "newpw",
+                                                       "oldPw", "ssn_last4", "mfa_code", "otpInput", "sms_code", "2fa code",
+                                                       "one-time code", "Passwrd")],
         # ...but not words that only share their letters.
         *[({"text": word}, "", "", False) for word in ("Card notes", "cardinal", "Access keyboard", "monkey", "PWA install",
-                                                       "Tokyo office")],
+                                                       "Tokyo office", "Upwork", "hotpot", "CVS pharmacy", "lessons")],
         # Login pages are recognised inside longer path segments...
         ({"text": "code"}, "https://x.com/adminlogin.php", "", True),
         ({"text": "code"}, "https://x.com/ssologin", "", True),

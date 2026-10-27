@@ -268,22 +268,25 @@ raised by a human navigation is accepted.
   `"eval": false`. The human types in the window and the agent waits with `wait --signed-in`.
 - Playwright's snapshot prints what a field holds, so every input line with a value is checked like a `fill`
   target first. The value and contents of a credential-looking field show as `***`, and so do those of a field
-  that cannot be inspected, a field with no ref, and every field past the per-snapshot budget (200 checks, 500 ms
-  each, 2 s in all), and so does anything under a line the parser cannot read. A masked value is also removed from
-  the names of the rows, cells, buttons and links around it, which repeat a field's value in their accessible name.
-  A line with more than 64 such values shows `***` as its name. A confirmed credential input's own value of three
-  or more characters is removed from every line, including a label elsewhere that embeds the field (the first 64
-  such values in a snapshot; past that, only the lines around each field are scrubbed). A field that
-  was masked only because it could not be checked is scrubbed from the lines around it, not across the page. This
-  holds for `snapshot` and its `--full`, `--find` and `--ref` forms, `last_snapshot*.txt`, an action's `changes`
-  and `target_line`, ambiguity candidates, and overflow output; `--find` never matches a masked value or a
-  redacted link. Each check costs about 5-15 ms per snapshot, so on a form with more than about a hundred filled
-  fields, some ordinary values can show as `***`. Inputs are found by the textbox, searchbox, combobox, spinbutton
-  and slider roles. An input the page gives another role counts only on lines that show that input's value. The
-  role check runs in the page's own JavaScript, so a page that can read the field can also hide it from this check;
-  a frame that cannot be read is checked by the standard roles alone. A contenteditable field is checked only when
-  it has the textbox role. A `last_snapshot*.txt` written by an older version keeps its content until the next
-  snapshot rewrites it or `commit journal --clear` removes it.
+  that cannot be inspected, a field with no ref, every field past the per-snapshot budget (200 checks, 500 ms
+  each, 2 s in all), and anything under a line the parser cannot read. A masked value is also removed from the
+  names of the rows, cells, buttons and links around it, which repeat a field's value in their accessible name; if
+  a page makes that work too large, the remaining names around masked fields show `***`. A confirmed credential
+  input's own value of three or more characters is removed from every line, including a label elsewhere that
+  embeds the field (the first 64 such values in a snapshot). A page can therefore hide its own label text by
+  putting the same text in a credential-looking input. A field masked only because it could not be checked, and a
+  contenteditable field, are scrubbed from the lines around them, not across the page. This holds for `snapshot`
+  and its `--full`, `--find` and `--ref` forms, `last_snapshot*.txt`, an action's `changes` and `target_line`,
+  ambiguity candidates, and overflow output; `--find` never matches a masked value or a redacted link. Each check
+  costs about 5-15 ms per snapshot, so on a form with more than about a hundred filled fields, some ordinary
+  values can show as `***`.
+- Inputs are found by the textbox, searchbox, combobox, spinbutton and slider roles. For an input the page gives
+  another role, lines with that role and the input's exact text are checked one at a time until the input is found
+  (at most 20 per snapshot; past that they show `***`). That check runs in the page's own JavaScript, so the page,
+  which can read the field anyway, can also hide it from the check; a frame that cannot be read, or a value that
+  changes between the snapshot and the check, falls back to the standard roles alone. A contenteditable field is
+  checked only when it has the textbox role. A `last_snapshot*.txt` written by an older version keeps its content
+  until the next snapshot rewrites it or `commit journal --clear` removes it.
 - `goto` opens only `http`/`https` (and `about:blank`); `edge://`, `file:`, `javascript:` are refused.
 - Uploads, file-backed inputs (`--text-file`, `--js-file`, `--json-file`, `fill-form --file`) and `--path` targets
   must sit under the caller's current folder, this session's `downloads`/`shots`, or `upload_roots`. The daemon

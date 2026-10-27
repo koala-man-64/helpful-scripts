@@ -453,6 +453,25 @@ def test_a_page_given_role_only_makes_lines_that_show_an_inputs_value_fields(mak
     assert not any("***" in line for line in env["snapshot"])
 
 
+def test_a_decoy_input_cannot_spend_the_budget_on_page_text(make_daemon, monkeypatch) -> None:
+    # A visible <input role=listitem value=Buy> placed after 400 <div role=listitem>Buy</div>.
+    items = "".join(f"- listitem [ref=e{10 + i}]: Buy\n" for i in range(400))
+    daemon, ctx, page = make_daemon(snapshot_text=items)
+    page.main_frame.input_roles = [["listitem", "Buy"]]
+    calls: list[int] = []
+    original = daemon._secret_info
+    monkeypatch.setattr(daemon, "_secret_info", lambda locator, timeout_ms=3000: calls.append(timeout_ms) or original(locator, timeout_ms))
+    lines = daemon.dispatch("snapshot", {"full": True, "max_bytes": 200000}, 5.0)["snapshot"]
+    assert len(calls) == core_common.REMAP_SCAN_CAP  # page text found by its tag costs a check, but only this many
+    assert lines[:core_common.REMAP_SCAN_CAP] == [f"- listitem [ref=e{10 + i}]: Buy" for i in range(core_common.REMAP_SCAN_CAP)]
+    assert lines[-1] == "- listitem [ref=e409]: ***"  # past the cap, a line that may still be the input is masked
+    # Once every such input is found, the remaining lines with its text are page text and are not checked.
+    calls.clear()
+    page.elements["e11"].secret_info = {**PASSWORD_INFO, "type": "text", "text": "Basket"}  # the input, and not a credential
+    lines = daemon.dispatch("snapshot", {"full": True, "max_bytes": 200000}, 5.0)["snapshot"]
+    assert len(calls) == 2 and not any(line.endswith("***") for line in lines)
+
+
 def test_a_role_attribute_cannot_hide_playwright_text_lines(make_daemon) -> None:
     daemon, ctx, page = make_daemon(snapshot_text='- paragraph [ref=e2]:\n  - text: visible\n- iframe [ref=e3]\n')
     page.main_frame.input_roles = [["text /url iframe", "visible"]]

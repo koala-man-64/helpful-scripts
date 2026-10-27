@@ -173,28 +173,31 @@ def _typed(value: str) -> list[str]:
     return [t for t in dict.fromkeys((text, escaped)) if t]
 
 
-def _parents(lines: Sequence[SnapLine]) -> list[int | None]:
+def _named_parents(lines: Sequence[SnapLine]) -> list[int | None]:
+    """For each line, its nearest ancestor that has a name: only a name can repeat a field's value."""
     parents: list[int | None] = []
     stack: list[int] = []
     for i, line in enumerate(lines):
         while stack and lines[stack[-1]].level >= line.level:
             stack.pop()
-        parents.append(stack[-1] if stack else None)
+        k = stack[-1] if stack else None
+        parents.append(k if k is None or lines[k].name is not None else parents[k])
         stack.append(i)
     return parents
 
 
 def _hidden_texts(lines: Sequence[SnapLine], states: Sequence[str | None], secret_refs: Collection[str]) -> list[list[str] | None]:
-    """Per line, the masked values its name or value may repeat, longest first; None when there are more than
-    SCRUB_LINE_CAP, so the line shows *** instead.
+    """Per line, the masked values its name or value may repeat, longest first; None when the line's name must show
+    *** because SCRUB_WORK_CAP ran out.
 
     A row, cell, button, link or heading takes the values of fields inside it into its accessible name, so every
-    masked value, a field's contents included, is removed from the lines that contain the field. A label elsewhere can
-    embed a field too, so a confirmed credential's own value (SCRUB_MIN characters or more, at most SCRUB_PAGE_CAP of
-    them) is removed from every line."""
-    cap = core_common.SCRUB_LINE_CAP
-    parents = _parents(lines)
-    per_line: list[set[str]] = [set() for _ in lines]
+    masked value, a field's contents included, is removed from the named lines that contain the field. A label
+    elsewhere can embed a field too, so a confirmed credential input's own value (SCRUB_MIN characters or more, at
+    most SCRUB_PAGE_CAP of them) is removed from every line."""
+    named = _named_parents(lines)
+    per_line: dict[int, set[str]] = {}
+    blind: set[int] = set()  # named lines past the work cap
+    work = 0
     everywhere: set[str] = set()
     field = 0
     for i, (line, state) in enumerate(zip(lines, states)):
@@ -203,17 +206,20 @@ def _hidden_texts(lines: Sequence[SnapLine], states: Sequence[str | None], secre
         if state not in ("field", "inside") or line.value is None or not line.parsed:
             continue
         texts = _typed(line.value)
-        k = parents[field]
-        while k is not None:
-            if len(per_line[k]) <= cap:
-                per_line[k].update(texts)
-            k = parents[k]
-        own = i == field or (line.role == "text" and parents[i] == field)  # an input's value, inline or after its props
+        k = named[field]
+        while k is not None and k not in blind:
+            if work >= core_common.SCRUB_WORK_CAP:
+                blind.add(k)  # every named line above it is marked by the same walk, so later walks stop here
+            else:
+                per_line.setdefault(k, set()).update(texts)
+                work += len(texts)
+            k = named[k]
+        own = i == field or (line.role == "text" and line.level == lines[field].level + 1)  # inline, or after its props
         if own and lines[field].ref in secret_refs and len(everywhere) < core_common.SCRUB_PAGE_CAP:
             everywhere.update(t for t in texts if len(t) >= core_common.SCRUB_MIN)
     page = sorted(everywhere, key=len, reverse=True)
-    return [None if len(texts) > cap else sorted(texts | everywhere, key=len, reverse=True) if texts else page
-            for texts in per_line]
+    return [None if i in blind else sorted(per_line[i] | everywhere, key=len, reverse=True) if i in per_line else page
+            for i in range(len(lines))]
 
 
 def _mask_states(lines: Sequence[SnapLine], mask_refs: Collection[str], input_values: Mapping[str, Collection[str]]) -> list[str | None]:

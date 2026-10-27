@@ -77,7 +77,7 @@ VISIBLE_SECRET_JS = """() => {
 
 
 # Playwright prints the value of any input or textarea whatever role the page gives it. List [role attribute, value
-# as Playwright prints it (its normalizeWhiteSpace)] for each valued one that has a role attribute.
+# as Playwright prints it (its normalizeWhiteSpace)] for each rendered, valued one that has a role attribute.
 INPUT_ROLES_JS = """() => {
   const out = [];
   const invisible = new RegExp('[' + String.fromCharCode(0x200b, 0xad) + ']', 'g');
@@ -85,7 +85,7 @@ INPUT_ROLES_JS = """() => {
     const inputs = root.querySelectorAll('input[role], textarea[role]');
     for (let i = 0; i < inputs.length; i++) {
       const el = inputs[i];
-      if (el.type === 'checkbox' || el.type === 'radio' || el.type === 'file' || !el.value) continue;
+      if (el.type === 'checkbox' || el.type === 'radio' || el.type === 'file' || !el.value || !el.getClientRects().length) continue;
       out.push([el.getAttribute('role'), el.value.replace(invisible, '').trim().replace(/\\s+/g, ' ')]);
     }
     const all = root.querySelectorAll('*');
@@ -593,9 +593,14 @@ class BrowserEngine:
     def _value_masks(self, page: Any, parsed: Sequence[core_snapshots.SnapLine]) -> tuple[set[str], set[str], dict[str, set[str]]]:
         """(refs whose typed value is hidden, the input/textarea refs among them confirmed secret, values of inputs the
         page gave another role by that role). Each field line is checked like a fill target; a field that is secret,
-        cannot be checked, or falls past the cap or the time budget is masked."""
+        cannot be checked, or falls past the cap or the time budget is masked.
+
+        A line with a page-given role is only a candidate: it shows the same text as such an input. Its check tells
+        whether it is that input (tag INPUT or TEXTAREA); once every such input is found, the rest are page text.
+        Those checks have their own cap, so a decoy input cannot spend the budget on page text."""
         deadline = core_common._now() + core_common.SECRET_SCAN_BUDGET
         input_values: dict[str, set[str]] = {}
+        remaining: dict[tuple[str, str], int] = {}  # (role, value) -> inputs not found yet
         try:
             frames = list(page.frames)
         except Exception:  # noqa: BLE001
@@ -612,22 +617,35 @@ class BrowserEngine:
                 for token in item[0].split():
                     if token.isalpha() and token.islower() and token not in ("text", "iframe", "none", "presentation"):
                         input_values.setdefault(token, set()).add(item[1])
+                        remaining[(token, item[1])] = remaining.get((token, item[1]), 0) + 1
         masked: set[str] = set()
         secret: set[str] = set()
-        checked = 0
+        checked = remapped = 0
         for line in core_snapshots.input_value_lines(parsed, input_values):
             if line.ref is None:
                 continue  # filter_snapshot masks a ref-less field: there is nothing to check it through
+            standard = line.role in core_common.INPUT_VALUE_ROLES
+            key = (line.role, core_common.yaml_unquote(line.value or ""))
+            if not standard and remaining.get(key, 0) <= 0:
+                continue  # every input with this role and text is already found: this line is page text
             remaining_ms = int((deadline - core_common._now()) * 1000)
-            if checked >= core_common.SECRET_SCAN_CAP or remaining_ms <= 0:
+            if remaining_ms <= 0 or (checked >= core_common.SECRET_SCAN_CAP if standard else remapped >= core_common.REMAP_SCAN_CAP):
                 masked.add(line.ref)
                 continue
-            checked += 1
+            if standard:
+                checked += 1
+            else:
+                remapped += 1
             info = self._secret_info(page.locator("aria-ref=" + line.ref), min(core_common.SECRET_SCAN_TIMEOUT_MS, remaining_ms))
+            is_input = info.get("tag") in ("INPUT", "TEXTAREA")
+            if not standard and not info.get("unknown"):
+                if not is_input:
+                    continue  # page text that happens to match an input's value
+                remaining[key] -= 1
             verdict = self._verdict(page, info, page.url)
             if verdict != "clear":
                 masked.add(line.ref)
-            if verdict == "secret" and info.get("tag") in ("INPUT", "TEXTAREA"):
+            if verdict == "secret" and is_input:
                 secret.add(line.ref)  # a typed value: safe to look for page-wide, unlike a container's text
         return masked, secret, input_values
 
