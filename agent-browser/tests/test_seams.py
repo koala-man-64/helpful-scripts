@@ -72,7 +72,8 @@ def test_daemon_side_path_checks_always_pass_the_caller_base() -> None:
         for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Call) and ast.unparse(node.func).split(".")[-1] == "_check_local_path":
                 site = f"{module.name}:{node.lineno}"
-                if any(keyword.arg == "base" for keyword in node.keywords):
+                bases = [ast.unparse(keyword.value) for keyword in node.keywords if keyword.arg == "base"]
+                if bases and not any("cwd()" in base or "getcwd" in base for base in bases):
                     guarded.append(site)
                 elif module.name not in process_cwd_callers:
                     unguarded.append(site)

@@ -147,6 +147,22 @@ def test_daemon_cwd_in_profile_dir_does_not_expose_token_files(make_daemon, tmp_
     assert not shot.exists()
 
 
+@pytest.mark.parametrize("cwd", ["store", 5])
+def test_caller_cwd_inside_the_store_or_not_a_string_is_refused(make_daemon, monkeypatch, cwd):
+    daemon, _, page = make_daemon(snapshot_text='- button "Upload" [ref=e2]\n')
+    page.elements["e2"].is_file_input = True
+    daemon.paths.session.write_text('{"token": "daemon-token"}', encoding="utf-8")
+    monkeypatch.chdir(daemon.paths.dir)
+    args = {"target": "e2", "files": ["session.json"], "_cwd": str(daemon.paths.dir) if cwd == "store" else cwd}
+    with pytest.raises(ValueError) as error:
+        daemon.dispatch("upload", args, 5)
+    if cwd == "store":
+        assert error.value.error_class == common.ERR_GUARDED and "agent-browser state folder" in str(error.value)
+    else:
+        assert error.value.error_class == common.ERR_VALIDATION
+    assert not page.elements["e2"].calls
+
+
 def test_transfer_without_caller_cwd_never_uses_daemon_cwd(make_daemon, tmp_path, monkeypatch):
     daemon, _, page = make_daemon(snapshot_text='- button "Upload" [ref=e2]\n')
     page.elements["e2"].is_file_input = True

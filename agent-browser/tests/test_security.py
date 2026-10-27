@@ -239,6 +239,46 @@ def test_check_local_path_refuses_other_drive_relative_path_after_the_join(tmp_p
         core_common._check_local_path(f"{drive}payload.json", _paths(home=tmp_path / "home"), {}, base=tmp_path)
     assert exc.value.error_class == core_common.ERR_VALIDATION
 
+def _device_prefixed(path: Path) -> list[str]:
+    if os.name == "nt":
+        return ["\\\\?\\" + str(path), "//?/" + path.as_posix()]
+    return ["/" + path.as_posix()]  # POSIX keeps a leading // through resolve()
+
+def test_check_local_path_refuses_device_prefixed_base_and_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # resolve() keeps a \\?\ prefix, so a prefixed cwd or root never matched the unprefixed store.
+    paths = _store(tmp_path)
+    user = tmp_path / "user"
+    (user / ".aws" / "cli").mkdir(parents=True)
+    (user / ".aws" / "cli" / "x.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(core_common.Path, "home", staticmethod(lambda: user))
+    monkeypatch.chdir(tmp_path)
+    for base in _device_prefixed(paths.root):
+        for candidate in ("profiles/default/launch.json", "profiles/default/evil.png", "config.json.new"):
+            _refused(candidate, paths, {}, text="UNC and device paths", base=base, must_exist=False)
+    for base in _device_prefixed(user / ".aws" / "cli"):
+        _refused("x.json", paths, {}, text="UNC and device paths", base=base)
+    for root in _device_prefixed(paths.dir):
+        _refused(root + "/launch.json", paths, {"upload_roots": [root]}, text="UNC and device paths")
+
+@pytest.mark.skipif(os.name != "nt", reason="NTFS alternate data streams")
+def test_check_local_path_refuses_alternate_data_streams(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    for candidate in ("srv.pem:x", "report.txt:hidden", "shot.png:x"):
+        _refused(candidate, _paths(home=tmp_path / "home"), {}, text="Alternate data streams", must_exist=False)
+
+def test_check_local_path_home_dot_rule_fails_closed_without_a_user_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def no_home() -> Path:
+        raise RuntimeError("Could not determine home directory.")
+    keys = tmp_path / "user" / ".ssh" / "keys"
+    keys.mkdir(parents=True)
+    (keys / "id_rsa").write_text("x", encoding="utf-8")
+    paths = core_common.ProfilePaths("default", tmp_path / ".agent-browser")
+    monkeypatch.setattr(core_common.Path, "home", staticmethod(no_home))
+    monkeypatch.chdir(keys)
+    _refused("id_rsa", paths, {}, text="Hidden")
+    shot = paths.shots / "a.png"
+    assert core_common._check_local_path(str(shot), paths, {}, must_exist=False) == shot.resolve()
+
 def test_check_local_path_refuses_links_into_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     paths = _store(tmp_path)
     caller = tmp_path / "caller"

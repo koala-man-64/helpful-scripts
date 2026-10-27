@@ -250,12 +250,14 @@ raised by a human navigation is accepted.
 - `goto` opens only `http`/`https` (and `about:blank`); `edge://`, `file:`, `javascript:` are refused.
 - Uploads, file-backed inputs (`--text-file`, `--js-file`, `--json-file`, `fill-form --file`) and `--path` targets
   must sit under the caller's current folder, this session's `downloads`/`shots`, or `upload_roots`. The daemon
-  checks them against the caller's folder, never its own. The state folder (`profiles\` with `session.json`,
-  `launch.json`, `user-data\` and saved `outputs\`, plus `config.json`) is refused even when one of those folders
-  contains it. Also refused: UNC paths, files not on a fixed local drive (network and removable drives), key files,
-  dot-named files and folders at or below the allowed folder, and dot-folders directly under your home except
-  `.claude` (so `~/.ssh`, `~/.aws` and `~/.config` stay out). A dot-folder above your working folder, such as the
-  `.claude\worktrees\` of a Claude Code worktree, is fine. These are best-effort guards, not a sandbox.
+  checks them against the caller's folder, never its own. Apart from this session's `downloads`/`shots`, the state
+  folder (`profiles\` with `session.json`, `launch.json`, `user-data\` and saved `outputs\`, plus `config.json`) is
+  refused, even when the current folder or an upload root contains it. Also refused: UNC and device (`\\?\`) paths,
+  alternate data streams, files not on a fixed local drive (network and removable drives), key files, dot-named
+  files and folders at or below the allowed folder, and dot-folders directly under your home except `.claude` and
+  the agent-browser home (so `~/.ssh`, `~/.aws` and `~/.config` stay out). A dot-folder above your working folder,
+  such as the `.claude\worktrees\` of a Claude Code worktree, is fine. These are best-effort guards, not a sandbox:
+  a hard link, or a file swapped after the check, is not detected.
 - Page-derived strings are sanitized (control and bidi characters stripped, lines capped) and only ever appear
   under keys named in `untrusted`; hints are static templates. URLs are redacted (`code`, `token`, `id_token`,
   `SAMLResponse`, ... masked, fragment dropped) in output and logs.

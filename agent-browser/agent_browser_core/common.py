@@ -1046,7 +1046,7 @@ def _check_local_path(candidate: str, paths: ProfilePaths, config: dict[str, Any
     if not text:
         raise _tag(ValueError("A file path is required."), ERR_USAGE)
     if text.startswith(("\\\\", "//")):
-        raise _tag(ValueError("UNC paths are not allowed."), ERR_GUARDED, hint=_hint("guarded_path"))
+        raise _tag(ValueError("UNC and device paths are not allowed."), ERR_GUARDED, hint=_hint("guarded_path"))
     caller = Path.cwd() if base is _PROCESS_CWD else None if base is None else Path(base)
     if caller is not None and not caller.is_absolute():
         raise _tag(ValueError("Caller cwd must be absolute."), ERR_VALIDATION)
@@ -1061,6 +1061,11 @@ def _check_local_path(candidate: str, paths: ProfilePaths, config: dict[str, Any
         resolved = path.resolve()
     except OSError as exc:
         raise _tag(ValueError(f"Cannot resolve {text!r}: {exc}"), ERR_VALIDATION) from exc
+    # A \\?\ or //?/ base survives resolve() and would never match the unprefixed store and home below.
+    if str(resolved).startswith(("\\\\", "//")):
+        raise _tag(ValueError("UNC and device paths are not allowed."), ERR_GUARDED, hint=_hint("guarded_path"))
+    if _is_windows() and ":" in str(resolved)[2:]:
+        raise _tag(ValueError("Alternate data streams are not allowed."), ERR_GUARDED, hint=_hint("guarded_path"))
     if resolved.suffix.lower() in KEY_EXTENSIONS:
         raise _tag(ValueError("Key material cannot be uploaded."), ERR_GUARDED, hint=_hint("guarded_path"))
     if not _drive_is_fixed(resolved):
@@ -1100,7 +1105,8 @@ def _in_home_dot_folder(resolved: Path, paths: ProfilePaths) -> bool:
     try:
         home = Path.home().resolve()
     except (RuntimeError, KeyError, OSError):
-        return False
+        # Unknown home (a stripped daemon environment): any dot-folder outside the agent-browser home counts.
+        return not _is_under(resolved, paths.root.resolve()) and any(part.startswith(".") for part in resolved.parts[1:])
     if not _is_under(resolved, home, fold=True) or len(resolved.parts) <= len(home.parts):
         return False
     name = resolved.parts[len(home.parts)]

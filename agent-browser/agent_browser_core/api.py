@@ -114,7 +114,7 @@ class ApiMixin:
         # File paths are checked against the caller's working directory, never the daemon's own cwd (the profile folder).
         cwd = None
         if args.get("_cwd"):
-            cwd = Path(args["_cwd"])
+            cwd = Path(str(args["_cwd"]))
             if not cwd.is_absolute(): raise common._tag(ValueError("Caller cwd must be absolute."), common.ERR_VALIDATION)
             if candidate.strip():
                 path = Path(candidate.strip()).expanduser()

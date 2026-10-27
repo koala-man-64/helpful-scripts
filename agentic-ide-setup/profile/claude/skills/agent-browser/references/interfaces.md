@@ -5,8 +5,8 @@ verb when using the skill's allowlist. File paths must be local, readable UTF-8 
 within the working directory, session download/screenshot directory, or configured
 upload roots. The daemon checks them against your working directory, not its own.
 Refused: the agent-browser state folder, dot-named files and folders below the allowed
-folder, dot-folders directly under your home (except `.claude`), key files, UNC shares
-and non-fixed drives. A hidden folder above your working directory is fine.
+folder, dot-folders directly under your home (except `.claude`), key files, UNC and
+device paths, and non-fixed drives. A hidden folder above your working directory is fine.
 
 ```text
 agent-browser fill e5 --text-file note.txt
