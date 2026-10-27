@@ -226,6 +226,10 @@ class FakeLocator:
         self.element.value = text
         self.element.calls.append(("fill", text))
 
+    def focus(self, timeout: float | None = None) -> None:
+        # Where focus lands is modelled by FakeFrame.active_info, not here.
+        self._raise_if_configured("focus")
+
     def press(self, key: str, timeout: float | None = None) -> None:
         self._raise_if_configured("press")
         self.element.calls.append(("press", key))
@@ -272,9 +276,13 @@ class FakeLocator:
         if el is None:
             raise AssertionError("FakeLocator.evaluate called with no element bound")
         if js == core_daemon.SECRET_JS:
+            self._raise_if_configured("secret_check")
             if el.secret_info is not None:
                 return el.secret_info
             return {"tag": el.tag, "type": "", "autocomplete": "", "inputmode": "", "maxlength": -1, "text": el.name, "contenteditable": False}
+        if js == core_daemon.FILL_FOCUS_JS:
+            self._raise_if_configured("focus")
+            return None
         if js == core_daemon.OPTIONS_JS:
             return el.options
         if js == core_daemon.VALUE_JS:
@@ -301,6 +309,13 @@ class FakeFrame:
         self.body_text = body_text
         self.ready_state = "complete"
         self.selector_matches: dict[str, int] = {}
+        # What ACTIVE_SECRET_JS reports for this frame's focused element: None (nothing focused),
+        # a SECRET_JS-shaped dict, or an Exception to raise.
+        self.active_info: Any = None
+        self.detached = False
+
+    def is_detached(self) -> bool:
+        return self.detached
 
     def locator(self, selector: str) -> FakeLocator:
         if selector == "body":
@@ -316,6 +331,10 @@ class FakeFrame:
             return self.ready_state
         if js == core_daemon.VISIBLE_SECRET_JS:
             return False
+        if js == core_daemon.ACTIVE_SECRET_JS:
+            if isinstance(self.active_info, Exception):
+                raise self.active_info
+            return self.active_info
         raise AssertionError(f"FakeFrame.evaluate: no fake for js={js[:80]!r}")
 
 

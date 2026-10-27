@@ -11,7 +11,8 @@ one command at a time. Playwright does the driving; the model only ever sees JSO
   Sign in once in the window; the profile keeps the session.
 - Elements are addressed by refs (`e12`, `f2e5` inside an iframe) from Playwright's own accessibility snapshot,
   filtered to what an agent can act on and capped so it never overflows the Bash tool's output limit.
-- Guardrails live in code: password and one-time-code fields are refused, only `http(s)` URLs open, uploads
+- Guardrails live in code: password and one-time-code fields (and fields the tool cannot inspect) are refused
+  for typing and as an `eval --ref` target, only `http(s)` URLs open, uploads
   come only from the working folder or the profile folder, page text never reaches a hint, and URLs are
   redacted before they are printed or logged.
 
@@ -92,7 +93,7 @@ qualification requires a separately authorized test record.
 | `wait [--url-contains S] [--text S] [--ref R] [--selector S] [--signed-in HOST] [--seconds N] [--timeout S]` | Conditions AND-ed; cooperative polling; inspect the receipt after timeout before deciding what to do next. |
 | `back` / `reload` / `tabs` / `tab TAB [--close]` | Navigation and tabs (`TAB` is a stable id `t1`, `t2` or 1-based index). Pass `--tab TAB` on any command to drive tabs in parallel without switching focus. Closing the last tab is refused. |
 | `upload REF FILE...` / `downloads` | Attach local files; save and list files the page downloaded. |
-| `eval JS [--ref REF] [--frame NAME]` | Run JavaScript. Off when `config.json` says `"eval": false`. |
+| `eval JS [--ref REF] [--frame NAME]` | Run JavaScript. Off when `config.json` says `"eval": false`. Refuses a credential field as `--ref`; the script itself, like page and `--frame` eval, can still reach any field. |
 | `needs-human [--signed-in HOST]` | Focus/flash for human input; returns a durable handoff ID. |
 | `doctor [--live]` | Preflight rows; `--live` boots a headless browser, checks refs, clicks, stops. |
 | `clean [--profile P] [--purge-profile P] [--dry-run]` | Stale sessions/orphans and old download staging files. Evidence stays until explicitly cleared. |
@@ -164,7 +165,8 @@ with start gives its health response the requested start deadline.
 - Exit `2` = fix the call: `usage`, `validation`, `ambiguous_profile`, `ref_not_found`, `stale_ref`, `not_found`,
   `ambiguous`, `action_timeout`, `action_failed`, `guarded`, `dialog`, `unsaved_changes`.
 - Exit `1` = fix the environment or start the browser: `config`, `playwright_missing`, `browser_not_found`,
-  `edge_policy`, `browser_launch`, `profile_in_use`, `not_running`, `browser_closed`, `daemon`, `daemon_unresponsive`.
+  `edge_policy`, `browser_launch`, `profile_in_use`, `not_running`, `browser_closed`, `daemon`, `daemon_unresponsive`,
+  `busy` (another session's command held the browser past this request's queue deadline; it was not run, repeat it).
 - Exit `124` = `timeout`: inspect the receipt before another action; the action may already have run.
   Exit `130` = interrupted.
 - Every `hint` is a literal next command rendered with the profile in use.
@@ -213,7 +215,7 @@ effective list is a configuration error.
 ```
 %LOCALAPPDATA%\agent-browser\profiles\<name>\
   user-data\        the Chromium profile: cookies, local storage, sign-ins (never your daily Edge profile)
-  session.json      pid, port, token, browser, heartbeat, busy, code hash (written by the daemon)
+  session.json      pid, port, token, browser, heartbeat, busy (request in flight: cmd, since, until), code hash (written by the daemon)
   session.lock      held by the daemon for its lifetime; the OS releases it on death (liveness truth)
   launch.json       the settings the client handed the daemon
   daemon.log        command/status/timing diagnostics; no argument values or exception bodies
@@ -235,6 +237,15 @@ popups inherit their opener. Cookies/storage remain shared. IDs route work
 cooperatively and do not authenticate callers. Normal stop releases one session;
 select another ID explicitly to stop it. All/force stops affect the shared profile.
 
+The daemon runs one request at a time; `wait` is polled, so it does not hold the
+browser. A request may wait up to 30 s behind other sessions' commands and then keeps
+its full timeout. One picked up later is refused as `busy`, unrun; one whose caller
+disconnected while queued is skipped. A request that has started runs to completion
+even if its caller then gives up. While a command other than `ping`/`poll` runs,
+`status` reports `running: true` with `busy` (`cmd`, `since`, `until`) instead of
+`unresponsive`, up to that command's `until`. Both protections need a daemon started
+from this version; an older one shows `stale_code: true` until the profile restarts.
+
 Dialogs are answered synchronously by the daemon: `alert` is accepted; `confirm`/`prompt` during a command are
 accepted only with `--accept-dialog` (otherwise the command fails with `dialog`); `beforeunload` during a command
 keeps the page and fails with `unsaved_changes` unless `--discard-changes`; between commands a `beforeunload`
@@ -245,8 +256,15 @@ raised by a human navigation is accepted.
 - Playwright talks to the browser over a pipe. No DevTools TCP port is opened on the signed-in profile.
 - The daemon listens on `127.0.0.1` only, behind a per-session token stored in `session.json` under your user profile;
   a wrong token is dropped without a reply, a request has 5 s to arrive and a 2 MiB input budget.
-- The tool never types into password, one-time-code, or credential-looking fields; there is no override. The human
-  types in the window and the agent waits with `wait --signed-in`.
+- The tool never types into password, one-time-code, or credential-looking fields, and no flag overrides that. It
+  checks where input lands: the label's control for `fill`, and the focused element for key presses (a target that
+  cannot take focus leaves keys on the previous field). Open shadow roots are inspected. A field it cannot inspect
+  counts as one (`action_failed`; retry after a fresh `snapshot`), and so does focus inside a custom element's
+  closed shadow root; a closed root on a plain element, or on a host with its own `tabindex`, is not detected.
+  The check runs just before the action, so a page that moves focus or changes a field's type during a `type` can
+  still redirect keys. `eval` is arbitrary page JavaScript: `--ref` refuses a credential field as `el`, but the
+  script itself, like page and `--frame` eval, can read or set any field, so approval-sensitive profiles set
+  `"eval": false`. The human types in the window and the agent waits with `wait --signed-in`.
 - `goto` opens only `http`/`https` (and `about:blank`); `edge://`, `file:`, `javascript:` are refused.
 - Uploads, file-backed inputs (`--text-file`, `--js-file`, `--json-file`, `fill-form --file`) and `--path` targets
   must sit under the caller's current folder, this session's `downloads`/`shots`, or `upload_roots`. The daemon
@@ -345,7 +363,8 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 | `not_running` on every command | No daemon for that profile. `agent-browser start --profile <p>`; `goto` starts one by itself unless `AGENT_BROWSER_AUTOSTART=false`. |
 | `protocol_mismatch` | Explicitly restart the shared profile after preserving every session's work. |
 | `stale_ref` / `ref_not_found` | The page or its frame navigated, or a scoped snapshot was taken. `agent-browser snapshot` and pick again. |
-| `guarded` on `fill` | The field looks like a password or code field. The human types it in the window; then `wait --signed-in <host>`. |
+| `guarded` on `fill` / `type` / `press` | The field, or the focused field the keys would land in, looks like a password or code field. The human types it in the window; then `wait --signed-in <host>`. |
+| `action_failed` "Could not confirm the field…" | The credential check could not inspect the field (page navigating, frame detached, focus inside a custom element's closed shadow root). Take a fresh `snapshot` and retry; give `press` a ref if a press without one keeps failing. |
 | `unsaved_changes` | The page has edits. Click its Save/Update button or re-run with `--discard-changes`. |
 | `Profile path is too long` (class `config`) | Set `AGENT_BROWSER_HOME` to a short path such as `C:\ab`. |
 | `browser_launch` with a log tail | Read `daemon.log`; `agent-browser doctor` decodes Edge and Chrome policies (`DeveloperToolsAvailability=2`, `ForceEphemeralProfiles`). Try `--browser chrome`. |

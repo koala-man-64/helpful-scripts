@@ -44,7 +44,8 @@ controls; configuration and session files are not a hostile-process sandbox.
 
 ## Sign-in
 
-Never type passwords, one-time codes, or other credentials. For `sign_in_suspected`,
+Never type passwords, one-time codes, or other credentials, and never read or set them
+with eval: only its `--ref` element is checked, not what the script touches. For `sign_in_suspected`,
 use `agent-browser needs-human --signed-in example.com` and let the user sign in.
 Poll with `agent-browser state --handoff ID`, or use
 `agent-browser wait --signed-in example.com`. Only handoffs focus/flash the window.
@@ -106,6 +107,7 @@ separately identifiable. Read [interfaces](references/interfaces.md) for example
 | `ambiguous_profile` | Select the intended profile explicitly. |
 | `not_running` | Open the authorized URL to start a session. |
 | `timeout` | Inspect current state; repeat an authorized wait when appropriate. |
+| `busy` | Another session held the browser; the command was not run. Repeat it. |
 | `protocol_mismatch` | Explicitly restart the shared profile; do not replay a write. |
 | `journal_full` | Inspect and explicitly clear evidence when authorized. |
 

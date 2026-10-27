@@ -3,6 +3,8 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import select
+import socket
 import socketserver
 import sys
 import traceback
@@ -27,22 +29,43 @@ def _playwright_version() -> str | None:
         return None
 
 
+# Playwright's follow-label retarget: fill and select act on the control of an enclosing label.
+LABEL_CONTROL_JS = """if (el.matches && !el.matches('a, input, textarea, button, select, [role=link], [role=button], [role=checkbox], [role=radio]') && !el.isContentEditable) {
+    const label = el.closest('label');
+    if (label && label.control) el = label.control;
+  }"""
+
+
 SECRET_JS = """el => {
+  %s
   const a = n => (el.getAttribute && el.getAttribute(n)) || '';
   const labels = Array.from(el.labels || []).map(l => l.textContent || '').join(' ');
-  const by = (a('aria-labelledby') || '').split(/\\s+/).map(id => (document.getElementById(id) || {}).textContent || '').join(' ');
+  const root = el.getRootNode && el.getRootNode().getElementById ? el.getRootNode() : document;
+  const by = (a('aria-labelledby') || '').split(/\\s+/).map(id => (root.getElementById(id) || {}).textContent || '').join(' ');
   return {tag: el.tagName, type: String(el.type || '').toLowerCase(), autocomplete: String(el.autocomplete || a('autocomplete')).toLowerCase(),
           inputmode: String(el.inputMode || a('inputmode')).toLowerCase(), maxlength: typeof el.maxLength === 'number' ? el.maxLength : -1,
           text: [a('name'), el.id || '', a('aria-label'), a('placeholder'), a('title'), labels, by, String(el.className || ''), Object.keys(el.dataset || {}).join(' ')].join(' '),
           contenteditable: !!el.isContentEditable, context_url: el.ownerDocument.URL, context_title: el.ownerDocument.title};
-}"""
+}""" % LABEL_CONTROL_JS
+
+
+# fill focuses the retargeted control before it types; press and type focus the element itself (locator.focus).
+FILL_FOCUS_JS = """el => {
+  %s
+  el.focus();
+}""" % LABEL_CONTROL_JS
 
 
 ACTIVE_SECRET_JS = """() => {
-  const el = document.activeElement;
-  if (!el || el === document.body || el.tagName === 'IFRAME') return null;
+  let el = document.activeElement;
+  while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+  // A focused frame element means focus is in its child document, which reports for itself.
+  if (!el || el === document.body || ['IFRAME', 'FRAME', 'OBJECT', 'EMBED'].includes(el.tagName)) return null;
+  const focus = {has_focus: document.hasFocus()};
+  // A custom element that cannot take focus itself holds it only for a closed shadow root, which page script cannot inspect.
+  if (!el.shadowRoot && el.tagName.includes('-') && !el.hasAttribute('tabindex') && !el.isContentEditable) return Object.assign({unknown: true}, focus);
   const f = %s;
-  return f(el);
+  return Object.assign(f(el), focus);
 }""" % SECRET_JS
 
 
@@ -65,7 +88,7 @@ FRAME_LABEL_JS = "e => e.name || e.title || e.id || ''"
 def is_secret_field(info: dict[str, Any], page_url: str = "", page_title: str = "") -> bool:
     if not info:
         return False
-    if info.get("type") == "password":
+    if info.get("unknown") or info.get("type") == "password":
         return True
     if core_common.SECRET_AUTOCOMPLETE_RE.search(info.get("autocomplete") or ""):
         return True
@@ -407,11 +430,11 @@ class BrowserEngine:
             raise core_common._tag(ValueError("A target ref is required."), core_common.ERR_USAGE, hint=core_common._hint("bad_ref", self.profile))
         return self._ref_target(page, t) if core_common.REF_RE.match(t) else self._selector_target(page, t)
 
-    def _secret_info(self, locator: Any) -> dict[str, Any]:
+    def _secret_info(self, locator: Any, timeout_ms: int = 3000) -> dict[str, Any]:
         try:
-            return locator.evaluate(SECRET_JS, timeout=3000) or {}
+            return locator.evaluate(SECRET_JS, timeout=timeout_ms) or {"unknown": True}
         except Exception:  # noqa: BLE001
-            return {}
+            return {"unknown": True}
 
     def _safe_title(self, page: Any) -> str:
         try:
@@ -419,20 +442,46 @@ class BrowserEngine:
         except Exception:  # noqa: BLE001
             return ""
 
-    def _is_secret(self, page: Any, locator: Any) -> bool:
-        info = self._secret_info(locator)
-        return is_secret_field(info, info.get("context_url", page.url), info.get("context_title", self._safe_title(page)))
+    def _verdict(self, page: Any, info: dict[str, Any], url: str) -> str:
+        if info.get("unknown"):
+            return "unknown"
+        title = info["context_title"] if "context_title" in info else self._safe_title(page)
+        return "secret" if is_secret_field(info, info.get("context_url", url), title) else "clear"
 
-    def _focused_is_secret(self, page: Any) -> bool:
-        """The element that would receive a targetless key press, in whichever frame holds focus."""
+    def _secret_check(self, page: Any, locator: Any, timeout_ms: int = 3000) -> str:
+        """'secret', 'clear', or 'unknown' when the field could not be inspected; callers treat unknown as not clear."""
+        return self._verdict(page, self._secret_info(locator, timeout_ms), page.url)
+
+    def _is_secret(self, page: Any, locator: Any) -> bool:
+        return self._secret_check(page, locator) != "clear"
+
+    def _focused_secret_check(self, page: Any) -> str:
+        """The element that would receive keyboard input, in whichever frame holds focus."""
+        uncertain = focused = False
         for frame in page.frames:
             try:
                 info = frame.evaluate(ACTIVE_SECRET_JS)
             except Exception:  # noqa: BLE001
+                uncertain = uncertain or not self._frame_detached(frame)
                 continue
-            if info and is_secret_field(info, info.get("context_url", frame.url), info.get("context_title", self._safe_title(page))):
-                return True
-        return False
+            if not info:
+                continue
+            verdict = self._verdict(page, info, frame.url)
+            if verdict == "secret" or (verdict == "unknown" and info.get("has_focus")):
+                return verdict
+            if verdict == "unknown":
+                uncertain = True
+            elif info.get("has_focus"):
+                focused = True
+        # Only one document has focus, so a normal field in it rules out frames that errored or could not be inspected.
+        return "unknown" if uncertain and not focused else "clear"
+
+    @staticmethod
+    def _frame_detached(frame: Any) -> bool:
+        try:
+            return bool(frame.is_detached())
+        except Exception:  # noqa: BLE001
+            return False
 
     def _settle(self, page: Any, cap: float = core_common.SETTLE_CAP) -> list[str]:
         deadline = core_common._now() + cap
@@ -693,15 +742,34 @@ class BrowserEngine:
         self.discarded_unsaved = False
         self.new_pages = []
         self.last_activity = core_common._now()
-        if cmd != "ping" and self.port:
-            self.write_session(self.port)  # `busy` is visible to `status` while a long action runs
 
     def _end(self) -> None:
-        was = self.current_cmd
         self.current_cmd = None
         self.cmd_opts = {}
-        if was != "ping" and self.port:
+
+    request_busy: dict[str, Any] | None = None
+
+    def _mark_busy(self, cmd: str, timeout: float) -> None:
+        """Publish the whole request in session.json so `status` can tell this daemon busy from hung.
+
+        `until` is when the caller itself stops waiting; past it, a daemon still in this request is hung.
+        Pings and polls are short and frequent, so they are not published.
+        """
+        if cmd in ("ping", "poll") or not self.port:
+            return
+        self.request_busy = {"cmd": cmd, "since": core_common._utc_now(), "until": core_common._utc_after(timeout + core_common.CLIENT_GRACE)}
+        self._publish_busy()
+
+    def _mark_idle(self) -> None:
+        if self.request_busy is not None:
+            self.request_busy = None
+            self._publish_busy()
+
+    def _publish_busy(self) -> None:
+        try:
             self.write_session(self.port)
+        except OSError as exc:  # diagnostics only: never fail or lose a command's reply over it; the heartbeat rewrites it
+            self.dlog(f"cannot publish busy state: {type(exc).__name__}")
 
     def _check_blocks(self) -> None:
         if self.unsaved_blocked:
@@ -827,7 +895,8 @@ class BrowserEngine:
                                   max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES)
 
     def _do_action(self, args: dict[str, Any], timeout: float, action: str, run: Callable[[Any, Any], Any], *,
-                   guard: bool = False, value: bool = False, allow_keys: Sequence[str] | None = None) -> dict[str, Any]:
+                   guard: bool = False, value: bool = False, allow_keys: Sequence[str] | None = None,
+                   focus: Callable[[Any], Any] | None = None) -> dict[str, Any]:
         explicit_tab = args.get("tab") is not None
         page = self.target_page(args)
         before_lines = self._before_lines(page)
@@ -837,10 +906,26 @@ class BrowserEngine:
                        else core_common.sanitize_text(json.dumps(target), 300)) if target else None
         masked = False
         if guard:
-            secret = self._is_secret(page, locator) if locator is not None else (allow_keys is not None and self._focused_is_secret(page))
-            if secret:
+            verdict = (self._secret_check(page, locator) if locator is not None
+                       else self._focused_secret_check(page) if allow_keys is not None else "clear")
+            landed = False
+            if verdict == "clear" and focus is not None and locator is not None:
+                # Playwright focuses the target and then sends keys to whatever holds focus, so a target that cannot
+                # take focus leaves them on the previously focused field. Focus as the action will, then check.
+                try:
+                    focus(locator)
+                except Exception as exc:  # noqa: BLE001
+                    raise self._classify(exc, action) from exc
+                verdict, landed = self._focused_secret_check(page), True
+            if verdict != "clear":
                 if allow_keys is not None and args.get("key") in core_common.SAFE_KEYS_ON_SECRET:
                     masked = True
+                elif verdict == "unknown":
+                    raise core_common._tag(ValueError("Could not confirm the field is not a password or one-time-code field; nothing was entered."),
+                               core_common.ERR_ACTION_FAILED, hint=core_common._hint("secret_unverified", self.profile))
+                elif landed:
+                    raise core_common._tag(ValueError("The keys would land in a focused password or one-time-code field; nothing was entered."), core_common.ERR_GUARDED,
+                               hint=core_common._hint("guarded_key" if allow_keys is not None else "guarded_focus", self.profile))
                 else:
                     raise core_common._tag(ValueError("This field takes a password or one-time code; the tool never types those."), core_common.ERR_GUARDED,
                                hint=core_common._hint("guarded_key" if allow_keys is not None else "guarded_secret", self.profile))
@@ -899,7 +984,7 @@ class BrowserEngine:
             loc.fill(args.get("text") or "", timeout=ms)
             if args.get("enter"):
                 loc.press("Enter", timeout=ms)
-        return self._do_action(args, timeout, "fill", run, guard=True, value=True)
+        return self._do_action(args, timeout, "fill", run, guard=True, value=True, focus=lambda loc: loc.evaluate(FILL_FOCUS_JS, timeout=ms))
 
     def h_type(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         ms = self._timeout_ms(timeout)
@@ -910,7 +995,7 @@ class BrowserEngine:
             loc.press_sequentially(args.get("text") or "", delay=int(args.get("delay") or 30), timeout=ms)
             if args.get("enter"):
                 loc.press("Enter", timeout=ms)
-        return self._do_action(args, timeout, "type", run, guard=True, value=True)
+        return self._do_action(args, timeout, "type", run, guard=True, value=True, focus=lambda loc: loc.focus(timeout=ms))
 
     def h_press(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         ms = self._timeout_ms(timeout)
@@ -923,7 +1008,8 @@ class BrowserEngine:
                 loc.press(key, timeout=ms)
             else:
                 page.keyboard.press(key)
-        return self._do_action(args, timeout, "press", run, guard=True, allow_keys=list(core_common.SAFE_KEYS_ON_SECRET), value=bool(args.get("target")))
+        return self._do_action(args, timeout, "press", run, guard=True, allow_keys=list(core_common.SAFE_KEYS_ON_SECRET), value=bool(args.get("target")),
+                               focus=lambda loc: loc.focus(timeout=ms))
 
     def h_select(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         ms = self._timeout_ms(timeout)
@@ -1185,6 +1271,14 @@ class BrowserEngine:
         try:
             if args.get("target"):
                 locator = self.resolve(page, args["target"])
+                # Only --ref can be guarded: --frame and page eval run arbitrary JS outside the credential guard.
+                verdict = self._secret_check(page, locator)
+                if verdict == "secret":
+                    raise core_common._tag(ValueError("eval --ref cannot target a password or one-time-code field; eval did not run."),
+                               core_common.ERR_GUARDED, hint=core_common._hint("guarded_eval_secret"))
+                if verdict == "unknown":
+                    raise core_common._tag(ValueError("Could not confirm the --ref target is not a password or one-time-code field; eval did not run."),
+                               core_common.ERR_ACTION_FAILED, hint=core_common._hint("secret_unverified", self.profile))
                 self.action_attempted = True
                 value = locator.evaluate(js, timeout=ms)
             elif args.get("frame"):
@@ -1217,7 +1311,7 @@ class BrowserEngine:
             "launcher": existing.get("launcher"),
             "browser": self.launch.get("browser"), "browser_version": self.browser_version, "headless": bool(self.launch.get("headless")),
             "user_data_dir": str(self.paths.user_data), "log": str(self.paths.log), "started": self.started_at,
-            "heartbeat": core_common._utc_now(), "busy": ({"cmd": self.current_cmd, "since": self.cmd_started} if self.current_cmd else None),
+            "heartbeat": core_common._utc_now(), "busy": self.request_busy,
             "code_hash": self.launch.get("code_hash"), "tool_version": core_common.TOOL_VERSION, "python": sys.executable,
             "playwright": _playwright_version(),
         })
@@ -1299,6 +1393,15 @@ class Daemon(runtime.OperatingMixin, actions.VerifiedActionsMixin, api.ApiMixin,
     """One browser owner thread, with a separate logical page set per caller session."""
 
 
+def _caller_gone(sock: socket.socket) -> bool:
+    """True when the caller closed or reset its end while its one-line request waited in the queue."""
+    try:
+        readable, _, _ = select.select([sock], [], [], 0)
+        return bool(readable) and sock.recv(1, socket.MSG_PEEK) == b""
+    except OSError:  # reset by a killed caller
+        return True
+
+
 class _Handler(socketserver.StreamRequestHandler):
     def handle(self) -> None:  # noqa: D102
         daemon: Daemon = self.server.daemon  # type: ignore[attr-defined]
@@ -1339,9 +1442,25 @@ class _Handler(socketserver.StreamRequestHandler):
             self._reply({"ok": False, "error": {"class": core_common.ERR_VALIDATION, "message": "Timeout must be finite and between 0 and 86400 seconds."}})
             return
         timeout = float(raw_timeout)
+        start_by = message.get("start_by")
+        if start_by is not None and (type(start_by) not in (float, int) or not math.isfinite(start_by)):
+            self._reply({"ok": False, "error": {"class": core_common.ERR_VALIDATION, "message": "start_by must be a finite number of epoch seconds."}})
+            return
+        # Requests queue behind other sessions' commands. One picked up after its caller's start_by, or
+        # after its caller was killed or cancelled, would run with nobody waiting for the result, so it
+        # is refused unrun. A poll only observes an operation that already started, so it always runs.
+        if start_by is not None and cmd != "poll" and core_common._wall() > start_by:
+            daemon.dlog(f"{cmd} refused: not started before its caller's queue deadline")
+            self._reply({"ok": False, "error": {"class": core_common.ERR_BUSY, "message": "Another command held the browser past this request's queue deadline; it was not run.",
+                                                "hint": core_common._hint("busy", daemon.profile), "details": {"executed": False}}})
+            return
+        if cmd != "poll" and _caller_gone(self.request):
+            daemon.dlog(f"{cmd} skipped: its caller disconnected while it was queued")
+            return
         self.request.settimeout(timeout + core_common.CLIENT_GRACE + 30)
         started = core_common._now()
         try:
+            daemon._mark_busy(cmd, timeout)
             result = daemon.dispatch(cmd, args, timeout)
             reply: dict[str, Any] = {"ok": True, "result": result}
             daemon.dlog(f"{cmd} ok {round((core_common._now() - started) * 1000)}ms")
@@ -1353,6 +1472,8 @@ class _Handler(socketserver.StreamRequestHandler):
             daemon.dlog(f"{cmd} crashed: {type(exc).__name__}")
             reply = {"ok": False, "error": {"class": core_common.ERR_DAEMON, "message": "Command failed unexpectedly; inspect its journal receipt before repeating an action.",
                                             "hint": core_common._hint("daemon_unresponsive", daemon.profile)}}
+        finally:
+            daemon._mark_idle()
         self._reply(reply)
 
     def _reply(self, reply: dict[str, Any]) -> None:

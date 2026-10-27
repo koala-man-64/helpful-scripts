@@ -128,6 +128,54 @@ def test_liveness_none_when_nothing_present(tmp_path: Path) -> None:
     assert state == "none" and session is None
 
 
+@pytest.mark.parametrize("until, expected", [
+    (60, "busy"),                      # inside the published request's deadline: another command holds the daemon
+    (-60, "unresponsive"),             # still in a request past its caller's deadline: hung
+    ("not a time", "unresponsive"),
+    (None, "unresponsive"),            # a pre-upgrade daemon publishes no deadline
+])
+def test_liveness_tells_a_daemon_busy_with_another_command_from_a_hung_one(
+    monkeypatch: pytest.MonkeyPatch, until: Any, expected: str
+) -> None:
+    paths = core_common._paths("default")
+    _touch_lock(paths)
+    busy: dict[str, Any] = {"cmd": "goto", "since": core_common._utc_now()}
+    if until is not None:
+        busy["until"] = core_common._utc_after(until) if isinstance(until, int) else until
+    record = {"port": 1, "token": "t", "protocol_version": core_common.PROTOCOL_VERSION, "busy": busy}
+    monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
+    monkeypatch.setattr(core_session, "_read_session", lambda p: record)
+    monkeypatch.setattr(core_session, "_ping", lambda session, timeout=core_common.PING_TIMEOUT: None)
+    state, session = core_session._liveness(paths)
+    assert state == expected and session["port"] == 1
+
+
+def test_liveness_rereads_the_busy_record_after_a_missed_ping(monkeypatch: pytest.MonkeyPatch) -> None:
+    paths = core_common._paths("default")
+    _touch_lock(paths)
+    idle = {"port": 1, "token": "t", "protocol_version": core_common.PROTOCOL_VERSION, "busy": None}
+    held = {**idle, "busy": {"cmd": "click", "since": core_common._utc_now(), "until": core_common._utc_after(30)}}
+    reads = iter([idle, held])  # the command started between the first read and the ping
+    monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
+    monkeypatch.setattr(core_session, "_read_session", lambda p: next(reads))
+    monkeypatch.setattr(core_session, "_ping", lambda session, timeout=core_common.PING_TIMEOUT: None)
+    state, session = core_session._liveness(paths)
+    assert state == "busy" and session["busy"]["cmd"] == "click"
+
+
+def test_liveness_stays_busy_when_the_holding_command_ends_during_the_ping(monkeypatch: pytest.MonkeyPatch) -> None:
+    paths = core_common._paths("default")
+    _touch_lock(paths)
+    held = {"port": 1, "token": "t", "protocol_version": core_common.PROTOCOL_VERSION,
+            "busy": {"cmd": "goto", "since": core_common._utc_now(), "until": core_common._utc_after(30)}}
+    reads = iter([held, {**held, "busy": None}])  # the ping queued behind it, then it finished
+    monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
+    monkeypatch.setattr(core_session, "_read_session", lambda p: next(reads))
+    monkeypatch.setattr(core_session, "_ping", lambda session, timeout=core_common.PING_TIMEOUT: None)
+    state, session = core_session._liveness(paths)
+    assert state == "busy" and session["busy"]["cmd"] == "goto"
+
+
 def test_command_connection_does_not_depend_on_a_short_health_probe(monkeypatch):
     paths = core_common._paths("default")
     _touch_lock(paths)
@@ -371,7 +419,7 @@ def test_stop_session_requests_stop_then_waits_and_skips_kill_tree_if_pid_exits(
     session = _valid_session(paths, pid=555)
     core_session._write_json_atomic(paths.session, session)
     monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
-    monkeypatch.setattr(core_session, "_request", lambda s, cmd, args, timeout, grace=core_common.CLIENT_GRACE: {"stopping": True})
+    monkeypatch.setattr(core_session, "_request", lambda s, cmd, args, timeout, **kw: {"stopping": True})
     monkeypatch.setattr(core_common, "_pid_alive", lambda pid: False)  # exited during the grace wait
     monkeypatch.setattr(core_common, "_kill_browsers_using", lambda user_data, dry_run=False: [])
     kill_tree_calls = []
@@ -388,7 +436,7 @@ def test_stop_session_kill_tree_only_if_pid_still_alive(monkeypatch: pytest.Monk
     _touch_lock(paths)
     core_session._write_json_atomic(paths.session, _valid_session(paths, pid=555))
     monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
-    monkeypatch.setattr(core_session, "_request", lambda s, cmd, args, timeout, grace=core_common.CLIENT_GRACE: {"stopping": True})
+    monkeypatch.setattr(core_session, "_request", lambda s, cmd, args, timeout, **kw: {"stopping": True})
     monkeypatch.setattr(core_common, "_pid_alive", lambda pid: True)  # never exits
     monkeypatch.setattr(core_common, "_kill_browsers_using", lambda user_data, dry_run=False: [])
     kill_tree_calls = []
@@ -401,12 +449,31 @@ def test_stop_session_kill_tree_only_if_pid_still_alive(monkeypatch: pytest.Monk
     assert 555 in result["killed_pids"]
 
 
+def test_stop_all_on_a_busy_daemon_asks_it_to_stop_before_killing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
+    paths = core_common._paths("default")
+    _touch_lock(paths)
+    session = _valid_session(paths, pid=555)
+    core_session._write_json_atomic(paths.session, session)
+    monkeypatch.setattr(core_session, "_liveness", lambda p: ("busy", session))
+    requests: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(core_session, "_request", lambda s, cmd, args, timeout, **kw: requests.append((cmd, args)) or {"stopping": True})
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(core_common, "_kill_browsers_using", lambda user_data, dry_run=False: [])
+    kill_tree_calls: list[int] = []
+    monkeypatch.setattr(core_common, "_kill_tree", kill_tree_calls.append)
+
+    result = core_session.stop_session(paths)
+
+    assert requests == [("stop", {"all": True})]
+    assert kill_tree_calls == [] and result["stopped"] is True
+
+
 def test_stop_session_also_kills_browsers_using_the_profile(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
     paths = core_common._paths("default")
     _touch_lock(paths)
     core_session._write_json_atomic(paths.session, _valid_session(paths, pid=555))
     monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
-    monkeypatch.setattr(core_session, "_request", lambda s, cmd, args, timeout, grace=core_common.CLIENT_GRACE: {})
+    monkeypatch.setattr(core_session, "_request", lambda s, cmd, args, timeout, **kw: {})
     monkeypatch.setattr(core_common, "_pid_alive", lambda pid: False)
     monkeypatch.setattr(core_common, "_kill_tree", lambda pid: None)
     monkeypatch.setattr(core_common, "_kill_browsers_using", lambda user_data, dry_run=False: [111, 222])
@@ -429,6 +496,23 @@ def test_status_session_not_running_reasons(monkeypatch: pytest.MonkeyPatch, tmp
     result = core_session.status_session(paths)
     assert result["running"] is False
     assert result["reason"] == expected_reason
+
+
+def test_status_session_reports_busy_as_running_without_force_stop_advice(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    paths = core_common._paths("default")
+    busy = {"cmd": "goto", "since": core_common._utc_now(), "until": core_common._utc_after(60)}
+    session = _valid_session(paths, started=core_common._utc_now(), busy=busy, code_hash="old-hash")
+    monkeypatch.setattr(core_session, "_liveness", lambda p: ("busy", session))
+
+    def no_second_probe(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("a busy daemon cannot answer a second probe either")
+
+    monkeypatch.setattr(core_session, "_ping", no_second_probe)
+    result = core_session.status_session(paths)
+    assert result["running"] is True and result["busy"] == busy
+    assert result["note"] == core_common._hint("busy_status", "default")  # outranks the stale-code restart note
+    assert "--force" not in json.dumps(result)
+    assert not {"current_tab", "url", "title", "tabs"} & set(result)
 
 
 def test_status_session_running_reports_stale_code_when_hash_differs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -507,6 +591,16 @@ def test_clean_purge_refused_while_running(monkeypatch: pytest.MonkeyPatch, tmp_
     with pytest.raises(ValueError) as exc:
         core_session.clean(purge="default")
     assert exc.value.error_class == core_common.ERR_VALIDATION
+    assert exc.value.hint == core_common._hint("purge_running", "default")
+
+
+def test_clean_purge_refused_while_busy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    core_common._paths("default").dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(core_session, "_liveness", lambda p: ("busy", {}))
+    monkeypatch.setattr(core_common, "_kill_browsers_using", lambda user_data, dry_run=False: [])
+
+    with pytest.raises(ValueError) as exc:
+        core_session.clean(purge="default")
     assert exc.value.hint == core_common._hint("purge_running", "default")
 
 

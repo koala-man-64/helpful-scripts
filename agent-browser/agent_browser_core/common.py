@@ -52,7 +52,7 @@ import sys
 import time
 import urllib.parse
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
@@ -133,6 +133,9 @@ REQUEST_CAP = 2 * 1024 * 1024
 CLIENT_GRACE = SETTLE_CAP + 7.0        # the daemon settles frames and snapshots after the action itself finishes
 
 
+QUEUE_WAIT = 30.0                      # one daemon serves a profile serially; past this wait the daemon refuses to start a request
+
+
 PING_TIMEOUT = 3.0
 
 
@@ -182,10 +185,16 @@ IDP_HOSTS = (
 SIGNIN_PATH_RE = re.compile(r"/(login|logout|auth_redirect|login_with_sso|saml_redirector|sso_login|signin|sign-in|oauth2|authorize|mfa)\b", re.I)
 
 
-LOGIN_PAGE_RE = re.compile(r"login|signin|sign-in|sso|mfa|auth|verify", re.I)
+# Substring heuristics that fail safe. Concatenated and camelCase names (adminlogin, UserSignInGate, CorpSSOCallback,
+# userauth, authorise) still match; only words that merely contain the letters (author, lessons, Associate, designing,
+# signing) are excluded. The (?-i:...) parts read camelCase boundaries, so they are case-sensitive.
+LOGIN_PAGE_RE = re.compile(r"log-?(in|on)|sign[-_]?(in|on)(?!g)|(?-i:[Ss]ign[-_]?(In|On)(?=[A-Z]))|(?<![a-z])sign (in|on)(?![a-z])"
+                           r"|(?<![a-z])sso|sso(?![a-z])|(?-i:SSO(?=[A-Z][a-z])|Sso(?=[A-Z]))|mfa|saml|oauth|auth(?!or(?!i[sz]))|verif(y|ication)", re.I)
 
 
-SECRET_STRONG_RE = re.compile(r"pass(word|code|phrase)?\b|pwd|\botp\b|\bmfa\b|totp|secret|token|\bssn\b|\bcvv\b|card ?number|(verification|security|auth(entication)?) ?code", re.I)
+# Bare "pass" stays a match after any prefix (userpass, txtpass, userPass) except the few English words ending in it.
+SECRET_STRONG_RE = re.compile(r"pass(word|code|phrase|wd)|(?<!com)(?<!by)(?<!sur)(?<!tres)(?<!over)(?<!under)pass\b|pwd|\botp\b|\bmfa\b"
+                              r"|totp|secret|token|\bssn\b|\bcvv\b|card ?number|(verification|security|auth(entication)?) ?code", re.I)
 
 
 SECRET_WEAK_RE = re.compile(r"\bcode\b|\bpin\b", re.I)
@@ -341,6 +350,9 @@ ERR_DAEMON_UNRESPONSIVE = "daemon_unresponsive"
 ERR_TIMEOUT = "timeout"
 
 
+ERR_BUSY = "busy"
+
+
 EXIT_2_CLASSES = frozenset({
     ERR_USAGE, ERR_VALIDATION, ERR_AMBIGUOUS_PROFILE, ERR_REF_NOT_FOUND, ERR_STALE_REF, ERR_NOT_FOUND,
     ERR_AMBIGUOUS, ERR_ACTION_TIMEOUT, ERR_ACTION_FAILED, ERR_GUARDED, ERR_DIALOG, ERR_UNSAVED,
@@ -362,6 +374,8 @@ HINTS = {
     "ambiguous_profile": "Several browsers are running. Add --profile NAME (see: {tool} status --all)",
     "guarded_secret": "This field takes a password or code. Ask the user to type it in the browser window, then run: {tool} wait --signed-in <app host> --profile {profile}",
     "guarded_key": "Only Enter, Tab, and Escape may be pressed on a password or code field.",
+    "guarded_eval_secret": "eval cannot target a password or code field. Pick a ref to another element; never read or set credential values with eval.",
+    "secret_unverified": "Could not confirm the field is not a password or code field. Run: {tool} snapshot --profile {profile} and retry with a fresh ref; if a press without a ref keeps failing, give it a ref.",
     "guarded_scheme": "Only http:// and https:// URLs can be opened.",
     "guarded_host": "That host is not in allowed_hosts (config.json). Ask the user before continuing.",
     "guarded_path": "The file must be under the current folder, this session's downloads/shots folders, or a configured upload root.",
@@ -374,6 +388,8 @@ HINTS = {
     "wait_cap": "wait runs at most 100 seconds per call. Use --timeout 100 and run the same wait again if needed.",
     "no_wait_condition": "Give at least one condition: --url-contains, --text, --ref, --selector, --signed-in, or --seconds.",
     "daemon_unresponsive": "Run: {tool} stop --force --profile {profile}",
+    "busy": "Another command held the browser, so this one was not run. Repeat it, or check: {tool} status --profile {profile}",
+    "busy_status": "The browser is running another command, not hung. Do not force-stop it. Check again: {tool} status --profile {profile}",
     "profile_in_use": "Another browser holds this profile. Run: {tool} clean --profile {profile}",
     "playwright_missing": "Install it for the interpreter that runs {tool}: python -m pip install --user \"playwright>=1.61,<2\"",
     "browser_not_found": "Set AGENT_BROWSER_EXE or pass --exe pointing at msedge.exe or chrome.exe.",
@@ -450,11 +466,21 @@ def _is_windows() -> bool:
 _now = time.monotonic
 
 
+_wall = time.time                      # comparable across the client and daemon processes, unlike _now
+
+
 _sleep = time.sleep
 
 
+UTC_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).strftime(UTC_FORMAT)
+
+
+def _utc_after(seconds: float) -> str:
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).strftime(UTC_FORMAT)
 
 
 def _home() -> Path:

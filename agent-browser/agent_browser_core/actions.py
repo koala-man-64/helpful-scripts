@@ -80,7 +80,11 @@ class VerifiedActionsMixin:
                 raise common._tag(ValueError("Duplicate form target."), common.ERR_VALIDATION)
             seen.add(key)
             locator = self.resolve(page, field.get("target"))
-            if self._is_secret(page, locator):
+            verdict = self._secret_check(page, locator)
+            if verdict == "unknown":
+                raise common._tag(ValueError("Could not confirm a form field is not a password or one-time-code field; nothing was filled."),
+                                  common.ERR_ACTION_FAILED, hint=common._hint("secret_unverified", self.profile))
+            if verdict == "secret":
                 raise common._tag(ValueError("Form contains a credential field; nothing was filled."), common.ERR_GUARDED)
             info = locator.evaluate("""el => ({tag:el.tagName.toLowerCase(),type:el.type,disabled:el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true',readOnly:el.readOnly,
                 multiple:el.multiple,options:el.options ? Array.from(el.options).map(o=>({label:o.label,value:o.value,disabled:o.disabled || (o.parentElement.tagName==='OPTGROUP' && o.parentElement.disabled)})) : []})""")
