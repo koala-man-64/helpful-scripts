@@ -3,8 +3,10 @@
 All examples are one command per shell call. Use the profile/session flags after the
 verb when using the skill's allowlist. File paths must be local, readable UTF-8 files
 within the working directory, session download/screenshot directory, or configured
-upload roots. Hidden/credential paths and UNC shares are refused. Do not place input
-files inside a hidden managed worktree directory; stage them in an allowed location.
+upload roots. The daemon checks them against your working directory, not its own.
+Refused: the agent-browser state folder, dot-named files and folders below the allowed
+folder, dot-folders directly under your home (except `.claude`), key files, UNC shares
+and non-fixed drives. A hidden folder above your working directory is fine.
 
 ```text
 agent-browser fill e5 --text-file note.txt

@@ -41,9 +41,7 @@ class ReachMixin:
         page = self.target_page(args)
         self.paths.shots.mkdir(parents=True, exist_ok=True)
         filename = args.get("path") or str(self.paths.shots / (args.get("_command_id", common._utc_now().replace(":", "")) + ".png"))
-        config = dict(self.config)
-        if args.get("_cwd"): config["upload_roots"] = list(config.get("upload_roots", [])) + [args["_cwd"]]
-        path = common._check_local_path(filename, self.paths, config, must_exist=False)
+        path = self._api_path(filename, args, must_exist=False)
         if path.suffix.lower() != ".png":
             raise common._tag(ValueError("Screenshot path must end in .png."), common.ERR_VALIDATION)
         target = self.resolve(page, args["target"]) if args.get("target") else page

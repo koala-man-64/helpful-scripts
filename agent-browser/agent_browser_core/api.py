@@ -110,13 +110,12 @@ class ApiMixin:
         result["untrusted"] = ["body", "url", "headers"]
         return result
 
-    def _api_path(self, candidate: str, args: dict[str, Any]) -> Path:
-        config = dict(self.config)
-        # File paths are checked in the caller's working-directory context, not the daemon's startup cwd.
+    def _api_path(self, candidate: str, args: dict[str, Any], must_exist: bool = True) -> Path:
+        # File paths are checked against the caller's working directory, never the daemon's own cwd (the profile folder).
+        cwd = None
         if args.get("_cwd"):
             cwd = Path(args["_cwd"])
             if not cwd.is_absolute(): raise common._tag(ValueError("Caller cwd must be absolute."), common.ERR_VALIDATION)
-            config["upload_roots"] = list(config.get("upload_roots", [])) + [str(cwd)]
             if candidate.strip():
                 path = Path(candidate.strip()).expanduser()
                 if not path.is_absolute():
@@ -124,4 +123,4 @@ class ApiMixin:
                     if not path.is_absolute():
                         raise common._tag(ValueError("File path cannot be resolved against the caller cwd."), common.ERR_VALIDATION)
                     candidate = str(path)
-        return common._check_local_path(candidate, self.paths, config)
+        return common._check_local_path(candidate, self.paths, self.config, must_exist, base=cwd)

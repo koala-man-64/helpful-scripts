@@ -211,6 +211,9 @@ ALLOWED_SCHEMES = frozenset({"http", "https"})
 KEY_EXTENSIONS = frozenset({".pem", ".key", ".pfx", ".p12", ".kdbx", ".ppk", ".jks"})
 
 
+HOME_DOT_FOLDERS_ALLOWED = frozenset({".claude"})  # every other dot-folder directly under the user's home is refused
+
+
 UNTRUSTED_KEYS = ["snapshot", "text", "title", "url", "details", "changes", "frames", "tabs", "dialogs", "target_line", "value_after", "value"]
 
 
@@ -361,7 +364,7 @@ HINTS = {
     "guarded_key": "Only Enter, Tab, and Escape may be pressed on a password or code field.",
     "guarded_scheme": "Only http:// and https:// URLs can be opened.",
     "guarded_host": "That host is not in allowed_hosts (config.json). Ask the user before continuing.",
-    "guarded_path": "The file must be under the current folder or the profile's downloads/shots folders.",
+    "guarded_path": "The file must be under the current folder, this session's downloads/shots folders, or a configured upload root.",
     "off_allowlist": "The page left the allowed hosts. Use: {tool} back --profile {profile}, or ask the user.",
     "dialog": "A browser dialog was dismissed. Re-run the same command with --accept-dialog to accept it.",
     "unsaved_changes": "The page has unsaved edits. Click its Save/Update button first, or re-run this command with --discard-changes.",
@@ -457,11 +460,18 @@ def _utc_now() -> str:
 def _home() -> Path:
     explicit = os.getenv("AGENT_BROWSER_HOME")
     if explicit:
-        return Path(explicit).expanduser()
-    if _is_windows():
-        base = os.getenv("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-        return Path(base) / TOOL_NAME
-    return Path.home() / f".{TOOL_NAME}"
+        home = Path(explicit).expanduser()
+    elif _is_windows():
+        home = Path(os.getenv("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")) / TOOL_NAME
+    else:
+        home = Path.home() / f".{TOOL_NAME}"
+    return _absolute(home)
+
+
+def _absolute(path: Path) -> Path:
+    # The daemon's cwd is the profile folder, so a relative home would resolve somewhere else there.
+    # abspath also resolves a Windows drive-relative D:x against that drive's cwd.
+    return path if path.is_absolute() else Path(os.path.abspath(path))
 
 
 def _is_profile_name(name: str) -> bool:
@@ -547,12 +557,16 @@ class ProfilePaths:
 
 def _paths(profile: str) -> ProfilePaths:
     paths = ProfilePaths(_validate_profile(profile), _home())
+    _check_profile_path_length(paths)
+    return paths
+
+
+def _check_profile_path_length(paths: ProfilePaths) -> None:
     if len(str(paths.user_data)) > MAX_PROFILE_PATH_CHARS:
         raise _tag(
             RuntimeError(f"Profile path is too long for Chromium ({len(str(paths.user_data))} chars): {paths.user_data}"),
             ERR_CONFIG, hint=_hint("profile_path"),
         )
-    return paths
 
 
 def _load_config() -> dict[str, Any]:
@@ -1018,35 +1032,85 @@ def _host_allowed(host: str, allowed: Sequence[str]) -> bool:
     return any(host == a or host.endswith("." + a) for a in allowed if a)
 
 
-def _check_local_path(candidate: str, paths: ProfilePaths, config: dict[str, Any], must_exist: bool = True) -> Path:
+_PROCESS_CWD: Any = object()
+
+
+def _check_local_path(candidate: str, paths: ProfilePaths, config: dict[str, Any], must_exist: bool = True, *, base: Any = _PROCESS_CWD) -> Path:
+    """Resolve a caller-named file and refuse anything outside the caller's allowed folders.
+
+    `base` is the caller's working directory. The CLI omits it: its own cwd is the caller's.
+    The daemon's cwd is the profile folder, so daemon code passes the caller's `_cwd`, or None
+    when none was sent (then only absolute paths under downloads/shots/upload_roots pass).
+    """
     text = (candidate or "").strip()
     if not text:
         raise _tag(ValueError("A file path is required."), ERR_USAGE)
     if text.startswith(("\\\\", "//")):
         raise _tag(ValueError("UNC paths are not allowed."), ERR_GUARDED, hint=_hint("guarded_path"))
+    caller = Path.cwd() if base is _PROCESS_CWD else None if base is None else Path(base)
+    if caller is not None and not caller.is_absolute():
+        raise _tag(ValueError("Caller cwd must be absolute."), ERR_VALIDATION)
     path = Path(text).expanduser()
     if not path.is_absolute():
-        path = Path.cwd() / path
+        if caller is None:
+            raise _tag(ValueError("A relative path needs the caller's working directory; give an absolute path."), ERR_VALIDATION)
+        path = caller / path
+        if not path.is_absolute():  # a drive-relative D:x joined to C:\caller stays relative
+            raise _tag(ValueError("File path cannot be resolved against the caller cwd."), ERR_VALIDATION)
     try:
         resolved = path.resolve()
     except OSError as exc:
         raise _tag(ValueError(f"Cannot resolve {text!r}: {exc}"), ERR_VALIDATION) from exc
-    if any(part.startswith(".") for part in resolved.parts[1:]):
-        raise _tag(ValueError("Hidden files and folders are not allowed."), ERR_GUARDED, hint=_hint("guarded_path"))
     if resolved.suffix.lower() in KEY_EXTENSIONS:
         raise _tag(ValueError("Key material cannot be uploaded."), ERR_GUARDED, hint=_hint("guarded_path"))
     if not _drive_is_fixed(resolved):
-        raise _tag(ValueError("Only files on a fixed local drive are allowed."), ERR_GUARDED, hint=_hint("guarded_path"))
-    roots = [Path.cwd().resolve(), paths.downloads.resolve(), paths.shots.resolve()]
+        raise _tag(ValueError("Only files on a fixed local drive are allowed (network and removable drives are refused); copy the file to a local folder."),
+                   ERR_GUARDED, hint=_hint("guarded_path"))
+    if _in_profile_store(resolved, paths):
+        raise _tag(ValueError("The agent-browser state folder (session and launch files, browser profile, saved outputs, config) is not available as a file input or output."),
+                   ERR_GUARDED, hint=_hint("guarded_path"))
+    roots = ([caller.resolve()] if caller is not None else []) + [paths.downloads.resolve(), paths.shots.resolve()]
     roots.extend(Path(r).expanduser().resolve() for r in config.get("upload_roots", []) if r)
-    if not any(_is_under(resolved, root) for root in roots):
+    matching = [root for root in roots if _is_under(resolved, root)]
+    if not matching:
         raise _tag(ValueError(f"{resolved} is outside the allowed folders."), ERR_GUARDED, hint=_hint("guarded_path"))
+    if all(_hidden_below(resolved, root) for root in matching) or _in_home_dot_folder(resolved, paths):
+        raise _tag(ValueError("Hidden files and folders are not allowed."), ERR_GUARDED, hint=_hint("guarded_path"))
     if must_exist and not resolved.is_file():
         raise _tag(ValueError(f"File not found: {resolved}"), ERR_NOT_FOUND)
     return resolved
 
 
-def _is_under(path: Path, root: Path) -> bool:
+def _in_profile_store(resolved: Path, paths: ProfilePaths) -> bool:
+    # profiles/ holds tokens, cookies and receipts; config.json is policy. The home itself is not
+    # protected (AGENT_BROWSER_HOME=C:\ would cover the drive). Only this session's downloads/shots pass.
+    root = paths.root.resolve()
+    if not any(_is_under(resolved, entry, fold=True) for entry in (root / "profiles", root / "config.json")):
+        return False
+    return not any(_is_under(resolved, own.resolve()) for own in (paths.downloads, paths.shots))
+
+
+def _hidden_below(resolved: Path, root: Path) -> bool:
+    # The root's own name and everything below it. A dotted ancestor (a worktree's .claude) does not count.
+    return any(part.startswith(".") for part in resolved.parts[max(len(root.parts) - 1, 1):])
+
+
+def _in_home_dot_folder(resolved: Path, paths: ProfilePaths) -> bool:
+    # Dot-folders directly under the user's home hold credentials (.ssh, .aws, .config/gh) whatever the cwd.
+    try:
+        home = Path.home().resolve()
+    except (RuntimeError, KeyError, OSError):
+        return False
+    if not _is_under(resolved, home, fold=True) or len(resolved.parts) <= len(home.parts):
+        return False
+    name = resolved.parts[len(home.parts)]
+    return name.startswith(".") and name.lower() not in HOME_DOT_FOLDERS_ALLOWED and not _is_under(resolved, paths.root.resolve())
+
+
+def _is_under(path: Path, root: Path, *, fold: bool = False) -> bool:
+    if fold:  # resolve() does not normalise case on case-insensitive POSIX filesystems (macOS)
+        parts, prefix = [p.casefold() for p in path.parts], [p.casefold() for p in root.parts]
+        return parts[:len(prefix)] == prefix
     try:
         path.relative_to(root)
         return True

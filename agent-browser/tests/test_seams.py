@@ -64,6 +64,22 @@ def test_process_and_registry_edges_are_single_sited() -> None:
     assert _import_sites("fcntl") == {"_try_lock"}
 
 
+def test_daemon_side_path_checks_always_pass_the_caller_base() -> None:
+    """The daemon's cwd is the profile folder, so a `_check_local_path` call without `base=` would trust it."""
+    process_cwd_callers = {"cli.py", "commands.py"}  # these run in the caller's process, whose cwd is the caller's
+    guarded, unguarded = [], []
+    for module in sorted((Path(ab.__file__).parent / "agent_browser_core").glob("*.py")):
+        for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call) and ast.unparse(node.func).split(".")[-1] == "_check_local_path":
+                site = f"{module.name}:{node.lineno}"
+                if any(keyword.arg == "base" for keyword in node.keywords):
+                    guarded.append(site)
+                elif module.name not in process_cwd_callers:
+                    unguarded.append(site)
+    assert not unguarded, f"daemon-side path checks must pass base=: {unguarded}"
+    assert any(site.startswith("api.py:") for site in guarded)
+
+
 def test_daemon_server_is_never_threaded() -> None:
     assert "ThreadingMixIn" not in SOURCE
     assert "ThreadingTCPServer" not in SOURCE

@@ -4,12 +4,10 @@ import hmac
 import json
 import os
 import socketserver
-import struct
 import sys
 import traceback
 import urllib.parse
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
@@ -1031,31 +1029,6 @@ class BrowserEngine:
         masked = self._is_secret(page, loc)
         env = self._base_fields(page)
         env.update({"target": core_snapshots.normalize_target(args.get("target") or ""), "masked": masked, "value": self._value_of(loc, masked), "untrusted": core_common.UNTRUSTED_KEYS})
-        return env
-
-    def h_screenshot(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        page = self.target_page(args)
-        ms = self._timeout_ms(timeout)
-        path = Path(args.get("path") or core_common._unique_path(self.paths.shots, f"{self.profile}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.png"))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            if args.get("target"):
-                self.resolve(page, args["target"]).screenshot(path=str(path), timeout=ms)
-            else:
-                page.screenshot(path=str(path), full_page=bool(args.get("full_page")), timeout=ms, scale="css")
-        except (ValueError, RuntimeError):
-            raise
-        except Exception as exc:  # noqa: BLE001
-            raise self._classify(exc, "screenshot") from exc
-        width = height = None
-        try:
-            head = path.read_bytes()[:24]
-            if head[:8] == b"\x89PNG\r\n\x1a\n":
-                width, height = struct.unpack(">II", head[16:24])
-        except OSError:
-            pass
-        env = self._base_fields(page)
-        env.update({"path": str(path).replace("\\", "/"), "bytes": path.stat().st_size if path.exists() else 0, "width": width, "height": height})
         return env
 
     def h_wait(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
