@@ -249,6 +249,54 @@ def test_credential_guard_covers_shadow_roots_and_eval_refs(cli: Cli, base_url: 
     assert cli.ok("eval", "closedValue()")["value"] == ""
 
 
+# A person types into these fields: insertText goes through the editing pipeline like keys would. The text is made
+# per run so no credential-shaped literal sits in the source.
+TYPE_LIKE_A_PERSON = """(([typed, card]) => {
+  for (const [id, text] of [['pw', typed], ['again', typed], ['card', card], ['key', typed], ['pin', typed], ['slash', typed],
+                            ['wrapped', typed]]) {
+    document.getElementById(id).focus();
+    document.execCommand('insertText', false, text);
+  }
+  document.activeElement.blur();
+  return document.getElementById('pw').value.length;
+})(%s)"""
+
+
+def test_typed_secrets_never_reach_a_snapshot(cli: Cli, base_url: str) -> None:
+    import secrets
+    typed, card = "t" + secrets.token_hex(6), "4" + secrets.token_hex(8)[:15]
+    env = cli.ok("goto", f"{base_url}/typed.html")
+    assert cli.ok("eval", TYPE_LIKE_A_PERSON % json.dumps([typed, card]))["value"] == len(typed)  # the CLI would refuse
+    user_field = ref(env, r'textbox "Username"')
+    filled = cli.ok("fill", user_field, "Abel")
+    hidden = (typed, card, "SECRET1")
+    assert not any(h in json.dumps(filled) for h in hidden)
+    for extra in ((), ("--find", "Confirm"), ("--find", "Card"), ("--full",)):
+        reply = cli.ok("snapshot", *extra)
+        saved = Path(reply["snapshot_file"]).read_text(encoding="utf-8")  # last_snapshot.txt, rewritten by every snapshot
+        for h in hidden:
+            assert h not in json.dumps(reply) and h not in saved, (extra, h, reply["snapshot"])
+    full = reply
+    for pattern in (r'textbox "Pass\w+" [^:]*\[ref=\w+\]: \*\*\*$', r'textbox "Card #" [^:]*\[ref=\w+\]: \*\*\*$',
+                    r'button "Key" [^:]*\[ref=\w+\]: \*\*\*$', r'textbox "User\w+" [^:]*\[ref=\w+\]: Abel$',
+                    r'textbox "Confirm" [^:]*\[ref=\w+\]:$', r'^\s+- text: \*\*\*$', r'/url: callback\.html\?code=\*\*\*&keep=1$',
+                    r'^\s+- textbox \[ref=\w+\]: \*\*\*$'):  # the table-layout PIN field
+        assert any(re.search(pattern, line) for line in full["snapshot"]), (pattern, full["snapshot"])
+    # Playwright 1.61 repeats the PIN in the row and cell names, 1.64 does not; either way it shows as *** or not at all.
+    assert all("***" in line or "PIN" not in line or "row" not in line for line in full["snapshot"])
+    # U+2028 in an href and U+0085 in a name stay inside their own line.
+    assert not any(line.lstrip().startswith('- button "Forged"') for line in full["snapshot"])
+    assert len(saved.splitlines()) == full["lines"] and not full["truncated"]
+    default = cli.ok("snapshot")
+    assert not any("e66" in line or '"Pay"' in line for line in default["snapshot"]), default["snapshot"]
+    assert all(len(line.splitlines()) == 1 for line in default["snapshot"] + full["snapshot"])
+    assert cli.ok("snapshot", "--find", typed)["snapshot"] == []
+    # Ambiguity candidates are described from the masked page, so a name labelled by the field's wrapper is clean.
+    code, _out, err = cli("click", "--role", "button")
+    assert code != 0 and err["class"] == "ambiguous" and err["details"]["candidates"], err
+    assert typed not in json.dumps(err) and any('"Pw: ***"' in c["description"] for c in err["details"]["candidates"]), err
+
+
 def test_wait_signed_in_ignores_the_login_page(cli: Cli, base_url: str) -> None:
     env = cli.ok("goto", f"{base_url}/login.html")
     assert env["sign_in_suspected"] is True

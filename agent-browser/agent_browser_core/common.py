@@ -163,6 +163,37 @@ ACTIONABLE_ROLES = frozenset({
 })
 
 
+# The roles HTML gives a text-entry input or textarea. Playwright prints any input's value whatever its role, so a
+# snapshot also checks lines that show the value of an input the page gave another role (daemon.INPUT_ROLES_JS).
+INPUT_VALUE_ROLES = frozenset({"textbox", "searchbox", "combobox", "spinbutton", "slider"})
+
+
+# Typed values in a snapshot: each valued input line costs one SECRET_JS check; past the cap or the budget it is masked.
+SECRET_SCAN_CAP = 200
+SECRET_SCAN_TIMEOUT_MS = 500
+SECRET_SCAN_BUDGET = 2.0
+
+
+MASK = "***"
+
+
+# Where a masked value is removed from other lines' names: a confirmed credential's own value this long, from every
+# line (at most SCRUB_PAGE_CAP values); any masked value, from the named lines around its field. Past
+# SCRUB_WORK_CAP (line, value) pairs, the remaining named lines around masked fields show *** as their name instead,
+# so a hostile page cannot make the scrub quadratic.
+SCRUB_MIN = 3
+SCRUB_PAGE_CAP = 64
+SCRUB_WORK_CAP = 200_000
+
+
+# Lines with a role the page put on a valued input: at most this many are checked per snapshot (they share the time
+# budget); past it, such lines that may still be one of those inputs are masked.
+REMAP_SCAN_CAP = 20
+
+
+JS_SPACE_RE = re.compile(r"[\t\n\x0b\x0c\r \xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+")  # JS \s
+
+
 CONTEXT_ROLES = frozenset({"heading", "dialog", "alertdialog", "alert", "status", "tablist", "table", "listbox", "menu"})
 
 
@@ -193,8 +224,13 @@ LOGIN_PAGE_RE = re.compile(r"log-?(in|on)|sign[-_]?(in|on)(?!g)|(?-i:[Ss]ign[-_]
 
 
 # Bare "pass" stays a match after any prefix (userpass, txtpass, userPass) except the few English words ending in it.
-SECRET_STRONG_RE = re.compile(r"pass(word|code|phrase|wd)|(?<!com)(?<!by)(?<!sur)(?<!tres)(?<!over)(?<!under)pass\b|pwd|\botp\b|\bmfa\b"
-                              r"|totp|secret|token|\bssn\b|\bcvv\b|card ?number|(verification|security|auth(entication)?) ?code", re.I)
+# Short forms are bounded by non-letters, not \b, so ssn_last4, mfa_code, otpInput and cvv2 match; no English word
+# ends in "pw".
+SECRET_STRONG_RE = re.compile(r"pass(word|code|phrase|wd|wrd)|(?<!com)(?<!by)(?<!sur)(?<!tres)(?<!over)(?<!under)pass\b|pwd|pw(?![a-z])"
+                              r"|(?<![a-z])(otp|mfa|ssn)(?-i:(?![a-z]))|totp|secret|token|social[-_ ]?security|(?<![a-z])cv[vcn]\d?(?![a-z])"
+                              r"|card[-_ ]?(number|num|no)\b|\bcc[-_ ]?(number|num|no)\b"
+                              r"|(verification|security|auth(entication)?|recovery|backup|sms|2fa|one[-_ ]?time)[-_ ]?code"
+                              r"|(api|recovery|private|access)[-_ ]?keys?(?![a-z])", re.I)
 
 
 SECRET_WEAK_RE = re.compile(r"\bcode\b|\bpin\b", re.I)
@@ -238,10 +274,32 @@ BROWSER_BASENAMES = frozenset({
 CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 
 
-LINE_RE = re.compile(
-    r'^(?P<indent>\s*)- (?P<role>[A-Za-z/]+)(?: "(?P<name>(?:[^"\\]|\\.)*)")?'
-    r'(?P<attrs>(?: \[[^\]]*\])*)(?P<colon>:)?(?: (?P<value>.*))?$'
-)
+# A snapshot key is role, name and [attrs]. Playwright prints a name that starts and ends with / (a lone / too) bare
+# instead of JSON-quoted, and single-quotes the whole key ('' for ') when it holds ": ", " #", braces or a backtick.
+# A value only ever follows ": ", so a name cannot pass forged [ref=...] text off as the line's attrs.
+SNAP_KEY = (r'(?P<role>[A-Za-z/]+)(?: (?:"(?P<name>(?:[^"\\]|\\.)*)"|(?P<rname>/(?= \[|:|$)|/.*?/(?= \[|:|$))))?'
+            r'(?P<attrs>(?: \[[^\[\]]*\])*)')  # Playwright's attrs never hold a bracket; a bare name's " [x" is not one
+
+
+LINE_RE = re.compile(r'^(?P<indent>\s*)- ' + SNAP_KEY + r'(?:(?P<colon>:)(?: (?P<value>.*))?)?$')
+
+
+QUOTED_LINE_RE = re.compile(r"^(?P<indent>\s*)- '(?P<key>(?:[^']|'')*)'(?:(?P<colon>:)(?: (?P<value>.*))?)?$")
+
+
+SNAP_KEY_RE = re.compile("^" + SNAP_KEY + "$")
+
+
+# Everything str.splitlines() breaks on; a rendered snapshot line must hold none of them.
+LINE_BREAKS = str.maketrans(dict.fromkeys("\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029", " "))
+
+
+# YAML double-quoted escapes (Playwright emits \\ \" \b \f \n \r \t and \xNN; the rest are decoded for completeness).
+YAML_ESCAPES = {"0": "\0", "a": "\a", "b": "\b", "t": "\t", "\t": "\t", "n": "\n", "v": "\v", "f": "\f", "r": "\r",
+                "e": "\x1b", " ": " ", '"': '"', "/": "/", "\\": "\\", "N": "\x85", "_": "\xa0", "L": "\u2028", "P": "\u2029"}
+
+
+YAML_ESCAPE_RE = re.compile(r"\\(x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.)", re.S)
 
 
 EDGE_CANDIDATES = (
@@ -665,8 +723,8 @@ def redact_url(url: Any) -> str:
         return ""
     try:
         parts = urllib.parse.urlsplit(str(url))
-    except ValueError:
-        return sanitize_text(url, 500)
+    except ValueError:  # a malformed host ([..., NFKC tricks) hides where userinfo and the query start
+        return MASK
     netloc = parts.netloc.rsplit("@", 1)[-1]  # drop user:pass@ userinfo
     if not parts.query:
         return sanitize_text(urllib.parse.urlunsplit((parts.scheme, netloc, parts.path, "", "")), 500)
@@ -674,6 +732,35 @@ def redact_url(url: Any) -> str:
     masked = [(k, "***" if k.lower() in REDACT_QUERY_KEYS else v) for k, v in pairs]
     query = urllib.parse.urlencode(masked, safe="/:*")
     return sanitize_text(urllib.parse.urlunsplit((parts.scheme, netloc, parts.path, query, "")), 500)
+
+
+def _yaml_escape(m: re.Match[str]) -> str:
+    esc = m.group(1)
+    if len(esc) > 1 and esc[0] in "xuU":
+        code = int(esc[1:], 16)
+        return m.group(0) if 0xD800 <= code <= 0xDFFF or code > 0x10FFFF else chr(code)  # no lone surrogates
+    return YAML_ESCAPES.get(esc, m.group(0))  # an unknown escape stays as written
+
+
+def yaml_unquote(value: str) -> str:
+    """A YAML scalar as written: double-quoted with backslash escapes, single-quoted with '' for ', or plain."""
+    if len(value) >= 2 and value[0] == value[-1] == "'":
+        return value[1:-1].replace("''", "'")
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        return YAML_ESCAPE_RE.sub(_yaml_escape, value[1:-1])
+    return value
+
+
+def js_normalize_space(text: str) -> str:
+    """Playwright's normalizeWhiteSpace: drop U+200B and U+00AD, trim, collapse JavaScript whitespace."""
+    return JS_SPACE_RE.sub(" ", text.replace("\u200b", "").replace("\xad", "")).strip(" ")
+
+
+def redact_href(value: Any) -> str:
+    """A snapshot /url value as shown: unquoted, then redacted like any URL. A same-page #fragment shows as #."""
+    href = yaml_unquote(str(value or ""))
+    redacted = redact_url(href)
+    return "#" if not redacted and href.startswith("#") else redacted
 
 
 def _is_idp_host(host: str) -> bool:
