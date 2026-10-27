@@ -107,7 +107,7 @@ def test_the_loop_and_the_sign_in_handshake_are_present() -> None:
 
 def test_errors_table_covers_every_exit_2_class_the_model_can_hit() -> None:
     text = _skill()
-    for cls in ("stale_ref", "ref_not_found", "not_found", "action_timeout", "action_failed", "guarded", "dialog", "unsaved_changes", "ambiguous_profile", "not_running", "timeout"):
+    for cls in ("stale_ref", "ref_not_found", "not_found", "action_timeout", "action_failed", "guarded", "dialog", "unsaved_changes", "ambiguous_profile", "not_running", "timeout", "busy"):
         assert f"`{cls}`" in text, f"errors table lacks {cls}"
 
 

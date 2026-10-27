@@ -63,7 +63,8 @@ def _read_session(paths: core_common.ProfilePaths) -> dict[str, Any] | None:
 
 def _ping(session: dict[str, Any], timeout: float = core_common.PING_TIMEOUT) -> dict[str, Any] | None:
     try:
-        return _request(session, "ping", {}, timeout=timeout, grace=0.0)
+        # A ping does no browser work, so its whole deadline is the wait for the daemon to pick it up.
+        return _request(session, "ping", {}, timeout=0.0, grace=0.0, queue_wait=timeout)
     except (RuntimeError, ValueError, OSError) as exc:
         if getattr(exc, "error_class", None) == "protocol_mismatch":
             raise
@@ -85,17 +86,39 @@ def _transport_state(paths: core_common.ProfilePaths) -> tuple[str, dict[str, An
     return "none", None
 
 
+def _busy_record(session: dict[str, Any]) -> dict[str, Any] | None:
+    """The request the daemon published as in flight, while it is still inside that request's own deadline."""
+    busy = session.get("busy")
+    if not isinstance(busy, dict) or not isinstance(busy.get("until"), str):
+        return None
+    try:
+        until = datetime.strptime(busy["until"], core_common.UTC_FORMAT).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return busy if datetime.now(timezone.utc) <= until else None
+
+
 def _liveness(paths: core_common.ProfilePaths) -> tuple[str, dict[str, Any] | None]:
-    """Health observation for status/doctor, separate from command dispatch."""
+    """Health observation for status/doctor, separate from command dispatch.
+
+    One daemon serves a profile serially, so a ping queued behind another session's long command
+    misses its deadline. The published in-flight request tells that `busy` daemon from a hung one.
+    """
     state, session = _transport_state(paths)
     if state != "running":
         return state, session
     try:
-        return ("running", session) if _ping(session) is not None else ("unresponsive", session)
+        if _ping(session) is not None:
+            return "running", session
     except RuntimeError as exc:
         if getattr(exc, "error_class", None) == "protocol_mismatch":
             return "incompatible", session
         raise
+    # The command holding the daemon may have started after the first read, or finished during the ping.
+    for record in (_read_session(paths) or session, session):
+        if _busy_record(record):
+            return "busy", record
+    return "unresponsive", session
 
 
 def _running_profiles() -> list[str]:
@@ -122,16 +145,20 @@ def _resolve_profile(explicit: str | None, sticky: bool = True) -> str:
     return profile
 
 
-def _request(session: dict[str, Any], cmd: str, args: dict[str, Any], timeout: float, grace: float = core_common.CLIENT_GRACE) -> dict[str, Any]:
-    payload = json.dumps({"token": session["token"], "cmd": cmd, "args": args, "timeout": timeout, "protocol_version": core_common.PROTOCOL_VERSION, "session_id": core_common.session_identity(args.get("_session_id"))}) + "\n"
+def _request(session: dict[str, Any], cmd: str, args: dict[str, Any], timeout: float, grace: float = core_common.CLIENT_GRACE,
+             queue_wait: float = core_common.QUEUE_WAIT) -> dict[str, Any]:
+    """One request; the daemon may start it up to `queue_wait` after sending, then it keeps its full timeout and grace."""
+    patience = queue_wait + timeout + grace
+    payload = json.dumps({"token": session["token"], "cmd": cmd, "args": args, "timeout": timeout, "start_by": core_common._wall() + queue_wait,
+                          "protocol_version": core_common.PROTOCOL_VERSION, "session_id": core_common.session_identity(args.get("_session_id"))}) + "\n"
     try:
         with socket.create_connection(("127.0.0.1", int(session["port"])), timeout=3.0) as sock:
-            sock.settimeout(timeout + grace)
+            sock.settimeout(patience)
             sock.sendall(payload.encode("utf-8"))
             with sock.makefile("rb") as reader:
                 line = reader.readline()
     except socket.timeout as exc:
-        raise core_common._tag(RuntimeError(f"The daemon did not answer within {timeout + grace:g}s."), core_common.ERR_TIMEOUT, hint=core_common._hint("timeout_client", session.get("profile", core_common.DEFAULT_PROFILE))) from exc
+        raise core_common._tag(RuntimeError(f"The daemon did not answer within {patience:g}s."), core_common.ERR_TIMEOUT, hint=core_common._hint("timeout_client", session.get("profile", core_common.DEFAULT_PROFILE))) from exc
     except OSError as exc:
         raise core_common._tag(RuntimeError(f"Cannot reach the daemon on port {session.get('port')}: {exc}"), core_common.ERR_NOT_RUNNING, hint=core_common._hint("not_running", session.get("profile", core_common.DEFAULT_PROFILE))) from exc
     if not line:
@@ -265,7 +292,7 @@ def stop_session(paths: core_common.ProfilePaths, force: bool = False) -> dict[s
         raise _restart_required(paths)
     result: dict[str, Any] = {"profile": paths.profile, "stopped": False, "killed_pids": []}
     pid = int(session.get("pid") or 0) if session else 0
-    if state == "running" and session is not None and not force:
+    if state in ("running", "busy") and session is not None and not force:
         try:
             _request(session, "stop", {"all": True}, timeout=core_common.STOP_GRACE)
         except (RuntimeError, ValueError) as exc:
@@ -274,13 +301,13 @@ def stop_session(paths: core_common.ProfilePaths, force: bool = False) -> dict[s
         while core_common._now() < deadline and core_common._pid_alive(pid):
             core_common._sleep(0.2)
         result["stopped"] = True
-    # The recorded pid is only trusted while the daemon holds the lock (running/unresponsive/starting);
+    # The recorded pid is only trusted while the daemon holds the lock (running/busy/unresponsive/starting);
     # a stale record may name a pid that the OS has since given to an unrelated process.
-    if pid and state in ("running", "incompatible", "unresponsive", "starting") and core_common._pid_alive(pid):
+    if pid and state in ("running", "busy", "incompatible", "unresponsive", "starting") and core_common._pid_alive(pid):
         core_common._kill_tree(pid)
         result["killed_pids"].append(pid)
         result["stopped"] = True
-    if state in ("running", "incompatible", "unresponsive", "stale", "starting"):
+    if state in ("running", "busy", "incompatible", "unresponsive", "stale", "starting"):
         # Chromium's helper processes (--type=...) follow the main process out; give them a moment so a
         # `status`/`clean` right after `stop` does not see a browser that is still winding down.
         deadline = core_common._now() + 4.0
@@ -294,11 +321,11 @@ def stop_session(paths: core_common.ProfilePaths, force: bool = False) -> dict[s
 
 def status_session(paths: core_common.ProfilePaths) -> dict[str, Any]:
     state, session = _liveness(paths)
-    if state != "running" or session is None:
+    if state not in ("running", "busy") or session is None:
         reason = {"none": "no_session", "stale": "pid_dead", "unresponsive": "unresponsive", "starting": "starting", "incompatible": "protocol_mismatch"}[state]
         hint = _restart_required(paths).hint if state == "incompatible" else core_common._hint("daemon_unresponsive" if state == "unresponsive" else "not_running", paths.profile)
         return {"profile": paths.profile, "running": False, "reason": reason, "hint": hint}
-    pong = _ping(session, timeout=1.0) or {}
+    pong = (_ping(session, timeout=1.0) or {}) if state == "running" else {}
     started = session.get("started")
     uptime = None
     if started:
@@ -315,6 +342,10 @@ def status_session(paths: core_common.ProfilePaths) -> dict[str, Any]:
         out["note"] = f"This browser has been open for {uptime // 3600} hours. Run: {core_common.TOOL_NAME} stop --profile {paths.profile} when the task is done."
     if out["stale_code"]:
         out["note"] = core_common._hint("stale_code", paths.profile)
+    if state == "busy":
+        for key in ("current_tab", "url", "title", "tabs"):  # unknown until the command in flight finishes
+            del out[key]
+        out["note"] = core_common._hint("busy_status", paths.profile)
     return out
 
 
@@ -352,7 +383,7 @@ def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = 
                     except OSError:
                         pass
         if purge == entry.name:
-            if state in ("running", "incompatible", "starting", "unresponsive"):
+            if state in ("running", "busy", "incompatible", "starting", "unresponsive"):
                 raise core_common._tag(ValueError(f"Profile {entry.name!r} is running; refusing to purge."), core_common.ERR_VALIDATION, hint=core_common._hint("purge_running", entry.name))
             out["profiles_purged"].append(entry.name)
             if not dry_run:

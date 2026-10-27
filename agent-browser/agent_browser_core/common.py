@@ -52,7 +52,7 @@ import sys
 import time
 import urllib.parse
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
@@ -131,6 +131,9 @@ REQUEST_CAP = 2 * 1024 * 1024
 
 
 CLIENT_GRACE = SETTLE_CAP + 7.0        # the daemon settles frames and snapshots after the action itself finishes
+
+
+QUEUE_WAIT = 30.0                      # one daemon serves a profile serially; past this wait the daemon refuses to start a request
 
 
 PING_TIMEOUT = 3.0
@@ -338,6 +341,9 @@ ERR_DAEMON_UNRESPONSIVE = "daemon_unresponsive"
 ERR_TIMEOUT = "timeout"
 
 
+ERR_BUSY = "busy"
+
+
 EXIT_2_CLASSES = frozenset({
     ERR_USAGE, ERR_VALIDATION, ERR_AMBIGUOUS_PROFILE, ERR_REF_NOT_FOUND, ERR_STALE_REF, ERR_NOT_FOUND,
     ERR_AMBIGUOUS, ERR_ACTION_TIMEOUT, ERR_ACTION_FAILED, ERR_GUARDED, ERR_DIALOG, ERR_UNSAVED,
@@ -371,6 +377,8 @@ HINTS = {
     "wait_cap": "wait runs at most 100 seconds per call. Use --timeout 100 and run the same wait again if needed.",
     "no_wait_condition": "Give at least one condition: --url-contains, --text, --ref, --selector, --signed-in, or --seconds.",
     "daemon_unresponsive": "Run: {tool} stop --force --profile {profile}",
+    "busy": "Another command held the browser, so this one was not run. Repeat it, or check: {tool} status --profile {profile}",
+    "busy_status": "The browser is running another command, not hung. Do not force-stop it. Check again: {tool} status --profile {profile}",
     "profile_in_use": "Another browser holds this profile. Run: {tool} clean --profile {profile}",
     "playwright_missing": "Install it for the interpreter that runs {tool}: python -m pip install --user \"playwright>=1.61,<2\"",
     "browser_not_found": "Set AGENT_BROWSER_EXE or pass --exe pointing at msedge.exe or chrome.exe.",
@@ -447,11 +455,21 @@ def _is_windows() -> bool:
 _now = time.monotonic
 
 
+_wall = time.time                      # comparable across the client and daemon processes, unlike _now
+
+
 _sleep = time.sleep
 
 
+UTC_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).strftime(UTC_FORMAT)
+
+
+def _utc_after(seconds: float) -> str:
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).strftime(UTC_FORMAT)
 
 
 def _home() -> Path:

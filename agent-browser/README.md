@@ -164,7 +164,8 @@ with start gives its health response the requested start deadline.
 - Exit `2` = fix the call: `usage`, `validation`, `ambiguous_profile`, `ref_not_found`, `stale_ref`, `not_found`,
   `ambiguous`, `action_timeout`, `action_failed`, `guarded`, `dialog`, `unsaved_changes`.
 - Exit `1` = fix the environment or start the browser: `config`, `playwright_missing`, `browser_not_found`,
-  `edge_policy`, `browser_launch`, `profile_in_use`, `not_running`, `browser_closed`, `daemon`, `daemon_unresponsive`.
+  `edge_policy`, `browser_launch`, `profile_in_use`, `not_running`, `browser_closed`, `daemon`, `daemon_unresponsive`,
+  `busy` (another session's command held the browser past this request's queue deadline; it was not run, repeat it).
 - Exit `124` = `timeout`: inspect the receipt before another action; the action may already have run.
   Exit `130` = interrupted.
 - Every `hint` is a literal next command rendered with the profile in use.
@@ -211,7 +212,7 @@ effective list is a configuration error.
 ```
 %LOCALAPPDATA%\agent-browser\profiles\<name>\
   user-data\        the Chromium profile: cookies, local storage, sign-ins (never your daily Edge profile)
-  session.json      pid, port, token, browser, heartbeat, busy, code hash (written by the daemon)
+  session.json      pid, port, token, browser, heartbeat, busy (request in flight: cmd, since, until), code hash (written by the daemon)
   session.lock      held by the daemon for its lifetime; the OS releases it on death (liveness truth)
   launch.json       the settings the client handed the daemon
   daemon.log        command/status/timing diagnostics; no argument values or exception bodies
@@ -232,6 +233,15 @@ then stable `manual`. Tabs, refs, receipts, outputs and downloads belong to that
 popups inherit their opener. Cookies/storage remain shared. IDs route work
 cooperatively and do not authenticate callers. Normal stop releases one session;
 select another ID explicitly to stop it. All/force stops affect the shared profile.
+
+The daemon runs one request at a time; `wait` is polled, so it does not hold the
+browser. A request may wait up to 30 s behind other sessions' commands and then keeps
+its full timeout. One picked up later is refused as `busy`, unrun; one whose caller
+disconnected while queued is skipped. A request that has started runs to completion
+even if its caller then gives up. While a command other than `ping`/`poll` runs,
+`status` reports `running: true` with `busy` (`cmd`, `since`, `until`) instead of
+`unresponsive`, up to that command's `until`. Both protections need a daemon started
+from this version; an older one shows `stale_code: true` until the profile restarts.
 
 Dialogs are answered synchronously by the daemon: `alert` is accepted; `confirm`/`prompt` during a command are
 accepted only with `--accept-dialog` (otherwise the command fails with `dialog`); `beforeunload` during a command
