@@ -253,8 +253,9 @@ class OperatingMixin:
         conditions = args.get("conditions") or {k: args[k] for k in ("seconds", "url_contains", "signed_in", "text", "ref", "selector") if args.get(k) not in (None, "", 0)}
         if not conditions:
             raise common._tag(ValueError("wait needs a condition."), common.ERR_USAGE)
+        started = common._now()
         self.jobs[command_id] = {"session": self.session_id, "page": self.target_page(args), "conditions": conditions,
-                                "started": common._now(), "deadline": common._now() + timeout, "max_bytes": args.get("max_bytes")}
+                                "started": started, "deadline": args.get("_deadline", started + timeout), "max_bytes": args.get("max_bytes")}
         return self._poll({"command_id": command_id})
 
     def _poll(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -262,24 +263,38 @@ class OperatingMixin:
         job = self.jobs.get(command_id)
         if job is None or job["session"] != self.session_id:
             raise common._tag(ValueError("Pending operation not found for this session; inspect its journal receipt."), common.ERR_NOT_FOUND)
-        if "checker" in job:
-            try:
+        try:
+            if "checker" in job:
                 reply = job["checker"]()
-                if "before_counts" in job:
-                    reply["observed"] = {k: self.session_counts.get(self.session_id, {}).get(k, 0) - v for k, v in job["before_counts"].items()}
-                    if command_id in self.jobs:
-                        self.jobs[command_id]["before_counts"] = job["before_counts"]
-                    else:
-                        self.journal.finish(command_id, "unknown" if reply.get("write_outcome") == "unknown" else "completed", reply)
-                return reply
-            except Exception as exc:
-                self.jobs.pop(command_id, None)
-                self.journal.finish(command_id, "unknown" if job.get("executed") else "failed", {
-                    "error_class": getattr(exc, "error_class", "verification_unavailable"), "executed": bool(job.get("executed"))})
-                details = dict(getattr(exc, "details", None) or {})
-                details.update(command_id=command_id, executed=bool(job.get("executed")), receipt="state --command " + command_id)
-                exc.details = details
-                raise
+            else:
+                reply = self._poll_wait(command_id, job)
+            if "before_counts" in job:
+                reply["observed"] = {k: self.session_counts.get(self.session_id, {}).get(k, 0) - v for k, v in job["before_counts"].items()}
+                if command_id in self.jobs:
+                    self.jobs[command_id]["before_counts"] = job["before_counts"]
+                else:
+                    self.journal.finish(command_id, "unknown" if reply.get("write_outcome") == "unknown" else "completed", reply)
+            return reply
+        except Exception as exc:
+            self.jobs.pop(command_id, None)
+            # A poll observes the original job. A different command may have set
+            # action_attempted since it started; that is not this job's execution.
+            executed = bool(job.get("executed"))
+            self.journal.finish(command_id, "unknown" if executed else "failed", {
+                "error_class": getattr(exc, "error_class", "verification_unavailable"),
+                "executed": executed, "pending": False})
+            details = dict(getattr(exc, "details", None) or {})
+            details.update(command_id=command_id, executed=executed, receipt="state --command " + command_id)
+            exc.details = details
+            raise
+
+    def _poll_wait(self, command_id: str, job: dict[str, Any]) -> dict[str, Any]:
+        def require_time() -> None:
+            if common._now() >= job["deadline"]:
+                raise common._tag(RuntimeError("Wait deadline expired; the command was not replayed."), common.ERR_TIMEOUT,
+                                  hint=common._hint("wait_timeout", self.profile))
+
+        require_time()
         page, satisfied = job["page"], []
         for key, value in job["conditions"].items():
             if key == "seconds": ok = common._now() - job["started"] >= float(value)
@@ -303,10 +318,13 @@ class OperatingMixin:
                             break
                     except Exception as exc:
                         classified = self._classify(exc, f"selector {value!r}")
-                        if getattr(classified, "error_class", None) == common.ERR_VALIDATION:
+                        if getattr(classified, "error_class", None) in {common.ERR_VALIDATION, common.ERR_BROWSER_CLOSED}:
                             raise classified from exc
             else: raise common._tag(ValueError("Unknown wait condition."), common.ERR_USAGE)
             if ok: satisfied.append(key)
+        # Conditions can themselves take time. Success must have been observed
+        # before the original deadline, including after another session ran.
+        require_time()
         result = {"command_id": command_id, "session_id": self.session_id, "contract_version": common.CONTRACT_VERSION}
         if len(satisfied) == len(job["conditions"]):
             loading = self._settle(page, cap=2.0)
@@ -314,11 +332,6 @@ class OperatingMixin:
             result.update(pending=False, satisfied=satisfied, waited_s=round(common._now() - job["started"], 2))
             self.jobs.pop(command_id)
             self.journal.finish(command_id, "completed", result)
-        elif common._now() >= job["deadline"]:
-            self.jobs.pop(command_id)
-            self.journal.finish(command_id, "failed", {"error_class": "timeout", "executed": False})
-            raise common._tag(RuntimeError("Wait deadline expired; the command was not replayed."), common.ERR_TIMEOUT,
-                              hint=common._hint("wait_timeout", self.profile), details={"command_id": command_id, "executed": False})
         else:
             result.update(pending=True, satisfied=satisfied)
         return result

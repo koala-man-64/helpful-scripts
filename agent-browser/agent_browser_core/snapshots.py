@@ -161,7 +161,7 @@ def budget_lines(lines: Sequence[str], max_bytes: int) -> tuple[list[str], bool]
     used = 0
     kept: list[str] = []
     for line in lines:
-        cost = len(json.dumps(line, ensure_ascii=False)) + 6
+        cost = len(json.dumps(line, ensure_ascii=False).encode("utf-8")) + 6
         if used + cost > max_bytes and kept:
             return kept, True
         used += cost

@@ -6,6 +6,8 @@ tests/fixtures/snapshots/ or a short synthetic string; nothing starts a browser.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import agent_browser as ab
@@ -172,6 +174,24 @@ def test_budget_lines_truncation() -> None:
     assert core_snapshots.budget_lines(lines, 100_000) == (lines, False)
     assert core_snapshots.budget_lines(lines, 5) == (["a"], True)  # always keeps at least one line
     assert core_snapshots.budget_lines([], 1000) == ([], False)
+
+@pytest.mark.parametrize("label", ["é" * 10, "漢" * 10, "😀" * 10, '漢😀é\\"' * 10])
+def test_budget_lines_counts_utf8_and_json_escaping(label: str) -> None:
+    lines = [f'- button "{label}" [ref=e{index}]' for index in (1, 2)]
+    budget = len(json.dumps(lines, ensure_ascii=False).encode("utf-8")) - 1
+
+    kept, truncated = core_snapshots.budget_lines(lines, budget)
+
+    assert kept == lines[:1]
+    assert truncated is True
+    assert len(json.dumps(kept, ensure_ascii=False).encode("utf-8")) <= budget
+
+
+def test_budget_lines_keeps_a_single_oversized_unicode_line() -> None:
+    line = '- button "😀漢" [ref=e1]'
+    assert core_snapshots.budget_lines([line], 1) == ([line], False)
+    assert core_snapshots.budget_lines([line, "another"], 1) == ([line], True)
+
 
 def test_diff_lines() -> None:
     assert core_snapshots.diff_lines(None, ["a", "b"]) == {"added": ["a", "b"], "removed": []}

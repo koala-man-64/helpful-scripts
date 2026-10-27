@@ -82,6 +82,7 @@ PROFILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
 
 
 RESERVED_PROFILES = frozenset({"_doctor", "_live"})
+INTERNAL_DATA_PROFILE = "_doctor"
 
 
 REF_RE = re.compile(r"^(f\d+)?e\d+$")
@@ -570,16 +571,27 @@ def _load_config() -> dict[str, Any]:
         if not isinstance(data["eval"], bool):
             raise _tag(RuntimeError(f"config.json eval must be the JSON boolean true or false, not {data['eval']!r}"), ERR_CONFIG)
         out["eval"] = data["eval"]
-    for key in ("allowed_hosts", "upload_roots"):
-        value = data.get(key)
+    if "allowed_hosts" in data:
+        out["allowed_hosts"] = _normalize_allowed_hosts(data["allowed_hosts"])
+    if "upload_roots" in data:
+        value = data["upload_roots"]
+        if value is not None and (not isinstance(value, list) or not all(isinstance(v, str) for v in value)):
+            raise _tag(RuntimeError("config.json upload_roots must be a list of strings."), ERR_CONFIG)
         if value is not None:
-            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-                raise _tag(RuntimeError(f"config.json {key} must be a list of strings."), ERR_CONFIG)
-            out[key] = [v.strip().lower() if key == "allowed_hosts" else v for v in value if v.strip()]
+            out["upload_roots"] = [v for v in value if v.strip()]
     for key in ("profiles", "permission", "evidence_max_bytes", "uploads"):
         if key in data:
             out[key] = data[key]
     return out
+
+
+def _normalize_allowed_hosts(value: Any) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise _tag(RuntimeError("allowed_hosts must be a list of strings."), ERR_CONFIG)
+    hosts = [v.strip().lower() for v in value if v.strip()]
+    if not hosts:
+        raise _tag(RuntimeError("allowed_hosts must contain at least one non-blank host; omit it to allow unrestricted navigation."), ERR_CONFIG)
+    return hosts
 
 
 def session_identity(explicit: str | None = None) -> str:
@@ -989,15 +1001,15 @@ def _check_url(url: str, paths: ProfilePaths, config: dict[str, Any]) -> str:
         raw = "https://" + raw
     parts = urllib.parse.urlsplit(raw)
     scheme = parts.scheme.lower()
+    allowed = _normalize_allowed_hosts(config["allowed_hosts"]) if "allowed_hosts" in config else None
     if scheme == "about" and parts.path == "blank":
         return raw
-    if scheme == "data" and paths.profile in RESERVED_PROFILES:
+    if scheme == "data" and paths.profile == INTERNAL_DATA_PROFILE:
         return raw
     if scheme not in ALLOWED_SCHEMES:
         raise _tag(ValueError(f"URL scheme {scheme or '(none)'!r} is not allowed."), ERR_GUARDED, hint=_hint("guarded_scheme"))
     host = (parts.hostname or "").lower()
-    allowed = config.get("allowed_hosts")
-    if allowed and not _host_allowed(host, allowed):
+    if allowed is not None and not _host_allowed(host, allowed):
         raise _tag(ValueError(f"Host {host!r} is outside allowed_hosts."), ERR_GUARDED, hint=_hint("guarded_host"))
     return raw
 

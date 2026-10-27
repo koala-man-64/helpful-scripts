@@ -113,11 +113,13 @@ def _running_profiles() -> list[str]:
 
 def _resolve_profile(explicit: str | None, sticky: bool = True) -> str:
     if explicit:
-        return core_common._validate_profile(explicit)
-    env = os.getenv("AGENT_BROWSER_PROFILE")
-    if env:
-        return core_common._validate_profile(env)
-    return core_common.DEFAULT_PROFILE
+        profile = core_common._validate_profile(explicit)
+    else:
+        env = os.getenv("AGENT_BROWSER_PROFILE")
+        profile = core_common._validate_profile(env) if env else core_common.DEFAULT_PROFILE
+    if profile == core_common.INTERNAL_DATA_PROFILE:
+        raise core_common._tag(ValueError("The _doctor profile is reserved for internal diagnostics."), core_common.ERR_VALIDATION)
+    return profile
 
 
 def _request(session: dict[str, Any], cmd: str, args: dict[str, Any], timeout: float, grace: float = core_common.CLIENT_GRACE) -> dict[str, Any]:

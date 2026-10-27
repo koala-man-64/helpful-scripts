@@ -63,6 +63,7 @@ class VerifiedActionsMixin:
     def h_fill_form(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         deadline = args.get("_deadline", common._now() + timeout)
         page = self.target_page(args)
+        tab_id = self._tab_id(page)
         fields = args.get("fields")
         if isinstance(fields, dict) and set(fields) == {"fields"}: fields = fields["fields"]
         if not isinstance(fields, list) or not 1 <= len(fields) <= 100:
@@ -107,13 +108,17 @@ class VerifiedActionsMixin:
         completed = []
         try:
             for index, field in enumerate(fields):
+                if page not in self.pages:
+                    raise common._tag(RuntimeError("The original form tab closed; remaining fields were not changed."), common.ERR_BROWSER_CLOSED)
                 remaining = deadline - common._now()
                 if remaining <= 0: raise common._tag(RuntimeError("Form deadline expired."), common.ERR_TIMEOUT)
                 operation = field.get("operation", "fill")
-                options = {"target": field["target"], "text": field.get("value"), "enter": False, "tab": args.get("tab"),
+                options = {"target": field["target"], "text": field.get("value"), "enter": False, "tab": tab_id,
                            "values": field.get("value") if isinstance(field.get("value"), list) else [field.get("value")]}
                 getattr(self, "h_" + operation)(options, remaining)
                 completed.append(index)
+                if page not in self.pages:
+                    raise common._tag(RuntimeError("The original form tab closed; remaining fields were not changed."), common.ERR_BROWSER_CLOSED)
         except Exception as exc:
             details = dict(getattr(exc, "details", None) or {})
             details.update(completed_fields=completed, executed=bool(completed) or self.action_attempted)
@@ -145,7 +150,15 @@ class VerifiedActionsMixin:
         return super()._do_action(args, timeout, action, run, **kwargs)
 
     def _verify_result(self, command_id, result, specs, page, url, cursor, deadline):
+        def expired(satisfied):
+            self.jobs.pop(command_id, None)
+            self.journal.finish(command_id, "failed", {"error_class": "expectation_failed", "executed": bool(result.get("executed"))})
+            raise common._tag(RuntimeError("Post-action expectations were not observed before the deadline; inspect the receipt before another action."), common.ERR_TIMEOUT,
+                              details={"command_id": command_id, "executed": bool(result.get("executed")), "expectations": satisfied})
+
         def check():
+            if common._now() >= deadline:
+                expired([{"kind": spec["kind"], "passed": False} for spec in specs])
             satisfied = []
             check_page = self.current if self.current is not None and result.get("new_tab") else page
             for spec in specs:
@@ -176,16 +189,13 @@ class VerifiedActionsMixin:
                 satisfied.append({"kind": kind, "passed": ok})
             reply = {**result, "command_id": command_id, "session_id": self.session_id,
                      "contract_version": common.CONTRACT_VERSION, "executed": bool(result.get("executed")), "expectations": satisfied}
+            if common._now() >= deadline:
+                expired(satisfied)
             if all(item["passed"] for item in satisfied):
                 self.jobs.pop(command_id, None)
                 reply["pending"] = False
                 self.journal.finish(command_id, "completed", reply)
                 return reply
-            if common._now() >= deadline:
-                self.jobs.pop(command_id, None)
-                self.journal.finish(command_id, "failed", {"error_class": "expectation_failed", "executed": bool(result.get("executed"))})
-                raise common._tag(RuntimeError("Post-action expectations were not observed; inspect the receipt before another action."), common.ERR_TIMEOUT,
-                                  details={"command_id": command_id, "executed": bool(result.get("executed")), "expectations": satisfied})
             self.jobs[command_id] = {"session": self.session_id, "checker": check, "executed": bool(result.get("executed", self.action_attempted))}
             reply["pending"] = True
             return reply

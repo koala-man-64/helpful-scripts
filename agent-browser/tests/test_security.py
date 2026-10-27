@@ -35,15 +35,15 @@ def test_check_url_refuses_disallowed_schemes(scheme_url: str) -> None:
     assert exc.value.error_class == core_common.ERR_GUARDED
     assert exc.value.hint == core_common._hint("guarded_scheme")
 
-def test_check_url_about_blank_always_allowed_data_only_for_reserved_profiles() -> None:
+def test_check_url_about_blank_is_public_but_data_is_for_internal_doctor_profile_only() -> None:
     assert core_common._check_url("about:blank", _paths("default"), {}) == "about:blank"
     assert core_common._check_url("about:blank", _paths("_doctor"), {}) == "about:blank"
     raw = "data:text/html,<b>hi</b>"
     assert core_common._check_url(raw, _paths("_doctor"), {}) == raw
-    assert core_common._check_url(raw, _paths("_live"), {}) == raw
-    with pytest.raises(ValueError) as exc:
-        core_common._check_url(raw, _paths("default"), {})
-    assert exc.value.error_class == core_common.ERR_GUARDED
+    for profile in ("_live", "default"):
+        with pytest.raises(ValueError) as exc:
+            core_common._check_url(raw, _paths(profile), {})
+        assert exc.value.error_class == core_common.ERR_GUARDED
 
 def test_check_url_allowed_hosts_including_subdomains_and_lookalike_rejection() -> None:
     config = {"allowed_hosts": ["example.com"]}

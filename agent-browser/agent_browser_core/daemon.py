@@ -563,8 +563,9 @@ class BrowserEngine:
         return reasons
 
     def _off_allowlist(self, page: Any) -> bool:
-        allowed = self.config.get("allowed_hosts")
-        if not allowed:
+        allowed = (core_common._normalize_allowed_hosts(self.config["allowed_hosts"])
+                   if "allowed_hosts" in self.config else None)
+        if allowed is None:
             return False
         host = (urllib.parse.urlsplit(page.url).hostname or "").lower()
         if not host and page.url.startswith("about:"):

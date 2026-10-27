@@ -173,10 +173,14 @@ def make_server():
         return invoke
 
     server = BoundedServer("agent-browser")
-    writing = {"browser_click", "browser_fill", "browser_fill_form", "browser_action", "browser_eval", "browser_commit"}
+    read_only = {"browser_snapshot", "browser_read", "browser_wait", "browser_screenshot",
+                 "browser_check_url", "browser_api", "browser_recipe", "browser_output"}
+    additive = {"browser_start", "browser_needs_human"}
     for name, function in list(globals().items()):
         if name.startswith("browser_") and callable(function):
-            server.tool(annotations=ToolAnnotations(readOnlyHint=name not in writing, destructiveHint=name in writing), structured_output=True)(bounded(function))
+            server.tool(annotations=ToolAnnotations(readOnlyHint=name in read_only,
+                        destructiveHint=name not in read_only and name not in additive),
+                        structured_output=True)(bounded(function))
     return server
 
 

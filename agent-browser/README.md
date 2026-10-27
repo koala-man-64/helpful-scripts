@@ -49,6 +49,8 @@ The detailed [agent interface reference](../agentic-ide-setup/profile/claude/ski
 covers exact role/name or label targets, UTF-8 text/JS file inputs, form JSON and MCP.
 `fill-form --file fields.json` preflights every field, applies credential guards,
 supports fill/select/check/uncheck, never submits, and reports partial completion.
+All fields stay on the original tab even if an earlier field opens a popup;
+closing that tab stops the remaining field operations.
 `screenshot --annotate` uses temporary noninteractive ref labels removed in `finally`.
 `table [REF]` requires a unique table/grid and returns ordered columns/rendered rows
 with refs/cells, without pagination. `check URL` uses a temporary 390x844 loopback
@@ -59,7 +61,8 @@ diagnostics page and preserves the working tab; `check REF` retains its behavior
 profile host policy is checked before dispatch. Authentication and redirect response
 headers are omitted. Response byte limits are post-download checks: Playwright
 buffers the response, so they do not impose a hard memory bound. Guarded files
-transfer binary attachments without oversized JSON. Cookies/auth headers stay in
+transfer binary attachments without oversized JSON. Relative transfer paths resolve
+against the caller's working directory. Cookies/auth headers stay in
 the daemon. `SERVICENOW_AUTH=browser` in servicenow-client needs both packages,
 matching instance origin and a usable same-origin session key; absent/expired or
 unsupported authentication returns unsupported-auth or a human handoff.
@@ -126,6 +129,8 @@ null. Later commands cannot replace that artifact; `last_output.json` remains av
 not business success. Repeat `--expect` for AND checks under one action deadline:
 `text:Saved`, `gone:e12`, `url:changed`, `response:POST **/api/items:2xx`.
 Checks are installed before the action. Recipes and wait use their own conditions.
+Waits and action checks reject success first observed after their original deadline.
+Wait observation/capture errors finish the receipt and remove the pending operation.
 
 Inspect `state --command ID` or `journal --command ID` after a failed check/interruption.
 Receipts distinguish completed, failed and unknown. `executed` means attempted, not
@@ -197,7 +202,9 @@ Real environment variables, read lazily; no `.env` loading (the tool must run ba
 `allowed_hosts`, `goto` refuses other hosts and a page that wanders off the list gets `off_allowlist: true` with only
 `back`, `goto`, `snapshot`, `text`, `tabs`, `tab`, and `stop` allowed until it is back. The daemon reads `config.json`
 when it starts, so after editing it run `stop` then `start`. `eval` must be a JSON boolean; anything else is a
-`config` error rather than a silent default.
+`config` error rather than a silent default. An absent `allowed_hosts` leaves hosts
+unrestricted; a present list must contain at least one nonblank host. An empty
+effective list is a configuration error.
 
 ## Session model
 
@@ -218,6 +225,7 @@ One daemon, one browser window, one loopback port per profile. `start` is idempo
 is cleaned and relaunched on the same profile folder, so the sign-in survives. Two profiles run side by side with
 separate cookies; that is opt-in through `--profile`. Selection is explicit profile,
 environment default, then `default`; there is no attachment to whichever profile runs.
+The `_doctor` profile is reserved for internal diagnostics and cannot be selected by callers.
 
 Session identity is explicit `--session`, CODEX_THREAD_ID, CLAUDE_CODE_SESSION_ID,
 then stable `manual`. Tabs, refs, receipts, outputs and downloads belong to that ID;

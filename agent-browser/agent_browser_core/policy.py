@@ -23,7 +23,7 @@ def profile_config(config: dict[str, Any], profile: str) -> dict[str, Any]:
         if key in result and (not isinstance(result[key], list) or any(not isinstance(v, str) for v in result[key])):
             raise common._tag(RuntimeError(f"{key} must be a list of strings."), common.ERR_CONFIG)
     if "allowed_hosts" in result:
-        result["allowed_hosts"] = [v.strip().lower() for v in result["allowed_hosts"] if v.strip()]
+        result["allowed_hosts"] = common._normalize_allowed_hosts(result["allowed_hosts"])
     quota = result.get("evidence_max_bytes", 1024 ** 3)
     if type(quota) is not int or quota < 65536:
         raise common._tag(RuntimeError("evidence_max_bytes must be an integer >= 65536."), common.ERR_CONFIG)
