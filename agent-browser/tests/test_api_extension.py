@@ -150,7 +150,7 @@ def test_concurrent_overflow_paging_is_immutable():
 def test_frame_context_masks_numeric_sign_in_control(make_daemon, monkeypatch):
     daemon, ctx, page = make_daemon()
     page.url = "https://app.example/dashboard"
-    monkeypatch.setattr(daemon, "_secret_info", lambda locator: {"inputmode": "numeric", "maxlength": 6, "text": "Code",
+    monkeypatch.setattr(daemon, "_secret_info", lambda locator, timeout_ms=3000: {"inputmode": "numeric", "maxlength": 6, "text": "Code",
                                                                "context_url": "https://login.example/mfa", "context_title": "Sign in"})
     assert daemon._is_secret(page, object())
 
@@ -201,7 +201,7 @@ def test_form_invalid_select_preflights_before_filling_any_field(make_daemon, mo
             return {"tag": self.tag, "type": "text", "options": [{"label": "Yes", "value": "yes", "disabled": False}]}
     controls = {"name": Field("input"), "answer": Field("select")}
     monkeypatch.setattr(daemon, "resolve", lambda p, target: controls[target])
-    monkeypatch.setattr(daemon, "_is_secret", lambda *a: False)
+    monkeypatch.setattr(daemon, "_secret_check", lambda *a, **k: "clear")
     calls = []
     monkeypatch.setattr(daemon, "h_fill", lambda *a: calls.append(a))
     fields = [{"target": "name", "value": "Rudy"}, {"target": "answer", "operation": "select", "value": "Missing"}]
@@ -214,7 +214,7 @@ def test_partial_form_failure_reports_receipt_without_rollback_or_remaining_edit
     daemon, ctx, page = make_daemon()
     field = SimpleNamespace(evaluate=lambda js: {"tag": "input", "type": "text"})
     monkeypatch.setattr(daemon, "resolve", lambda *a: field)
-    monkeypatch.setattr(daemon, "_is_secret", lambda *a: False)
+    monkeypatch.setattr(daemon, "_secret_check", lambda *a, **k: "clear")
     attempts = []
     def fill(options, timeout):
         attempts.append(options["target"])
