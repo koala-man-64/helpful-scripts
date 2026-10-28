@@ -1,7 +1,7 @@
 ---
 name: agent-browser
 description: "Operate a signed-in local Edge or Chrome browser through agent-browser. Use session-owned tabs, fresh refs, verified actions and durable receipts when built-in browser tools are unavailable. Human sign-in only."
-allowed-tools: Bash(agent-browser goto *), Bash(agent-browser snapshot *), Bash(agent-browser text *), Bash(agent-browser value *), Bash(agent-browser click *), Bash(agent-browser fill *), Bash(agent-browser type *), Bash(agent-browser select *), Bash(agent-browser check *), Bash(agent-browser uncheck *), Bash(agent-browser fill-form *), Bash(agent-browser press *), Bash(agent-browser hover *), Bash(agent-browser scroll *), Bash(agent-browser wait *), Bash(agent-browser screenshot *), Bash(agent-browser table *), Bash(agent-browser tabs *), Bash(agent-browser tab *), Bash(agent-browser back *), Bash(agent-browser reload *), Bash(agent-browser state *), Bash(agent-browser output *), Bash(agent-browser needs-human *), Bash(agent-browser status *), Bash(agent-browser doctor *), Bash(agent-browser stop *)
+allowed-tools: Bash(agent-browser goto *), Bash(agent-browser snapshot *), Bash(agent-browser text *), Bash(agent-browser value *), Bash(agent-browser click *), Bash(agent-browser fill *), Bash(agent-browser type *), Bash(agent-browser select *), Bash(agent-browser check *), Bash(agent-browser uncheck *), Bash(agent-browser fill-form *), Bash(agent-browser press *), Bash(agent-browser hover *), Bash(agent-browser scroll *), Bash(agent-browser wait *), Bash(agent-browser screenshot *), Bash(agent-browser table *), Bash(agent-browser tabs *), Bash(agent-browser tab *), Bash(agent-browser back *), Bash(agent-browser reload *), Bash(agent-browser state *), Bash(agent-browser journal *), Bash(agent-browser output *), Bash(agent-browser api *), Bash(agent-browser run *), Bash(agent-browser needs-human *), Bash(agent-browser status *), Bash(agent-browser doctor *), Bash(agent-browser stop *)
 ---
 
 # Agent browser
@@ -40,7 +40,9 @@ Caller permission templates ask before `stop --all`, `stop --force`, commit, eva
 
 Unconfigured profiles keep full access and eval enabled. Configured `read`, `act`,
 and `commit` levels narrow access. Arbitrary eval and declared commits require `commit`.
-Generic interaction can trigger autosave. Approval-sensitive workflows must disable
+Generic interaction can autosave or submit: `press Enter` and a Submit click need only `act`,
+and `fill`/`type --enter` needs a `commit` profile but not the `commit` verb; no ask
+rule covers them. Approval-sensitive workflows must disable
 eval and use declared commits under caller permission rules. These are cooperative
 controls; configuration and session files are not a hostile-process sandbox.
 
@@ -121,7 +123,6 @@ discards edits (a discarding stop is its operation `stop`). Read [interfaces](re
 | `guarded` | Respect the guard; use the human-owned route. |
 | `dialog` | The command already ran and the page saw Cancel. Repeat it with `--accept-dialog` only if the user authorized that. |
 | `unsaved_changes` | Edits were kept. Save them, or repeat with `--discard-changes` only if the user agreed to lose them. |
-| `ambiguous_profile` | Select the intended profile explicitly. |
 | `not_running` | Open the authorized URL to start a session. |
 | `timeout` | The command may have run: inspect its receipt or `state` first; only a wait is safe to repeat. |
 | `busy` | Another session held the browser; the command was not run. Repeat it. |

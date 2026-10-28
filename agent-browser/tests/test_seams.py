@@ -123,6 +123,26 @@ def test_every_pending_job_records_whether_it_executed() -> None:
         assert "executed" in keys, f"line {node.lineno}: job dict lacks 'executed'"
 
 
+def test_every_error_class_constant_is_used_beyond_the_exit_table() -> None:
+    """A class that is only defined and listed in EXIT_2_CLASSES can never be raised (ambiguous_profile was such a class)."""
+    defined, table, used = set(), set(), set()
+    for node in ast.walk(TREE):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            if node.targets[0].id.startswith("ERR_"):
+                defined.add(node.targets[0].id)
+            elif node.targets[0].id == "EXIT_2_CLASSES":
+                table.update(id(child) for child in ast.walk(node.value))
+    for node in ast.walk(TREE):
+        if id(node) in table:
+            continue
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id.startswith("ERR_"):
+            used.add(node.id)
+        elif isinstance(node, ast.Attribute) and node.attr.startswith("ERR_"):
+            used.add(node.attr)
+    assert len(defined) > 20 and table, "expected common.py's ERR_* constants and EXIT_2_CLASSES"
+    assert not defined - used, f"error classes nothing raises: {sorted(defined - used)}"
+
+
 def test_source_is_python_310_syntax() -> None:
     compile(SOURCE, ab.__file__, "exec", flags=0, dont_inherit=True, optimize=0)
     # Ask the parser to enforce the floor without referring to AST node classes

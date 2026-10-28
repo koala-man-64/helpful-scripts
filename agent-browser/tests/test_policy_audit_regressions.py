@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -87,6 +88,16 @@ def test_public_cli_and_mcp_entrypoints_reject_internal_doctor_profile(monkeypat
 
 def test_live_remains_selectable_but_does_not_enable_data_urls() -> None:
     assert session._resolve_profile("_live") == "_live"
+
+
+def test_reserved_profile_sets_are_split_and_documented() -> None:
+    tests = Path(__file__).resolve().parent
+    assert common.TEST_PROFILES == {"_live"} and common.INTERNAL_DATA_PROFILE not in common.TEST_PROFILES
+    assert common.RESERVED_PROFILES == common.TEST_PROFILES | {common.INTERNAL_DATA_PROFILE}
+    live_profile = re.search(r'^PROFILE = "([^"]+)"', (tests / "test_live.py").read_text(encoding="utf-8"), re.M)
+    assert live_profile and live_profile.group(1) in common.TEST_PROFILES
+    readme = " ".join((tests.parent / "README.md").read_text(encoding="utf-8").split())
+    assert "`_live` is the live test suite's profile (`TEST_PROFILES`)" in readme
 
 
 def test_data_scheme_is_not_enabled_by_public_live_profile(tmp_path: Path) -> None:

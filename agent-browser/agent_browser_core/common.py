@@ -12,7 +12,7 @@ Requirements:
 Commands (run `agent-browser --help` for full detail):
   start stop status goto snapshot click fill type press select check uncheck hover scroll
   text value screenshot wait back reload tabs tab upload downloads eval doctor clean output
-  commit state journal needs-human fill-form table api run diff
+  commit state journal needs-human fill-form table api run
 
 Environment (real env vars, read lazily - no .env loading):
   AGENT_BROWSER_HOME             state root (default %LOCALAPPDATA%/agent-browser, POSIX ~/.agent-browser)
@@ -23,7 +23,7 @@ Environment (real env vars, read lazily - no .env loading):
   AGENT_BROWSER_TIMEOUT_SECONDS  default --timeout for actions
   AGENT_BROWSER_MAX_BYTES        snapshot byte budget per response (default 16000)
   AGENT_BROWSER_MAX_CHARS        default --max-chars for `text` (default 20000)
-  AGENT_BROWSER_AUTOSTART        "false" = `goto` no longer starts a browser by itself
+  AGENT_BROWSER_AUTOSTART        "false" = `goto` and `check URL` no longer start a browser by themselves
   AGENT_BROWSER_LAUNCHER         popen (default) | wmi   - how the daemon is detached on Windows
   AGENT_BROWSER_IDLE_SECONDS     daemon stops after this much inactivity (default 0 = never)
   AGENT_BROWSER_LIVE             "1" enables the live pytest suite
@@ -81,8 +81,10 @@ DEFAULT_PROFILE = "default"
 PROFILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
 
 
-RESERVED_PROFILES = frozenset({"_doctor", "_live"})
 INTERNAL_DATA_PROFILE = "_doctor"
+# Selectable on purpose: tests/test_live.py drives this profile. It has no extra privilege (data: URLs stay _doctor's).
+TEST_PROFILES = frozenset({"_live"})
+RESERVED_PROFILES = frozenset({INTERNAL_DATA_PROFILE}) | TEST_PROFILES
 
 
 REF_RE = re.compile(r"^(f\d+)?e\d+$")
@@ -420,9 +422,6 @@ ERR_USAGE = "usage"
 ERR_VALIDATION = "validation"
 
 
-ERR_AMBIGUOUS_PROFILE = "ambiguous_profile"
-
-
 ERR_REF_NOT_FOUND = "ref_not_found"
 
 
@@ -496,7 +495,7 @@ ERR_JOURNAL_FULL = "journal_full"
 
 
 EXIT_2_CLASSES = frozenset({
-    ERR_USAGE, ERR_VALIDATION, ERR_AMBIGUOUS_PROFILE, ERR_REF_NOT_FOUND, ERR_STALE_REF, ERR_NOT_FOUND,
+    ERR_USAGE, ERR_VALIDATION, ERR_REF_NOT_FOUND, ERR_STALE_REF, ERR_NOT_FOUND,
     ERR_AMBIGUOUS, ERR_ACTION_TIMEOUT, ERR_ACTION_FAILED, ERR_GUARDED, ERR_DIALOG, ERR_UNSAVED,
 })
 
@@ -515,7 +514,6 @@ HINTS = {
     "expect_text_baseline": "The page text could not be read before the action, so text: had nothing to compare with and nothing was done. Run: {tool} snapshot --profile {profile} and repeat the command, or expect response:, gone: or url:changed instead.",
     "ref_not_found": "That ref is not on the current page. Run: {tool} snapshot --profile {profile}",
     "bad_ref": "Refs look like e12 or f2e5 and come from: {tool} snapshot --profile {profile}",
-    "ambiguous_profile": "Several browsers are running. Add --profile NAME (see: {tool} status --all)",
     "guarded_secret": "This field takes a password or code. Ask the user to type it in the browser window, then run: {tool} wait --signed-in <app host> --profile {profile}",
     "guarded_key": "Only Enter, Tab, and Escape may be pressed on a password or code field.",
     "guarded_eval_secret": "eval cannot target a password or code field. Pick a ref to another element; never read or set credential values with eval.",
