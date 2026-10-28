@@ -103,10 +103,12 @@ answers an expired session with 403 needs an explicit `needs-human`. Response by
 limits are post-download checks: Playwright buffers the response, so they do not
 impose a hard memory bound. The CLI and MCP `api` return the body inline (JSON, else
 UTF-8 text with undecodable bytes replaced, so binary content is not preserved; at most
-8 MiB). Only the Python bridge (`client.browser_request`, used by servicenow-client) can
+8 MiB) and raw: bodies are not redacted, and a page's HTML can embed its own session
+token (ServiceNow's `g_ck`), so read pages with `text` or `snapshot` and keep `api` for
+data endpoints. The skill preapproves `api`, so such a read does not ask the caller. Only the Python bridge (`client.browser_request`, used by servicenow-client) can
 save a response to a guarded file, which carries binary attachments without oversized
 JSON. Relative transfer paths resolve against the caller's working directory.
-`--servicenow` sends the page's ServiceNow session key as `X-UserToken`; the reply
+`--servicenow` sends the page's `g_ck` session key (from a same-origin frame) as `X-UserToken`; the reply
 carries no request headers. Cookies/auth headers stay in the daemon.
 `SERVICENOW_AUTH=browser` in servicenow-client needs both packages, matching instance origin and a usable same-origin session key. A page without one
 (not signed in, or not a classic page) returns `unsupported_browser_auth` before any
@@ -388,7 +390,7 @@ accepted only with `--accept-dialog`. Otherwise an action or `eval` fails with `
 `unsaved_changes` unless `--discard-changes`. A per-session `stop` answers the `beforeunload` of each of its tabs the
 same way: tabs with edits stay open, the session is kept, and `details.tabs` lists them. A dialog no error reported (one
 raised during a read, or by a page timer between commands) appears in `dialogs` on the next command other than
-`ping`, `poll`, `state`, `journal`, `needs-human`, `stop` and `api`, with a note when it was dismissed; that command
+`ping`, `poll`, `state`, `journal`, `output`, `needs-human`, `stop` and `api`, with a note when it was dismissed; that command
 still succeeds. Between commands a `beforeunload` raised by a human navigation is accepted on a tab of the session that
 sent the last command. A dialog on any other session's tab, or during a command on one of the caller's other tabs, takes
 the background route: `alert` is accepted, everything else (`beforeunload` included) is dismissed, and that session's

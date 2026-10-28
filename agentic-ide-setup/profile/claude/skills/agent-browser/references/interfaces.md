@@ -68,7 +68,8 @@ Same-page network matches are evidence, not proof of a causal business operation
 API reads use GET/HEAD; other supported methods require `commit api`. The current
 tab and request must have identical scheme, host and effective port. No automatic
 redirects or request retries occur. Cookies and internal ServiceNow authentication
-headers stay in the daemon. Response headers named like credentials (cookie, `auth`,
+headers stay in the daemon. Response bodies are returned raw and unredacted (a page's
+HTML can embed its session token), so read pages with `text` or `snapshot`. Response headers named like credentials (cookie, `auth`,
 token, session, `g_ck`, secret, CSRF/XSRF, password, credential, or ending in `key`) and
 `Location`/`Refresh` are omitted; the rest are single-line with URLs redacted, including
 `Content-Location` and `Link` targets.

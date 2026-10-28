@@ -167,7 +167,8 @@ def _asked(command: str, shell: str) -> bool:
 def _committing(command: str) -> bool:
     """Forms a caller must approve: declared commits, eval, evidence clearing, dialog acceptance, discarding edits, shared stops."""
     words = command.split()
-    verb = next((w for w in words[1:] if not w.startswith("-") and w in _parser_verbs()), "")
+    valued = {"--profile", "--session", "--tab", "--timeout", "--max-bytes", "--expect"}  # global flags that take a value
+    verb = next((w for i, w in enumerate(words[1:], 1) if not w.startswith("-") and words[i - 1] not in valued), "")
     return (verb in ("commit", "eval") or "--accept-dialog" in words or "--discard-changes" in words
             or verb == "journal" and ("--clear" in words or "--include-unknown" in words)
             or verb == "stop" and ("--all" in words or "--force" in words))
@@ -182,6 +183,7 @@ COMMITTING_FORMS = (
     "agent-browser --profile work stop --all", "agent-browser stop --discard-changes", "agent-browser click e5 --accept-dialog",
     "agent-browser fill e5 x --accept-dialog --dialog-text yes", "agent-browser goto https://example.com --discard-changes",
     "agent-browser fill-form --file f.json --discard-changes", "agent-browser tab 2 --close --discard-changes",
+    "agent-browser --profile state journal --clear", "agent-browser --session stop stop --all",  # a flag value that names a verb
 )
 
 

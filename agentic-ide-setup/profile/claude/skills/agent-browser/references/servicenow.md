@@ -23,9 +23,11 @@ Optional `SERVICENOW_AUTH=browser` in servicenow-client uses the same signed-in
 profile and daemon API. Install both packages, select the intended profile/session
 and navigate to the configured exact instance origin. Basic auth stays available;
 all existing client write/delete/dry-run/attachment guards still apply first.
-No cookies, authentication headers or session key values leave the daemon.
+The cookies, authentication headers and session key the daemon sends never leave it.
 `agent-browser api URL --servicenow` does the same from the shell: it sends the page's
-session key as `X-UserToken`, and the reply carries no request headers. A page
+`g_ck` session key as `X-UserToken`, and the reply carries no request headers. Response
+bodies are returned raw, and a classic page's HTML can embed that key, so call JSON
+endpoints with `api` and read pages with `text` or `snapshot`. A page
 without a usable session key (not signed in, or not a classic page) fails as
 `unsupported_browser_auth` before any request and opens no handoff. If the user must
 sign in, run `agent-browser needs-human --signed-in <instance host>`; otherwise open a
