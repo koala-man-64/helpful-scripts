@@ -518,6 +518,7 @@ HINTS = {
     "guarded_host": "That host is not in allowed_hosts (config.json). Ask the user before continuing.",
     "guarded_path": "The file must be under the current folder, this session's downloads/shots folders, or a configured upload root.",
     "off_allowlist": "The page left the allowed hosts. Use: {tool} back --profile {profile}, or ask the user.",
+    "off_allowlist_wait": "wait cannot watch a page outside allowed_hosts. For a sign-in on an identity provider, run: {tool} needs-human --signed-in <app host> --profile {profile} and poll it with: {tool} state --handoff <id> --profile {profile}; otherwise use: {tool} back --profile {profile}.",
     "dialog": "A browser dialog was dismissed. Re-run the same command with --accept-dialog to accept it.",
     "unsaved_changes": "The page has unsaved edits. Click its Save/Update button first, or re-run this command with --discard-changes.",
     "action_timeout": "The element is hidden, disabled, or covered. Run: {tool} snapshot --profile {profile} and pick a visible enabled element, or: {tool} wait --ref <ref> --profile {profile}",

@@ -3,6 +3,60 @@ import json
 
 import pytest
 
+from agent_browser_core import common as core_common
+
+
+def test_cooperative_wait_is_marked_busy_only_while_evaluating(make_daemon, fake_clock, monkeypatch):
+    daemon, _, _ = make_daemon()
+    seen = {}
+    real_job, real_poll = daemon._wait_job, daemon._poll_wait
+
+    def job(*args, **kwargs):
+        seen["job"] = daemon.current_cmd
+        return real_job(*args, **kwargs)
+
+    def poll(*args, **kwargs):
+        seen["poll"] = daemon.current_cmd
+        return real_poll(*args, **kwargs)
+
+    monkeypatch.setattr(daemon, "_wait_job", job)
+    monkeypatch.setattr(daemon, "_poll_wait", poll)
+    pending = daemon.dispatch("wait", {"seconds": 1, "_cooperative": True}, 30)
+    assert pending["pending"] is True and seen["job"] == "wait" and daemon.current_cmd is None
+
+    # A pending wait is not busy: the 0.2 s polls that observe it run as control requests.
+    del seen["poll"]
+    daemon.dispatch("poll", {"command_id": pending["command_id"]}, 2)
+    assert seen["poll"] is None and daemon.current_cmd is None
+
+
+@pytest.mark.parametrize("cooperative", [True, False])
+def test_wait_on_a_page_outside_allowed_hosts_is_refused_on_both_paths(make_daemon, cooperative):
+    daemon, _, _ = make_daemon(config={"allowed_hosts": ["allowed.example"]}, page_url="http://other.example/x")
+    args = {"seconds": 1, **({"_cooperative": True} if cooperative else {})}
+
+    with pytest.raises(ValueError) as raised:
+        daemon.dispatch("wait", args, 30)
+
+    assert raised.value.error_class == core_common.ERR_GUARDED
+    assert raised.value.hint == core_common._hint("off_allowlist_wait", daemon.profile)
+    assert "state --handoff" in raised.value.hint
+    assert daemon.jobs == {} and daemon.current_cmd is None
+    row = daemon.journal.rows("manual", raised.value.details["command_id"])[0]
+    assert row["status"] == "failed" and json.loads(row["outcome"])["error_class"] == core_common.ERR_GUARDED
+
+
+def test_off_allowlist_message_lists_the_verbs_the_constant_allows(make_daemon, monkeypatch):
+    daemon, _, _ = make_daemon(config={"allowed_hosts": ["allowed.example"]}, page_url="http://other.example/x")
+    monkeypatch.setattr(core_common, "OFF_ALLOWLIST_OK", core_common.OFF_ALLOWLIST_OK | {"value"})
+
+    with pytest.raises(ValueError) as raised:
+        daemon.dispatch("click", {"target": "e1"}, 5)
+
+    message = str(raised.value)
+    assert all(verb in message for verb in sorted(core_common.OFF_ALLOWLIST_OK - {"ping"}))
+    assert "ping" not in message and raised.value.hint == core_common._hint("off_allowlist", daemon.profile)
+
 
 @pytest.mark.parametrize("stage", ["settle", "snapshot", "ref"])
 def test_wait_poll_failure_finishes_original_receipt(make_daemon, fake_clock, monkeypatch, stage):

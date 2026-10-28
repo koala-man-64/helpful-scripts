@@ -253,7 +253,14 @@ class OperatingMixin:
             expected_page = target_page
             expected_url = expected_page.url if expected_page else ""
             if cmd == "wait" and args.get("_cooperative"):
-                result = self._wait_job(command_id, args, timeout)
+                # Not BrowserEngine.dispatch, so its guard and busy marker are applied here. The polls that
+                # follow are control requests: a pending wait is not busy.
+                self._enforce_allowlist(cmd, args)
+                self._begin(cmd, args)
+                try:
+                    result = self._wait_job(command_id, args, timeout)
+                finally:
+                    self._end()
             else:
                 result = super().dispatch(cmd, args, timeout)
                 executed = self.action_attempted

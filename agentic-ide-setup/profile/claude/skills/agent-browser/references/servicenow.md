@@ -11,8 +11,11 @@ verify the resulting record and any validation message.
 classic `gsft_main` operation. Use `commit run` only within the authorized write
 scope. It verifies Number/stable record identity, refuses an existing draft or
 identical displayed note, submits once, reloads that record and checks persisted
-noneditable activity. Unfamiliar layouts return a human handoff before anything is
-typed; that receipt's status is `needs_human`. Receipts keep the recipe and record
+noneditable activity. The preview is a read: it makes the same identity and
+identical-note checks (`guarded`), and for an unfamiliar layout or an existing draft
+returns `blocked: true` with `blocked_reason`, opening no handoff and taking no focus.
+`commit run` on such a page returns a human handoff before anything is typed; that
+receipt's status is `needs_human`. Receipts keep the recipe and record
 number, never the note. Inspect the receipt before any retry. Real instance writes
 need a separately authorized test record.
 

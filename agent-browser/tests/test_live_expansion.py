@@ -34,8 +34,18 @@ class _QuietHandler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *_args) -> None:
         pass
 
+    # Loopback hops that send the browser outside loopback; .invalid hosts never resolve, so nothing can be reached.
+    REDIRECTS = {"/redirect-chain": "/redirect-external", "/redirect-external": "http://login.example.invalid/authorize",
+                 "/redirect-image": "http://hop.example.invalid/pixel.png"}
+
     def do_GET(self) -> None:
         parsed = urllib.parse.urlsplit(self.path)
+        if parsed.path in self.REDIRECTS:
+            self.send_response(302)
+            self.send_header("Location", self.REDIRECTS[parsed.path])
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if parsed.path != "/record":
             super().do_GET()
             return
@@ -336,6 +346,27 @@ def test_table_returns_clickable_iframe_row_refs(cli: Cli, site: _Site) -> None:
     assert "row selected" in cli.ok("text", "--session", session)["text"]
 
 
+def test_table_reads_a_grid_only_page(cli: Cli, site: _Site) -> None:
+    session = "grid"
+    cli.ok("goto", f"{site.url}/expansion_grid.html", "--session", session)
+
+    result = cli.ok("table", "--session", session)
+
+    assert result["columns"] == ["Item", "Owner"]
+    assert [row["cells"] for row in result["rows"]] == [["Review", "Rudy"]]
+
+
+def test_recipe_preview_without_a_record_form_opens_no_handoff(cli: Cli, site: _Site) -> None:
+    session = "recipe-blocked"
+    cli.ok("goto", f"{site.url}/home.html", "--session", session)
+
+    preview = cli.ok("run", "sn/add-work-note", "--number", "INC0010023", "--text", "note", "--session", session)
+
+    assert preview["blocked"] is True and preview["requires_commit"] is False
+    assert "gsft_main" in preview["blocked_reason"] and "handoff_id" not in preview
+    assert cli.ok("state", "--session", session)["handoffs"] == []
+
+
 def test_recipe_preview_and_commit_use_one_local_post_then_readback(cli: Cli, site: _Site) -> None:
     session, number = "recipe", "INC0010023"
     note = "synthetic loopback work note"
@@ -436,4 +467,31 @@ def test_local_diagnostics_keep_the_working_tab(cli: Cli, site: _Site) -> None:
     assert result["status"] == 200
     assert any("synthetic fixture diagnostic" in line for line in result["console_errors"])
     assert any(item["status"] == 404 for item in result["http_errors"])
+    assert result["blocked_external"] == [] and result["popups_closed"] == 0
+    assert "Home" in cli.ok("text", "--session", session)["text"]
+
+
+def test_local_diagnostics_refuse_a_redirect_chain_off_loopback(cli: Cli, site: _Site) -> None:
+    session = "diagnostics-redirect"
+    cli.ok("goto", f"{site.url}/home.html", "--session", session)
+
+    code, _output, error = cli("check", f"{site.url}/redirect-chain", "--session", session)
+
+    # Page routes let redirect hops through, so this is the DevTools Fetch guard refusing the second hop.
+    assert code != 0 and error["class"] == "guarded", error
+    assert error["details"]["blocked_external"] == ["login.example.invalid"]
+    assert len(cli.ok("tabs", "--session", session)["tabs"]) == 1
+    assert "Home" in cli.ok("text", "--session", session)["text"]
+
+
+def test_local_diagnostics_block_outside_requests_sockets_and_popups(cli: Cli, site: _Site) -> None:
+    session = "diagnostics-outside"
+    cli.ok("goto", f"{site.url}/home.html", "--session", session)
+
+    result = cli.ok("check", f"{site.url}/expansion_diagnostic_external.html", "--session", session)
+
+    assert result["status"] == 200 and "blocked_external" in result["untrusted"]
+    assert {"img.example.invalid", "hop.example.invalid", "ws.example.invalid"} <= set(result["blocked_external"]), result
+    assert result["popups_closed"] == 1
+    assert len(cli.ok("tabs", "--session", session)["tabs"]) == 1
     assert "Home" in cli.ok("text", "--session", session)["text"]
