@@ -22,11 +22,18 @@ def api_site(site, monkeypatch):
             request.send_header("Content-Type", "application/json")
             request.end_headers()
             request.wfile.write(json.dumps({"authenticated": seen["cookie"], "csrf_present": seen["csrf"]}).encode())
-        elif request.path == "/api-redirect":
+        elif request.path in {"/api-redirect", "/api-login-redirect"}:
+            target = "/login-target" if request.path == "/api-login-redirect" else "/redirect-target"
             request.send_response(302)
-            request.send_header("Location", "/redirect-target?code=synthetic-private")
+            request.send_header("Location", target + "?code=synthetic-private")
             request.end_headers()
-        elif request.path.startswith("/redirect-target"):
+            request.wfile.write(b"Moved to " + target.encode() + b"?code=synthetic-private")
+        elif request.path == "/api-forbidden":
+            request.send_response(403)
+            request.send_header("Content-Type", "application/json")
+            request.end_headers()
+            request.wfile.write(b'{"error": "acl denied"}')
+        elif request.path.startswith(("/redirect-target", "/login-target")):
             seen["redirect_target"] += 1
             request.send_response(200)
             request.end_headers()
@@ -56,9 +63,19 @@ def test_cookie_sharing_across_sessions_and_internal_csrf(cli, api_site):
 def test_redirect_is_not_followed_and_write_requires_declared_commit(cli, api_site):
     site, seen = api_site
     cli.ok("goto", f"{site.url}/home.html", "--session", "api")
+    # Playwright lowercases header names; a same-origin page redirect is reported, never followed or shown.
     result = cli.ok("api", f"{site.url}/api-redirect", "--session", "api")
-    assert result["status"] == 302 and result["needs_human"]
+    assert result["status"] == 302 and result["redirect"] and "needs_human" not in result and result["note"]
     assert seen["redirect_target"] == 0 and "synthetic-private" not in json.dumps(result)
+    first = cli.ok("api", f"{site.url}/api-login-redirect", "--session", "api")
+    again = cli.ok("api", f"{site.url}/api-login-redirect", "--session", "api")
+    assert first["status"] == 302 and first["redirect"] and first["needs_human"]
+    assert again["handoff_id"] == first["handoff_id"]
+    assert seen["redirect_target"] == 0 and "synthetic-private" not in json.dumps([first, again])
+    state = cli.ok("state", "--handoff", first["handoff_id"], "--session", "api")
+    assert state["handoffs"][0]["status"] == "needs_human"
+    result = cli.ok("api", f"{site.url}/api-forbidden", "--session", "api")
+    assert result["status"] == 403 and result["body"] == {"error": "acl denied"} and "needs_human" not in result
     before = site.server.save_calls
     code, _, error = cli("api", f"{site.url}/save", "--method", "POST", "--session", "api")
     assert code == 2 and error["class"] == "guarded" and site.server.save_calls == before

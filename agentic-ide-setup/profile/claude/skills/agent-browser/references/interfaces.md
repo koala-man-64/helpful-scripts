@@ -65,6 +65,10 @@ API reads use GET/HEAD; other supported methods require `commit api`. The curren
 tab and request must have identical scheme, host and effective port. No automatic
 redirects or request retries occur. Cookies and internal ServiceNow authentication
 headers stay in the daemon. Response authentication and redirect headers are omitted.
+A 401, or a redirect whose Location leaves the origin or names a sign-in path or IdP,
+returns `needs_human` and a `handoff_id`; repeats reuse the open handoff. Every redirect
+(3xx except 304) returns `redirect: true` and a placeholder body. Other redirects and a
+403 return a `note` and no handoff; a 403 keeps its real, untrusted body.
 Response byte limits are post-download limits: Playwright buffers the response.
 
 Use the optional MCP extra (`pip install -e "agent-browser[mcp]"`) and register the

@@ -67,13 +67,22 @@ diagnostics page and preserves the working tab; `check REF` retains its behavior
 `api URL` uses the current tab's exact origin and browser cookies. Writes require
 `commit api URL --method POST --json-file payload.json`. No redirects or retries;
 profile host policy is checked before dispatch. Authentication and redirect response
-headers are omitted. Response byte limits are post-download checks: Playwright
-buffers the response, so they do not impose a hard memory bound. Guarded files
+headers are omitted. A 401, or a redirect to another origin, a sign-in path or an
+identity provider, opens a human handoff (`needs_human`, `handoff_id`) and focuses the
+window once: a repeat while that handoff is open, with no navigation since, returns the
+same ID. Every redirect (3xx other than 304) returns `redirect: true` and a placeholder
+instead of its body, which can echo sign-in codes. Other redirects and a 403 open no
+handoff and add a `note`; a 403 returns its real (untrusted) body. A gateway that
+answers an expired session with 403 needs an explicit `needs-human`. Response byte
+limits are post-download checks: Playwright buffers the response, so they do not
+impose a hard memory bound. Guarded files
 transfer binary attachments without oversized JSON. Relative transfer paths resolve
 against the caller's working directory. Cookies/auth headers stay in
 the daemon. `SERVICENOW_AUTH=browser` in servicenow-client needs both packages,
-matching instance origin and a usable same-origin session key; absent/expired or
-unsupported authentication returns unsupported-auth or a human handoff.
+matching instance origin and a usable same-origin session key. A page without one
+(not signed in, or not a classic page) returns `unsupported_browser_auth` before any
+request and opens no handoff; its hint names `needs-human --signed-in`. An expired
+session (401 or sign-in redirect) opens a handoff as above.
 
 `run sn/add-work-note --number INC0010023 --text-file note.txt` previews the built-in
 classic-form recipe. `commit run` verifies record identity, submits once, reloads
@@ -101,7 +110,7 @@ qualification requires a separately authorized test record.
 | `back` / `reload` / `tabs` / `tab TAB [--close]` | Navigation and tabs (`TAB` is a stable id `t1`, `t2` or 1-based index). Pass `--tab TAB` on any command to drive tabs in parallel without switching focus. Closing the last tab is refused. |
 | `upload REF FILE...` / `downloads` | Attach local files; save and list files the page downloaded. |
 | `eval JS [--ref REF] [--frame NAME]` | Run JavaScript. Off when `config.json` says `"eval": false`. Refuses a credential field as `--ref`; the script itself, like page and `--frame` eval, can still reach any field. |
-| `needs-human [--signed-in HOST]` | Focus/flash for human input; returns a durable handoff ID. Its receipt is final with status `needs_human`. |
+| `needs-human [--signed-in HOST]` | Focus/flash for human input; returns a durable handoff ID. The same reason and condition while that handoff is open return its ID without refocusing. Its receipt is final with status `needs_human`. |
 | `doctor [--live]` | Preflight rows; `--live` boots a headless browser, checks refs, clicks, stops. |
 | `clean [--profile P] [--purge-profile P] [--dry-run]` | Stale sessions/orphans and old download staging files. Evidence stays until explicitly cleared. |
 
@@ -154,7 +163,8 @@ Receipts distinguish completed, failed, unknown and needs_human. `executed` mean
 business success. Interrupted writes are never automatically replayed. A `needs_human` receipt
 is final: the handoff row (`state --handoff ID`) carries the open human action, and the reply
 still says `pending: true, status: needs_human`. A handoff ID that another session owns or
-that was cleared is `not_found`.
+that was cleared is `not_found`. `state` lists open handoffs first, newest first, within half
+of its reply budget; `handoffs_omitted` counts the rest, and `state --handoff ID` reads any one.
 
 Journal, masked screenshots, overflow JSON and raw API response files remain until
 explicitly cleared. The default quota is 1 GiB/profile (`evidence_max_bytes`, minimum

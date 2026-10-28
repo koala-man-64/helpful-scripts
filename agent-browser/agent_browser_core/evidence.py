@@ -144,34 +144,40 @@ class Journal:
                               (session, command_id, command_id, min(max(limit, 1), 100), max(offset, 0))).fetchall()
         return [dict(row) for row in rows]
 
-    def page(self, session: str, command_id: str | None = None, offset: int = 0) -> dict[str, Any]:
+    def page(self, session: str, command_id: str | None = None, offset: int = 0, budget: int = INSPECTION_BUDGET) -> dict[str, Any]:
         """Bound inspection in memory; existing receipts provide paging even at quota."""
         rows = self.rows(session, command_id, offset)
         commands, used = [], 0
         for row in rows:
             size = len(json.dumps(row, ensure_ascii=False).encode("utf-8"))
-            if size > INSPECTION_BUDGET:
+            if size > budget:
                 row = {"id": row["id"], "verb": common.sanitize_text(row["verb"], 160),
                        "started": row["started"], "status": row["status"], "truncated": True,
                        "output_id": "r" + row["id"], "receipt_pending": row["status"] in {"running", "pending"}}
                 size = len(json.dumps(row, ensure_ascii=False).encode("utf-8"))
-            if commands and used + size > INSPECTION_BUDGET:
+            if commands and used + size > budget:
                 break
             commands.append(row)
             used += size
         more = len(commands) < len(rows) or not command_id and len(rows) == 25
         return {"commands": commands, "next_offset": max(offset, 0) + len(commands) if more else None}
 
-    def handoff(self, session: str, reason: str, condition: dict[str, Any]) -> str:
-        handoff_id = secrets.token_hex(16)
+    def open_handoff(self, session: str, reason: str, condition: dict[str, Any]) -> tuple[str, bool]:
+        """The open handoff with this reason and condition, or a new one. True when it was created."""
+        reason = common.sanitize_text(reason, 240)
         with self.connect() as db:
-            db.execute("INSERT INTO handoffs VALUES (?,?,?,?, 'needs_human')",
-                       (handoff_id, session, common.sanitize_text(reason, 240), json.dumps(condition)))
-        return handoff_id
+            for row in db.execute("SELECT id, condition FROM handoffs WHERE session=? AND reason=? AND status='needs_human'", (session, reason)):
+                if json.loads(row["condition"]) == condition:
+                    return row["id"], False
+            handoff_id = secrets.token_hex(16)
+            db.execute("INSERT INTO handoffs VALUES (?,?,?,?, 'needs_human')", (handoff_id, session, reason, json.dumps(condition)))
+        return handoff_id, True
 
     def handoffs(self, session: str, handoff_id: str | None = None) -> list[dict[str, Any]]:
+        """Open handoffs first, newest first."""
         with self.connect() as db:
-            return [dict(row) for row in db.execute("SELECT * FROM handoffs WHERE session=? AND (? IS NULL OR id=?)", (session, handoff_id, handoff_id))]
+            return [dict(row) for row in db.execute("SELECT * FROM handoffs WHERE session=? AND (? IS NULL OR id=?) ORDER BY status='needs_human' DESC, rowid DESC",
+                                                     (session, handoff_id, handoff_id))]
 
     def resolve_handoff(self, session: str, handoff_id: str) -> None:
         with self.connect() as db:

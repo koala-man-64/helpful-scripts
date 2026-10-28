@@ -103,7 +103,7 @@ def test_generic_handoff_is_durable_and_explicitly_resolved(make_daemon, monkeyp
 @pytest.mark.parametrize("level", ["read", "act"])
 def test_handoff_resolution_requires_commit_permission(make_daemon, level):
     daemon, ctx, page = make_daemon(config={"permission": level})
-    handoff_id = daemon.journal.handoff("manual", "Inspect layout", {})
+    handoff_id = daemon.journal.open_handoff("manual", "Inspect layout", {})[0]
     with pytest.raises(ValueError, match="commit profile"):
         daemon.dispatch("commit", {"operation": "state", "handoff_id": handoff_id, "resolve": True}, 1)
     assert daemon.journal.handoffs("manual", handoff_id)[0]["status"] == "needs_human"
@@ -112,7 +112,7 @@ def test_handoff_resolution_requires_commit_permission(make_daemon, level):
 def test_explicit_resolution_cannot_bypass_auth_condition(make_daemon, monkeypatch):
     daemon, ctx, page = make_daemon()
     daemon.dispatch("goto", {"url": "http://x/"}, 1)
-    handoff_id = daemon.journal.handoff("manual", "Sign in", {"signed_in": "x", "require_navigation": True, "navigation": 0})
+    handoff_id = daemon.journal.open_handoff("manual", "Sign in", {"signed_in": "x", "require_navigation": True, "navigation": 0})[0]
     monkeypatch.setattr(daemon, "_signed_in", lambda page, host: True)
     daemon.nav_counts[daemon.page().main_frame] = 0
     with pytest.raises(ValueError, match="not been observed"):
@@ -409,7 +409,7 @@ def test_forged_commit_flag_cannot_pass_the_commit_gate(make_daemon, cmd, args, 
     page.url = "http://x/app"
     sent = []
     ctx.request = SimpleNamespace(fetch=lambda url, **kwargs: sent.append(url))
-    handoff_id = daemon.journal.handoff("manual", "Inspect layout", {})
+    handoff_id = daemon.journal.open_handoff("manual", "Inspect layout", {})[0]
     with pytest.raises(ValueError, match=message) as exc:
         daemon.dispatch(cmd, {**args, "handoff_id": handoff_id, "_commit": True}, 1)
     assert exc.value.error_class == common.ERR_GUARDED
@@ -422,7 +422,7 @@ def test_forged_commit_flag_cannot_pass_the_commit_gate(make_daemon, cmd, args, 
 def test_handoff_resolution_works_at_full_quota_without_new_artifacts(make_daemon):
     daemon, ctx, page = make_daemon()
     daemon.dispatch("goto", {"url": "http://x/a"}, 5)
-    handoff_id = daemon.journal.handoff("manual", "Confirm the change", {})
+    handoff_id = daemon.journal.open_handoff("manual", "Confirm the change", {})[0]
     daemon.journal.quota = 0
     result = daemon.dispatch("commit", {"operation": "state", "handoff_id": handoff_id, "resolve": True}, 1)
     assert result["handoffs"][0]["status"] == "resolved" and "screenshots" not in result
@@ -435,7 +435,7 @@ def test_handoff_resolution_works_at_full_quota_without_new_artifacts(make_daemo
 
 def test_unknown_handoff_id_is_not_found_for_queries_and_resolution(make_daemon):
     daemon, ctx, page = make_daemon()
-    other = daemon.journal.handoff("other", "Inspect layout", {})
+    other = daemon.journal.open_handoff("other", "Inspect layout", {})[0]
     for cmd, args in (("state", {"handoff_id": "f" * 32}),
                       ("commit", {"operation": "state", "handoff_id": other, "resolve": True})):
         with pytest.raises(ValueError, match="No handoff") as exc:
@@ -445,6 +445,26 @@ def test_unknown_handoff_id_is_not_found_for_queries_and_resolution(make_daemon)
     rows = daemon.journal.rows("manual")
     assert len(rows) == 1 and rows[0]["status"] == "failed"
     assert exc.value.details["receipt"] == "state --command " + rows[0]["id"]
+
+
+def test_state_lists_open_handoffs_first_within_the_inspection_budget(make_daemon, monkeypatch):
+    daemon, ctx, page = make_daemon()
+    monkeypatch.setattr(daemon, "_signed_in", lambda page, host: False)
+    ids = [daemon.journal.open_handoff("manual", f"Sign in to app {n} " + "x" * 200, {"signed_in": f"app{n}.example"})[0] for n in range(60)]
+    for handoff_id in ids[30:]:
+        daemon.journal.resolve_handoff("manual", handoff_id)
+    for n in range(40):
+        daemon.journal.start(f"{n:032x}", "manual", "click", {"target": "e1"}, "http://x/")
+        daemon.journal.finish(f"{n:032x}", "completed", {"effect": "clicked", "executed": True})
+    result = daemon.dispatch("state", {}, 1)
+    shown = result["handoffs"]
+    assert 0 < len(shown) < 60 and result["handoffs_omitted"] == 60 - len(shown)
+    assert [h["id"] for h in shown] == ids[29::-1][:len(shown)]  # open ones, newest first
+    size = lambda rows: len(json.dumps(rows, ensure_ascii=False).encode("utf-8"))
+    assert size(shown) <= evidence.INSPECTION_BUDGET // 2
+    assert size(shown) + size(result["commands"]) <= evidence.INSPECTION_BUDGET
+    assert result["commands"] and result["command_next_offset"]
+    assert daemon.dispatch("state", {"handoff_id": ids[0]}, 1)["handoffs_omitted"] == 0
 
 
 def test_unrecorded_command_errors_point_at_no_receipt(make_daemon):
