@@ -10,6 +10,13 @@ from . import common, policy
 SAFE_HEADERS = frozenset({"accept", "content-type", "if-match", "if-none-match", "range"})
 
 
+def body_headers(content_type: str | None = None) -> dict[str, str]:
+    """Headers for a request with a file body. CLI --json-file and MCP browser_commit both send exactly these."""
+    if content_type is not None and (not content_type.strip() or any(ord(c) < 32 or ord(c) == 127 for c in content_type)):
+        raise common._tag(ValueError("content_type must be a non-empty single-line header value."), common.ERR_VALIDATION)
+    return {"Accept": "application/json", "Content-Type": content_type or "application/json"}
+
+
 def public_headers(headers: dict[str, str]) -> dict[str, str]:
     blocked = ("cookie", "authorization", "token", "session", "g_ck", "location", "refresh", "authentication", "authenticate")
     return {str(k): str(v) for k, v in headers.items() if not any(s in k.lower() for s in blocked)}

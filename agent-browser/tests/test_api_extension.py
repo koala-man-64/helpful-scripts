@@ -194,6 +194,63 @@ def test_mcp_upload_and_body_file_cannot_read_profile_token_files(make_daemon, t
     assert not calls and not page.elements["e1"].calls
 
 
+def test_mcp_commit_api_body_file_sends_json_content_type(make_daemon, tmp_path, monkeypatch):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    calls = request_context(ctx, Response())
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "payload.json").write_text('{"short_description": "x"}', encoding="utf-8")
+
+    def invoke(command, arguments, *, committing=False, **kwargs):
+        arguments = {**arguments, "_cwd": str(work)}  # what client.invoke sends from an MCP server started in work
+        return daemon.dispatch("commit" if committing else command,
+                               {**arguments, **({"operation": command} if committing else {})}, 1)
+
+    monkeypatch.setattr(mcp_server.client, "invoke", invoke)
+    result = mcp_server.browser_commit("api", "manual", url="/items", method="POST", body_file="payload.json")
+    assert "error" not in result, result
+    assert calls[-1][1]["headers"] == {"Accept": "application/json", "Content-Type": "application/json"}
+    assert calls[-1][1]["data"] == b'{"short_description": "x"}'
+    mcp_server.browser_commit("api", "manual", url="/items", method="PATCH", body_file="payload.json", content_type="application/merge-patch+json")
+    assert calls[-1][1]["headers"] == {"Accept": "application/json", "Content-Type": "application/merge-patch+json"}
+    mcp_server.browser_api("/items", "manual")
+    assert calls[-1][1]["headers"] == {"Accept": "application/json"} and calls[-1][1]["data"] is None
+
+
+def test_cli_and_mcp_send_byte_identical_body_headers(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "payload.json").write_text("{}", encoding="utf-8")
+    sent = []
+    monkeypatch.setattr(cli, "_session_for", lambda args, verb, autostart=False: (None, {}))
+    monkeypatch.setattr(cli.core_session, "_request", lambda session, cmd, payload, timeout: sent.append(payload) or {"ok": True})
+    assert cli.main(["commit", "api", "/items", "--method", "POST", "--json-file", "payload.json"]) == 0
+    recorded = []
+    monkeypatch.setattr(mcp_server.client, "invoke", lambda command, arguments, **kw: recorded.append(arguments) or {"ok": True})
+    mcp_server.browser_commit("api", "s", url="/items", method="POST", body_file="payload.json")
+    assert json.dumps(sent[0]["headers"]) == json.dumps(recorded[0]["headers"]) == json.dumps(api.body_headers())
+
+
+@pytest.mark.parametrize("content_type", ["", "  ", "text/plain\nX-Injected: yes", "text/plain\r", "text/\x00plain"])
+def test_content_type_must_be_one_non_empty_header_line(content_type, monkeypatch):
+    with pytest.raises(ValueError) as err:
+        api.body_headers(content_type)
+    assert err.value.error_class == common.ERR_VALIDATION
+    calls = []
+    monkeypatch.setattr(mcp_server.client, "invoke", lambda *a, **kw: calls.append(a) or {})
+    result = mcp_server.browser_commit("api", "s", url="/items", method="POST", body_file="payload.json", content_type=content_type)
+    assert result["error"]["class"] == common.ERR_VALIDATION and not calls
+
+
+def test_content_type_without_a_body_file_is_a_usage_error(monkeypatch):
+    calls = []
+    monkeypatch.setattr(mcp_server.client, "invoke", lambda *a, **kw: calls.append(a) or {})
+    for kwargs in ({"operation": "api", "url": "/items", "method": "POST"}, {"operation": "click", "target": "e1"}):
+        result = mcp_server.browser_commit(session_id="s", content_type="application/json", **kwargs)
+        assert result["error"]["class"] == common.ERR_USAGE, kwargs
+    assert not calls
+
+
 def test_screenshot_refuses_to_replace_existing_file(make_daemon, tmp_path):
     daemon, ctx, page = make_daemon()
     target = tmp_path / "existing.png"

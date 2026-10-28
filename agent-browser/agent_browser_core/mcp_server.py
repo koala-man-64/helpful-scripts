@@ -9,7 +9,7 @@ try:
     from typing_extensions import TypedDict
 except ImportError:
     from typing import TypedDict
-from . import client, common
+from . import api, client, common
 
 
 class Target(TypedDict, total=False):
@@ -25,10 +25,35 @@ class Field(TypedDict, total=False):
     value: str | list[str] | bool
 
 
-def _call(command: str, arguments: dict[str, Any], session_id: str, profile: str | None, timeout: float = 15, committing: bool = False) -> dict[str, Any]:
-    from .cli import _error_payload, _json_line
+REPLY_BUDGET = 7000                    # one tool reply: its text and structuredContent are both this compact JSON
+
+
+MAX_BYTES = 4500                       # default snapshot budget; leaves room in REPLY_BUDGET for url, title, notes and the receipt
+
+
+def _payload(command: str, arguments: dict[str, Any], profile: str | None) -> dict[str, Any]:
+    """Tool arguments as the CLI's payload: the same keys and values, validated where the CLI validates them."""
+    payload = {k: v for k, v in arguments.items() if not (k in ("tab", "index") and v is None)}
+    for key in ("tab", "index"):
+        if key in payload:
+            payload[key] = common._parse_tab_spec(payload[key], profile or common.DEFAULT_PROFILE)
+    if command == "tab" and "index" in payload and "tab" in payload and payload["index"] != payload["tab"]:
+        raise common._tag(ValueError("Conflicting tab targets given as index and tab."), common.ERR_USAGE)
+    content_type = payload.pop("content_type", None)
+    if command == "api" and payload.get("body_file"):
+        payload["headers"] = api.body_headers(content_type)
+    elif content_type is not None:
+        raise common._tag(ValueError("content_type needs operation api with a body_file."), common.ERR_USAGE)
+    payload.setdefault("max_bytes", MAX_BYTES)
+    return payload
+
+
+def _call(command: str, arguments: dict[str, Any], session_id: str, profile: str | None, timeout: float = 15, committing: bool = False,
+          wait: bool = False) -> dict[str, Any]:
+    from .cli import _check_timeout, _error_payload, _json_line
     try:
-        result = client.invoke(command, arguments, session_id=session_id, profile=profile, timeout=timeout, committing=committing)
+        payload, seconds = _payload(command, arguments, profile), _check_timeout(timeout, "timeout", wait=wait)
+        result = client.invoke(command, payload, session_id=session_id, profile=profile, timeout=seconds, committing=committing)
     except (ValueError, RuntimeError) as exc:
         result = _error_payload(exc)
     try:
@@ -37,65 +62,77 @@ def _call(command: str, arguments: dict[str, Any], session_id: str, profile: str
         return {**common._storage_error(result, exc, profile), "contract_version": common.CONTRACT_VERSION}
 
 
-def browser_goto(url: str, session_id: str, profile: str | None = None, timeout: float = 30) -> dict[str, Any]:
+def browser_goto(url: str, session_id: str, profile: str | None = None, timeout: float = 30,
+                 wait: Literal["load", "domcontentloaded"] = "load", new_tab: bool = False, tab: int | str | None = None) -> dict[str, Any]:
     """Navigate the caller's own tab. Sign in manually when requested."""
-    return _call("goto", {"url": url}, session_id, profile, timeout)
+    return _call("goto", {"url": url, "wait": wait, "new_tab": new_tab, "tab": tab}, session_id, profile, timeout)
 
 
-def browser_snapshot(session_id: str, profile: str | None = None, find: str | None = None, full: bool = False) -> dict[str, Any]:
-    return _call("snapshot", {"find": find, "full": full}, session_id, profile)
+def browser_snapshot(session_id: str, profile: str | None = None, find: str | None = None, full: bool = False,
+                     ref: str | None = None, tab: int | str | None = None) -> dict[str, Any]:
+    return _call("snapshot", {"find": find, "full": full, "ref": ref, "tab": tab}, session_id, profile)
 
 
-def browser_click(target: str | Target, session_id: str, profile: str | None = None, expect: list[str] | None = None) -> dict[str, Any]:
-    return _call("click", {"target": target, "expect": expect or []}, session_id, profile)
+def browser_click(target: str | Target, session_id: str, profile: str | None = None, expect: list[str] | None = None,
+                  tab: int | str | None = None) -> dict[str, Any]:
+    return _call("click", {"target": target, "expect": expect or [], "tab": tab}, session_id, profile)
 
 
-def browser_fill(target: str | Target, text: str, session_id: str, profile: str | None = None, expect: list[str] | None = None) -> dict[str, Any]:
-    return _call("fill", {"target": target, "text": text, "expect": expect or []}, session_id, profile)
+def browser_fill(target: str | Target, text: str, session_id: str, profile: str | None = None, expect: list[str] | None = None,
+                 tab: int | str | None = None) -> dict[str, Any]:
+    return _call("fill", {"target": target, "text": text, "expect": expect or [], "tab": tab}, session_id, profile)
 
 
-def browser_fill_form(fields: list[Field], session_id: str, profile: str | None = None) -> dict[str, Any]:
-    return _call("fill-form", {"fields": fields}, session_id, profile)
+def browser_fill_form(fields: list[Field], session_id: str, profile: str | None = None, tab: int | str | None = None) -> dict[str, Any]:
+    return _call("fill-form", {"fields": fields, "tab": tab}, session_id, profile)
 
 
 def browser_action(operation: Literal["type", "press", "select", "check", "uncheck", "hover", "scroll", "upload", "back", "reload", "tab"],
                    session_id: str, profile: str | None = None, target: str | Target | None = None,
                    text: str | None = None, key: str | None = None, values: list[str] | None = None,
-                   files: list[str] | None = None, down: int = 0, up: int = 0, index: int = 0,
-                   close: bool = False, expect: list[str] | None = None) -> dict[str, Any]:
+                   files: list[str] | None = None, down: int = 0, up: int = 0, index: int | str | None = None,
+                   close: bool = False, expect: list[str] | None = None, tab: int | str | None = None) -> dict[str, Any]:
+    """index picks the tab for operation tab: a 1-based index (1, 2) or a stable id (t1, t2)."""
     return _call(operation, {"target": target, "text": text, "key": key, "values": values or [], "files": files or [],
-                             "down": down, "up": up, "index": index, "close": close, "expect": expect or []}, session_id, profile)
+                             "down": down, "up": up, "index": index, "close": close, "expect": expect or [], "tab": tab}, session_id, profile)
 
 
 def browser_read(operation: Literal["text", "value", "table", "tabs", "downloads", "state", "journal"],
                  session_id: str, profile: str | None = None, target: str | None = None,
-                 command_id: str | None = None, offset: int = 0) -> dict[str, Any]:
-    return _call(operation, {"target": target, "command_id": command_id, "offset": offset}, session_id, profile)
+                 command_id: str | None = None, offset: int = 0, max_chars: int | None = None,
+                 tab: int | str | None = None) -> dict[str, Any]:
+    return _call(operation, {"target": target, "command_id": command_id, "offset": offset, "max_chars": max_chars, "tab": tab},
+                 session_id, profile)
 
 
 def browser_wait(session_id: str, profile: str | None = None, text: str | None = None,
                  signed_in: str | None = None, url_contains: str | None = None, seconds: float | None = None,
-                 timeout: float = 60) -> dict[str, Any]:
-    return _call("wait", {"text": text, "signed_in": signed_in, "url_contains": url_contains, "seconds": seconds}, session_id, profile, timeout)
+                 timeout: float = 60, ref: str | None = None, selector: str | None = None,
+                 tab: int | str | None = None) -> dict[str, Any]:
+    """timeout is at most 100 seconds per call; call again to keep waiting."""
+    return _call("wait", {"text": text, "signed_in": signed_in, "url_contains": url_contains, "seconds": seconds,
+                          "ref": ref, "selector": selector, "tab": tab}, session_id, profile, timeout, wait=True)
 
 
 def browser_screenshot(session_id: str, profile: str | None = None, target: str | None = None,
-                       annotate: bool = False, full_page: bool = False) -> dict[str, Any]:
-    return _call("screenshot", {"target": target, "annotate": annotate, "full_page": full_page}, session_id, profile)
+                       annotate: bool = False, full_page: bool = False, tab: int | str | None = None) -> dict[str, Any]:
+    return _call("screenshot", {"target": target, "annotate": annotate, "full_page": full_page, "tab": tab}, session_id, profile)
 
 
 def browser_check_url(url: str, session_id: str, profile: str | None = None) -> dict[str, Any]:
     return _call("diagnose", {"url": url}, session_id, profile)
 
 
-def browser_api(url: str, session_id: str, profile: str | None = None, servicenow: bool = False) -> dict[str, Any]:
+def browser_api(url: str, session_id: str, profile: str | None = None, servicenow: bool = False,
+                tab: int | str | None = None) -> dict[str, Any]:
     """Same-origin GET only. Writes use browser_commit."""
-    return _call("api", {"url": url, "servicenow": servicenow}, session_id, profile)
+    return _call("api", {"url": url, "method": "GET", "servicenow": servicenow, "tab": tab}, session_id, profile)
 
 
-def browser_eval(js: str, session_id: str, profile: str | None = None) -> dict[str, Any]:
-    """Commit-capable arbitrary JavaScript; caller permission rules should treat it as such."""
-    return _call("eval", {"js": js}, session_id, profile)
+def browser_eval(js: str, session_id: str, profile: str | None = None, ref: str | None = None, frame: str | None = None,
+                 tab: int | str | None = None) -> dict[str, Any]:
+    """Commit-capable arbitrary JavaScript; caller permission rules should treat it as such. ref runs it with the element as el."""
+    return _call("eval", {"js": js, "target": ref, "frame": frame, "tab": tab}, session_id, profile)
 
 
 def browser_commit(operation: Literal["click", "fill", "type", "press", "select", "check", "uncheck", "upload", "fill-form", "api", "run", "journal", "state"],
@@ -105,17 +142,20 @@ def browser_commit(operation: Literal["click", "fill", "type", "press", "select"
                    url: str | None = None, method: Literal["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE"] = "GET",
                    body_file: str | None = None, servicenow: bool = False, recipe: Literal["sn/add-work-note"] | None = None,
                    number: str | None = None, clear: bool = False, handoff_id: str | None = None,
-                   resolve: bool = False, expect: list[str] | None = None) -> dict[str, Any]:
-    """Explicit committing operation. Require caller approval when the workflow requires human approval."""
+                   resolve: bool = False, expect: list[str] | None = None, content_type: str | None = None,
+                   tab: int | str | None = None) -> dict[str, Any]:
+    """Explicit committing operation. Require caller approval when the workflow requires human approval.
+    An api body_file is sent as application/json unless content_type names another type."""
     return _call(operation, {"target": target, "text": text, "key": key, "values": values or [], "files": files or [],
                              "fields": fields or [], "url": url, "method": method, "body_file": body_file, "servicenow": servicenow,
                              "recipe": recipe, "number": number, "clear": clear, "handoff_id": handoff_id,
-                             "resolve": resolve, "expect": expect or []}, session_id, profile, committing=True)
+                             "resolve": resolve, "expect": expect or [], "content_type": content_type, "tab": tab},
+                 session_id, profile, committing=True)
 
 
-def browser_recipe(number: str, text: str, session_id: str, profile: str | None = None) -> dict[str, Any]:
+def browser_recipe(number: str, text: str, session_id: str, profile: str | None = None, tab: int | str | None = None) -> dict[str, Any]:
     """Preview the classic ServiceNow work-note recipe without editing."""
-    return _call("run", {"recipe": "sn/add-work-note", "number": number, "text": text}, session_id, profile)
+    return _call("run", {"recipe": "sn/add-work-note", "number": number, "text": text, "tab": tab}, session_id, profile)
 
 
 def browser_needs_human(reason: str, session_id: str, profile: str | None = None, signed_in: str | None = None) -> dict[str, Any]:
@@ -150,7 +190,7 @@ def make_server():
         from .cli import _json_line
         # The SDK sends both text and structuredContent. Budget their complete compact envelope.
         try:
-            data = json.loads(_json_line(result, profile, session_id, byte_budget=7000))
+            data = json.loads(_json_line(result, profile, session_id, byte_budget=REPLY_BUDGET))
         except Exception as exc:  # noqa: BLE001 - keep the receipt pointer when the reply cannot be stored
             data = {**common._storage_error(result, exc, profile), "contract_version": common.CONTRACT_VERSION}
         compact = json.dumps(data, ensure_ascii=False, separators=(",", ":"))

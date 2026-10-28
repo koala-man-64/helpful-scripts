@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from . import common, policy
+from . import api, common, policy
 
 
 def commit(args: argparse.Namespace):
@@ -45,7 +45,7 @@ def extended(args: argparse.Namespace):
         if args.json_file:
             paths, config = cli._caller_paths(args)
             payload["body_file"] = str(common._check_local_path(args.json_file, paths, config))
-            payload["headers"] = {"Content-Type": "application/json"}
+            payload["headers"] = api.body_headers()
     elif cmd == "run": payload = {"recipe": args.recipe, "number": args.number, "text": cli._input_text(args, "text")}
     return cli._remote(args, cmd, cmd, payload)
 

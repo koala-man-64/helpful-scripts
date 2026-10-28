@@ -92,8 +92,8 @@ The diagnostics page closes without replacing the working tab.
 
 `agent-browser api https://example.com/api/items` uses the current tab's exact origin
 and signed-in cookies. Redirects/retries are disabled. Writes require `commit api`.
-The optional MCP server uses the same dispatcher and policy; commit/eval tools stay
-separately identifiable. Read [interfaces](references/interfaces.md) for examples.
+The optional MCP server uses the same dispatcher, policy and options (`tab`, `ref`, `timeout`);
+commit/eval tools stay separately identifiable. Read [interfaces](references/interfaces.md).
 
 ## Error handling
 
