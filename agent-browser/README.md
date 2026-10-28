@@ -574,6 +574,8 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 
 ## Follow-ups
 
+- Scrub session tokens (`g_ck`, `sysparm_ck`, CSRF fields) out of `api` response bodies (remediation PR 19). Until it
+  lands, bodies are raw, and the skill preapproves `api`, so a page's token can reach the agent without a prompt.
 - Measure the host matrix for Claude Desktop and the VS Code extension, and after the host quits.
 - Console capture (`console` verb) and network summaries.
 - A Windows named pipe with an owner-only DACL instead of the token-gated loopback socket.
