@@ -297,6 +297,7 @@ Real environment variables, read lazily; no `.env` loading (the tool must run ba
 | `AGENT_BROWSER_LAUNCHER` | `popen` (default) or `wmi`: how the daemon is detached from the shell. |
 | `AGENT_BROWSER_IDLE_SECONDS` | Daemon stops after this much inactivity (default 0 = never). Any request counts, `poll`, `wait` and `state` included; an open handoff nobody polls does not. |
 | `AGENT_BROWSER_LIVE` | `1` enables the live pytest suite. |
+| `AGENT_BROWSER_LIVE_ARTIFACTS` | Where a failed live test keeps its profile's capped `daemon.log` tail and last outputs before teardown deletes the temp home (default `%TEMP%\agent-browser-live-artifacts`). CI uploads it as `live-test-logs`. |
 
 `%LOCALAPPDATA%\agent-browser\config.json` is a human-written policy file the tool never creates:
 `{"eval": false, "allowed_hosts": ["dev12345.service-now.com"], "upload_roots": ["C:/exports"]}`. With

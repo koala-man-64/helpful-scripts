@@ -877,7 +877,7 @@ def test_clean_unknown_purge_is_not_found(monkeypatch: pytest.MonkeyPatch, tmp_p
 # _spawn_daemon: Windows popen breakaway retry, and the wmi launcher
 
 
-def test_spawn_daemon_retries_without_breakaway_on_winerror_5(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_spawn_daemon_retries_without_breakaway_on_winerror_5(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, real_spawn_daemon) -> None:
     monkeypatch.setattr(core_common, "_is_windows", lambda: True)
     calls: list[int] = []
 
@@ -899,7 +899,7 @@ def test_spawn_daemon_retries_without_breakaway_on_winerror_5(monkeypatch: pytes
     assert not (calls[1] & core_common.subprocess.CREATE_BREAKAWAY_FROM_JOB)
 
 
-def test_spawn_daemon_wmi_launcher_parses_the_pid(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_spawn_daemon_wmi_launcher_parses_the_pid(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, real_spawn_daemon) -> None:
     monkeypatch.setattr(core_common, "_is_windows", lambda: True)
     monkeypatch.setenv("AGENT_BROWSER_LAUNCHER", "wmi")
     seen_cmd: dict[str, Any] = {}

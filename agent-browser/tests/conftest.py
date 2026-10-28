@@ -4,7 +4,8 @@ Nothing here starts a browser, imports playwright, opens a socket, or touches th
 AGENT_BROWSER_HOME. The `_isolated_env` fixture (autouse) points AGENT_BROWSER_HOME at a
 fresh tmp_path for every test and strips every AGENT_BROWSER_* / MSYSTEM / EXEPATH variable
 from the ambient shell first, so a Git Bash environment (which sets MSYSTEM) or a developer's
-real installed profile can never leak into a test.
+real installed profile can never leak into a test. It also fails any offline test that would spawn
+a real daemon.
 """
 
 from __future__ import annotations
@@ -23,9 +24,10 @@ import agent_browser as ab
 from agent_browser_core import common as core_common, daemon as core_daemon, snapshots as core_snapshots
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "snapshots"
+REAL_SPAWN_DAEMON = core_common._spawn_daemon
 
 @pytest.fixture(autouse=True)
-def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
     for key in list(os.environ):
         if key.startswith("AGENT_BROWSER_"):
             monkeypatch.delenv(key, raising=False)
@@ -34,13 +36,32 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CODEX_THREAD_ID", raising=False)
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
     monkeypatch.setenv("AGENT_BROWSER_HOME", str(tmp_path / "home"))
-    # The process-listing seam shells out to PowerShell CIM on Windows; offline tests never do that.
-    # A test that needs specific processes re-patches it (a later monkeypatch wins).
-    monkeypatch.setattr(core_common, "_processes_using", lambda needle: [])
+    spawned: list[list[str]] = []
+    if request.node.get_closest_marker("live") is None:
+        # The process-listing seam shells out to PowerShell CIM on Windows; offline tests never do that.
+        # A test that needs specific processes re-patches it (a later monkeypatch wins). Live tests keep the
+        # real seam: their leftover-browser checks would otherwise see nothing.
+        monkeypatch.setattr(core_common, "_processes_using", lambda needle: [])
+
+        def refuse_spawn(argv: list[str], log_path: Path, cwd: Path) -> tuple[int, str]:
+            # A real daemon started here outlives the test (one leaked per bad --timeout before PR 17).
+            spawned.append(list(argv))
+            raise AssertionError("an offline test tried to spawn a real daemon; fake core_common._spawn_daemon")
+
+        monkeypatch.setattr(core_common, "_spawn_daemon", refuse_spawn)
     core_common._ARGV_NOTES.clear()
     core_common.VERBOSE = False
     yield
     core_common._ARGV_NOTES.clear()
+    # The CLI turns the AssertionError into an error envelope, so a test asserting only "it failed" would pass.
+    assert not spawned, f"an offline test tried to spawn a real daemon: {spawned}"
+
+
+@pytest.fixture
+def real_spawn_daemon(monkeypatch: pytest.MonkeyPatch) -> Callable[..., tuple[int, str]]:
+    """The real _spawn_daemon, for tests of the launcher itself; they fake subprocess underneath it."""
+    monkeypatch.setattr(core_common, "_spawn_daemon", REAL_SPAWN_DAEMON)
+    return REAL_SPAWN_DAEMON
 
 def read_fixture(name: str) -> str:
     """Read a captured real-Playwright ai-mode snapshot (text mode: CRLF -> LF)."""
