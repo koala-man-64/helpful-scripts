@@ -250,7 +250,9 @@ class OperatingMixin:
                     "error_class": getattr(exc, "error_class", "daemon"), "executed": executed, "screenshots": screenshots,
                     "completed_fields": (getattr(exc, "details", None) or {}).get("completed_fields", [])})
             details = dict(getattr(exc, "details", None) or {})
-            details.update(command_id=command_id, executed=executed, receipt="state --command " + command_id)
+            details["executed"] = executed
+            if record_receipt:  # ping and plain state/journal reads write no receipt to point at
+                details.update(command_id=command_id, receipt="state --command " + command_id)
             exc.details = details
             raise
         finally:

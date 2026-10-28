@@ -440,7 +440,17 @@ def test_unknown_handoff_id_is_not_found_for_queries_and_resolution(make_daemon)
             daemon.dispatch(cmd, args, 1)
         assert exc.value.error_class == common.ERR_NOT_FOUND and "state --profile" in exc.value.hint
     assert daemon.journal.handoffs("other", other)[0]["status"] == "needs_human"
-    assert daemon.journal.rows("manual")[0]["status"] == "failed"
+    rows = daemon.journal.rows("manual")
+    assert len(rows) == 1 and rows[0]["status"] == "failed"
+    assert exc.value.details["receipt"] == "state --command " + rows[0]["id"]
+
+
+def test_unrecorded_command_errors_point_at_no_receipt(make_daemon):
+    daemon, ctx, page = make_daemon()
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("state", {"handoff_id": "f" * 32}, 1)
+    assert exc.value.details == {"executed": False}
+    assert daemon.journal.rows("manual") == []
 
 
 def test_needs_human_receipt_is_terminal_and_survives_restart(make_daemon, monkeypatch):
@@ -498,11 +508,14 @@ def test_receipt_records_api_path_and_recipe_number_but_not_values(tmp_path):
     journal.start("c2", "manual", "api", {"url": "https://x/api/items/42?token=secret#frag"}, "http://x/")
     journal.start("c3", "manual", "commit run", {"recipe": "sn/add-work-note", "number": "INC0012345", "text": "private"}, "http://x/")
     journal.start("c4", "manual", "run", {"recipe": "sn/add-work-note", "number": "INC0012345 private words", "text": "private"}, "http://x/")
+    journal.start("c5", "manual", "run", {"recipe": "privaterecipe", "number": "ABCprivate0123456789", "text": "x"}, "http://x/")
+    journal.start("c6", "manual", "run", {"recipe": ["sn/add-work-note"], "number": 12345}, "http://x/")
     journal.finish("c3", "completed", {"number": "INC0012345", "persisted": True})
     stored = {row["id"]: row for row in journal.rows("manual")}
     args = {key: json.loads(row["arguments"]) for key, row in stored.items()}
     assert args["c1"]["path"] == "/api/now/table/incident" and args["c2"]["path"] == "/api/items/42"
     assert args["c3"]["number"] == "INC0012345" and args["c3"]["recipe"] == "sn/add-work-note"
     assert args["c4"]["number"] == "<omitted>"
+    assert args["c5"] == args["c6"] == {"recipe": "<omitted>", "number": "<omitted>"}
     assert "secret" not in json.dumps(stored) and "private" not in json.dumps(stored) and "frag" not in json.dumps(stored)
     assert json.loads(stored["c3"]["outcome"])["number"] == "INC0012345"

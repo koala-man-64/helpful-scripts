@@ -155,7 +155,8 @@ class ReachMixin:
             self.sessions[self.session_id]["current"] = previous
 
     def h_run(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        if args.get("recipe") != "sn/add-work-note" or not re.fullmatch(r"(?:INC|SCTASK|RITM|CHG|PRB)\d{6,12}", str(args.get("number", ""))):
+        recipe = args.get("recipe")
+        if not isinstance(recipe, str) or recipe not in common.RECIPES or not common.RECORD_NUMBER_RE.fullmatch(str(args.get("number", ""))):
             raise common._tag(ValueError("Unsupported recipe or record number."), common.ERR_VALIDATION)
         page, number, text = self.target_page(args), args["number"], args.get("text")
         if not isinstance(text, str) or not text.strip():

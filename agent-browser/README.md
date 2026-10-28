@@ -159,8 +159,8 @@ use `output --id ID --offset 0` to read the terminal receipt directly from SQLit
 This read creates no evidence files and works at quota. The distinct receipt ID
 cannot be confused with an earlier pending-result overflow artifact.
 Entered text, JS, bodies and credentials are omitted from SQLite receipt arguments.
-Receipts keep an API call's path (never its query string) and a recipe's name and
-record number. `ping`, which every `status` sends, writes no receipt.
+Receipts keep an API call's path as sent (never its query string) and a valid recipe
+name and record number. `ping`, which every `status` sends, writes no receipt.
 Commit UI operations capture before/after screenshots. API response artifacts contain
 application data and count toward quota; transient request staging files are removed.
 

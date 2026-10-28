@@ -118,6 +118,12 @@ DOWNLOADS_TIMEOUT = 60.0
 MAX_TIMEOUT = 86400.0                  # the largest --timeout the CLI and the daemon accept
 
 
+RECIPES = frozenset({"sn/add-work-note"})
+
+
+RECORD_NUMBER_RE = re.compile(r"(?:INC|SCTASK|RITM|CHG|PRB)\d{6,12}")   # the record numbers a recipe accepts
+
+
 SETTLE_CAP = 8.0
 
 

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 import secrets
 import os
@@ -59,10 +58,11 @@ def _receipt_args(verb: str, args: dict[str, Any]) -> dict[str, Any]:
             for k, v in args.items() if not k.startswith("_") and k not in PRIVATE_ARGS}
     name = verb.rsplit(" ", 1)[-1]
     if name == "run":
-        # The recipe and record number say which record a work note went to; the daemon validates both later.
-        if isinstance(args.get("recipe"), str):
-            safe["recipe"] = common.sanitize_text(args["recipe"], 40)
-        if isinstance(args.get("number"), str) and re.fullmatch(r"[A-Za-z0-9]{1,40}", args["number"]):
+        # The recipe and record number say which record a work note went to. The receipt is written before
+        # h_run validates them, so only values that validation would accept are stored.
+        if isinstance(args.get("recipe"), str) and args["recipe"] in common.RECIPES:
+            safe["recipe"] = args["recipe"]
+        if isinstance(args.get("number"), str) and common.RECORD_NUMBER_RE.fullmatch(args["number"]):
             safe["number"] = args["number"]
     if name == "api" and "url" in args:
         # The path names the endpoint and record. The query string can carry business data or secrets, so it is never stored.
