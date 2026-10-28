@@ -379,9 +379,22 @@ class FakePage(_Emitter):
         self.mouse = _FakeMouse()
         self.custom_evaluators: dict[str, Any] = {}
         self.selector_matches: dict[str, int] = {}
+        # (pattern, handler) pairs from route / route_web_socket; a test calls the handler with a fake route.
+        self.routes: list[tuple[str, Callable[..., Any]]] = []
+        self.ws_routes: list[tuple[str, Callable[..., Any]]] = []
+        self.viewport: dict[str, int] | None = None
 
     def title(self) -> str:
         return self._title
+
+    def route(self, pattern: str, handler: Callable[..., Any]) -> None:
+        self.routes.append((pattern, handler))
+
+    def route_web_socket(self, pattern: str, handler: Callable[..., Any]) -> None:
+        self.ws_routes.append((pattern, handler))
+
+    def set_viewport_size(self, size: dict[str, int]) -> None:
+        self.viewport = size
 
     def aria_snapshot(self, mode: str = "ai") -> str:
         self.snapshot_calls += 1
@@ -425,6 +438,9 @@ class FakePage(_Emitter):
         self.closed = True
         self.emit("close", self)
 
+    def is_closed(self) -> bool:
+        return self.closed
+
     def bring_to_front(self) -> None:
         pass
 
@@ -445,6 +461,26 @@ class FakePage(_Emitter):
         Path(path).write_bytes(PNG_HEADER)
 
 
+class FakeCDPSession(_Emitter):
+    """Stand-in for a Chromium CDPSession: records each send; a test emits the events (Fetch.requestPaused)."""
+
+    def __init__(self, page: "FakePage", frame_id: str = "main-frame") -> None:
+        super().__init__()
+        self.page = page
+        self.frame_id = frame_id
+        self.sent: list[tuple[str, dict[str, Any]]] = []
+        self.detached = False
+
+    def send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        self.sent.append((method, params or {}))
+        if method == "Page.getFrameTree":
+            return {"frameTree": {"frame": {"id": self.frame_id}}}
+        return {}
+
+    def detach(self) -> None:
+        self.detached = True
+
+
 class FakeContext(_Emitter):
     def __init__(self) -> None:
         super().__init__()
@@ -452,11 +488,16 @@ class FakeContext(_Emitter):
         self.browser: Any = SimpleNamespace(version="119.0.5845.0")
         self.default_timeout: float | None = None
         self.closed = False
+        self.cdp_sessions: list[FakeCDPSession] = []
 
     def new_page(self) -> FakePage:
         page = FakePage(self)
         self.pages.append(page)
         return page
+
+    def new_cdp_session(self, page: FakePage) -> FakeCDPSession:
+        self.cdp_sessions.append(FakeCDPSession(page))
+        return self.cdp_sessions[-1]
 
     def set_default_timeout(self, ms: float) -> None:
         self.default_timeout = ms
