@@ -364,8 +364,9 @@ def _cmd_output(args: argparse.Namespace) -> dict[str, Any]:
     page_size = min(3000, max(1, getattr(args, "page_size", 3000)))
     chunk = data[args.offset:args.offset + page_size]
     end = args.offset + len(chunk)
+    # A stored reply or receipt keeps whatever page text it held, so every page of it is untrusted.
     return {"offset": args.offset, "next_offset": end if end < len(data) else None,
-            "total_chars": len(data), "chunk": chunk}
+            "total_chars": len(data), "chunk": chunk, "untrusted": ["chunk"]}
 
 
 def _json_line(payload: Any, profile: str | None = None, session_id: str | None = None, *, byte_budget: int = core_common.STDOUT_BUDGET) -> str:
@@ -400,6 +401,7 @@ def _json_line(payload: Any, profile: str | None = None, session_id: str | None 
                                       "url", "title", "untrusted") if k in result}
     bounded.update(contract_version=core_common.CONTRACT_VERSION, truncated=True, output_id=output_id,
                    output_file=str(output_file), next_offset=0)
+    marked = None
     if "error" in result:
         original = result["error"].get("details") or {}
         bounded["error"] = {"class": result["error"].get("class"), "http_status": None,
@@ -407,11 +409,17 @@ def _json_line(payload: Any, profile: str | None = None, session_id: str | None 
                             "details": {k: original[k] for k in ("command_id", "executed", "receipt") if k in original}}
         if result["error"].get("note"):
             bounded["error"]["note"] = result["error"]["note"]
+        # The stored error keeps its page text, so each stub keeps naming the fields that hold it.
+        marked = result["error"].get("untrusted")
+        if marked:
+            bounded["error"]["untrusted"] = marked
     line = json.dumps(bounded, ensure_ascii=False, default=str, separators=(",", ":"))
     if len(line.encode("utf-8")) + 1 > byte_budget:
         bounded = {k: bounded[k] for k in ("contract_version", "truncated", "output_id", "next_offset")}
         if "error" in result:
             bounded["error"] = {"class": "oversized_error", "message": "Read full error details by output ID."}
+            if marked:
+                bounded["error"]["untrusted"] = marked
         line = json.dumps(bounded, separators=(",", ":"))
     return line
 
@@ -600,6 +608,7 @@ def _error_payload(exc: BaseException) -> dict[str, Any]:
     details = getattr(exc, "details", None)
     if details is not None:
         payload["error"]["details"] = details
+    core_common._error_untrusted(payload["error"], getattr(exc, "untrusted", None))
     return payload
 
 

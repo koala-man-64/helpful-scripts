@@ -188,6 +188,55 @@ def test_overflow_preserves_pending_operation_and_failed_write_metadata():
     assert error["error"]["details"] == details
 
 
+# ---------------------------------------------------------------------------
+# error.untrusted: the error fields that can quote the page
+
+@pytest.mark.parametrize("details, declared, expected", [
+    ({"candidates": [{"ref": "e1", "frame": "", "description": '- button "Save"'}], "executed": False}, None, ["details"]),
+    ({"options": ["2 - High"], "command_id": "a" * 32}, None, ["details"]),
+    ({"dialogs": [{"type": "confirm", "message": "Leave?", "handled": "dismissed"}]}, None, ["details"]),
+    ({"log": ['- waiting for get_by_role("button")']}, ["message"], ["message", "details"]),
+    (None, ["message"], ["message"]),
+    (["not", "a", "mapping"], None, ["details"]),
+    # Receipt pointers, byte counts, condition names and empty page keys are the tool's own: nothing to mark.
+    ({"command_id": "a" * 32, "executed": True, "receipt": "state --command " + "a" * 32}, None, None),
+    ({"evidence_bytes": 1, "quota": 2, "session_bytes": 1, "other_sessions_bytes": 0, "journal_bytes": 0}, None, None),
+    ({"pending": ["text"], "expectations": [{"kind": "url", "passed": False}], "completed_fields": [0]}, None, None),
+    ({"candidates": [], "log": [], "executed": False}, None, None),
+    ({"exception": "TypeError"}, None, None),
+])
+def test_error_untrusted_names_the_fields_that_can_quote_the_page(details: Any, declared: Any, expected: Any) -> None:
+    error = {"class": "x", "http_status": None, "message": "m", "hint": None, **({"details": details} if details is not None else {})}
+    assert core_common._error_untrusted(error, declared).get("untrusted") == expected
+    exc = core_common._tag(ValueError("m"), "x", details=details, untrusted=declared)
+    assert core_cli._error_payload(exc)["error"].get("untrusted") == expected
+
+
+def test_error_untrusted_keeps_the_marker_of_details_stored_by_output_id() -> None:
+    stub = {"class": "ambiguous", "details": {"executed": False, "output_id": "b" * 32, "next_offset": 0}, "untrusted": ["details", "hint", {}]}
+    assert core_common._error_untrusted(stub)["untrusted"] == ["details"]
+
+
+def test_cli_error_overflow_stubs_keep_the_untrusted_marker(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    from pathlib import Path
+    candidates = [{"ref": f"e{i}", "frame": "", "description": '- button "' + "Save " * 700 + '"'} for i in range(10)]
+    exc = core_common._tag(ValueError("Semantic target matched 10 visible elements."), core_common.ERR_AMBIGUOUS,
+                           details={"candidates": candidates, "executed": False})
+    monkeypatch.setattr(core_cli, "_cmd_status", _raising_handler(exc))
+    assert core_cli.main(["status"]) == 2
+    stub = json.loads(capsys.readouterr().err)
+    assert stub["truncated"] and stub["error"]["details"] == {"executed": False}
+    assert stub["error"]["untrusted"] == ["details"]
+    stored = json.loads(Path(stub["output_file"]).read_text(encoding="utf-8"))
+    assert stored["error"]["details"]["candidates"] == candidates and stored["error"]["untrusted"] == ["details"]
+    # Reading it back by ID: every page of a stored reply can hold page text.
+    page = core_cli._cmd_output(argparse.Namespace(profile=None, session=None, id=stub["output_id"], offset=0))
+    assert page["chunk"].startswith('{"error":') and page["untrusted"] == ["chunk"]
+    # The last-resort stub, used when even the bounded one is over budget, keeps it too.
+    minimal = json.loads(core_cli._json_line(core_cli._error_payload(exc), byte_budget=200))
+    assert minimal["error"] == {"class": "oversized_error", "message": "Read full error details by output ID.", "untrusted": ["details"]}
+
+
 @pytest.mark.parametrize("request_fails", [False, True])
 def test_action_is_sent_once_without_preflight_health_requests(monkeypatch, request_fails):
     paths = core_common._paths("default")

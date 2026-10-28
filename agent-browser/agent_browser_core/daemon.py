@@ -390,28 +390,35 @@ class BrowserEngine:
         return isinstance(exc, self.errors[1]) or "Timeout" in type(exc).__name__ or "exceeded" in str(exc)
 
     def _classify(self, exc: Exception, verb: str) -> Exception:
-        """Map a Playwright error to the repo's error contract."""
+        """Map a Playwright error to the repo's error contract.
+
+        The message is Playwright's own text, which can quote the page (an evaluate error carries the page's exception
+        message), so every classified error lists message in error.untrusted. Its call log is untrusted by key.
+        """
         text = str(exc)
         # Playwright quotes the URL it was loading in the message and the call log; both are redacted like any URL.
         message = core_common.sanitize_text(core_common.redact_text(text.splitlines()[0] if text else type(exc).__name__))
-        p = self.profile
+
+        def tag(error: Exception, cls: str, hint: str, details: Any = None) -> Exception:
+            return core_common._tag(error, cls, hint=core_common._hint(hint, self.profile), details=details, untrusted=["message"])
+
         if "Invalid frame in aria-ref selector" in text or "does not match any element" in text:
-            return core_common._tag(ValueError(message), core_common.ERR_STALE_REF, hint=core_common._hint("stale_ref", p))
+            return tag(ValueError(message), core_common.ERR_STALE_REF, "stale_ref")
         if "has been closed" in text or "Target closed" in text or "browser has been closed" in text.lower():
-            return core_common._tag(RuntimeError(message), core_common.ERR_BROWSER_CLOSED, hint=core_common._hint("browser_closed", p))
+            return tag(RuntimeError(message), core_common.ERR_BROWSER_CLOSED, "browser_closed")
         if "Not a checkbox or radio button" in text:
-            return core_common._tag(ValueError(message), core_common.ERR_ACTION_FAILED, hint=core_common._hint("check_not_checkbox", p))
+            return tag(ValueError(message), core_common.ERR_ACTION_FAILED, "check_not_checkbox")
         if "not a <select> element" in text:
-            return core_common._tag(ValueError(message), core_common.ERR_ACTION_FAILED, hint=core_common._hint("select_not_select", p))
+            return tag(ValueError(message), core_common.ERR_ACTION_FAILED, "select_not_select")
         if "Element is not an <input>" in text:
-            return core_common._tag(ValueError(message), core_common.ERR_ACTION_FAILED, hint=core_common._hint("fill_not_input", p))
+            return tag(ValueError(message), core_common.ERR_ACTION_FAILED, "fill_not_input")
         if "strict mode violation" in text:
-            return core_common._tag(ValueError(message), core_common.ERR_AMBIGUOUS, hint=core_common._hint("action_failed", p))
+            return tag(ValueError(message), core_common.ERR_AMBIGUOUS, "action_failed")
         if self._is_timeout(exc):
-            return core_common._tag(ValueError(message), core_common.ERR_ACTION_TIMEOUT, hint=core_common._hint("action_timeout", p))
+            return tag(ValueError(message), core_common.ERR_ACTION_TIMEOUT, "action_timeout")
         calllog = [l.strip() for l in text.splitlines()[1:6] if l.strip()]
-        return core_common._tag(ValueError(message), core_common.ERR_ACTION_FAILED, hint=core_common._hint("action_failed", p),
-                                details={"log": [core_common.sanitize_text(core_common.redact_text(l), 200) for l in calllog]})
+        return tag(ValueError(message), core_common.ERR_ACTION_FAILED, "action_failed",
+                   details={"log": [core_common.sanitize_text(core_common.redact_text(l), 200) for l in calllog]})
 
     def _ref_target(self, page: Any, ref: str) -> Any:
         m = core_common.REF_RE.match(ref)
@@ -1330,7 +1337,7 @@ class BrowserEngine:
                 break
             if core_common._now() >= deadline:
                 raise core_common._tag(RuntimeError(f"Still waiting after {timeout:g}s (url {core_common.redact_url(page.url)})."), core_common.ERR_TIMEOUT, hint=core_common._hint("wait_timeout", self.profile),
-                           details={"pending": [k for k in conditions if k not in satisfied]})
+                           details={"pending": [k for k in conditions if k not in satisfied]}, untrusted=["message"])
             try:
                 page.wait_for_timeout(500)
             except Exception:  # noqa: BLE001
@@ -1625,8 +1632,9 @@ class _Handler(socketserver.StreamRequestHandler):
             reply: dict[str, Any] = {"ok": True, "result": result}
             daemon.dlog(f"{cmd} ok {round((core_common._now() - started) * 1000)}ms")
         except (ValueError, RuntimeError) as exc:
-            reply = {"ok": False, "error": {"class": getattr(exc, "error_class", core_common.ERR_DAEMON), "message": str(exc),
-                                            "hint": getattr(exc, "hint", None), "details": getattr(exc, "details", None)}}
+            reply = {"ok": False, "error": core_common._error_untrusted({"class": getattr(exc, "error_class", core_common.ERR_DAEMON), "message": str(exc),
+                                                                         "hint": getattr(exc, "hint", None), "details": getattr(exc, "details", None)},
+                                                                        getattr(exc, "untrusted", None))}
             daemon.dlog(f"{cmd} error {reply['error']['class']}")
         except Exception as exc:  # noqa: BLE001 - never let a handler take the daemon down
             daemon.dlog(f"{cmd} crashed: {type(exc).__name__}")

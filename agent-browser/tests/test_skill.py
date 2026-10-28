@@ -71,7 +71,8 @@ def test_shared_shutdown_and_commit_operations_require_caller_approval() -> None
         for verb in ("stop *--all*", "stop *--force*", "commit *", "* commit *", "journal *--clear*", "* journal *--clear*",
                      "journal *--include-unknown*", "* journal *--include-unknown*", "*--accept-dialog*", "*--discard-changes*"):
             assert f"{shell}(agent-browser {verb})" in rules
-    assert "mcp__*__browser_commit" in rules
+    # MCP rules match tool names only: browser_commit (a discarding stop is its operation stop) asks, a plain browser_stop does not.
+    assert "mcp__*__browser_commit" in rules and not any("browser_stop" in rule for rule in rules)
 
 
 def test_every_example_verb_and_flag_exists_in_the_parser() -> None:

@@ -323,6 +323,12 @@ UNTRUSTED_KEYS = ["snapshot", "text", "title", "url", "details", "changes", "fra
                   "commands", "downloads", "new_tab", "frames_loading", "selected", "background_dialogs"]
 
 
+# error.details keys only the tool writes: receipt pointers, byte counts, field indexes, condition names. A non-empty
+# value under any other key (ambiguous candidates, select options, dialog messages, a call log) can hold page text.
+TOOL_DETAIL_KEYS = frozenset({"command_id", "executed", "receipt", "output_id", "next_offset", "exception", "pending", "completed_fields",
+                              "expectations", "evidence_bytes", "quota", "session_bytes", "other_sessions_bytes", "journal_bytes"})
+
+
 OFF_ALLOWLIST_OK = frozenset({"ping", "stop", "back", "goto", "snapshot", "text", "tabs", "tab"})
 
 
@@ -521,7 +527,7 @@ HINTS = {
     "off_allowlist_wait": "wait cannot watch a page outside allowed_hosts. For a sign-in on an identity provider, run: {tool} needs-human --signed-in <app host> --profile {profile} and poll it with: {tool} state --handoff <id> --profile {profile}; otherwise use: {tool} back --profile {profile}.",
     "dialog": "A page dialog was answered Cancel and the command had already run; see details.dialogs and details.executed. Only if the user authorized accepting it, check the page, then repeat the action with --accept-dialog (and --dialog-text TEXT for a prompt); on MCP, browser_commit takes accept_dialog.",
     "dialog_dismissed": "A page dialog was answered Cancel (see dialogs); this command's own result is still valid. Ask the user before repeating whatever opened it.",
-    "unsaved_changes": "The page has unsaved edits and they were kept. Click its Save/Update button first; only if the user agreed to lose them, repeat the command with --discard-changes (on MCP, browser_commit and browser_stop take discard_changes).",
+    "unsaved_changes": "The page has unsaved edits and they were kept. Click its Save/Update button first; only if the user agreed to lose them, repeat the command with --discard-changes (on MCP, only browser_commit takes discard_changes: for its page actions and operation stop).",
     "action_timeout": "The element is hidden, disabled, or covered. Run: {tool} snapshot --profile {profile} and pick a visible enabled element, or: {tool} wait --ref <ref> --profile {profile}",
     "action_failed": "Run: {tool} snapshot --profile {profile} and try a different element or verb.",
     "wait_timeout": "Still waiting. Run the same wait command again, or ask the user whether sign-in is finished.",
@@ -587,12 +593,17 @@ def _log(message: str) -> None:
         print(f"{TOOL_NAME}: {message}", file=sys.stderr, flush=True)
 
 
-def _tag(exc: Exception, error_class: str, hint: str | None = None, details: Any = None) -> Exception:
-    """Ride error_class / hint / details on a builtin exception (no custom exception classes)."""
+def _tag(exc: Exception, error_class: str, hint: str | None = None, details: Any = None, untrusted: list[str] | None = None) -> Exception:
+    """Ride error_class / hint / details on a builtin exception (no custom exception classes).
+
+    untrusted names the error fields the raiser knows can quote the page, such as a message with Playwright's text.
+    """
     exc.error_class = error_class  # type: ignore[attr-defined]
     exc.hint = hint  # type: ignore[attr-defined]
     if details is not None:
         exc.details = details  # type: ignore[attr-defined]
+    if untrusted:
+        exc.untrusted = untrusted  # type: ignore[attr-defined]
     return exc
 
 
@@ -613,6 +624,23 @@ def _preservation_details(source: Any) -> dict[str, Any]:
         command_id = None
     return {"command_id": command_id, "executed": executed if isinstance(executed, bool) else None,
             "receipt": "state --command " + command_id if command_id else "journal"}
+
+
+def _error_untrusted(error: dict[str, Any], declared: Any = None) -> dict[str, Any]:
+    """List the error fields that can hold page text in error.untrusted, as a reply's untrusted lists its keys.
+
+    message only when the raiser declared it; details unless every non-empty value in it is under a TOOL_DETAIL_KEYS
+    key. A list the error already carries is kept, so an overflow stub still marks the details stored by output ID.
+    """
+    named = {k for source in (declared, error.get("untrusted")) if isinstance(source, (list, tuple))
+             for k in source if k in ("message", "details")}
+    details = error.get("details")
+    if details is not None and (not isinstance(details, dict) or any(
+            k not in TOOL_DETAIL_KEYS and v not in (None, "", [], {}) for k, v in details.items())):
+        named.add("details")
+    if named:
+        error["untrusted"] = [k for k in ("message", "details") if k in named]
+    return error
 
 
 def _storage_error(source: Any, exc: BaseException | None = None, profile: str | None = None) -> dict[str, Any]:
