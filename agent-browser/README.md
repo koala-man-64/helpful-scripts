@@ -500,7 +500,7 @@ a separately authorized test record; the manual record-edit step below is condit
 on that authorization.
 
 ```powershell
-$env:AGENT_BROWSER_LIVE = "1"; python -m pytest -m live     # real headless Edge against tests/fixtures (~40 s)
+$env:AGENT_BROWSER_LIVE = "1"; python -m pytest -m live     # real headless Edge against tests/fixtures (~4 min)
 agent-browser doctor --live                                  # boots a headless browser, checks refs, clicks, stops
 ```
 
