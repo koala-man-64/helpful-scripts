@@ -183,7 +183,9 @@ class BrowserEngine:
     # -- logging -------------------------------------------------------------------------
 
     def dlog(self, message: str) -> None:
-        line = f"{core_common._utc_now()} {message}"
+        # One physical line per entry: a multi-line exception or traceback, or a forged newline, cannot add log lines.
+        flat = str(message).replace("\r\n", "\n").replace("\n", " | ").replace("\r", " ")
+        line = f"{core_common._utc_now()} {core_common.sanitize_text(core_common.redact_text(flat), 2000, single_line=True)}"
         try:
             print(line, file=sys.stderr, flush=True)
         except (OSError, ValueError):
@@ -376,25 +378,27 @@ class BrowserEngine:
 
     def _classify(self, exc: Exception, verb: str) -> Exception:
         """Map a Playwright error to the repo's error contract."""
-        message = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
         text = str(exc)
+        # Playwright quotes the URL it was loading in the message and the call log; both are redacted like any URL.
+        message = core_common.sanitize_text(core_common.redact_text(text.splitlines()[0] if text else type(exc).__name__))
         p = self.profile
         if "Invalid frame in aria-ref selector" in text or "does not match any element" in text:
-            return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_STALE_REF, hint=core_common._hint("stale_ref", p))
+            return core_common._tag(ValueError(message), core_common.ERR_STALE_REF, hint=core_common._hint("stale_ref", p))
         if "has been closed" in text or "Target closed" in text or "browser has been closed" in text.lower():
-            return core_common._tag(RuntimeError(core_common.sanitize_text(message)), core_common.ERR_BROWSER_CLOSED, hint=core_common._hint("browser_closed", p))
+            return core_common._tag(RuntimeError(message), core_common.ERR_BROWSER_CLOSED, hint=core_common._hint("browser_closed", p))
         if "Not a checkbox or radio button" in text:
-            return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_ACTION_FAILED, hint=core_common._hint("check_not_checkbox", p))
+            return core_common._tag(ValueError(message), core_common.ERR_ACTION_FAILED, hint=core_common._hint("check_not_checkbox", p))
         if "not a <select> element" in text:
-            return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_ACTION_FAILED, hint=core_common._hint("select_not_select", p))
+            return core_common._tag(ValueError(message), core_common.ERR_ACTION_FAILED, hint=core_common._hint("select_not_select", p))
         if "Element is not an <input>" in text:
-            return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_ACTION_FAILED, hint=core_common._hint("fill_not_input", p))
+            return core_common._tag(ValueError(message), core_common.ERR_ACTION_FAILED, hint=core_common._hint("fill_not_input", p))
         if "strict mode violation" in text:
-            return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_AMBIGUOUS, hint=core_common._hint("action_failed", p))
+            return core_common._tag(ValueError(message), core_common.ERR_AMBIGUOUS, hint=core_common._hint("action_failed", p))
         if self._is_timeout(exc):
-            return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_ACTION_TIMEOUT, hint=core_common._hint("action_timeout", p))
+            return core_common._tag(ValueError(message), core_common.ERR_ACTION_TIMEOUT, hint=core_common._hint("action_timeout", p))
         calllog = [l.strip() for l in text.splitlines()[1:6] if l.strip()]
-        return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_ACTION_FAILED, hint=core_common._hint("action_failed", p), details={"log": [core_common.sanitize_text(l, 200) for l in calllog]})
+        return core_common._tag(ValueError(message), core_common.ERR_ACTION_FAILED, hint=core_common._hint("action_failed", p),
+                                details={"log": [core_common.sanitize_text(core_common.redact_text(l), 200) for l in calllog]})
 
     def _ref_target(self, page: Any, ref: str) -> Any:
         m = core_common.REF_RE.match(ref)
@@ -921,6 +925,10 @@ class BrowserEngine:
                 result["effect"] = ("navigated" if result.get("navigated") else "tab_opened" if result.get("new_tab")
                                     else "downloaded" if result.get("downloads") else "value_set" if "value_after" in result
                                     else "dom_changed" if any(result.get("changes", {}).values()) else "none")
+            if "untrusted" not in result:  # every reply that carries page data says so, whichever handler built it
+                page_keys = [k for k in core_common.UNTRUSTED_KEYS if k in result]
+                if page_keys:
+                    result["untrusted"] = page_keys
             if "snapshot" in result:
                 result["snapshot"] = result.pop("snapshot")
             return result
@@ -1204,12 +1212,12 @@ class BrowserEngine:
                     except Exception:  # noqa: BLE001
                         continue
                     label = frame.name or ("(main)" if frame is page.main_frame else core_common.redact_url(frame.url))
-                    chunks.append(f"--- frame: {core_common.sanitize_text(label, 80)} ---\n{body}" if frame is not page.main_frame else body)
+                    chunks.append(f"--- frame: {core_common.sanitize_text(label, 80, single_line=True)} ---\n{body}" if frame is not page.main_frame else body)
         except (ValueError, RuntimeError):
             raise
         except Exception as exc:  # noqa: BLE001
             raise self._classify(exc, "text") from exc
-        text = core_common.CONTROL_CHARS_RE.sub("", "\n\n".join(chunks))
+        text = core_common.strip_invisible("\n\n".join(chunks))
         truncated = len(text) > max_chars
         env = self._base_fields(page)
         env.update({"chars": len(text), "truncated": truncated, "untrusted": core_common.UNTRUSTED_KEYS, "text": text[:max_chars]})

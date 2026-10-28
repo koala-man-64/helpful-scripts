@@ -283,6 +283,7 @@ def test_start_session_returns_already_running_without_spawning(monkeypatch: pyt
     result = core_session.start_session(paths, _start_args())
     assert result["status"] == "already_running"
     assert result["pid"] == 9999
+    assert result["url"] == "about:blank" and result["untrusted"] == core_common.UNTRUSTED_KEYS
 
 
 def _install_success_recorder(monkeypatch: pytest.MonkeyPatch, paths: core_common.ProfilePaths) -> None:

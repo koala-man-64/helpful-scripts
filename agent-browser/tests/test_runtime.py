@@ -543,6 +543,21 @@ def test_receipt_records_api_path_and_recipe_number_but_not_values(tmp_path):
     assert json.loads(stored["c3"]["outcome"])["number"] == "INC0012345"
 
 
+def test_replies_carrying_page_data_are_marked_untrusted_centrally(make_daemon):
+    from agent_browser_core import daemon as core_daemon
+    daemon, ctx, page = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a"}, 5)
+    assert {"commands", "downloads", "new_tab", "frames_loading", "selected", "background_dialogs"} <= set(common.UNTRUSTED_KEYS)
+    assert {"tabs", "commands", "background_dialogs"} <= set(daemon.dispatch("state", {}, 1)["untrusted"])
+    assert {"tabs", "url", "title"} <= set(daemon.dispatch("ping", {}, 1)["untrusted"])
+    assert "commands" in daemon.dispatch("journal", {}, 1)["untrusted"]
+    assert daemon.dispatch("snapshot", {}, 5)["untrusted"] == common.UNTRUSTED_KEYS  # a handler's own list is kept
+    daemon.h_echo = lambda args, timeout: {"url": "http://x/a", "count": 1}
+    daemon.h_plain = lambda args, timeout: {"count": 1}
+    assert core_daemon.BrowserEngine.dispatch(daemon, "echo", {}, 1)["untrusted"] == ["url"]
+    assert "untrusted" not in core_daemon.BrowserEngine.dispatch(daemon, "plain", {}, 1)
+
+
 def _seed(journal, session, command_id, verb, status=None, outcome=None):
     """A receipt as the dispatcher leaves it; no status leaves it running, as an interrupted command does."""
     journal.start(command_id, session, verb, {}, "http://x/")

@@ -92,9 +92,10 @@ def _receipt_args(verb: str, args: dict[str, Any]) -> dict[str, Any]:
         if isinstance(args.get("number"), str) and common.RECORD_NUMBER_RE.fullmatch(args["number"]):
             safe["number"] = args["number"]
     if name == "api" and "url" in args:
-        # The path names the endpoint and record. The query string can carry business data or secrets, so it is never stored.
+        # The path names the endpoint and record. The query string can carry business data or secrets, so it is never
+        # stored, and credentials in the path itself (;jsessionid=, a reset or JWT token segment) are masked.
         try:
-            safe["path"] = common.sanitize_text(urllib.parse.urlsplit(args["url"]).path, 240) if isinstance(args["url"], str) else "<invalid>"
+            safe["path"] = common.sanitize_text(common.redact_path(urllib.parse.urlsplit(args["url"]).path), 240) if isinstance(args["url"], str) else "<invalid>"
         except ValueError:
             safe["path"] = "<invalid>"
     return safe
