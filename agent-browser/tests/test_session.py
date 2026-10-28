@@ -825,6 +825,46 @@ def test_clean_purge_removes_a_stopped_profile(monkeypatch: pytest.MonkeyPatch, 
     assert not paths.dir.exists()
 
 
+def test_clean_purge_failure_is_reported_once_and_later_profiles_are_still_cleaned(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    held = core_common._paths("aaa")
+    held.dir.mkdir(parents=True, exist_ok=True)
+    (held.dir / "marker.txt").write_text("x", encoding="utf-8")
+    later = core_common._paths("zzz")  # sorts after the purge target
+    core_session._write_json_atomic(later.session, _valid_session(later))  # stale: no lock held
+    later.downloads.mkdir(parents=True, exist_ok=True)
+    old_file = later.downloads / "old.bin"
+    old_file.write_bytes(b"x")
+    os.utime(old_file, (time.time() - 8 * 86400, time.time() - 8 * 86400))
+    monkeypatch.setattr(core_common, "_kill_browsers_using", lambda user_data, dry_run=False: [])
+    removals: list[Path] = []
+    monkeypatch.setattr(core_common, "_rmtree_retry", lambda path, attempts=6: removals.append(path) or False)
+
+    with pytest.raises(RuntimeError) as exc:
+        core_session.clean(purge="aaa")
+
+    assert not isinstance(exc.value, ValueError)  # exit 1, not a usage error
+    assert exc.value.error_class == core_common.ERR_PROFILE_IN_USE
+    assert exc.value.hint == core_common._hint("purge_failed", "aaa")
+    assert exc.value.details["profiles_purged"] == []
+    assert exc.value.details["profiles_purge_failed"] == ["aaa"]
+    assert exc.value.details["stale_sessions_removed"] == ["zzz"]
+    assert exc.value.details["artifacts_removed"] == 1
+    assert removals == [held.dir]
+    assert held.dir.exists()
+    assert not later.session.exists() and not old_file.exists()  # the later profile was still cleaned
+
+
+def test_clean_purge_dry_run_reports_the_profile_without_removing_it(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    paths = core_common._paths("default")
+    paths.dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(core_common, "_kill_browsers_using", lambda user_data, dry_run=False: [])
+    monkeypatch.setattr(core_common, "_rmtree_retry", lambda path, attempts=6: pytest.fail("a dry run removed files"))
+
+    result = core_session.clean(purge="default", dry_run=True)
+    assert result["profiles_purged"] == ["default"]
+    assert paths.dir.exists()
+
+
 def test_clean_unknown_purge_is_not_found(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     core_common._paths("other").dir.mkdir(parents=True, exist_ok=True)  # profiles dir must exist to reach the purge check
     monkeypatch.setattr(core_common, "_kill_browsers_using", lambda user_data, dry_run=False: [])

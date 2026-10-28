@@ -125,8 +125,8 @@ qualification requires a separately authorized test record.
 | `upload REF FILE...` / `downloads` | Attach local files; save and list files the page downloaded. |
 | `eval JS [--ref REF] [--frame NAME]` | Run JavaScript. Off when `config.json` says `"eval": false`. Refuses a credential field as `--ref`; the script itself, like page and `--frame` eval, can still reach any field. |
 | `needs-human [--signed-in HOST]` | Focus/flash for human input; returns a durable handoff ID. The same reason and condition while that handoff is open return its ID without refocusing. Its receipt is final with status `needs_human`. |
-| `doctor [--live]` | Preflight rows; `--live` boots a headless browser, checks refs, clicks, stops. |
-| `clean [--profile P] [--purge-profile P] [--dry-run]` | Stale sessions/orphans and old download staging files. Evidence stays until explicitly cleared. |
+| `doctor [--live]` | Preflight rows; `--live` boots a headless browser, checks refs, clicks, stops. Exit 0 even when a row fails. `home_private` warns when other local accounts may read the profile folders: on Windows, a home outside your user profile and `%LOCALAPPDATA%`; on POSIX, a `profiles/<name>` folder with group or other permission bits. |
+| `clean [--profile P] [--purge-profile P] [--dry-run]` | Stale sessions/orphans and old download staging files. Evidence stays until explicitly cleared. A purge lists the profile in `profiles_purged` only once its folder is gone; if a program still holds some of its files, `clean` finishes the other profiles and then fails with `profile_in_use` and `details.profiles_purge_failed`. |
 
 Every action verb (`click`, `fill`, `type`, `press`, `select`, `check`, `uncheck`, `hover`, `scroll`, `upload`, `eval`)
 and `fill-form` also takes `--accept-dialog`, `--dialog-text T` (a prompt answer, only with `--accept-dialog`) and
@@ -268,7 +268,7 @@ Real environment variables, read lazily; no `.env` loading (the tool must run ba
 
 | Variable | Meaning |
 |---|---|
-| `AGENT_BROWSER_HOME` | State root (default `%LOCALAPPDATA%\agent-browser`, POSIX `~/.agent-browser`); a relative value is taken from the current folder. Keep it short: profile paths over 180 chars are refused. |
+| `AGENT_BROWSER_HOME` | State root (default `%LOCALAPPDATA%\agent-browser`, POSIX `~/.agent-browser`); a relative value is taken from the current folder. Keep it short: profile paths over 180 chars are refused. Keep it inside your user profile too, such as `%LOCALAPPDATA%\ab`: `session.json` there holds the daemon token, and on Windows a custom home is protected only by that folder's permissions (`doctor` warns: `home_private`). |
 | `AGENT_BROWSER_PROFILE` | Default `--profile`. Without either, always `default`. |
 | `AGENT_BROWSER_BROWSER` / `AGENT_BROWSER_EXE` | `msedge` (default) or `chrome`; an explicit executable. |
 | `AGENT_BROWSER_HEADLESS` | `true` = no window (tests). A human cannot sign in headless. |
@@ -338,8 +338,11 @@ still succeeds. Between commands a `beforeunload` raised by a human navigation i
 ## Security posture
 
 - Playwright talks to the browser over a pipe. No DevTools TCP port is opened on the signed-in profile.
-- The daemon listens on `127.0.0.1` only, behind a per-session token stored in `session.json` under your user profile;
-  a wrong token (including a non-string one) is logged and dropped without a reply, and a request line must arrive in full
+- The daemon listens on `127.0.0.1` only, behind a per-session token stored in `session.json` under
+  `AGENT_BROWSER_HOME` (by default inside your user profile). On POSIX that file is owner-only. On Windows it has its
+  folder's permissions, so a custom home outside your user profile and `%LOCALAPPDATA%`, such as `C:\ab`, may let
+  other local accounts read the token; `doctor` warns (`home_private`), and the tool does not change ACLs itself.
+  A wrong token (including a non-string one) is logged and dropped without a reply, and a request line must arrive in full
   within 5 s, however it is chunked, and within a 2 MiB input budget.
 - The tool never types into password, one-time-code, or credential-looking fields, and no flag overrides that. It
   checks where input lands: the label's control for `fill`, and the focused element for key presses (a target that
@@ -486,9 +489,10 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 | `action_failed` "Could not confirm the field…" | The credential check could not inspect the field (page navigating, frame detached, focus inside a custom element's closed shadow root). Take a fresh `snapshot` and retry; give `press` a ref if a press without one keeps failing. |
 | `unsaved_changes` | The page has edits and they were kept. Click its Save/Update button, or re-run with `--discard-changes` once the user agreed to lose them. A refused `stop` lists the kept tabs in `details.tabs` and closed the rest. |
 | `config` from `start` naming a policy key (`permission`, `profiles`, `evidence_max_bytes`, ...) | `config.json` has a malformed profile policy. `start` checks it before launching a browser; fix the named key and start again. |
-| `Profile path is too long` (class `config`) | Set `AGENT_BROWSER_HOME` to a short path such as `C:\ab`. |
+| `Profile path is too long` (class `config`) | Set `AGENT_BROWSER_HOME` to a short path inside your user profile, such as `%LOCALAPPDATA%\ab`. |
 | `browser_launch` with a log tail | Read `daemon.log`; `agent-browser doctor` decodes Edge and Chrome policies (`DeveloperToolsAvailability=2`, `ForceEphemeralProfiles`). Try `--browser chrome`. |
-| `profile_in_use` | A stray browser holds the profile folder. `agent-browser clean --profile <p>`. |
+| `profile_in_use` | A stray browser holds the profile folder. `agent-browser clean --profile <p>`. From `clean --purge-profile`: a program (a browser, an editor, a virus scan) still holds files of the profile named in `details.profiles_purge_failed`; close it and run the purge again. |
+| `doctor` shows `home_private` as `warn` | Windows: move `AGENT_BROWSER_HOME` inside your user profile (`%LOCALAPPDATA%\ab`) or make sure only your account can read that folder. POSIX: `chmod 700` each listed profile folder. |
 | The window is not visible | Check the taskbar; use `agent-browser needs-human` for an authorized human handoff. |
 | Output looks cut off | The Bash tool caps output at 30,000 chars; the tool keeps responses under 24 KB and writes the full snapshot to `last_snapshot.txt` (`snapshot_file`). |
 | Git Bash turned `/incident.do` into `C:/Program Files/Git/incident.do` | The tool de-mangles arguments when `MSYSTEM` is set and says so in `note` on success or `error.note` on failure (at most 300 characters per argument); prefer host names and never start an argument with `/`. |
@@ -502,4 +506,5 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 - Measure the host matrix for Claude Desktop and the VS Code extension, and after the host quits.
 - Console capture (`console` verb) and network summaries.
 - A Windows named pipe with an owner-only DACL instead of the token-gated loopback socket.
+- An owner-only ACL (`icacls`) on a custom Windows home, after a live check; today `doctor` only warns (`home_private`).
 - Cross-origin (OOPIF) iframe prefix stability across snapshots is not asserted by the live suite yet.
