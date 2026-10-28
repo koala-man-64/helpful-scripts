@@ -39,6 +39,8 @@ Install the Claude Code skill with the machine profile:
 For stdio MCP install `agent-browser[mcp]` (`mcp>=1.29,<2`), then run `agent-browser-mcp`
 or `python -m agent_browser_core.mcp_server`. The 18 typed tools share the dispatcher;
 `browser_commit` and `browser_eval` are distinct caller approval targets.
+A tool error carries the same `error` object as CLI stderr; its hint names the equivalent
+CLI command. Bad arguments and unknown tools are `validation`.
 Use one explicit MCP `session_id` throughout the task. Installing repository templates
 is a separate step; editing them does not update an already-installed caller policy.
 
@@ -162,15 +164,23 @@ with start gives its health response the requested start deadline.
 
 - **Success**: JSON on stdout, exit `0`. Page-derived keys are listed in `untrusted`; hints never contain page text.
   Metadata keys come before `snapshot`, so a truncated read still carries `url`, `title`, `truncated`, `note`.
-- **Failure**: `{"error": {"class", "http_status": null, "message", "hint", "details"?}}` on stderr, stdout empty.
+- **Failure**: `{"error": {"class", "http_status": null, "message", "hint", "details"?, "note"?}}` on stderr, stdout empty.
+  Never a traceback: an unexpected internal error is class `daemon` with `details.exception` naming its type,
+  and an unclassified local file error is `io`; neither echoes the exception text.
+- A reply that cannot be stored (oversized while the profile quota is full or the disk refuses it) fails with
+  `journal_full` or `output_storage`. A reply that cannot be written to stdout fails with `io`. Both keep
+  `details.command_id`, `details.executed` and `details.receipt` (`state --command ID`, or `journal` without an ID).
+  When an error cannot be stored, its exit code stays the original error's.
 - Exit `2` = fix the call: `usage`, `validation`, `ambiguous_profile`, `ref_not_found`, `stale_ref`, `not_found`,
   `ambiguous`, `action_timeout`, `action_failed`, `guarded`, `dialog`, `unsaved_changes`.
 - Exit `1` = fix the environment or start the browser: `config`, `playwright_missing`, `browser_not_found`,
   `edge_policy`, `browser_launch`, `profile_in_use`, `not_running`, `browser_closed`, `daemon`, `daemon_unresponsive`,
+  `io`, `output_storage`, `journal_full`,
   `busy` (another session's command held the browser past this request's queue deadline; it was not run, repeat it).
 - Exit `124` = `timeout`: inspect the receipt before another action; the action may already have run.
   Exit `130` = interrupted.
-- Every `hint` is a literal next command rendered with the profile in use.
+- Every `hint` is a literal next command rendered with the profile in use (`default` when the given name is not
+  a valid profile name).
 
 ## Configuration
 
@@ -397,7 +407,7 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 | `profile_in_use` | A stray browser holds the profile folder. `agent-browser clean --profile <p>`. |
 | The window is not visible | Check the taskbar; use `agent-browser needs-human` for an authorized human handoff. |
 | Output looks cut off | The Bash tool caps output at 30,000 chars; the tool keeps responses under 24 KB and writes the full snapshot to `last_snapshot.txt` (`snapshot_file`). |
-| Git Bash turned `/incident.do` into `C:/Program Files/Git/incident.do` | The tool de-mangles arguments when `MSYSTEM` is set and adds a `note`; prefer host names and never start an argument with `/`. |
+| Git Bash turned `/incident.do` into `C:/Program Files/Git/incident.do` | The tool de-mangles arguments when `MSYSTEM` is set and says so in `note` on success or `error.note` on failure (at most 300 characters per argument); prefer host names and never start an argument with `/`. |
 | A Bash call was denied by the shell guard | The user's PreToolUse guard denies statements starting with `echo`, `cat`, `type`, `set` when the command mentions a secret word. One `agent-browser` command per call, nothing before it. |
 | `stale_code: true` in `status` | Package implementation changed; explicitly stop/restart the shared profile. |
 | `doctor` shows `kill_on_job_close` | Your shell's Job kills children on close. `AGENT_BROWSER_LAUNCHER=wmi`. |

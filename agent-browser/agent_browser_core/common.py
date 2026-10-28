@@ -411,6 +411,15 @@ ERR_TIMEOUT = "timeout"
 ERR_BUSY = "busy"
 
 
+ERR_IO = "io"
+
+
+ERR_OUTPUT_STORAGE = "output_storage"
+
+
+ERR_JOURNAL_FULL = "journal_full"
+
+
 EXIT_2_CLASSES = frozenset({
     ERR_USAGE, ERR_VALIDATION, ERR_AMBIGUOUS_PROFILE, ERR_REF_NOT_FOUND, ERR_STALE_REF, ERR_NOT_FOUND,
     ERR_AMBIGUOUS, ERR_ACTION_TIMEOUT, ERR_ACTION_FAILED, ERR_GUARDED, ERR_DIALOG, ERR_UNSAVED,
@@ -473,6 +482,8 @@ HINTS = {
     "guarded_focus": "The focused field takes a password or code. Ask the user to type it in the browser window.",
     "no_such_profile": "Run: {tool} status --all",
     "purge_running": "Run: {tool} stop --profile {profile} first.",
+    "inspect_receipt": "Inspect the receipt before repeating an action. Run: {tool} journal --profile {profile}",
+    "tool_arguments": "Check the tool's inputSchema from tools/list and call it again with valid arguments.",
 }
 
 
@@ -480,6 +491,9 @@ VERBOSE = False
 
 
 _ARGV_NOTES: list[str] = []
+
+
+NOTE_CAP = 300                         # characters per note; a note quotes caller arguments
 
 
 def _log(message: str) -> None:
@@ -496,8 +510,31 @@ def _tag(exc: Exception, error_class: str, hint: str | None = None, details: Any
     return exc
 
 
-def _hint(key: str, profile: str = DEFAULT_PROFILE) -> str:
+def _hint(key: str, profile: str | None = DEFAULT_PROFILE) -> str:
+    # A hint is a command to run next; never render a caller-supplied name that is not a valid profile.
+    profile = profile if isinstance(profile, str) and _is_profile_name(profile) else DEFAULT_PROFILE
     return HINTS[key].format(tool=TOOL_NAME, profile=profile)
+
+
+def _preservation_details(source: Any) -> dict[str, Any]:
+    """The receipt pointer a reply keeps when it cannot be stored: from a result or an error's details."""
+    error = source.get("error") if isinstance(source, dict) else None
+    details = error.get("details") if isinstance(error, dict) else None
+    origins = [o for o in (source, details) if isinstance(o, dict)]
+    command_id = next((o["command_id"] for o in origins if o.get("command_id") is not None), None)
+    executed = next((o["executed"] for o in origins if o.get("executed") is not None), None)
+    if not (isinstance(command_id, str) and re.fullmatch(r"[0-9a-f]{32}", command_id)):
+        command_id = None
+    return {"command_id": command_id, "executed": executed if isinstance(executed, bool) else None,
+            "receipt": "state --command " + command_id if command_id else "journal"}
+
+
+def _storage_error(source: Any, exc: BaseException | None = None, profile: str | None = None) -> dict[str, Any]:
+    """Error object for a reply that could not be preserved; the class says why (quota or storage)."""
+    cls = ERR_JOURNAL_FULL if getattr(exc, "error_class", None) == ERR_JOURNAL_FULL else ERR_OUTPUT_STORAGE
+    return {"error": {"class": cls, "http_status": None,
+                      "message": "Cannot preserve the oversized reply; inspect its receipt before repeating an action.",
+                      "hint": _hint("inspect_receipt", profile), "details": _preservation_details(source)}}
 
 
 def _env_flag(name: str, default: bool = False) -> bool:

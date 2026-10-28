@@ -91,6 +91,71 @@ def test_mcp_can_inspect_and_page_receipts_when_quota_is_full(make_daemon, monke
     assert not daemon.paths.outputs.exists()
 
 
+def _tool(name, arguments):
+    async def run():
+        reply = await mcp_server.make_server().call_tool(name, arguments)
+        assert reply.isError
+        assert json.loads(reply.content[0].text) == reply.structuredContent
+        assert len(reply.model_dump_json().encode("utf-8")) + 128 <= common.STDOUT_BUDGET
+        return reply.structuredContent
+    return asyncio.run(run())
+
+
+def _raises(exc):
+    def invoke(*args, **kwargs):
+        raise exc
+    return invoke
+
+
+def test_mcp_error_reply_carries_hint_http_status_and_details(monkeypatch):
+    details = {"command_id": "a" * 32, "executed": False}
+    monkeypatch.setattr(mcp_server.client, "invoke", _raises(common._tag(ValueError("stale"), "stale_ref", hint="Run: snapshot", details=details)))
+    data = _tool("browser_click", {"target": "e1", "session_id": "g"})
+    assert data["error"] == {"class": "stale_ref", "http_status": None, "message": "stale", "hint": "Run: snapshot", "details": details}
+
+
+def test_mcp_unexpected_exception_is_daemon_class_not_validation_and_leaks_nothing(monkeypatch):
+    monkeypatch.setattr(mcp_server.client, "invoke", _raises(KeyError("C:/secret/path")))
+    data = _tool("browser_click", {"target": "e1", "session_id": "g", "profile": "../evil"})
+    assert data["error"]["class"] == "daemon" and data["error"]["details"] == {"exception": "KeyError"}
+    assert data["error"]["hint"] == common._hint("inspect_receipt") and "secret" not in json.dumps(data)
+    monkeypatch.setattr(mcp_server.client, "invoke", _raises(OSError("C:/secret")))
+    data = _tool("browser_click", {"target": "e1", "session_id": "g"})
+    assert data["error"]["class"] == "io" and "secret" not in json.dumps(data)
+    monkeypatch.setattr(mcp_server.client, "invoke", _raises(common._tag(OSError("gone"), "not_running", details={"executed": False})))
+    data = _tool("browser_click", {"target": "e1", "session_id": "g"})
+    assert data["error"]["class"] == "not_running" and data["error"]["details"] == {"executed": False}
+
+
+def test_mcp_bad_arguments_stay_validation_with_a_hint():
+    for name, arguments in (("browser_commit", {"operation": "invalid", "session_id": "g", "text": "x" * 50000}),
+                            ("browser_nonexistent", {"session_id": "g"})):
+        error = _tool(name, arguments)["error"]
+        assert error == {"class": "validation", "http_status": None, "message": "Invalid tool arguments. Inspect the typed tool schema.",
+                         "hint": common._hint("tool_arguments")}
+
+
+def test_mcp_unstorable_reply_keeps_receipt_pointer(monkeypatch):
+    from agent_browser_core import cli
+    command_id = "b" * 32
+    monkeypatch.setattr(mcp_server.client, "invoke", lambda *a, **kw: {"command_id": command_id, "executed": True, "value": "x" * 30000})
+    monkeypatch.setattr(cli.evidence, "require_space", _raises(common._tag(RuntimeError("full"), "journal_full")))
+    error = _tool("browser_commit", {"operation": "click", "target": "e1", "session_id": "g", "profile": "work"})["error"]
+    assert error["class"] == "journal_full" and error["hint"] == common._hint("inspect_receipt", "work")
+    assert error["details"] == {"command_id": command_id, "executed": True, "receipt": "state --command " + command_id}
+
+
+def test_mcp_reply_that_only_overflows_the_tool_budget_keeps_receipt_pointer(monkeypatch):
+    from agent_browser_core import cli
+    command_id = "c" * 32
+    # Fits the 24,000-byte socket budget, so only the 7,000-byte tool envelope has to store it.
+    monkeypatch.setattr(mcp_server.client, "invoke", lambda *a, **kw: {"command_id": command_id, "executed": True, "value": "x" * 10000})
+    monkeypatch.setattr(cli.evidence, "require_space", _raises(OSError("disk")))
+    error = _tool("browser_click", {"target": "e1", "session_id": "g"})["error"]
+    assert error["class"] == "output_storage"
+    assert error["details"] == {"command_id": command_id, "executed": True, "receipt": "state --command " + command_id}
+
+
 def test_real_stdio_handshake_and_error_contract():
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client

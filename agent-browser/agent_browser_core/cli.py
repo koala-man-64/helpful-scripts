@@ -37,7 +37,9 @@ def _demangle_msys(argv: list[str]) -> list[str]:
             idx = lowered.lower().find(root + "/")
             if idx == 0 or (idx > 0 and lowered[idx - 1] == "="):
                 fixed = lowered[:idx] + lowered[idx + len(root):]
-                core_common._ARGV_NOTES.append(f"argument {arg!r} was rewritten by Git Bash; interpreted as {fixed!r}")
+                note = f"argument {arg!r} was rewritten by Git Bash; interpreted as {fixed!r}"
+                cap = core_common.NOTE_CAP
+                core_common._ARGV_NOTES.append(note if len(note) <= cap else note[:cap - 3] + "...")
                 break
         out.append(fixed)
     return out
@@ -75,13 +77,20 @@ def _session_for(args: argparse.Namespace, verb: str, autostart: bool = False) -
     return paths, session
 
 
+def _merge_notes(result: dict[str, Any], notes: Iterable[str]) -> dict[str, Any]:
+    """Append notes to result['note'] once; merging the same notes again changes nothing."""
+    existing = result.get("note") if isinstance(result.get("note"), str) else ""
+    fresh = list(dict.fromkeys(n for n in notes if n not in existing))
+    if fresh:
+        result["note"] = (existing + " " if existing else "") + " ".join(fresh)
+    return result
+
+
 def _finish(result: dict[str, Any], session: dict[str, Any] | None = None) -> dict[str, Any]:
     notes = list(core_common._ARGV_NOTES)
     if session is not None and session.get("code_hash") and session.get("code_hash") != core_common._code_hash():
         notes.append(core_common._hint("stale_code", session.get("profile", core_common.DEFAULT_PROFILE)))
-    if notes:
-        result["note"] = (result.get("note") + " " if result.get("note") else "") + " ".join(notes)
-    return result
+    return _merge_notes(result, notes)
 
 
 def _remote(args: argparse.Namespace, verb: str, cmd: str, payload: dict[str, Any], default_timeout: float = core_common.DEFAULT_TIMEOUT, autostart: bool = False) -> dict[str, Any]:
@@ -351,7 +360,7 @@ def _json_line(payload: Any, profile: str | None = None, session_id: str | None 
             output_id = secrets.token_hex(16)
             output_file = paths.outputs / (output_id + ".json")
     core_session._write_json_atomic(paths.workspace / "last_output.json", result, compact=True)
-    bounded = {k: result[k] for k in ("ok", "action", "effect", "observed", "command_id", "session_id", "pending", "status", "executed", "receipt") if k in result}
+    bounded = {k: result[k] for k in ("ok", "action", "effect", "observed", "command_id", "session_id", "pending", "status", "executed", "receipt", "note") if k in result}
     bounded.update(contract_version=core_common.CONTRACT_VERSION, truncated=True, output_id=output_id,
                    output_file=str(output_file), next_offset=0)
     if "error" in result:
@@ -359,6 +368,8 @@ def _json_line(payload: Any, profile: str | None = None, session_id: str | None 
         bounded["error"] = {"class": result["error"].get("class"), "http_status": None,
                             "message": "Error details exceeded the reply budget; read output by ID.", "hint": None,
                             "details": {k: original[k] for k in ("command_id", "executed", "receipt") if k in original}}
+        if result["error"].get("note"):
+            bounded["error"]["note"] = result["error"]["note"]
     line = json.dumps(bounded, ensure_ascii=False, default=str, separators=(",", ":"))
     if len(line.encode("utf-8")) + 1 > byte_budget:
         bounded = {k: bounded[k] for k in ("contract_version", "truncated", "output_id", "next_offset")}
@@ -528,18 +539,69 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _emit_error(exc: Exception) -> None:
+def _error_payload(exc: BaseException) -> dict[str, Any]:
+    """The one error object: CLI stderr and MCP replies both carry it."""
     default_class = core_common.ERR_VALIDATION if isinstance(exc, ValueError) else core_common.ERR_DAEMON
     payload: dict[str, Any] = {"error": {"class": getattr(exc, "error_class", default_class), "http_status": None,
                                          "message": str(exc), "hint": getattr(exc, "hint", None)}}
     details = getattr(exc, "details", None)
     if details is not None:
         payload["error"]["details"] = details
+    return payload
+
+
+def _normalize_exception(exc: Exception, profile: str | None = None) -> Exception:
+    """Tagged errors (a tagged OSError too) pass unchanged; anything else gets a class and a message that echoes nothing."""
+    if getattr(exc, "error_class", None):
+        return exc
+    if isinstance(exc, OSError):
+        return core_common._tag(RuntimeError("Local file or socket access failed."), core_common.ERR_IO, details=getattr(exc, "details", None))
+    if isinstance(exc, (ValueError, RuntimeError)):
+        return exc
+    return core_common._tag(RuntimeError("Command failed unexpectedly; inspect its receipt before repeating an action."), core_common.ERR_DAEMON,
+                            hint=core_common._hint("inspect_receipt", profile), details={"exception": type(exc).__name__})
+
+
+def _exit_code(exc: BaseException) -> int:
+    if isinstance(exc, ValueError):
+        return 2
+    return core_common.EXIT_TIMEOUT if getattr(exc, "error_class", None) == core_common.ERR_TIMEOUT else 1
+
+
+def _emit_error(exc: BaseException, profile: str | None = None) -> None:
+    _emit_payload(_error_payload(exc), profile)
+
+
+def _emit_payload(payload: dict[str, Any], profile: str | None = None) -> None:
+    """Write one error envelope to stderr, with the note on any argument Git Bash rewrote."""
+    if core_common._ARGV_NOTES:
+        payload["error"]["note"] = " ".join(dict.fromkeys(core_common._ARGV_NOTES))
     try:
         line = _json_line(payload)
-    except (OSError, ValueError, RuntimeError):
-        line = json.dumps({"contract_version": core_common.CONTRACT_VERSION, "error": {"class": "output_storage", "message": "Cannot preserve oversized error output."}}, separators=(",", ":"))
-    print(line, file=sys.stderr, flush=True)
+    except Exception as exc:  # noqa: BLE001 - the error must still reach stderr, with its receipt pointer
+        line = json.dumps({**core_common._storage_error(payload, exc, profile), "contract_version": core_common.CONTRACT_VERSION},
+                          ensure_ascii=False, separators=(",", ":"))
+    try:
+        print(line, file=sys.stderr, flush=True)
+    except (OSError, ValueError):
+        pass  # stderr is closed as well; the exit code is all that is left
+
+
+def _print_result(result: Any, profile: str | None, session_id: str | None) -> int:
+    """Print a success reply. Not preserving it and not writing it are different errors; both keep the receipt."""
+    result = _merge_notes(result if isinstance(result, dict) else {"result": result}, core_common._ARGV_NOTES)
+    try:
+        line = _json_line(result, profile, session_id)
+    except Exception as exc:  # noqa: BLE001 - the command already ran
+        _emit_payload(core_common._storage_error(result, exc, profile), profile)
+        return 1
+    try:
+        print(line, flush=True)
+    except (OSError, ValueError):
+        _emit_error(core_common._tag(RuntimeError("Cannot write the reply to stdout; inspect its receipt before repeating an action."), core_common.ERR_IO,
+                                     hint=core_common._hint("inspect_receipt", profile), details=core_common._preservation_details(result)), profile)
+        return 1
+    return 0
 
 
 def _reconfigure_streams() -> None:
@@ -561,30 +623,23 @@ def main(argv: list[str] | None = None) -> int:
     core_common._ARGV_NOTES.clear()
     try:
         args = _build_parser().parse_args(_demangle_msys(raw))
-    except ValueError as exc:
+    except Exception as failure:  # noqa: BLE001 - SystemExit (--help, --version) is not an Exception
+        exc = _normalize_exception(failure)
         _emit_error(exc)
-        return 2
+        return _exit_code(exc)
     core_common.VERBOSE = False
     _reconfigure_streams()
+    profile = getattr(args, "profile", None)
     try:
         result = args.func(args)
     except KeyboardInterrupt:
-        _emit_error(core_common._tag(RuntimeError("Interrupted; inspect the receipt before repeating an action."), "interrupted"))
+        _emit_error(core_common._tag(RuntimeError("Interrupted; inspect the receipt before repeating an action."), "interrupted",
+                                     hint=core_common._hint("inspect_receipt", profile)), profile)
         return core_common.EXIT_INTERRUPT
-    except ValueError as exc:
-        _emit_error(exc)
-        return 2
-    except RuntimeError as exc:
-        _emit_error(exc)
-        return core_common.EXIT_TIMEOUT if getattr(exc, "error_class", None) == core_common.ERR_TIMEOUT else 1
-    except OSError:
-        _emit_error(core_common._tag(RuntimeError("Local file or socket access failed."), "io"))
-        return 1
+    except Exception as failure:  # noqa: BLE001 - every failure is one JSON envelope, never a traceback
+        exc = _normalize_exception(failure, profile)
+        _emit_error(exc, profile)
+        return _exit_code(exc)
     if isinstance(result, bool) or not isinstance(result, int):
-        try:
-            print(_json_line(result, getattr(args, "profile", None), getattr(args, "session", None)))
-        except (OSError, ValueError, RuntimeError) as exc:
-            _emit_error(core_common._tag(RuntimeError("Cannot preserve oversized output."), "output_storage"))
-            return 1
-        return 0
+        return _print_result(result, profile, getattr(args, "session", None))
     return result

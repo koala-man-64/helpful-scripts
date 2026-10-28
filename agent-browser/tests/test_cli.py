@@ -265,3 +265,191 @@ def test_tab_flag_accepts_before_or_after_verb_and_validates_spec(monkeypatch: p
     err = json.loads(capsys.readouterr().err)["error"]
     assert err["class"] == core_common.ERR_USAGE
 
+
+# ---------------------------------------------------------------------------
+# One error and storage envelope (remediation PR 4)
+
+def _msys(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MSYSTEM", "MINGW64")
+    monkeypatch.setenv("EXEPATH", r"C:\Program Files\Git\usr\bin")
+
+
+def test_unexpected_exception_becomes_a_json_envelope_not_a_traceback(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(core_cli, "_cmd_status", _raising_handler(KeyError("C:/secret/path")))
+    assert core_cli.main(["status", "--profile", "work"]) == 1
+    out, err = capsys.readouterr()
+    assert out == "" and "secret" not in err and "Traceback" not in err
+    envelope = error_envelope(err)
+    assert envelope["class"] == core_common.ERR_DAEMON
+    assert envelope["details"] == {"exception": "KeyError"}
+    assert envelope["hint"] == core_common._hint("inspect_receipt", "work")
+
+
+def test_parse_stage_failure_that_is_not_a_usage_error_is_an_envelope(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(core_cli, "_demangle_msys", _raising_handler(TypeError("C:/secret")))
+    assert core_cli.main(["status"]) == 1
+    err = capsys.readouterr().err
+    assert "secret" not in err and error_envelope(err)["details"] == {"exception": "TypeError"}
+
+
+def test_untagged_oserror_keeps_io_class_and_exit_1(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(core_cli, "_cmd_status", _raising_handler(OSError("C:/secret")))
+    assert core_cli.main(["status"]) == 1
+    err = capsys.readouterr().err
+    envelope = error_envelope(err)
+    assert envelope["class"] == "io" and envelope["message"] == "Local file or socket access failed." and "secret" not in err
+
+
+def test_tagged_and_detailed_oserrors_keep_their_class_and_receipt(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    receipt = {"command_id": "d" * 32, "executed": True, "receipt": "state --command " + "d" * 32}
+    tagged = core_common._tag(OSError("gone"), core_common.ERR_NOT_RUNNING, hint="h", details=receipt)
+    monkeypatch.setattr(core_cli, "_cmd_status", _raising_handler(tagged))
+    assert core_cli.main(["status"]) == 1
+    envelope = error_envelope(capsys.readouterr().err)
+    assert (envelope["class"], envelope["message"], envelope["hint"], envelope["details"]) == ("not_running", "gone", "h", receipt)
+    detailed = OSError("C:/secret")  # how client.browser_request attaches a receipt to a socket failure
+    detailed.details = receipt  # type: ignore[attr-defined]
+    monkeypatch.setattr(core_cli, "_cmd_status", _raising_handler(detailed))
+    assert core_cli.main(["status"]) == 1
+    envelope = error_envelope(capsys.readouterr().err)
+    assert envelope["class"] == "io" and envelope["details"] == receipt
+
+
+@pytest.mark.parametrize("exc, code, cls", [(ValueError("plain"), 2, "validation"), (RuntimeError("plain"), 1, "daemon")])
+def test_exit_code_mapping_is_unchanged_for_untagged_errors(exc: Exception, code: int, cls: str, monkeypatch: pytest.MonkeyPatch,
+                                                            capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(core_cli, "_cmd_status", _raising_handler(exc))
+    assert core_cli.main(["status"]) == code
+    envelope = error_envelope(capsys.readouterr().err)
+    assert envelope["class"] == cls and envelope["message"] == "plain"
+
+
+def test_interrupt_hint_points_at_the_receipt(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(core_cli, "_cmd_status", _raising_handler(KeyboardInterrupt()))
+    assert core_cli.main(["status", "--profile", "work"]) == 130
+    assert error_envelope(capsys.readouterr().err)["hint"] == core_common._hint("inspect_receipt", "work")
+
+
+def test_error_payload_shape_is_shared_by_cli_and_mcp(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    exc = core_common._tag(ValueError("stale"), core_common.ERR_STALE_REF, hint="Run: snapshot", details={"executed": False})
+    monkeypatch.setattr(core_cli, "_cmd_status", _raising_handler(exc))
+    assert core_cli.main(["status"]) == 2
+    printed = json.loads(capsys.readouterr().err)
+    assert {k: v for k, v in printed.items() if k != "contract_version"} == core_cli._error_payload(exc)
+
+
+def test_hints_never_name_an_invalid_profile(capsys: pytest.CaptureFixture[str]) -> None:
+    assert core_common._hint("not_running", "x; rm -rf ~") == core_common._hint("not_running", core_common.DEFAULT_PROFILE)
+    assert core_common._hint("not_running", None) == core_common._hint("not_running")
+    assert core_cli.main(["click", "e5", "--tab", "0", "--profile", "evil$(calc)"]) == 2
+    envelope = error_envelope(capsys.readouterr().err)
+    assert "evil" not in envelope["hint"] and "--profile default" in envelope["hint"]
+    hint = core_cli._normalize_exception(KeyError("x"), "../evil").hint  # type: ignore[attr-defined]
+    assert "evil" not in hint and "--profile default" in hint
+
+
+def _storage_full(*args: Any, **kwargs: Any) -> None:
+    raise core_common._tag(RuntimeError("full"), "journal_full")
+
+
+def test_unstorable_result_keeps_command_id_executed_and_receipt(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    command_id = "e" * 32
+    monkeypatch.setattr(core_cli, "_cmd_status", lambda args: {"command_id": command_id, "executed": True, "body": "x" * 30000})
+    monkeypatch.setattr(core_cli.evidence, "require_space", _storage_full)
+    assert core_cli.main(["status", "--profile", "work"]) == 1
+    out, err = capsys.readouterr()
+    assert out == ""
+    envelope = error_envelope(err)
+    assert envelope["class"] == "journal_full" and envelope["hint"] == core_common._hint("inspect_receipt", "work")
+    assert envelope["details"] == {"command_id": command_id, "executed": True, "receipt": "state --command " + command_id}
+
+
+def test_unstorable_result_without_command_id_points_at_the_journal(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(core_cli, "_cmd_status", lambda args: {"executed": "yes", "body": "x" * 30000})
+    monkeypatch.setattr(core_cli.evidence, "require_space", _raising_handler(OSError("C:/secret")))
+    assert core_cli.main(["status"]) == 1
+    err = capsys.readouterr().err
+    envelope = error_envelope(err)
+    assert envelope["class"] == "output_storage" and "secret" not in err
+    assert envelope["details"] == {"command_id": None, "executed": None, "receipt": "journal"}
+
+
+def test_storage_failure_class_is_quota_or_storage_never_the_inner_class(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(core_cli, "_cmd_status", lambda args: {"body": "x" * 30000})
+    monkeypatch.setattr(core_cli.evidence, "require_space", _raising_handler(core_common._tag(ValueError("bad"), core_common.ERR_VALIDATION)))
+    assert core_cli.main(["status"]) == 1
+    assert error_envelope(capsys.readouterr().err)["class"] == "output_storage"
+
+
+def test_a_closed_stdout_is_not_reported_as_a_storage_failure(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    class ClosedPipe:
+        def write(self, text: str) -> int:
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def flush(self) -> None:
+            raise BrokenPipeError(32, "Broken pipe")
+
+    command_id = "c" * 32
+    monkeypatch.setattr(core_cli, "_cmd_status", lambda args: {"command_id": command_id, "executed": True})
+    monkeypatch.setattr(core_cli.sys, "stdout", ClosedPipe())
+    assert core_cli.main(["status"]) == 1
+    envelope = error_envelope(capsys.readouterr().err)
+    assert envelope["class"] == "io" and "stdout" in envelope["message"]
+    assert envelope["details"] == {"command_id": command_id, "executed": True, "receipt": "state --command " + command_id}
+
+
+def test_emit_error_fallback_keeps_details_and_full_envelope_shape(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    command_id = "a" * 32
+    details = {"command_id": command_id, "executed": True, "receipt": "state --command " + command_id}
+    monkeypatch.setattr(core_cli, "_json_line", _raising_handler(OSError("disk")))
+    core_cli._emit_error(core_common._tag(RuntimeError("x"), core_common.ERR_TIMEOUT, details=details), "work")
+    envelope = error_envelope(capsys.readouterr().err)
+    assert envelope["class"] == "output_storage" and envelope["details"] == details
+    assert envelope["hint"] == core_common._hint("inspect_receipt", "work")
+
+
+def test_preservation_details_tolerate_any_source() -> None:
+    journal = {"command_id": None, "executed": None, "receipt": "journal"}
+    assert core_common._preservation_details(["not", "a", "dict"]) == journal
+    assert core_common._preservation_details({"command_id": "../x", "executed": 1}) == journal
+    assert core_common._preservation_details({"error": {"details": ["x"]}}) == journal
+    found = core_common._preservation_details({"error": {"details": {"command_id": "f" * 32, "executed": False}}})
+    assert found == {"command_id": "f" * 32, "executed": False, "receipt": "state --command " + "f" * 32}
+
+
+def test_msys_note_reaches_local_verbs_and_is_not_duplicated(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    _msys(monkeypatch)
+    monkeypatch.setattr(core_cli, "_cmd_status", lambda args: {"ok": True})
+    assert core_cli.main(["status", "--profile", "C:/Program Files/Git/p"]) == 0
+    assert json.loads(capsys.readouterr().out)["note"].count("rewritten by Git Bash") == 1
+    monkeypatch.setattr(core_cli, "_cmd_status", lambda args: {"note": "x"})
+    assert core_cli.main(["status", "--profile", "C:/Program Files/Git/p"]) == 0
+    note = json.loads(capsys.readouterr().out)["note"]
+    assert note.startswith("x argument ") and note.count("rewritten by Git Bash") == 1
+
+
+def test_msys_note_is_included_in_error_envelopes(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    _msys(monkeypatch)
+    assert core_cli.main(["status", "--profile", "C:/Program Files/Git/p"]) == 2  # rewritten to '/p': not a profile name
+    envelope = error_envelope(capsys.readouterr().err)
+    assert envelope["class"] == core_common.ERR_VALIDATION and "rewritten by Git Bash" in envelope["note"]
+
+
+def test_remote_result_note_is_not_duplicated_by_main(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    _msys(monkeypatch)
+    session = {"port": 1, "token": "t", "profile": "default"}
+    monkeypatch.setattr(core_cli, "_session_for", lambda args, verb, autostart=False: (core_common._paths("default"), session))
+    monkeypatch.setattr(core_session, "_request", lambda session, cmd, payload, timeout: {"ok": True})
+    assert core_cli.main(["click", "C:/Program Files/Git/x"]) == 0
+    assert json.loads(capsys.readouterr().out)["note"].count("rewritten by Git Bash") == 1
+
+
+def test_msys_notes_are_capped_and_survive_overflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    _msys(monkeypatch)
+    core_cli._demangle_msys(["--url-contains=C:/Program Files/Git/" + "a" * 2000])
+    assert len(core_common._ARGV_NOTES[0]) == core_common.NOTE_CAP and core_common._ARGV_NOTES[0].endswith("...")
+    bounded = json.loads(core_cli._json_line({"note": "kept", "body": "x" * 30000}))
+    assert bounded["truncated"] and bounded["note"] == "kept"
+    error = json.loads(core_cli._json_line({"error": {"class": "timeout", "message": "x" * 30000, "note": "kept"}}))
+    assert error["error"]["note"] == "kept"
+

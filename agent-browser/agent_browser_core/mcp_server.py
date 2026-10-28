@@ -26,13 +26,15 @@ class Field(TypedDict, total=False):
 
 
 def _call(command: str, arguments: dict[str, Any], session_id: str, profile: str | None, timeout: float = 15, committing: bool = False) -> dict[str, Any]:
-    from .cli import _json_line
+    from .cli import _error_payload, _json_line
     try:
         result = client.invoke(command, arguments, session_id=session_id, profile=profile, timeout=timeout, committing=committing)
     except (ValueError, RuntimeError) as exc:
-        result = {"error": {"class": getattr(exc, "error_class", "daemon"), "message": str(exc),
-                            "details": getattr(exc, "details", None)}}
-    return json.loads(_json_line(result, profile, session_id))
+        result = _error_payload(exc)
+    try:
+        return json.loads(_json_line(result, profile, session_id))
+    except Exception as exc:  # noqa: BLE001 - the command may have run: keep its receipt pointer
+        return {**common._storage_error(result, exc, profile), "contract_version": common.CONTRACT_VERSION}
 
 
 def browser_goto(url: str, session_id: str, profile: str | None = None, timeout: float = 30) -> dict[str, Any]:
@@ -149,8 +151,8 @@ def make_server():
         # The SDK sends both text and structuredContent. Budget their complete compact envelope.
         try:
             data = json.loads(_json_line(result, profile, session_id, byte_budget=7000))
-        except (OSError, ValueError, RuntimeError):
-            data = {"contract_version": common.CONTRACT_VERSION, "error": {"class": "output_storage", "message": "Cannot preserve the reply; inspect state before repeating an action."}}
+        except Exception as exc:  # noqa: BLE001 - keep the receipt pointer when the reply cannot be stored
+            data = {**common._storage_error(result, exc, profile), "contract_version": common.CONTRACT_VERSION}
         compact = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
         return CallToolResult(content=[TextContent(type="text", text=compact)], structuredContent=data, isError="error" in data)
 
@@ -159,16 +161,20 @@ def make_server():
             try:
                 return await super().call_tool(name, arguments)
             except Exception:
+                # Tools never raise (see bounded), so this is a bad argument or an unknown tool.
                 # SDK argument errors may echo arbitrary text/scripts and can exceed the contract.
-                return envelope({"error": {"class": "validation", "message": "Invalid tool arguments. Inspect the typed tool schema."}})
+                return envelope({"error": {"class": common.ERR_VALIDATION, "http_status": None,
+                                           "message": "Invalid tool arguments. Inspect the typed tool schema.",
+                                           "hint": common._hint("tool_arguments")}})
 
     def bounded(function):
         @wraps(function)
         def invoke(*args, **kwargs):
+            from .cli import _error_payload, _normalize_exception
             try:
                 result = function(*args, **kwargs)
-            except (ValueError, RuntimeError, OSError) as exc:
-                result = {"error": {"class": getattr(exc, "error_class", "daemon"), "message": str(exc), "details": getattr(exc, "details", None)}}
+            except Exception as exc:  # noqa: BLE001 - one envelope for every failure, never the SDK's
+                result = _error_payload(_normalize_exception(exc, kwargs.get("profile")))
             return envelope(result, kwargs.get("session_id"), kwargs.get("profile"))
         return invoke
 
