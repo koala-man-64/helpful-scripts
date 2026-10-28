@@ -115,9 +115,9 @@ def _finish(result: dict[str, Any], session: dict[str, Any] | None = None) -> di
 
 
 def _remote(args: argparse.Namespace, verb: str, cmd: str, payload: dict[str, Any], default_timeout: float = core_common.DEFAULT_TIMEOUT, autostart: bool = False) -> dict[str, Any]:
+    # Every argument check runs before _session_for: a usage or validation error must not autostart a daemon.
     if getattr(args, "tab", None) is not None:
         payload.setdefault("tab", core_common._parse_tab_spec(args.tab, getattr(args, "profile", None) or core_common.DEFAULT_PROFILE))
-    paths, session = _session_for(args, verb, autostart=autostart)
     timeout = _timeout_for(args, default_timeout)
     payload.setdefault("max_bytes", _max_bytes(args))
     payload["_session_id"] = core_common.session_identity(getattr(args, "session", None))
@@ -134,6 +134,7 @@ def _remote(args: argparse.Namespace, verb: str, cmd: str, payload: dict[str, An
         payload["operation"], cmd = cmd, "commit"
     if getattr(args, "snapshot", False):
         payload["snapshot"] = True
+    paths, session = _session_for(args, verb, autostart=autostart)
     result = core_session._request(session, cmd, payload, timeout)
     while result.get("pending") and result.get("status") != "needs_human":
         core_common._sleep(0.2)

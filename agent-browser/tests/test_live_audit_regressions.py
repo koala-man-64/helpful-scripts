@@ -7,7 +7,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -16,6 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent_browser_core import common, mcp_server, session
 from test_live_expansion import site
+import live_support
 
 
 pytestmark = [
@@ -36,14 +36,11 @@ def _env(home: Path) -> dict[str, str]:
     return env
 
 
-def _browser_processes(home: Path) -> list[dict]:
-    names = {"msedge.exe", "chrome.exe", "node.exe"}
-    return [proc for proc in common._processes_using(str(home)) if proc["name"].lower() in names]
-
-
 @pytest.fixture
-def isolated_mcp_browser(monkeypatch: pytest.MonkeyPatch):
+def isolated_mcp_browser(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest):
     root = Path(tempfile.mkdtemp(prefix="abm", dir=os.getenv("TEMP") or None))
+    failures = live_support.FailureWatch(request)
+    ready = False
     home, daemon_cwd, caller_cwd = (root / name for name in ("home", "daemon", "caller"))
     for path in (home, daemon_cwd, caller_cwd):
         path.mkdir()
@@ -60,6 +57,7 @@ def isolated_mcp_browser(monkeypatch: pytest.MonkeyPatch):
         result = json.loads(start.stdout) if start.stdout.strip() else {}
         daemon_pid = int(result.get("pid") or 0)
         assert start.returncode == 0 and result.get("status") == "started", (start.stdout, start.stderr)
+        ready = True
         yield {"home": home, "daemon_cwd": daemon_cwd, "caller_cwd": caller_cwd, "env": env, "pid": daemon_pid}
     finally:
         if start.returncode == 0:
@@ -67,24 +65,22 @@ def isolated_mcp_browser(monkeypatch: pytest.MonkeyPatch):
                 [sys.executable, "-X", "utf8", str(TOOL), "stop", "--all", "--force", "--profile", PROFILE],
                 cwd=daemon_cwd, env=env, capture_output=True, timeout=60, check=False,
             )
-        deadline = time.time() + 10
-        leftovers = _browser_processes(home)
-        while (leftovers or daemon_pid and common._pid_alive(daemon_pid)) and time.time() < deadline:
-            time.sleep(0.25)
-            leftovers = _browser_processes(home)
-        for proc in leftovers:
-            common._kill_tree(proc["pid"])
-        if daemon_pid and common._pid_alive(daemon_pid):
+        daemon_left = bool(daemon_pid) and not live_support.wait_for_pid_exit(daemon_pid, live_support.EXIT_GRACE)
+        if daemon_left:
             common._kill_tree(daemon_pid)
+        blocking = live_support.settle_browsers(home)
+        if not ready or failures.failed or blocking or daemon_left:
+            live_support.keep_evidence(home, request.node.name)
         common._rmtree_retry(root)
-        assert not leftovers and not (daemon_pid and common._pid_alive(daemon_pid)), (
-            f"test-owned browser processes survived teardown: {leftovers}; daemon pid {daemon_pid}"
+        assert not blocking and not daemon_left, (
+            f"test-owned browser processes survived teardown: {blocking}; daemon pid {daemon_pid}"
         )
 
 
 @pytest.fixture
-def isolated_doctor_home():
+def isolated_doctor_home(request: pytest.FixtureRequest):
     home = Path(tempfile.mkdtemp(prefix="abd", dir=os.getenv("TEMP") or None))
+    failures = live_support.FailureWatch(request)
     env = _env(home)
     paths = common.ProfilePaths(common.INTERNAL_DATA_PROFILE, home)
     try:
@@ -95,14 +91,8 @@ def isolated_doctor_home():
             session.stop_session(paths, force=True)
         except (RuntimeError, ValueError, OSError):
             pass
-        leftovers = [
-            proc for proc in common._processes_using(str(paths.user_data))
-            if proc["name"].lower() in {"msedge.exe", "chrome.exe", "node.exe"}
-        ]
-        for proc in leftovers:
-            common._kill_tree(proc["pid"])
-        common._rmtree_retry(home)
-        assert not leftovers, f"doctor probe browser processes survived teardown: {leftovers}"
+        blocking = live_support.finish_home(home, failures, request.node.name, processes_under=paths.user_data)
+        assert not blocking, f"doctor probe browser processes survived teardown: {blocking}"
 
 
 def test_mcp_relative_api_body_and_upload_use_caller_directory(isolated_mcp_browser, site, monkeypatch):
@@ -178,7 +168,4 @@ def test_doctor_live_runs_and_tears_down_internal_probe(isolated_doctor_home):
     for check_id in ("live_boot", "live_snapshot", "live_click", "live_teardown"):
         assert checks.get(check_id, {}).get("status") == "ok", (check_id, checks.get(check_id), report.get("failed"))
     assert checks["live_teardown"]["detail"] == "daemon and browser exited"
-    assert not [
-        proc for proc in common._processes_using(str(home / "profiles" / common.INTERNAL_DATA_PROFILE / "user-data"))
-        if proc["name"].lower() in {"msedge.exe", "chrome.exe", "node.exe"}
-    ]
+    assert live_support.browser_processes(home / "profiles" / common.INTERNAL_DATA_PROFILE / "user-data") == []
