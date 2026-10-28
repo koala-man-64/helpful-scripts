@@ -74,9 +74,9 @@ page's one visible table; an ARIA grid only when there is no table. `check URL` 
 temporary 390x844 loopback diagnostics page and preserves the working tab; `check REF`
 retains its behavior. That page shares the signed-in profile, so every request it makes
 to a host other than `localhost`, `127.0.0.1` or `::1` is blocked, each redirect hop and
-its workers' requests included, and reported by host in `blocked_external` (untrusted). A
+its dedicated workers' requests included, and reported by host in `blocked_external` (untrusted). A
 redirect of the page itself off loopback, or a page that ends up off loopback, fails the
-check as `guarded` (untrusted `details.blocked_external`). The page's WebSockets to other
+check as `guarded` (`details.blocked_external`, page-derived). The page's WebSockets to other
 hosts never connect, and popups it opens, and theirs, are closed (`popups_closed`).
 Not covered: a popup's traffic until it is closed (its first request at least), a
 worker's WebSockets, a service worker (which the page can also register; it stays in the

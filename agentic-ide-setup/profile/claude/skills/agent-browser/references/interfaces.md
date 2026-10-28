@@ -81,10 +81,10 @@ Response byte limits are post-download limits: Playwright buffers the response.
 `table` without a ref reads the page's one visible table, or its one ARIA grid when it has
 no table; grid cells are included. `check URL` (MCP `browser_check_url`) accepts only
 `localhost`, `127.0.0.1` or `::1`. Its temporary page cannot reach other hosts: such
-requests, every redirect hop and its workers' requests included, are blocked and their
+requests, every redirect hop and its dedicated workers' requests included, are blocked and their
 hosts listed (deduplicated, at most 20) in the untrusted `blocked_external`; a redirect of
 the page itself, or a page that ends up off loopback, fails as `guarded` with the same list
-in the untrusted `details`. The page's WebSockets to other hosts never connect, and popups
+in `details` (page-derived). The page's WebSockets to other hosts never connect, and popups
 (and theirs) are closed (`popups_closed`). `unlabeled_controls` is page data too and is
 listed in `untrusted`. Not covered: a popup's traffic until it is closed, a worker's
 WebSockets, service workers (one the page registers stays in the profile for that origin)
