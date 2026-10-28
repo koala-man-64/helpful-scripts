@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><title>Local page with outside requests</title>
+  <script>
+    try { new WebSocket('ws://ws.example.invalid/socket'); } catch (error) {}
+  </script>
+</head>
+<body>
+  <p>Diagnostic fixture that reaches outside loopback</p>
+  <img src="http://img.example.invalid/pixel.png" alt="">
+  <img src="/redirect-image" alt="">
+  <script>window.open('/home.html');</script>
+</body>
+</html>

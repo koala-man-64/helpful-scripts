@@ -69,8 +69,19 @@ All fields stay on the original tab even if an earlier field opens a popup;
 closing that tab stops the remaining field operations.
 `screenshot --annotate` uses temporary noninteractive ref labels removed in `finally`.
 `table [REF]` requires a unique table/grid and returns ordered columns/rendered rows
-with refs/cells, without pagination. `check URL` uses a temporary 390x844 loopback
-diagnostics page and preserves the working tab; `check REF` retains its behavior.
+with refs/cells (grid cells included), without pagination. Without a REF it takes the
+page's one visible table; an ARIA grid only when there is no table. `check URL` uses a
+temporary 390x844 loopback diagnostics page and preserves the working tab; `check REF`
+retains its behavior. That page shares the signed-in profile, so every request it makes
+to a host other than `localhost`, `127.0.0.1` or `::1` is blocked, each redirect hop and
+its dedicated workers' requests included, and reported by host in `blocked_external` (untrusted). A
+redirect of the page itself off loopback, or a page that ends up off loopback, fails the
+check as `guarded` (`details.blocked_external`, page-derived). The page's WebSockets to other
+hosts never connect, and popups it opens, and theirs, are closed (`popups_closed`).
+Not covered: a popup's traffic until it is closed (its first request at least), a
+worker's WebSockets, a service worker (which the page can also register; it stays in the
+profile for that loopback origin), and redirect hops inside a cross-site iframe (for
+example a `localhost` frame on a `127.0.0.1` page).
 
 `api URL` uses the current tab's exact origin and browser cookies. Writes require
 `commit api URL --method POST --json-file payload.json`, which sends `Accept` and
@@ -100,7 +111,10 @@ session (401 or sign-in redirect) opens a handoff as above.
 
 `run sn/add-work-note --number INC0010023 --text-file note.txt` previews the built-in
 classic-form recipe. `commit run` verifies record identity, submits once, reloads
-the same record and checks persistence. Unfamiliar layouts/drafts require handoff.
+the same record and checks persistence. The preview is a read: it checks identity, an
+existing draft and an identical displayed note (`guarded`, as on commit), and for an
+unfamiliar layout or a draft returns `blocked: true` with `blocked_reason` instead of a
+handoff. Only `commit run` opens a human handoff for those.
 Applicable ServiceNow site notes appear once per session/host. Real instance write
 qualification requires a separately authorized test record.
 
@@ -120,7 +134,7 @@ qualification requires a separately authorized test record.
 | `text [REF] [--max-chars N]` | Readable text of the page (every frame) or of one element. |
 | `value REF` | Current value of a field (masked on secret fields). |
 | `screenshot [REF] [--path F.png] [--full-page]` | PNG under the profile's `shots/` (or a path under the cwd). |
-| `wait [--url-contains S] [--text S] [--ref R] [--selector S] [--signed-in HOST] [--seconds N] [--timeout S]` | Conditions AND-ed; cooperative polling; default 60 s, at most 100 s per call; inspect the receipt after timeout before deciding what to do next. |
+| `wait [--url-contains S] [--text S] [--ref R] [--selector S] [--signed-in HOST] [--seconds N] [--timeout S]` | Conditions AND-ed; cooperative polling; default 60 s, at most 100 s per call; inspect the receipt after timeout before deciding what to do next. Refused on a page outside `allowed_hosts`. |
 | `back` / `reload` / `tabs` / `tab TAB [--close]` | Navigation and tabs (`TAB` is a stable id `t1`, `t2` or 1-based index). Pass `--tab TAB` on any command to drive tabs in parallel without switching focus. Closing the last tab is refused. |
 | `upload REF FILE...` / `downloads` | Attach local files; save and list files the page downloaded. |
 | `eval JS [--ref REF] [--frame NAME]` | Run JavaScript. Off when `config.json` says `"eval": false`. Refuses a credential field as `--ref`; the script itself, like page and `--frame` eval, can still reach any field. |
@@ -282,7 +296,9 @@ Real environment variables, read lazily; no `.env` loading (the tool must run ba
 `%LOCALAPPDATA%\agent-browser\config.json` is a human-written policy file the tool never creates:
 `{"eval": false, "allowed_hosts": ["dev12345.service-now.com"], "upload_roots": ["C:/exports"]}`. With
 `allowed_hosts`, `goto` refuses other hosts and a page that wanders off the list gets `off_allowlist: true` with only
-`back`, `goto`, `snapshot`, `text`, `tabs`, `tab`, and `stop` allowed until it is back. The daemon reads `config.json`
+`back`, `goto`, `snapshot`, `text`, `tabs`, `tab`, and `stop` (plus `state`, `journal`, `output` and `needs-human`)
+allowed until it is back. `wait` is refused there too: during a sign-in on an identity provider outside the list, run
+`needs-human --signed-in <app host>` and poll it with `state --handoff ID`. The daemon reads `config.json`
 when it starts, so after editing it run `stop` then `start`. `eval` must be a JSON boolean; anything else is a
 `config` error rather than a silent default. An absent `allowed_hosts` leaves hosts
 unrestricted; a present list must contain at least one nonblank host. An empty
@@ -349,7 +365,12 @@ still succeeds. Between commands a `beforeunload` raised by a human navigation i
   The check runs just before the action, so a page that moves focus or changes a field's type during a `type` can
   still redirect keys. `eval` is arbitrary page JavaScript: `--ref` refuses a credential field as `el`, but the
   script itself, like page and `--frame` eval, can read or set any field, so approval-sensitive profiles set
-  `"eval": false`. The human types in the window and the agent waits with `wait --signed-in`.
+  `"eval": false`. The human types in the window and the agent waits with `wait --signed-in`, or, on a sign-in
+  page outside `allowed_hosts`, polls a `needs-human --signed-in` handoff with `state --handoff ID`.
+- `check URL` loads only loopback. Its temporary page's requests to any other host, redirect hops included, are
+  blocked by a page route plus the page's own DevTools Fetch domain (Playwright lets redirects pass page routes).
+  Not covered: a popup's traffic until it is closed, a worker's WebSockets, service workers (one the page registers
+  stays in the profile for that loopback origin) and redirect hops inside a cross-site iframe.
 - Playwright's snapshot prints what a field holds, so every input line with a value is checked like a `fill`
   target first. The value and contents of a credential-looking field show as `***`, and so do those of a field
   that cannot be inspected, a field with no ref, every field past the per-snapshot budget (200 checks, 500 ms
@@ -482,7 +503,8 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 | `protocol_mismatch` | Explicitly restart the shared profile after preserving every session's work. |
 | `stale_ref` / `ref_not_found` / `refs_valid: false` | The page or its frame navigated, also while the snapshot was taken, or a scoped snapshot was taken. `agent-browser snapshot` and pick again. |
 | `action_failed` "Could not read the page text before the action…" | A `text:` check needs each frame's text before the action, and a frame was navigating or detached; nothing was done. Take a fresh `snapshot` and repeat, or expect `response:`, `gone:` or `url:changed` instead. |
-| `guarded` on `fill` / `type` / `press` | The field, or the focused field the keys would land in, looks like a password or code field. The human types it in the window; then `wait --signed-in <host>`. |
+| `guarded` on `fill` / `type` / `press` | The field, or the focused field the keys would land in, looks like a password or code field. The human types it in the window; then `wait --signed-in <host>`, or on a sign-in page outside `allowed_hosts`, `needs-human --signed-in <host>` and `state --handoff ID`. |
+| `guarded` from `check URL` | The page, or one of its redirects, went to a host outside loopback and was blocked; `details.blocked_external` names it. |
 | `action_failed` "Could not confirm the field…" | The credential check could not inspect the field (page navigating, frame detached, focus inside a custom element's closed shadow root). Take a fresh `snapshot` and retry; give `press` a ref if a press without one keeps failing. |
 | `unsaved_changes` | The page has edits and they were kept. Click its Save/Update button, or re-run with `--discard-changes` once the user agreed to lose them. A refused `stop` lists the kept tabs in `details.tabs` and closed the rest. |
 | `config` from `start` naming a policy key (`permission`, `profiles`, `evidence_max_bytes`, ...) | `config.json` has a malformed profile policy. `start` checks it before launching a browser; fix the named key and start again. |

@@ -518,6 +518,7 @@ HINTS = {
     "guarded_host": "That host is not in allowed_hosts (config.json). Ask the user before continuing.",
     "guarded_path": "The file must be under the current folder, this session's downloads/shots folders, or a configured upload root.",
     "off_allowlist": "The page left the allowed hosts. Use: {tool} back --profile {profile}, or ask the user.",
+    "off_allowlist_wait": "wait cannot watch a page outside allowed_hosts. For a sign-in on an identity provider, run: {tool} needs-human --signed-in <app host> --profile {profile} and poll it with: {tool} state --handoff <id> --profile {profile}; otherwise use: {tool} back --profile {profile}.",
     "dialog": "A page dialog was answered Cancel and the command had already run; see details.dialogs and details.executed. Only if the user authorized accepting it, check the page, then repeat the action with --accept-dialog (and --dialog-text TEXT for a prompt); on MCP, browser_commit takes accept_dialog.",
     "dialog_dismissed": "A page dialog was answered Cancel (see dialogs); this command's own result is still valid. Ask the user before repeating whatever opened it.",
     "unsaved_changes": "The page has unsaved edits and they were kept. Click its Save/Update button first; only if the user agreed to lose them, repeat the command with --discard-changes (on MCP, browser_commit and browser_stop take discard_changes).",
