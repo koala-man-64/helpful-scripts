@@ -72,8 +72,10 @@ identity provider, opens a human handoff (`needs_human`, `handoff_id`) and focus
 window once: a repeat while that handoff is open, with no navigation since, returns the
 same ID. Every redirect (3xx other than 304) returns `redirect: true` and a placeholder
 instead of its body, which can echo sign-in codes. Other redirects and a 403 open no
-handoff and add a `note`; a 403 returns its real (untrusted) body. Response byte
-limits are post-download checks: Playwright buffers the response, so they do not impose a hard memory bound. Guarded files
+handoff and add a `note`; a 403 returns its real (untrusted) body. A gateway that
+answers an expired session with 403 needs an explicit `needs-human`. Response byte
+limits are post-download checks: Playwright buffers the response, so they do not
+impose a hard memory bound. Guarded files
 transfer binary attachments without oversized JSON. Relative transfer paths resolve
 against the caller's working directory. Cookies/auth headers stay in
 the daemon. `SERVICENOW_AUTH=browser` in servicenow-client needs both packages,

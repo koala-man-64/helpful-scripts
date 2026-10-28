@@ -26,7 +26,8 @@ without a usable session key (not signed in, or not a classic page) fails as
 sign in, run `agent-browser needs-human --signed-in <instance host>`; otherwise open a
 classic form page and retry. An expired session (401 or a redirect to the sign-in
 page or IdP) opens one handoff and focuses the window once; repeats reuse it. A 403
-is an ACL decision: its body is returned with a `note`, and no handoff is opened.
+is usually an ACL decision: its body is returned with a `note`, and no handoff is
+opened. If a gateway answers an expired session with 403, run `needs-human` yourself.
 
 Raw response artifacts contain application data and remain under the owning
 session's outputs until `agent-browser commit journal --clear`. They count toward

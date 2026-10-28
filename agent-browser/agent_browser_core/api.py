@@ -103,7 +103,7 @@ class ApiMixin:
             response = self.ctx.request.fetch(url, method=method, headers=headers, data=body,
                                               timeout=max(timeout, .5) * 1000, max_redirects=0, max_retries=0)
             # Location is read before public_headers drops it; it is used only to classify, never returned.
-            status, target, response_headers = response.status, location_header(response.headers), public_headers(response.headers)
+            status, location, response_headers = response.status, location_header(response.headers), public_headers(response.headers)
             if status >= 400:
                 self._observe("http_errors", page)
             data = response.body()
@@ -126,13 +126,13 @@ class ApiMixin:
         if is_redirect(status):
             result["redirect"] = True
             data = b"Redirect body withheld; redirects are not followed."
-        if needs_sign_in(status, target, url):
+        if needs_sign_in(status, location, url):
             handoff = self.open_handoff("Browser API authentication requires human verification", {
                 "signed_in": origin(page.url)[1], "require_navigation": True, "navigation": self.nav_counts.get(page.main_frame, 0)})
             result.update(needs_human=True, handoff_id=handoff)
             data = b"Authentication requires human verification."
         elif is_redirect(status) or status == 403:
-            # A 403 is an access decision a sign-in cannot change, so its body (untrusted, like any body) is returned.
+            # A 403 is usually an access decision a sign-in cannot change, so its body (untrusted, like any body) is returned.
             result["note"] = common._hint("api_not_auth", self.profile)
         if args.get("save_response"):
             self.journal.require_space(len(data))
