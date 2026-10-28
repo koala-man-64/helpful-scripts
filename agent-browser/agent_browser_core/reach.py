@@ -37,7 +37,7 @@ class ReachMixin:
         return self._do_action(args, timeout, "click", run)
 
     def h_screenshot(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        self.journal.require_space()
+        self.journal.require_space(workspace=self.paths.workspace)
         page = self.target_page(args)
         self.paths.shots.mkdir(parents=True, exist_ok=True)
         filename = args.get("path") or str(self.paths.shots / (args.get("_command_id", common._utc_now().replace(":", "")) + ".png"))
@@ -124,7 +124,7 @@ class ReachMixin:
         url = common._check_url(str(args.get("url") or ""), self.paths, self.config)
         if urllib.parse.urlsplit(url).hostname not in {"localhost", "127.0.0.1", "::1"}:
             raise common._tag(ValueError("check URL is restricted to loopback development servers."), common.ERR_GUARDED)
-        self.journal.require_space()
+        self.journal.require_space(workspace=self.paths.workspace)
         previous = self.current
         page = self.ctx.new_page()
         errors = {"console_errors": [], "page_errors": [], "failed_requests": [], "http_errors": []}

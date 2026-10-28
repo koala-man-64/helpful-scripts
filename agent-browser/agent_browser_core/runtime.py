@@ -2,11 +2,31 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import secrets
 import urllib.parse
+from pathlib import Path
 from typing import Any
 from . import common, evidence, policy
+
+
+def _purge_evidence_dir(path: Path, keep: set[str]) -> None:
+    """Remove an evidence folder except the files named for a receipt that stays (`<id>-before.png`, `<id>.body`,
+    `<id>.json`). An overflow file saved under a random ID names no receipt, so it goes even when it held a
+    retained receipt's reply; the receipt itself stays readable with `output --id r<id>`."""
+    if not path.is_dir():
+        return
+    if not keep:
+        shutil.rmtree(path)
+        return
+    for entry in path.iterdir():
+        if re.split(r"[-.]", entry.name, maxsplit=1)[0] in keep:
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
 
 
 class OperatingMixin:
@@ -197,7 +217,7 @@ class OperatingMixin:
                 raise common._tag(ValueError("Recipes and wait have their own verification conditions; --expect applies to ordinary actions and API calls."), common.ERR_USAGE)
             # journal and state write only SQLite rows (a clear, a handoff resolution), so they work at quota.
             if mutating and cmd not in {"journal", "state"}:
-                self.journal.require_space()
+                self.journal.require_space(workspace=self.paths.workspace)
             if cmd == "goto":
                 args["url"] = common._check_url(args.get("url", ""), self.paths, self.config)
             if cmd == "upload":
@@ -263,7 +283,7 @@ class OperatingMixin:
         if not conditions:
             raise common._tag(ValueError("wait needs a condition."), common.ERR_USAGE)
         started = common._now()
-        self.jobs[command_id] = {"session": self.session_id, "page": self.target_page(args), "conditions": conditions,
+        self.jobs[command_id] = {"session": self.session_id, "page": self.target_page(args), "conditions": conditions, "executed": False,
                                 "started": started, "deadline": args.get("_deadline", started + timeout), "max_bytes": args.get("max_bytes")}
         return self._poll({"command_id": command_id})
 
@@ -401,23 +421,30 @@ class OperatingMixin:
                 "permission": self.config.get("permission", "commit"), "eval": self.config.get("eval", True) and self.config.get("permission", "commit") == "commit"}
 
     def h_journal(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
+        if args.get("include_unknown") and not args.get("clear"):
+            raise common._tag(ValueError("--include-unknown applies only to commit journal --clear."), common.ERR_USAGE)
         if not args.get("clear"):
             return self.journal.page(self.session_id, args.get("command_id"), int(args.get("offset", 0)))
+        root = self.paths.dir.resolve()
+        targets = [target.resolve() for target in (self.paths.outputs, self.paths.shots)]
+        if any(not resolved.is_relative_to(root) or resolved == root for resolved in targets):
+            raise common._tag(ValueError("Unsafe evidence path."), common.ERR_GUARDED)
+        self.action_attempted = True
+        # An abandoned job's receipt is finished, not dropped: a job that ran leaves an unknown receipt the clear keeps.
         for command_id, job in list(self.jobs.items()):
             if job["session"] == self.session_id:
+                self.journal.finish(command_id, "unknown" if job["executed"] else "failed",
+                                    {"error_class": "cleared", "executed": job["executed"], "pending": False})
                 self.jobs.pop(command_id)
-        self.action_attempted = True
-        count = self.journal.clear(self.session_id, args.get("_command_id", ""))
-        root = self.paths.dir.resolve()
-        for target in (self.paths.outputs, self.paths.shots):
-            resolved = target.resolve()
-            if not resolved.is_relative_to(root) or resolved == root:
-                raise common._tag(ValueError("Unsafe evidence path."), common.ERR_GUARDED)
-            if resolved.is_dir(): shutil.rmtree(resolved)
+        result, retained = self.journal.clear(self.session_id, args.get("_command_id", ""), bool(args.get("include_unknown")))
+        for resolved in targets:
+            _purge_evidence_dir(resolved, retained)
         (self.paths.workspace / "last_output.json").unlink(missing_ok=True)
         for snap_path in self.paths.workspace.glob("last_snapshot*.txt"):
             snap_path.unlink(missing_ok=True)
-        return {"cleared_commands": count}
+        if result["retained_commands"] or result["retained_handoffs"]:
+            result["note"] = common._hint("clear_retained", self.profile)
+        return result
 
     def h_needs_human(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         condition = args.get("condition") or {}

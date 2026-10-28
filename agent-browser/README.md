@@ -170,8 +170,19 @@ Journal, masked screenshots, overflow JSON and raw API response files remain unt
 explicitly cleared. The default quota is 1 GiB/profile (`evidence_max_bytes`, minimum
 65536); reaching it blocks new audited mutations/captures while preserving inspection,
 explicit clear and handoff resolution (`commit state --handoff ID --resolve` takes no
-screenshots). `commit journal --clear` clears this session's evidence and handoffs only;
-a bare `journal --clear` is refused as `guarded`.
+screenshots). `commit journal --clear` clears this session's evidence only; a bare
+`journal --clear` is refused as `guarded`. It finishes the session's pending operations
+first (one that ran becomes `unknown`), then deletes completed, failed and needs_human
+receipts, unknown receipts of reads (such as those a restart leaves) and resolved handoffs.
+It keeps unknown receipts that may record a write (commit verbs, upload, eval, a command
+that ran, an interrupted non-read), the screenshots and saved responses named for them,
+and open handoffs, and reports `cleared_commands`, `retained_commands`, `cleared_handoffs`
+and `retained_handoffs`. `commit journal --clear --include-unknown` (MCP `browser_commit`
+with `include_unknown`) deletes those too.
+Overflow JSON saved under a random ID names no receipt and is always deleted. The quota
+is per profile: a `journal_full` error's details give `evidence_bytes`, `session_bytes`,
+`other_sessions_bytes`, the shared `journal_bytes` and `quota`, and other sessions'
+evidence is beyond this session's clear.
 Journal pages return `next_offset`; state returns `command_next_offset`. Pass that
 value with `--offset`. A large receipt returns `r` plus its command ID as `output_id`;
 use `output --id ID --offset 0` to read the terminal receipt directly from SQLite.

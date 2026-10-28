@@ -232,6 +232,21 @@ def test_api_artifacts_are_session_owned_retained_and_explicitly_cleared(make_da
     assert not artifact.exists()
 
 
+def test_saved_response_at_quota_reports_other_sessions_bytes(make_daemon):
+    daemon, ctx, page = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/app", "_session_id": "a"}, 5)
+    daemon.paths.outputs.mkdir(parents=True, exist_ok=True)
+    (daemon.paths.outputs / ("a" * 32 + ".body")).write_bytes(b"x" * 70000)
+    daemon.dispatch("goto", {"url": "http://x/app", "_session_id": "b"}, 5)
+    request_context(ctx, Response(body=b"payload"))
+    daemon.journal.quota = 65536
+    with pytest.raises(RuntimeError) as err:
+        daemon.dispatch("api", {"url": "/download", "save_response": True, "_session_id": "b"}, 1)
+    assert err.value.error_class == "journal_full"
+    assert err.value.details["other_sessions_bytes"] >= 70000 and err.value.details["session_bytes"] < 1000
+    assert not daemon.paths.outputs.exists() or not list(daemon.paths.outputs.iterdir())
+
+
 def test_quota_rejects_complete_output_without_deleting_prior_evidence(tmp_path, monkeypatch):
     root = common._paths("default").dir
     root.mkdir(parents=True)
