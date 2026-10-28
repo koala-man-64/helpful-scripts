@@ -446,6 +446,33 @@ def test_busy_record_spans_the_callers_deadline_and_clears_after(make_daemon: An
     assert core_session._read_session(daemon.paths)["busy"] is None
 
 
+def test_dlog_writes_one_sanitised_line_per_message(make_daemon: Any, capsys: pytest.CaptureFixture[str]) -> None:
+    daemon, _ctx, _page = make_daemon()
+    capsys.readouterr()
+    daemon.dlog("launch failed: a\nFORGED line" + chr(27) + "[31m" + chr(0xE0041) + chr(0x2028) + "x\r\nat https://h/cb?code=SECRETVALUE")
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1 and "\r" not in err
+    assert err.rstrip("\n").endswith(" launch failed: a | FORGED line[31m x | at https://h/cb?code=***")
+
+
+def test_classify_redacts_urls_in_the_message_and_call_log(make_daemon: Any) -> None:
+    from conftest import FakePlaywrightError, FakePlaywrightTimeoutError
+    daemon, _ctx, _page = make_daemon()
+    failed = daemon._classify(FakePlaywrightError(
+        "Page.goto: net::ERR_ABORTED at https://h/cb?code=SECRETVALUE\nCall log:\n"
+        '  - navigating to "https://h/cb?code=SECRETVALUE&state=STATEVALUE", waiting until "load"'), "goto")
+    assert str(failed) == "Page.goto: net::ERR_ABORTED at https://h/cb?code=***"
+    assert failed.details["log"] == ["Call log:", '- navigating to "https://h/cb?code=***&state=***", waiting until "load"']
+    timed_out = daemon._classify(FakePlaywrightTimeoutError("Page.goto: Timeout 500ms exceeded at https://h/?token=SECRETVALUE"), "goto")
+    assert timed_out.error_class == core_common.ERR_ACTION_TIMEOUT and "SECRETVALUE" not in str(timed_out)
+
+
+def test_log_tail_in_error_details_is_sanitised_and_redacted(tmp_path: Any) -> None:
+    log = tmp_path / "daemon.log"
+    log.write_text("first\nbrowser stderr " + chr(27) + "[0m https://h/cb?code=SECRETVALUE" + chr(0xE0041) + "\nlast\n", encoding="utf-8")
+    assert core_common._tail(log) == "first\nbrowser stderr [0m https://h/cb?code=***\nlast"
+
+
 def test_unpublishable_busy_state_never_fails_the_command(make_daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     daemon, _ctx, _page = make_daemon()
     daemon.port = 4321

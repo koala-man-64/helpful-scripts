@@ -22,6 +22,7 @@ agent-browser check http://localhost:3000
 agent-browser state --command 0123456789abcdef0123456789abcdef
 agent-browser output --id 0123456789abcdef0123456789abcdef --offset 0
 agent-browser commit journal --clear
+agent-browser commit journal --clear --include-unknown
 ```
 
 `fields.json` is a list, or an object containing that list as `fields`:
@@ -44,7 +45,10 @@ budget of 200 checks and 2 s per snapshot. A credential-looking field, one that 
 be checked, one with no ref, and any past the budget show `***` for the value and the
 field's contents; rows, cells, buttons and links that repeat the value in their name show
 `***` in its place. `/url` lines in `--full` and `--find` are redacted like other URLs:
-query secrets become `***`, the fragment is dropped, and a bare `#anchor` shows `#`.
+query and `;` path-parameter secrets, JWT-shaped values and a token segment after a route
+such as `reset-password/` become `***`, the fragment is dropped, and a bare `#anchor`
+shows `#`; ids such as `sys_id` stay. Names, values and frame labels render on one line
+without invisible or tag characters.
 `--find` never matches a masked value or a redacted link. Semantic-target candidates are
 described from the masked page snapshot, without their values.
 
@@ -64,7 +68,10 @@ Same-page network matches are evidence, not proof of a causal business operation
 API reads use GET/HEAD; other supported methods require `commit api`. The current
 tab and request must have identical scheme, host and effective port. No automatic
 redirects or request retries occur. Cookies and internal ServiceNow authentication
-headers stay in the daemon. Response authentication and redirect headers are omitted.
+headers stay in the daemon. Response headers named like credentials (cookie, `auth`,
+token, session, `g_ck`, secret, CSRF/XSRF, password, credential, or ending in `key`) and
+`Location`/`Refresh` are omitted; the rest are single-line with URLs redacted, including
+`Content-Location` and `Link` targets.
 A 401, or a redirect whose Location leaves the origin or names a sign-in path or IdP,
 returns `needs_human` and a `handoff_id`; repeats reuse the open handoff. Every redirect
 (3xx except 304) returns `redirect: true` and a placeholder body. Other redirects and a
@@ -95,6 +102,18 @@ an `output_id` prefixed with `r`; `output --id ID --offset 0` reads an immutable
 terminal receipt (completed, failed, unknown or needs_human) directly from SQLite,
 including when quota is full.
 Pending receipts are unavailable through this fallback until they finish.
+
+`commit journal --clear` first finishes this session's pending operations (one that ran
+becomes `unknown`). It then deletes completed, failed and needs_human receipts, unknown
+receipts of reads, and resolved handoffs. It keeps unknown receipts of commit verbs,
+upload, eval, commands that ran and interrupted non-reads, their `<id>` screenshots
+and saved responses, and open handoffs. The reply counts `cleared_commands`,
+`retained_commands`, `cleared_handoffs` and `retained_handoffs`, plus `files_not_removed`
+when a file was held open (a later clear removes it). `--include-unknown` (MCP
+`include_unknown`) deletes the kept ones too. When the quota refuses a command, its
+`journal_full` details split `evidence_bytes` into `session_bytes`, `other_sessions_bytes`
+and the shared `journal_bytes`, against `quota`; other sessions' evidence is beyond this
+session's clear.
 
 The canonical Claude settings template asks for commit/eval and evidence clear calls,
 including tools from any MCP server using these browser tool names. A template edit

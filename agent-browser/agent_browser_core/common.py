@@ -260,12 +260,52 @@ SECRET_AUTOCOMPLETE_RE = re.compile(r"password|one-time-code|cc-", re.I)
 SAFE_KEYS_ON_SECRET = frozenset({"Enter", "Tab", "Escape"})
 
 
+# Query and ;path-parameter names whose values are masked, compared lowercased with -, ., spaces and brackets read as _
+# (X-Amz-Security-Token, user[password]). A name matches when it is one of REDACT_QUERY_KEYS or ends with one of
+# REDACT_KEY_SUFFIXES (accessToken, client_secret, g_session_id). Short words (code, key, sig, sid, auth, state) match
+# only as the whole name, so country_code, status_code, sort_key and sys_id keep their values.
 REDACT_QUERY_KEYS = frozenset({
-    "code", "token", "id_token", "access_token", "refresh_token", "samlresponse", "session", "sid",
-    "key", "secret", "password", "otp", "state", "nonce", "client_secret", "sysparm_ck",
-    "sig", "signature", "x-amz-signature", "x-amz-credential", "x-goog-signature", "apikey", "api_key",
-    "api-key", "jwt", "assertion", "ticket", "auth", "authorization", "sv", "se", "sp", "sr", "skoid",
+    "code", "code_verifier", "samlresponse", "sid", "key", "otp", "totp", "state", "nonce", "sysparm_ck", "g_ck", "ck", "pwd", "pass",
+    "sig", "ticket", "auth", "authcode", "authorization", "session_state", "phpsessid", "sv", "se", "sp", "sr", "skoid",
 })
+
+
+REDACT_KEY_SUFFIXES = (
+    "token", "secret", "password", "passwd", "passphrase", "signature", "credential", "credentials", "session",
+    "sessionid", "session_id", "apikey", "api_key", "access_key", "secret_key", "private_key", "signing_key", "auth_key",
+    "subscription_key", "auth_code", "authorization_code", "otp_code", "mfa_code", "verification_code", "security_code",
+    "reset_code", "device_code", "csrf", "xsrf", "assertion", "jwt",
+)
+
+
+KEY_SEPARATORS_RE = re.compile(r"[\s.\[\]-]+")
+
+
+# A path segment is masked when it is JWT-shaped, or token-shaped (TOKEN_SEGMENT_RE) right after one of these route
+# words. A route word alone masks nothing, so /session/new, /verify/email and /invite/accept-all stay readable, and
+# record ids elsewhere in a path (ServiceNow sys_ids) are never masked.
+TOKEN_ROUTE_WORDS = frozenset({
+    "reset", "reset-password", "reset_password", "resetpassword", "password-reset", "password_reset", "verify",
+    "verify-email", "verification", "confirm", "confirmation", "activate", "activation", "invite", "invitation",
+    "magic", "magic-link", "magiclink", "unsubscribe", "token", "tokens",
+})
+
+
+JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*")
+
+
+TOKEN_SEGMENT_RE = re.compile(r"(?=.*[0-9A-Z])[A-Za-z0-9_.~%=+-]{16,}")  # 16+ characters with a digit or a capital
+
+
+NESTED_URL_DEPTH = 2  # a URL inside a query value is redacted too, this many levels deep; deeper ones are masked whole
+
+
+# Browsers leave ' raw in a path (/it's?token=...), so a URL in text runs on through it; a closing quote is trailing.
+# Every scheme starts a new match, so URLs joined by a quote, a comma or nothing are each redacted on their own.
+URL_IN_TEXT_RE = re.compile(r"(?:https?|wss?)://(?:(?!(?:https?|wss?)://)[^\s\"<>`])+", re.I)
+
+
+URL_TRAILING = ".,;:!?)]}'"  # sentence punctuation and a closing quote after a URL in free text, kept outside the redaction
 
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
@@ -277,7 +317,10 @@ KEY_EXTENSIONS = frozenset({".pem", ".key", ".pfx", ".p12", ".kdbx", ".ppk", ".j
 HOME_DOT_FOLDERS_ALLOWED = frozenset({".claude"})  # every other dot-folder directly under the user's home is refused
 
 
-UNTRUSTED_KEYS = ["snapshot", "text", "title", "url", "details", "changes", "frames", "tabs", "dialogs", "target_line", "value_after", "value"]
+# Reply keys that can hold page-derived data. BrowserEngine.dispatch lists the ones a reply has in `untrusted` when its
+# handler did not set the list itself.
+UNTRUSTED_KEYS = ["snapshot", "text", "title", "url", "details", "changes", "frames", "tabs", "dialogs", "target_line", "value_after", "value",
+                  "commands", "downloads", "new_tab", "frames_loading", "selected", "background_dialogs"]
 
 
 OFF_ALLOWLIST_OK = frozenset({"ping", "stop", "back", "goto", "snapshot", "text", "tabs", "tab"})
@@ -289,7 +332,15 @@ BROWSER_BASENAMES = frozenset({
 })
 
 
-CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
+# Stripped from page text: C0 and C1 controls except tab, LF and CR, and the invisible format characters a page can
+# hide text in. Tag characters (U+E0000-E007F) spell ASCII that a model reads and a person never sees, bidi controls
+# reorder what is shown, and the rest (soft hyphen, fillers, joiners, invisible operators) are blank. Emoji variation
+# selectors (U+FE00-FE0F) stay. strip_invisible turns U+2028 and U+2029 into newlines first.
+CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\xad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f"
+                              r"\u202a-\u202e\u2060-\u206f\u3164\ufeff\uffa0\ufff9-\ufffb\U000e0000-\U000e0fff]")
+
+
+PARAGRAPH_BREAKS = str.maketrans(dict.fromkeys(map(chr, (0x2028, 0x2029)), "\n"))
 
 
 # A snapshot key is role, name and [attrs]. Playwright prints a name that starts and ends with / (a lone / too) bare
@@ -505,8 +556,12 @@ HINTS = {
     "no_such_profile": "Run: {tool} status --all",
     "purge_running": "Run: {tool} stop --profile {profile} first.",
     "inspect_receipt": "Inspect the receipt before repeating an action. Run: {tool} journal --profile {profile}",
-    "commit_clear": "Clearing deletes this session's receipts, screenshots and saved responses. With the user's approval, run: {tool} commit journal --clear",
-    "handoff_not_found": "Handoffs belong to the session that created them, and clearing evidence removes them. List this session's with: {tool} state --profile {profile}",
+    "commit_clear": "Clearing deletes this session's finished receipts with their screenshots and saved responses; unknown write receipts and open handoffs stay. With the user's approval, run: {tool} commit journal --clear",
+    "handoff_not_found": "Handoffs belong to the session that created them, and clearing evidence removes resolved ones. List this session's with: {tool} state --profile {profile}",
+    "clear_retained": "Unknown write receipts or open handoffs were kept (retained_commands, retained_handoffs). Inspect them: {tool} state --profile {profile}. Only with the user's approval, remove them too: {tool} commit journal --clear --include-unknown --profile {profile}",
+    "clear_files_left": "Some evidence files could not be removed (in use or not accessible) and stay (files_not_removed). Close what holds them, then with the user's approval run the same clear again: {tool} commit journal --clear --profile {profile}",
+    "journal_full": "Inspect this session's receipts: {tool} journal --profile {profile}. With the user's approval, free space: {tool} commit journal --clear --profile {profile}",
+    "journal_full_other": "Most of the evidence belongs to other sessions of this profile, and this session's clear cannot remove it. Tell the user; {tool} state --profile {profile} shows evidence_bytes.",
     "api_not_auth": "Not treated as a sign-in, so no handoff was opened (redirects are not followed). Check the endpoint and the account's access; if the session may have expired, run: {tool} needs-human --signed-in <app host> --profile {profile}",
     "api_auth_unavailable": "If the user must sign in, run: {tool} needs-human --signed-in <app host> --profile {profile}; otherwise open a classic ServiceNow form page in this tab and retry.",
     "tool_arguments": "Check the tool's inputSchema from tools/list and call it again with valid arguments.",
@@ -773,28 +828,84 @@ def _code_hash() -> str:
         return "unknown"
 
 
-def sanitize_text(text: Any, cap: int = LINE_CHAR_CAP) -> str:
-    cleaned = CONTROL_CHARS_RE.sub("", str(text))
+def strip_invisible(text: Any) -> str:
+    """Text without control and invisible format characters (CONTROL_CHARS_RE); line and paragraph separators become
+    newlines. Tab, LF and CR stay."""
+    return CONTROL_CHARS_RE.sub("", str(text).translate(PARAGRAPH_BREAKS))
+
+
+def sanitize_text(text: Any, cap: int = LINE_CHAR_CAP, *, single_line: bool = False) -> str:
+    """strip_invisible, then cap. single_line turns every run of newlines, CRs and tabs into one space."""
+    cleaned = strip_invisible(text)
+    if single_line:
+        cleaned = re.sub(r"[\t\n\r]+", " ", cleaned)
     if cap and len(cleaned) > cap:
         cleaned = cleaned[:cap] + "..."
     return cleaned
 
 
-def redact_url(url: Any) -> str:
-    """Drop the fragment and mask bearer-like query values before a URL is printed or logged."""
-    if not url:
-        return ""
+def _sensitive_key(key: str) -> bool:
+    """A query or ;path-parameter name whose value is masked (REDACT_QUERY_KEYS, REDACT_KEY_SUFFIXES)."""
+    name = KEY_SEPARATORS_RE.sub("_", strip_invisible(key).lower()).strip("_")
+    return name in REDACT_QUERY_KEYS or name.endswith(REDACT_KEY_SUFFIXES)
+
+
+def _mask_params(text: str) -> str:
+    """text;name=value;... with every credential-named parameter's value masked (;jsessionid=...)."""
+    head, *params = text.split(";")
+    return ";".join([head, *(p.split("=", 1)[0] + "=" + MASK if "=" in p and _sensitive_key(p.split("=", 1)[0]) else p for p in params)])
+
+
+def redact_path(path: str) -> str:
+    """A URL path with its credentials masked: ;jsessionid=-style parameters, JWT-shaped segments, and a token-shaped
+    segment right after a TOKEN_ROUTE_WORDS segment (/reset-password/<token>)."""
+    out: list[str] = []
+    after_route = False
+    for segment in path.split("/"):
+        segment = _mask_params(segment)
+        name = segment.split(";", 1)[0]
+        if JWT_RE.fullmatch(name) or (after_route and TOKEN_SEGMENT_RE.fullmatch(name)):
+            segment = MASK + segment[len(name):]
+        after_route = name.lower() in TOKEN_ROUTE_WORDS
+        out.append(segment)
+    return "/".join(out)
+
+
+def _redact_value(key: str, value: str, depth: int) -> str:
+    if _sensitive_key(key) or JWT_RE.fullmatch(value):
+        return MASK
+    if value.lstrip().lower().startswith(("/", "http://", "https://")):  # next=/a?code=..., redirect_uri=https://...
+        return _redact(value.lstrip(), depth + 1) if depth < NESTED_URL_DEPTH else MASK
+    return _mask_params(value)  # a=1;token=... where the server reads ; as a separator
+
+
+def _redact(url: str, depth: int) -> str:
     try:
-        parts = urllib.parse.urlsplit(str(url))
+        parts = urllib.parse.urlsplit(url)
     except ValueError:  # a malformed host ([..., NFKC tricks) hides where userinfo and the query start
         return MASK
     netloc = parts.netloc.rsplit("@", 1)[-1]  # drop user:pass@ userinfo
-    if not parts.query:
-        return sanitize_text(urllib.parse.urlunsplit((parts.scheme, netloc, parts.path, "", "")), 500)
     pairs = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
-    masked = [(k, "***" if k.lower() in REDACT_QUERY_KEYS else v) for k, v in pairs]
-    query = urllib.parse.urlencode(masked, safe="/:*")
-    return sanitize_text(urllib.parse.urlunsplit((parts.scheme, netloc, parts.path, query, "")), 500)
+    query = urllib.parse.urlencode([(k, _redact_value(k, v, depth)) for k, v in pairs], safe="/:*") if parts.query else ""
+    return urllib.parse.urlunsplit((parts.scheme, netloc, redact_path(parts.path), query, ""))
+
+
+def redact_url(url: Any) -> str:
+    """Drop the fragment and userinfo and mask credentials (named query values, path tokens, URLs nested in the query)
+    before a URL is printed or logged."""
+    if not url:
+        return ""
+    return sanitize_text(_redact(str(url), 0), 500)
+
+
+def redact_text(text: Any) -> str:
+    """Free text (an error message, a log line) with every http(s) and ws(s) URL in it redacted like redact_url.
+    Invisible characters are stripped first, so they cannot hide a URL from the match."""
+    def one(m: re.Match[str]) -> str:
+        url = m.group(0)
+        bare = url.rstrip(URL_TRAILING)
+        return redact_url(bare) + url[len(bare):]
+    return URL_IN_TEXT_RE.sub(one, strip_invisible(text))
 
 
 def _yaml_escape(m: re.Match[str]) -> str:
@@ -1007,11 +1118,12 @@ def _rmtree_retry(path: Path, attempts: int = 6) -> bool:
 
 
 def _tail(path: Path, lines: int = 15) -> str:
+    """The log's last lines for error details, each sanitised and URL-redacted: the log also holds the browser's stderr."""
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
-    return "\n".join(text.strip().splitlines()[-lines:])
+    return "\n".join(sanitize_text(redact_text(line), 500, single_line=True) for line in text.strip().splitlines()[-lines:])
 
 
 def _processes_using(needle: str) -> list[dict[str, Any]]:

@@ -68,6 +68,17 @@ def test_mcp_manual_handoff_resolution_uses_commit_dispatch(monkeypatch):
     assert kwargs["committing"] is True
 
 
+def test_mcp_clear_carries_include_unknown_like_the_cli(monkeypatch):
+    command, cli_payload, _ = _cli_sent(monkeypatch, ["commit", "journal", "--clear", "--include-unknown"])
+    calls = _recorder(monkeypatch)
+    mcp_server.browser_commit("journal", "s", clear=True, include_unknown=True)
+    mcp_server.browser_commit("journal", "s", clear=True)
+    (sent, payload, kwargs), (_, default, _) = calls
+    assert command == "commit" and cli_payload["operation"] == "journal" and cli_payload["include_unknown"] is True
+    assert sent == "journal" and kwargs["committing"] is True and payload["clear"] is True and payload["include_unknown"] is True
+    assert default["include_unknown"] is False
+
+
 def test_mcp_can_inspect_and_page_receipts_when_quota_is_full(make_daemon, monkeypatch):
     daemon, ctx, page = make_daemon()
     monkeypatch.setenv("AGENT_BROWSER_HOME", str(daemon.paths.root))

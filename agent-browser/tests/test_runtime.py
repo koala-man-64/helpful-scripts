@@ -543,6 +543,279 @@ def test_receipt_records_api_path_and_recipe_number_but_not_values(tmp_path):
     assert json.loads(stored["c3"]["outcome"])["number"] == "INC0012345"
 
 
+def test_replies_carrying_page_data_are_marked_untrusted_centrally(make_daemon):
+    from agent_browser_core import daemon as core_daemon
+    daemon, ctx, page = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a"}, 5)
+    assert {"commands", "downloads", "new_tab", "frames_loading", "selected", "background_dialogs"} <= set(common.UNTRUSTED_KEYS)
+    assert {"tabs", "commands", "background_dialogs"} <= set(daemon.dispatch("state", {}, 1)["untrusted"])
+    assert {"tabs", "url", "title"} <= set(daemon.dispatch("ping", {}, 1)["untrusted"])
+    assert "commands" in daemon.dispatch("journal", {}, 1)["untrusted"]
+    assert daemon.dispatch("snapshot", {}, 5)["untrusted"] == common.UNTRUSTED_KEYS  # a handler's own list is kept
+    daemon.h_echo = lambda args, timeout: {"url": "http://x/a", "count": 1}
+    daemon.h_plain = lambda args, timeout: {"count": 1}
+    assert core_daemon.BrowserEngine.dispatch(daemon, "echo", {}, 1)["untrusted"] == ["url"]
+    assert "untrusted" not in core_daemon.BrowserEngine.dispatch(daemon, "plain", {}, 1)
+
+
+def _seed(journal, session, command_id, verb, status=None, outcome=None):
+    """A receipt as the dispatcher leaves it; no status leaves it running, as an interrupted command does."""
+    journal.start(command_id, session, verb, {}, "http://x/")
+    if status:
+        journal.finish(command_id, status, outcome or {})
+
+
+def test_clear_keeps_unknown_writes_and_open_handoffs_but_clears_reads(make_daemon):
+    daemon, ctx, page = make_daemon()
+    journal = daemon.journal
+    ids = {name: f"{n:032x}" for n, name in enumerate(
+        ["swept_goto", "swept_click", "swept_commit_api", "commit_api", "upload", "eval", "fill_ran", "swept_wait", "snapshot",
+         "completed", "failed", "needs_human", "other_session", "failed_clear", "failed_resolve"])}
+    for name, verb in (("swept_goto", "goto"), ("swept_click", "click"), ("swept_commit_api", "commit api")):
+        _seed(journal, "manual", ids[name], verb)
+    _seed(journal, "manual", ids["swept_wait"], "wait", "pending", {"pending": True, "executed": False})
+    evidence.Journal(daemon.paths.dir)  # the restart sweep marks every interrupted receipt unknown
+    _seed(journal, "manual", ids["commit_api"], "commit api", "unknown", {"executed": True, "write_outcome": "unknown"})
+    _seed(journal, "manual", ids["upload"], "upload", "unknown", {"executed": False})
+    _seed(journal, "manual", ids["eval"], "eval", "unknown", {"executed": False})
+    _seed(journal, "manual", ids["fill_ran"], "fill", "unknown", {"executed": True})
+    _seed(journal, "manual", ids["snapshot"], "snapshot", "unknown", {"executed": False})
+    _seed(journal, "manual", ids["completed"], "click", "completed", {"executed": True})
+    _seed(journal, "manual", ids["failed"], "fill", "failed", {"executed": False})
+    _seed(journal, "manual", ids["needs_human"], "needs-human", "needs_human", {"executed": False})
+    _seed(journal, "other", ids["other_session"], "goto", "completed", {"executed": False})
+    # A clear or resolution that failed partway changed only this journal; repeating it is harmless.
+    _seed(journal, "manual", ids["failed_clear"], "commit journal", "unknown", {"executed": True})
+    _seed(journal, "manual", ids["failed_resolve"], "commit state", "unknown", {"executed": True})
+    open_id = journal.open_handoff("manual", "Confirm the change", {})[0]
+    resolved_id = journal.open_handoff("manual", "Inspect layout", {})[0]
+    journal.resolve_handoff("manual", resolved_id)
+    other_handoff = journal.open_handoff("other", "Inspect layout", {})[0]
+    swept = {row["id"]: row for row in journal.rows("manual", limit=100)}
+    assert {swept[ids[name]]["status"] for name in ("swept_goto", "swept_click", "swept_commit_api", "swept_wait")} == {"unknown"}
+
+    result = daemon.dispatch("commit", {"operation": "journal", "clear": True}, 1)
+
+    kept = {"swept_click", "swept_commit_api", "commit_api", "upload", "eval", "fill_ran"}
+    survivors = {row["id"] for row in journal.rows("manual", limit=100)} - {result["command_id"]}
+    assert survivors == {ids[name] for name in kept}
+    assert result["cleared_commands"] == 8 and result["retained_commands"] == len(kept)
+    assert result["cleared_handoffs"] == 1 and result["retained_handoffs"] == 1
+    assert [h["id"] for h in journal.handoffs("manual")] == [open_id]
+    assert result["note"] == common._hint("clear_retained", "default")
+    assert journal.rows("other")[0]["id"] == ids["other_session"] and journal.handoffs("other")[0]["id"] == other_handoff
+    receipt = json.loads(journal.rows("manual", result["command_id"])[0]["outcome"])
+    assert (receipt["cleared_commands"], receipt["retained_commands"], receipt["cleared_handoffs"], receipt["retained_handoffs"]) == (8, len(kept), 1, 1)
+
+    everything = daemon.dispatch("commit", {"operation": "journal", "clear": True, "include_unknown": True}, 1)
+    assert everything["cleared_commands"] == len(kept) + 1 and everything["retained_commands"] == 0
+    assert everything["cleared_handoffs"] == 1 and everything["retained_handoffs"] == 0 and "note" not in everything
+    assert [row["id"] for row in journal.rows("manual")] == [everything["command_id"]]
+    assert journal.handoffs("manual") == [] and journal.handoffs("other")[0]["id"] == other_handoff
+
+
+def test_include_unknown_needs_commit_and_a_clear(make_daemon):
+    daemon, ctx, page = make_daemon()
+    _seed(daemon.journal, "manual", "a" * 32, "commit api", "unknown", {"executed": True})
+    with pytest.raises(ValueError, match="commit journal --clear") as exc:
+        daemon.dispatch("journal", {"clear": True, "include_unknown": True}, 1)
+    assert exc.value.error_class == common.ERR_GUARDED
+    for cmd, args in (("journal", {"include_unknown": True}), ("commit", {"operation": "journal", "include_unknown": True})):
+        with pytest.raises(ValueError, match="--include-unknown") as exc:
+            daemon.dispatch(cmd, args, 1)
+        assert exc.value.error_class == common.ERR_USAGE
+    assert "a" * 32 in {row["id"] for row in daemon.journal.rows("manual")}
+
+
+def test_include_unknown_flag_reaches_the_clear_payload(monkeypatch):
+    from agent_browser_core import cli
+    captured = []
+    monkeypatch.setattr(cli, "_remote", lambda args, verb, cmd, payload, *a, **kw: captured.append((cmd, payload, getattr(args, "committing", False))) or {"ok": True})
+    for argv in (["commit", "journal", "--clear", "--include-unknown"], ["journal", "--clear"]):
+        ns = cli._build_parser().parse_args(argv)
+        ns.func(ns)
+    (cmd, payload, committing), (_, plain, plain_committing) = captured
+    assert cmd == "journal" and committing is True and payload["clear"] is True and payload["include_unknown"] is True
+    assert plain_committing is False and plain["include_unknown"] is False
+
+
+def test_clear_keeps_the_files_of_receipts_it_keeps(make_daemon):
+    daemon, ctx, page = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
+    paths = daemon.paths
+    kept, gone = "b" * 32, "c" * 32
+    _seed(daemon.journal, "a", kept, "commit click", "unknown", {"executed": True})
+    _seed(daemon.journal, "a", gone, "commit click", "completed", {"executed": True})
+    paths.shots.mkdir(parents=True, exist_ok=True)
+    paths.outputs.mkdir(parents=True, exist_ok=True)
+    files = {}
+    for command_id in (kept, gone):
+        files[command_id] = [paths.shots / f"{command_id}-before.png", paths.shots / f"{command_id}-after.png", paths.outputs / f"{command_id}.body"]
+        for path in files[command_id]:
+            path.write_bytes(b"evidence")
+    overflow = paths.outputs / ("d" * 32 + ".json")  # a random-ID overflow file names no receipt
+    overflow.write_text("{}")
+    (paths.shots / "nested").mkdir()
+    (paths.shots / "nested" / "x.png").write_bytes(b"x")
+    (paths.workspace / "last_output.json").write_text("{}")
+    daemon.dispatch("commit", {"operation": "journal", "clear": True}, 1)  # the manual session's clear leaves sessions/ alone
+    assert all(path.exists() for path in files[kept] + files[gone]) and overflow.exists()
+
+    result = daemon.dispatch("commit", {"operation": "journal", "clear": True, "_session_id": "a"}, 1)
+
+    assert result["retained_commands"] == 1
+    assert all(path.exists() for path in files[kept])
+    assert not any(path.exists() for path in files[gone])
+    assert not overflow.exists() and not (paths.shots / "nested").exists()
+    assert not (paths.workspace / "last_output.json").exists()
+    daemon.dispatch("commit", {"operation": "journal", "clear": True, "include_unknown": True, "_session_id": "a"}, 1)
+    assert not paths.shots.exists() and not paths.outputs.exists()
+
+
+def test_clear_reports_files_it_could_not_remove_and_a_later_clear_removes_them(make_daemon, monkeypatch):
+    from pathlib import Path
+    daemon, ctx, page = make_daemon()
+    done = "c" * 32
+    _seed(daemon.journal, "manual", done, "commit click", "completed", {"executed": True})
+    daemon.paths.shots.mkdir(parents=True, exist_ok=True)
+    held = daemon.paths.shots / f"{done}-before.png"
+    held.write_bytes(b"evidence")
+    unlink = Path.unlink
+
+    def in_use(path, missing_ok=False):
+        if path == held:
+            raise PermissionError("in use by another process")
+        return unlink(path, missing_ok=missing_ok)
+    monkeypatch.setattr(Path, "unlink", in_use)
+
+    result = daemon.dispatch("commit", {"operation": "journal", "clear": True}, 1)
+
+    assert result["files_not_removed"] == 1 and common._hint("clear_files_left", "default") in result["note"]
+    assert held.exists() and daemon.journal.rows("manual", done) == []
+    row = daemon.journal.rows("manual", result["command_id"])[0]
+    assert row["status"] == "completed" and json.loads(row["outcome"])["files_not_removed"] == 1
+    monkeypatch.setattr(Path, "unlink", unlink)
+    again = daemon.dispatch("commit", {"operation": "journal", "clear": True}, 1)
+    assert "files_not_removed" not in again and again["retained_commands"] == 0 and not daemon.paths.shots.exists()
+
+
+def test_clear_counts_an_unreadable_evidence_folder_instead_of_skipping_it(make_daemon, monkeypatch):
+    from pathlib import Path
+    daemon, ctx, page = make_daemon()
+    daemon.paths.shots.mkdir(parents=True, exist_ok=True)
+    shots, iterdir = daemon.paths.shots, Path.iterdir
+
+    def denied(path):
+        if path == shots.resolve():
+            raise PermissionError("access denied")
+        return iterdir(path)
+    monkeypatch.setattr(Path, "iterdir", denied)
+    result = daemon.dispatch("commit", {"operation": "journal", "clear": True}, 1)
+    assert result["files_not_removed"] == 1 and shots.exists()
+
+
+try:
+    from _winapi import CreateJunction
+except ImportError:  # junctions are Windows-only
+    CreateJunction = None
+
+
+@pytest.mark.skipif(CreateJunction is None, reason="Windows junctions")
+@pytest.mark.parametrize("keep_one", [False, True])
+def test_clear_removes_a_junction_in_an_evidence_folder_without_following_it(make_daemon, tmp_path, keep_one):
+    daemon, ctx, page = make_daemon()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("not evidence")
+    daemon.paths.shots.mkdir(parents=True, exist_ok=True)
+    CreateJunction(str(outside), str(daemon.paths.shots / "linked"))
+    if keep_one:
+        _seed(daemon.journal, "manual", "b" * 32, "commit click", "unknown", {"executed": True})
+        (daemon.paths.shots / ("b" * 32 + "-before.png")).write_bytes(b"evidence")
+    result = daemon.dispatch("commit", {"operation": "journal", "clear": True}, 1)
+    assert "files_not_removed" not in result
+    assert (outside / "keep.txt").exists() and not (daemon.paths.shots / "linked").exists()
+    assert (daemon.paths.shots / ("b" * 32 + "-before.png")).exists() is keep_one
+
+
+@pytest.mark.skipif(CreateJunction is None, reason="Windows junctions")
+def test_linked_evidence_folder_is_refused_before_any_row_or_job_changes(make_daemon):
+    daemon, ctx, page = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/b", "_session_id": "b"}, 5)
+    other_shots = daemon.paths.shots
+    other_shots.mkdir(parents=True, exist_ok=True)
+    (other_shots / ("d" * 32 + "-before.png")).write_bytes(b"session b evidence")
+    daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
+    CreateJunction(str(other_shots), str(daemon.paths.shots))
+    wait = daemon.dispatch("wait", {"seconds": 100, "_cooperative": True, "_session_id": "a"}, 100)
+    rows = {row["id"] for row in daemon.journal.rows("a")}
+    with pytest.raises(ValueError, match="Unsafe evidence path") as exc:
+        daemon.dispatch("commit", {"operation": "journal", "clear": True, "_session_id": "a"}, 1)
+    assert exc.value.error_class == common.ERR_GUARDED
+    assert (other_shots / ("d" * 32 + "-before.png")).exists()
+    assert rows <= {row["id"] for row in daemon.journal.rows("a")}
+    assert daemon.dispatch("poll", {"command_id": wait["command_id"], "_session_id": "a"}, 1)["pending"] is True
+
+
+def test_clear_finishes_abandoned_jobs_instead_of_dropping_them(make_daemon):
+    daemon, ctx, page = make_daemon()
+    wait = daemon.dispatch("wait", {"seconds": 100, "_cooperative": True}, 100)
+    other = daemon.dispatch("wait", {"seconds": 100, "_cooperative": True, "_session_id": "b"}, 100)
+    ran = "e" * 32
+    _seed(daemon.journal, "manual", ran, "click", "pending", {"executed": True, "pending": True})
+    daemon.jobs[ran] = {"session": "manual", "checker": lambda: {"pending": True}, "executed": True}
+
+    result = daemon.dispatch("commit", {"operation": "journal", "clear": True}, 1)
+
+    with pytest.raises(ValueError):
+        daemon.dispatch("poll", {"command_id": wait["command_id"]}, 1)
+    assert daemon.journal.rows("manual", wait["command_id"]) == []  # finished as failed, then cleared
+    row = daemon.journal.rows("manual", ran)[0]
+    outcome = json.loads(row["outcome"])
+    assert row["status"] == "unknown" and result["retained_commands"] == 1
+    assert (outcome["error_class"], outcome["executed"], outcome["pending"]) == ("cleared", True, False)
+    assert ran not in daemon.jobs and other["command_id"] in daemon.jobs
+    assert daemon.dispatch("poll", {"command_id": other["command_id"], "_session_id": "b"}, 1)["pending"] is True
+    assert daemon.journal.rows("b", other["command_id"])[0]["status"] == "pending"
+
+
+@pytest.mark.parametrize("cmd,args", [("fill", {"target": "e1", "text": "value"}), ("screenshot", {}),
+                                      ("diagnose", {"url": "http://localhost:3000/"})])
+def test_quota_error_splits_this_sessions_bytes_from_other_sessions(make_daemon, cmd, args):
+    daemon, ctx, page = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
+    daemon.paths.outputs.mkdir(parents=True, exist_ok=True)
+    (daemon.paths.outputs / ("a" * 32 + ".body")).write_bytes(b"x" * 70000)
+    daemon.dispatch("goto", {"url": "http://x/b", "_session_id": "b"}, 5)
+    daemon.journal.quota = 65536
+
+    with pytest.raises(RuntimeError) as exc:
+        daemon.dispatch(cmd, {**args, "_session_id": "b"}, 1)
+
+    details = exc.value.details
+    assert exc.value.error_class == "journal_full" and details["quota"] == 65536
+    assert details["other_sessions_bytes"] >= 70000 and details["session_bytes"] < 1000 and details["journal_bytes"] > 0
+    assert details["evidence_bytes"] == details["session_bytes"] + details["other_sessions_bytes"] + details["journal_bytes"]
+    assert "Other sessions of this profile hold" in str(exc.value) and exc.value.hint == common._hint("journal_full_other", "default")
+    with pytest.raises(RuntimeError) as own:
+        daemon.dispatch(cmd, {**args, "_session_id": "a"}, 1)
+    assert own.value.details["session_bytes"] >= 70000 and own.value.details["other_sessions_bytes"] < 1000
+    assert "Other sessions" not in str(own.value) and own.value.hint == common._hint("journal_full", "default")
+
+
+def test_manual_session_bytes_leave_out_other_sessions_and_the_shared_journal(make_daemon):
+    daemon, ctx, page = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
+    daemon.paths.outputs.mkdir(parents=True, exist_ok=True)
+    (daemon.paths.outputs / ("a" * 32 + ".body")).write_bytes(b"x" * 70000)
+    daemon.journal.quota = 65536
+    with pytest.raises(RuntimeError) as exc:
+        daemon.dispatch("fill", {"target": "e1", "text": "value"}, 1)
+    details = exc.value.details
+    assert details["other_sessions_bytes"] >= 70000 and details["session_bytes"] < 1000
+    assert details["journal_bytes"] == daemon.journal.path.stat().st_size
+
+
 def _response(method, url, status=200):
     return SimpleNamespace(request=SimpleNamespace(method=method), url=url, status=status)
 
