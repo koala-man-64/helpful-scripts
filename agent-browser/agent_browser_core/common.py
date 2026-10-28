@@ -499,6 +499,8 @@ HINTS = {
     "inspect_receipt": "Inspect the receipt before repeating an action. Run: {tool} journal --profile {profile}",
     "commit_clear": "Clearing deletes this session's receipts, screenshots and saved responses. With the user's approval, run: {tool} commit journal --clear",
     "handoff_not_found": "Handoffs belong to the session that created them, and clearing evidence removes them. List this session's with: {tool} state --profile {profile}",
+    "api_not_auth": "Not treated as a sign-in, so no handoff was opened (redirects are not followed). Check the endpoint and the account's access; if the session may have expired, run: {tool} needs-human --signed-in <app host> --profile {profile}",
+    "api_auth_unavailable": "If the user must sign in, run: {tool} needs-human --signed-in <app host> --profile {profile}; otherwise open a classic ServiceNow form page in this tab and retry.",
     "tool_arguments": "Check the tool's inputSchema from tools/list and call it again with valid arguments.",
 }
 
