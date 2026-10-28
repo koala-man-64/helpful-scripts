@@ -149,6 +149,17 @@ class DownloadRecord:
     saved: str | None = None
 
 
+def _log_line(message: str) -> None:
+    """One daemon.log entry; serve writes these itself before a Daemon exists."""
+    # One physical line per entry: a multi-line exception or traceback, or a forged newline, cannot add log lines.
+    flat = str(message).replace("\r\n", "\n").replace("\n", " | ").replace("\r", " ")
+    line = f"{core_common._utc_now()} {core_common.sanitize_text(core_common.redact_text(flat), 2000, single_line=True)}"
+    try:
+        print(line, file=sys.stderr, flush=True)
+    except (OSError, ValueError):
+        pass
+
+
 class BrowserEngine:
     """Owns one Playwright persistent context. Single-threaded: only the main thread touches Playwright."""
 
@@ -184,13 +195,7 @@ class BrowserEngine:
     # -- logging -------------------------------------------------------------------------
 
     def dlog(self, message: str) -> None:
-        # One physical line per entry: a multi-line exception or traceback, or a forged newline, cannot add log lines.
-        flat = str(message).replace("\r\n", "\n").replace("\n", " | ").replace("\r", " ")
-        line = f"{core_common._utc_now()} {core_common.sanitize_text(core_common.redact_text(flat), 2000, single_line=True)}"
-        try:
-            print(line, file=sys.stderr, flush=True)
-        except (OSError, ValueError):
-            pass
+        _log_line(message)
 
     # -- lifecycle -----------------------------------------------------------------------
 
@@ -1662,14 +1667,6 @@ class _Server(socketserver.TCPServer):
     daemon: Daemon
 
 
-def _serve_log(message: str) -> None:
-    """A daemon.log line from serve while no Daemon exists, in BrowserEngine.dlog's format."""
-    try:
-        print(f"{core_common._utc_now()} {message}", file=sys.stderr, flush=True)
-    except (OSError, ValueError):
-        pass
-
-
 def serve(launch_file: Path) -> int:
     launch = json.loads(launch_file.read_text(encoding="utf-8"))
     paths = core_common.ProfilePaths(launch["profile"], Path(launch["home"]))
@@ -1679,11 +1676,11 @@ def serve(launch_file: Path) -> int:
     streams = sys.stdout, sys.stderr
     sys.stdout = sys.stderr = log
     try:
-        _serve_log(f"daemon starting pid {os.getpid()} profile {paths.profile} python {sys.executable}")
+        _log_line(f"daemon starting pid {os.getpid()} profile {paths.profile} python {sys.executable}")
         lock = core_common._acquire_lock(paths.lock)
         if lock is None:
             # A live daemon owns this profile: its session.json, journal and launch record are not this process's to touch.
-            _serve_log("another daemon holds the session lock; exiting")
+            _log_line("another daemon holds the session lock; exiting")
             return 1
         try:
             return _serve_locked(launch_file, launch, paths, log)
@@ -1700,10 +1697,6 @@ def _serve_locked(launch_file: Path, launch: dict[str, Any], paths: core_common.
     daemon: Daemon | None = None
     server: _Server | None = None
     exit_code = 0
-
-    def note(message: str) -> None:
-        (daemon.dlog if daemon is not None else _serve_log)(message)
-
     try:
         # Built under the lock: Daemon() opens the journal, whose restart sweep marks running rows unknown,
         # and validates the profile policy, whose failure must reach startup_error.json.
@@ -1730,11 +1723,11 @@ def _serve_locked(launch_file: Path, launch: dict[str, Any], paths: core_common.
                 daemon._mark_stop("idle")
         daemon.dlog(f"stopping: {daemon.stop_reason}")
     except (ValueError, RuntimeError) as exc:
-        note(f"fatal {getattr(exc, 'error_class', '')}: {exc}")
+        _log_line(f"fatal {getattr(exc, 'error_class', '')}: {exc}")
         _write_startup_error(paths, getattr(exc, "error_class", core_common.ERR_LAUNCH), str(exc), getattr(exc, "hint", None))
         exit_code = 1
     except Exception as exc:  # noqa: BLE001
-        note("fatal: " + traceback.format_exc()[-1500:])
+        _log_line("fatal: " + traceback.format_exc()[-1500:])
         _write_startup_error(paths, core_common.ERR_LAUNCH, f"{type(exc).__name__}: {exc}", None)
         exit_code = 1
     finally:
@@ -1746,5 +1739,5 @@ def _serve_locked(launch_file: Path, launch: dict[str, Any], paths: core_common.
             except OSError:
                 pass
         paths.session.unlink(missing_ok=True)
-        note("exited")
+        _log_line("exited")
     return exit_code

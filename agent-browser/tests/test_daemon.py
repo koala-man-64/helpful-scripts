@@ -573,3 +573,19 @@ def test_losing_duplicate_daemon_leaves_the_winners_state_alone(serve_seams: lis
     assert core_session._read_session(paths) == winner_session
     assert core_daemon._take_startup_error(paths) is None and serve_seams == []
     assert "another daemon holds the session lock" in paths.log.read_text(encoding="utf-8")
+
+
+def test_serve_logs_a_failure_before_the_daemon_exists_as_one_redacted_line(serve_seams: list[bool], monkeypatch: pytest.MonkeyPatch) -> None:
+    paths = core_common._paths("default")
+    launch_file = _write_launch(paths, "daemon-token")
+
+    def failing_daemon(launch: dict[str, Any]) -> Any:
+        raise core_common._tag(RuntimeError("cannot start\nFORGED line at https://h/cb?code=SECRETVALUE"), core_common.ERR_CONFIG)
+
+    monkeypatch.setattr(core_daemon, "Daemon", failing_daemon)
+    assert core_daemon.serve(launch_file) == 1
+
+    log = paths.log.read_text(encoding="utf-8")
+    fatal = [line for line in log.splitlines() if "fatal" in line]
+    assert len(fatal) == 1 and "FORGED line" in fatal[0]  # one physical line per entry
+    assert "SECRETVALUE" not in log and not any(line.startswith("FORGED") for line in log.splitlines())
