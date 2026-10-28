@@ -400,10 +400,7 @@ class BrowserEngine:
         m = core_common.REF_RE.match(ref)
         if not m:
             raise core_common._tag(ValueError(f"Bad ref {ref!r}."), core_common.ERR_VALIDATION, hint=core_common._hint("bad_ref", self.profile))
-        try:
-            page.wait_for_timeout(1)  # apply queued frame-navigation events before reading the counters
-        except Exception:  # noqa: BLE001
-            pass
+        self._pump_events(page)
         served = self.served.get(page)
         if served is None:
             self._serve_snapshot(page)
@@ -649,7 +646,22 @@ class BrowserEngine:
                 secret.add(line.ref)  # a typed value: safe to look for page-wide, unlike a container's text
         return masked, secret, input_values
 
+    def _pump_events(self, page: Any) -> None:
+        try:
+            page.wait_for_timeout(1)  # apply queued frame-navigation events before reading the counters
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _refs_current(self, page: Any, served: Served) -> bool:
+        """Whether every frame the served refs point into is still on the document its snapshot read."""
+        self._pump_events(page)
+        return all(self.nav_counts.get(frame, 0) == count for frame, count in served.nav_at_serve.items())
+
     def _serve_snapshot(self, page: Any, *, full: bool = False, find: str | None = None, scope: str | None = None) -> Served:
+        # The baseline is read before the snapshot: a frame that navigates while it is taken keeps the older
+        # count, so its refs answer stale_ref instead of resolving against the new document.
+        self._pump_events(page)
+        before = {frame: self.nav_counts.get(frame, 0) for frame in [page.main_frame, *page.frames]}
         try:
             if scope:
                 raw = self.resolve(page, scope).aria_snapshot(mode="ai")
@@ -662,7 +674,7 @@ class BrowserEngine:
         mask_refs, secret_refs, input_values = self._value_masks(page, parsed)
         lines = core_snapshots.filter_snapshot(raw, full=full, find=find, frame_names=names, mask_refs=mask_refs,
                                                input_values=input_values, secret_refs=secret_refs)
-        nav_at = {f: self.nav_counts.get(f, 0) for f in [page.main_frame] + list(by_prefix.values())}
+        nav_at = {f: before.get(f, 0) for f in [page.main_frame, *by_prefix.values()]}  # a frame attached meanwhile: 0
         served = Served(raw, lines, by_prefix, nav_at, frames, names, prefixes, mask_refs, secret_refs, input_values)
         self.served[page] = served
         text = "\n".join(lines)
@@ -747,7 +759,11 @@ class BrowserEngine:
             notes.append(core_common._hint("off_allowlist", self.profile))
         if find and not lines:
             notes.append("No line matched --find; tabs or sections may hide it. Try a shorter word or click a tab.")
-        env["navigated"] = navigated
+        refs_valid = self._refs_current(page, served)
+        if not refs_valid:
+            notes.append(core_common._hint("refs_moved", self.profile))
+        env["navigated"] = navigated or not refs_valid
+        env["refs_valid"] = refs_valid
         env["new_tab"] = self._new_tab_info()
         env["dialogs"] = self._take_dialogs()
         env["downloads"] = self._downloads_seen()
@@ -779,18 +795,23 @@ class BrowserEngine:
         env.update(self._base_fields(page))
         if value_after is not None:
             env["value_after"] = value_after
-        env["navigated"] = False
+        # A frame that navigated while the diff's snapshot was taken leaves its refs stale: say so, never claim them valid.
+        refs_valid = self._refs_current(page, served)
+        env["navigated"] = not refs_valid
         env["new_tab"] = self._new_tab_info()
         env["dialogs"] = []
         env["downloads"] = self._downloads_seen()
         env["truncated"] = cut_a or cut_r
         env["changes"] = {"added": added, "removed": removed}
-        env["refs_valid"] = True
+        env["refs_valid"] = refs_valid
         if loading:
             env["frames_loading"] = [core_common.sanitize_text(l, 80) for l in loading]
+        notes = [] if refs_valid else [core_common._hint("refs_moved", self.profile)]
         if self._off_allowlist(page):
             env["off_allowlist"] = True
-            env["note"] = core_common._hint("off_allowlist", self.profile)
+            notes.append(core_common._hint("off_allowlist", self.profile))
+        if notes:
+            env["note"] = " ".join(notes)
         if extra:
             env.update(extra)
         env["untrusted"] = core_common.UNTRUSTED_KEYS

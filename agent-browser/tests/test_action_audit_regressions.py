@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent_browser_core import common
-from conftest import FakeElement, FakeFrame, FakeLocator, FakePage
+from conftest import FakeElement, FakeFrame, FakeLocator, FakePage, FakePlaywrightError
 
 
 def _form_controls(daemon, ctx, page, monkeypatch, *, close_original=False):
@@ -231,10 +231,53 @@ def test_api_path_preserves_same_drive_relative_and_absolute_paths(make_daemon, 
     assert daemon._api_path(candidate, {"_cwd": "C:/caller"}) == Path(expected)
 
 
+def test_text_expectation_ignores_text_already_on_the_page(make_daemon):
+    daemon, _, page = make_daemon(snapshot_text='- button "Save" [ref=e2]\n')
+    page.main_frame.body_text = "Saved searches"
+    pending = daemon.dispatch("click", {"target": "e2", "expect": ["text:Saved"]}, 30)
+    assert pending["pending"] is True and pending["expectations"] == [{"kind": "text", "passed": False}]
+
+    page.main_frame.body_text = "Saved searches\nRecord SAVED"  # a new occurrence; matching stays case-insensitive
+    done = daemon.dispatch("poll", {"command_id": pending["command_id"]}, 2)
+    assert done["pending"] is False and done["expectations"] == [{"kind": "text", "passed": True}]
+
+
+def test_text_expectation_keeps_its_baseline_when_the_frame_navigates(make_daemon):
+    daemon, _, page = make_daemon(snapshot_text='- button "Save" [ref=e2]\n')
+    page.main_frame.body_text = "Saved searches"
+    page.elements["e2"].click_side_effect = lambda: page.emit("framenavigated", page.main_frame)  # reloads with the same text
+    pending = daemon.dispatch("click", {"target": "e2", "expect": ["text:Saved"]}, 30)
+    assert pending["pending"] is True and pending["expectations"] == [{"kind": "text", "passed": False}]
+
+
+def test_text_expectation_counts_text_in_a_tab_the_action_opened(make_daemon):
+    daemon, ctx, page = make_daemon(snapshot_text='- button "Save" [ref=e2]\n')
+    page.main_frame.body_text = "Saved searches"
+    popup = FakePage(ctx, url="http://x/popup")
+    popup.main_frame.body_text = "Saved"
+    page.elements["e2"].click_side_effect = lambda: ctx.emit("page", popup)
+    result = daemon.dispatch("click", {"target": "e2", "expect": ["text:Saved"]}, 30)
+    assert result["pending"] is False and result["expectations"] == [{"kind": "text", "passed": True}]
+
+
+def test_text_expectation_without_a_readable_baseline_fails_closed_before_acting(make_daemon):
+    daemon, _, page = make_daemon(snapshot_text='- button "Save" [ref=e2]\n')
+    page.main_frame.body_text = "Saved searches"
+    unreadable = FakeElement("__body__", raise_on={"text": FakePlaywrightError("Execution context was destroyed")})
+    page.main_frame.locator = lambda selector: FakeLocator(page, unreadable) if selector == "body" else FakeFrame.locator(page.main_frame, selector)
+    with pytest.raises(ValueError) as error:
+        daemon.dispatch("click", {"target": "e2", "expect": ["text:Saved"]}, 30)
+    assert error.value.error_class == common.ERR_ACTION_FAILED
+    assert error.value.hint == common._hint("expect_text_baseline")
+    assert error.value.details["executed"] is False
+    assert page.elements["e2"].calls == []
+    assert daemon.journal.rows("manual", error.value.details["command_id"])[0]["status"] == "failed"
+
+
 def test_expectation_cannot_succeed_when_first_observed_after_deadline(make_daemon, fake_clock, monkeypatch):
     daemon, _, page = make_daemon(snapshot_text='- button "Save" [ref=e2]\n')
     visible = {"saved": False}
-    monkeypatch.setattr(daemon, "_page_has_text", lambda *_: visible["saved"])
+    monkeypatch.setattr(daemon, "_text_counts", lambda page, _text: {page.main_frame: int(visible["saved"])})
     result = daemon.dispatch("click", {"target": "e2", "expect": ["text:Saved"]}, 10)
     assert result["pending"]
     fake_clock.value += 20
@@ -250,13 +293,13 @@ def test_expectation_observation_that_crosses_deadline_cannot_succeed(make_daemo
     daemon, _, page = make_daemon(snapshot_text='- button "Save" [ref=e2]\n')
     slow = {"enabled": False}
 
-    def has_text(*_):
+    def text_counts(page, _text):
         if slow["enabled"]:
             fake_clock.value += 20
-            return True
-        return False
+            return {page.main_frame: 1}
+        return {page.main_frame: 0}
 
-    monkeypatch.setattr(daemon, "_page_has_text", has_text)
+    monkeypatch.setattr(daemon, "_text_counts", text_counts)
     result = daemon.dispatch("click", {"target": "e2", "expect": ["text:Saved"]}, 10)
     assert result["pending"]
     slow["enabled"] = True

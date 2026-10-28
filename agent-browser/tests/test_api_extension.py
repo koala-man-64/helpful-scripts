@@ -445,3 +445,11 @@ def test_api_write_receipt_names_endpoint_path_without_query_or_body(make_daemon
     row = daemon.journal.rows("manual", result["command_id"])[0]
     assert json.loads(row["arguments"])["path"] == "/api/items/42"
     assert "private-filter" not in json.dumps(row)
+
+
+def test_api_response_satisfies_its_own_response_expectation(make_daemon):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    request_context(ctx, Response())
+    result = daemon.dispatch("api", {"url": "/api/items", "expect": ["response:GET **/api/items:2xx"]}, 5)
+    assert result["pending"] is False and result["expectations"] == [{"kind": "response", "passed": True}]

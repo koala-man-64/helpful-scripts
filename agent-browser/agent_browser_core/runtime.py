@@ -250,7 +250,7 @@ class OperatingMixin:
             args["_deadline"] = expectation_deadline
             specs = self._expect_specs(args.get("expect") or [], target_page or self.page()) if args.get("expect") else []
             expected_page = target_page
-            expected_url, expected_cursor = (expected_page.url if expected_page else ""), self.response_cursor
+            expected_url = expected_page.url if expected_page else ""
             if cmd == "wait" and args.get("_cooperative"):
                 result = self._wait_job(command_id, args, timeout)
             else:
@@ -258,7 +258,7 @@ class OperatingMixin:
                 executed = self.action_attempted
             result["executed"] = executed
             if specs:
-                result = self._verify_result(command_id, result, specs, expected_page, expected_url, expected_cursor, expectation_deadline)
+                result = self._verify_result(command_id, result, specs, expected_page, expected_url, expectation_deadline)
             if result.get("pending") and command_id in self.jobs:
                 self.jobs[command_id]["before_counts"] = before
             result.update(command_id=command_id, session_id=sid, contract_version=common.CONTRACT_VERSION)
@@ -297,6 +297,7 @@ class OperatingMixin:
             raise
         finally:
             self._cmd_target_page = None
+            self.watching = []  # a pending job keeps its own response matchers
 
     def _wait_job(self, command_id: str, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         conditions = args.get("conditions") or {k: args[k] for k in ("seconds", "url_contains", "signed_in", "text", "ref", "selector") if args.get(k) not in (None, "", 0)}

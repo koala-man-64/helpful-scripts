@@ -116,8 +116,7 @@ class ApiMixin:
             data = response.body()
             if len(data) > maximum:
                 raise common._tag(RuntimeError("API response exceeded the requested byte limit."), "response_too_large")
-            self.response_cursor += 1
-            self.response_events.append((self.response_cursor, page, method, url, status))
+            self._record_response(page, method, url, status)
         except (ValueError, RuntimeError):
             raise
         except Exception as exc:

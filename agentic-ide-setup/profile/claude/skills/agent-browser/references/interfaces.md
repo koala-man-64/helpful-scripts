@@ -49,9 +49,15 @@ query secrets become `***`, the fragment is dropped, and a bare `#anchor` shows 
 `--find` never matches a masked value or a redacted link. Semantic-target candidates are
 described from the masked page snapshot, without their values.
 
-Expectations accept exact `text:...` presence, an initially visible ref `gone:e12`,
-`url:changed`, and `response:METHOD URL_GLOB:STATUS` with a three-digit status or
-`2xx`-style mask. Responses must occur after observation starts on the same page.
+Expectations accept `text:...`, an initially visible ref `gone:e12`, `url:changed`, and
+`response:METHOD URL_GLOB:STATUS` with a three-digit status or `2xx`-style mask.
+`text:` is a case-insensitive substring that needs a new occurrence: it passes when a
+frame shows the text more times than before the action. Text already shown does not
+count, also after its frame reloads; a frame or tab the action opened counts from zero.
+A frame whose text cannot be read before the action fails the command with
+`action_failed`, and nothing is done. (`wait --text` still accepts text already shown.)
+Responses must occur after observation starts on the same page; each is matched as it
+arrives, so other traffic from this or another session cannot push a match out.
 Repeat checks for AND semantics; checks given before and after the verb (and around
 `commit`) all apply, in order. They share the action's deadline and never replay it.
 Same-page network matches are evidence, not proof of a causal business operation.
