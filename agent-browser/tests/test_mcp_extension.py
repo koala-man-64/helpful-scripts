@@ -172,3 +172,190 @@ def test_real_stdio_handshake_and_error_contract():
                 assert reply.structuredContent["contract_version"] == 1
                 assert reply.structuredContent["error"]["class"] == "not_running"
     asyncio.run(run())
+
+
+def _recorder(monkeypatch):
+    calls = []
+
+    def invoke(command, arguments, **kwargs):
+        calls.append((command, arguments, kwargs))
+        return {"ok": True}
+    monkeypatch.setattr(mcp_server.client, "invoke", invoke)
+    return calls
+
+
+def _cli_sent(monkeypatch, argv):
+    """The command, payload and timeout the CLI sends the daemon for argv."""
+    from agent_browser_core import cli
+    sent = []
+    monkeypatch.setattr(cli, "_session_for", lambda args, verb, autostart=False: (None, {}))
+    monkeypatch.setattr(cli.core_session, "_request", lambda session, cmd, payload, timeout: sent.append((cmd, payload, timeout)) or {"ok": True})
+    assert cli.main(argv) == 0
+    return sent[0]
+
+
+# Keys the CLI sends that MCP leaves out on purpose: the client adds the first two, MCP has its own snapshot
+# budget, the dialog and unsaved-changes guards are a later change, enter is commit-only, and MCP picks its own
+# screenshot path.
+CLI_ONLY_KEYS = {"_session_id", "_cwd", "max_bytes", "discard_changes", "accept_dialog", "dialog_text", "double", "right", "enter", "path"}
+
+
+@pytest.mark.parametrize("argv, tool, kwargs", [
+    (["goto", "https://x/", "--wait", "domcontentloaded", "--tab", "2"], "browser_goto", {"url": "https://x/", "wait": "domcontentloaded", "tab": 2}),
+    (["goto", "https://x/", "--new-tab"], "browser_goto", {"url": "https://x/", "new_tab": True}),
+    (["snapshot", "--ref", "e5", "--find", "Save", "--tab", "T2"], "browser_snapshot", {"ref": "e5", "find": "Save", "tab": "T2"}),
+    (["click", "e1", "--tab", "t2"], "browser_click", {"target": "e1", "tab": "t2"}),
+    (["fill", "e1", "hello", "--tab", "1"], "browser_fill", {"target": "e1", "text": "hello", "tab": 1}),
+    (["wait", "--ref", "e3", "--selector", "#a", "--tab", "2"], "browser_wait", {"ref": "e3", "selector": "#a", "tab": 2}),
+    (["eval", "el.id", "--ref", "e2", "--frame", "gsft_main"], "browser_eval", {"js": "el.id", "ref": "e2", "frame": "gsft_main"}),
+    (["text", "--max-chars", "500", "--tab", "t3"], "browser_read", {"operation": "text", "max_chars": 500, "tab": "t3"}),
+    (["tab", "t2", "--close"], "browser_action", {"operation": "tab", "index": "t2", "close": True}),
+    (["back", "--tab", "2"], "browser_action", {"operation": "back", "tab": 2}),
+    (["screenshot", "--full-page", "--tab", "2"], "browser_screenshot", {"full_page": True, "tab": 2}),
+    (["api", "/items", "--tab", "2"], "browser_api", {"url": "/items", "tab": 2}),
+    (["run", "sn/add-work-note", "--number", "INC0010001", "--text", "note", "--tab", "2"], "browser_recipe", {"number": "INC0010001", "text": "note", "tab": 2}),
+])
+def test_mcp_payload_carries_every_cli_key_with_the_cli_value(argv, tool, kwargs, monkeypatch):
+    command, cli_payload, _ = _cli_sent(monkeypatch, argv)
+    calls = _recorder(monkeypatch)
+    assert "error" not in getattr(mcp_server, tool)(session_id="s", **kwargs)
+    sent_command, payload, _ = calls[0]
+    assert sent_command == command
+    expected = {k: v for k, v in cli_payload.items() if k not in CLI_ONLY_KEYS}
+    assert {k: payload[k] for k in expected if k in payload} == expected
+    assert payload["max_bytes"] == mcp_server.MAX_BYTES
+
+
+def test_mcp_tab_and_index_are_sent_only_when_given(monkeypatch):
+    calls = _recorder(monkeypatch)
+    mcp_server.browser_action("tab", "s")
+    mcp_server.browser_action("back", "s")
+    mcp_server.browser_click("e1", "s")
+    assert all("index" not in payload and "tab" not in payload for _, payload, _ in calls)
+    calls.clear()
+    error = mcp_server.browser_action("tab", "s", index="t1", tab="t2")["error"]
+    assert error["class"] == "usage" and not calls
+    error = mcp_server.browser_click("e1", "s", tab=0)["error"]
+    assert error["class"] == "validation" and error["hint"] == common._hint("tab_index") and not calls
+
+
+def test_mcp_tab_operation_takes_stable_ids_and_never_sends_index_zero(make_daemon, monkeypatch):
+    daemon, ctx, page = make_daemon()
+    second = ctx.new_page()
+    second.url = "http://x/second.html"
+    daemon._track_page(second)
+    monkeypatch.setattr(mcp_server.client, "invoke", lambda command, args, **kw: daemon.dispatch(command, args, 1))
+
+    async def run():
+        server = mcp_server.make_server()
+        missing = (await server.call_tool("browser_action", {"operation": "tab", "session_id": "manual"})).structuredContent
+        assert missing["error"]["class"] == "usage" and missing["error"]["hint"] == common._hint("tab_index")
+        tab_id = daemon._tab_id(second)
+        switched = (await server.call_tool("browser_action", {"operation": "tab", "session_id": "manual", "index": tab_id})).structuredContent
+        assert "error" not in switched and switched["tab_id"] == tab_id and switched["url"] == "http://x/second.html"
+        first = (await server.call_tool("browser_snapshot", {"session_id": "manual", "tab": 1})).structuredContent
+        assert "error" not in first and first["url"] == page.url
+    asyncio.run(run())
+
+
+def test_mcp_schema_exposes_the_cli_parameters(monkeypatch):
+    tools = {tool.name: tool.inputSchema["properties"] for tool in asyncio.run(mcp_server.make_server().list_tools())}
+    assert len(tools) == 18
+    page_tools = {"browser_goto", "browser_snapshot", "browser_click", "browser_fill", "browser_fill_form", "browser_action", "browser_read",
+                  "browser_wait", "browser_screenshot", "browser_api", "browser_eval", "browser_commit", "browser_recipe"}
+    for name in page_tools:
+        assert {s.get("type") for s in tools[name]["tab"]["anyOf"]} == {"integer", "string", "null"}, name
+        assert tools[name]["tab"]["default"] is None, name
+    index = tools["browser_action"]["index"]
+    assert {s.get("type") for s in index["anyOf"]} == {"integer", "string", "null"} and index["default"] is None
+    assert {"ref", "selector"} <= set(tools["browser_wait"])
+    assert "ref" in tools["browser_snapshot"] and {"ref", "frame"} <= set(tools["browser_eval"])
+    assert "max_chars" in tools["browser_read"] and "content_type" in tools["browser_commit"]
+    assert tools["browser_goto"]["wait"]["enum"] == ["load", "domcontentloaded"] and tools["browser_goto"]["new_tab"]["default"] is False
+    # enter submits, so it stays commit-only; the snapshot budget is MCP's own.
+    assert all("enter" not in props and "max_bytes" not in props for props in tools.values())
+    # A JSON integer tab stays an integer and a tab id stays a string through the SDK's argument validation.
+    calls = _recorder(monkeypatch)
+
+    async def run():
+        server = mcp_server.make_server()
+        await server.call_tool("browser_snapshot", {"session_id": "s", "tab": 2})
+        await server.call_tool("browser_snapshot", {"session_id": "s", "tab": "t2"})
+    asyncio.run(run())
+    assert [payload["tab"] for _, payload, _ in calls] == [2, "t2"]
+
+
+@pytest.mark.parametrize("value", [-1, -0.5, float("inf"), float("-inf"), float("nan"), common.MAX_TIMEOUT + 1])
+def test_mcp_timeout_out_of_range_is_validation_like_the_cli(value, monkeypatch, capsys):
+    from agent_browser_core import cli
+    assert cli.main(["goto", "https://x/", f"--timeout={value!r}"]) == 2
+    assert json.loads(capsys.readouterr().err)["error"]["class"] == "validation"
+    calls = _recorder(monkeypatch)
+    for result in (mcp_server.browser_goto("https://x/", "s", timeout=value), mcp_server.browser_wait("s", text="Saved", timeout=value)):
+        assert result["error"]["class"] == "validation", result
+    assert not calls
+
+
+def test_mcp_wait_is_capped_like_the_cli_and_cannot_block_the_stdio_server(monkeypatch, capsys):
+    from agent_browser_core import cli
+    assert cli.main(["wait", "--text", "Saved", "--timeout", "101"]) == 2
+    cli_error = json.loads(capsys.readouterr().err)["error"]
+    calls = _recorder(monkeypatch)
+    error = _tool("browser_wait", {"session_id": "s", "text": "Saved", "timeout": common.MAX_TIMEOUT})["error"]
+    assert error["class"] == cli_error["class"] == "validation"
+    assert error["hint"] == cli_error["hint"] == common._hint("wait_cap")
+    assert _tool("browser_goto", {"url": "https://x/", "session_id": "s", "timeout": -1})["error"]["class"] == "validation"
+    assert not calls
+    mcp_server.browser_wait("s", text="Saved", timeout=common.WAIT_CAP)
+    mcp_server.browser_goto("https://x/", "s", timeout=0)
+    mcp_server.browser_goto("https://x/", "s", timeout=common.MAX_TIMEOUT)
+    assert [kw["timeout"] for _, _, kw in calls] == [common.WAIT_CAP, 0.0, common.MAX_TIMEOUT]
+
+
+def _servicenow_like_page():
+    """A classic ServiceNow incident form: about 30 KB of snapshot, a related list, and the form in the gsft_main iframe."""
+    rows = ["- generic [active] [ref=e1]:", "  - banner [ref=e2]:", '    - link "ServiceNow Home Page" [ref=e3] [cursor=pointer]:',
+            "      - /url: /now/nav/ui/home", '    - button "All" [ref=e4]', '    - button "Favorites" [ref=e5]', '    - searchbox "Search" [ref=e6]',
+            "  - iframe [ref=e7]:", "    - generic [active] [ref=f1e1]:", '      - heading "Incident INC0010001" [level=2] [ref=f1e2]']
+    ref = 2
+    for section in ("Caller", "Category", "Subcategory", "Service", "Configuration item", "Short description", "Description", "Assignment group"):
+        for index in range(12):
+            ref += 1
+            rows.append(f'      - button "{section} lookup {index}: open the \\"{section}\\" reference picker" [ref=f1e{ref}]')
+    rows.append('      - table "Related incidents" [ref=f1e900]:')
+    for index in range(250):
+        rows.append(f'        - row "INC00{index:05d} Email outage in building {index} New 3 - Moderate" [ref=f1e{1000 + index}]')
+    text = "\n".join(rows) + "\n"
+    assert 25000 < len(text.encode("utf-8")) < 40000
+    return text
+
+
+def test_mcp_page_read_fits_the_reply_budget_and_keeps_url_and_title(make_daemon, monkeypatch):
+    url = "https://dev12345.service-now.com/nav_to.do?uri=%2Fincident.do%3Fsys_id%3D9d385017c611228701d22104cc95c371%26sysparm_view%3Dess"
+    title = "INC0010001 | Incident | ServiceNow - Email outage reported by several users in building 12 after the weekend change"
+    daemon, ctx, page = make_daemon(snapshot_text=_servicenow_like_page(), page_url=url, page_title=title)
+    monkeypatch.setattr(mcp_server.client, "invoke", lambda command, args, **kw: daemon.dispatch(command, args, 1))
+
+    async def run():
+        server = mcp_server.make_server()
+        for name, arguments in (("browser_goto", {"url": url}), ("browser_snapshot", {}), ("browser_action", {"operation": "reload"}),
+                                ("browser_wait", {"url_contains": "incident.do"})):
+            reply = await server.call_tool(name, {"session_id": "manual", **arguments})
+            data = reply.structuredContent
+            assert "error" not in data and "output_id" not in data, (name, data)
+            assert data["url"] == common.redact_url(url) and data["title"] == title, name
+            assert data["snapshot"] and data["truncated"] is True and data["untrusted"] == common.UNTRUSTED_KEYS, name
+            assert len(json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) + 1 <= mcp_server.REPLY_BUDGET, name
+            assert len(reply.model_dump_json().encode("utf-8")) + 128 <= common.STDOUT_BUDGET, name
+    asyncio.run(run())
+
+
+def test_overflow_stub_keeps_url_title_and_their_untrusted_marker(monkeypatch):
+    big = {"ok": True, "url": "https://x/app", "title": "Record 7", "untrusted": common.UNTRUSTED_KEYS, "snapshot": ["- row [ref=e1]"] * 4000}
+    monkeypatch.setattr(mcp_server.client, "invoke", lambda *a, **kw: big)
+
+    async def run():
+        return (await mcp_server.make_server().call_tool("browser_snapshot", {"session_id": "s"})).structuredContent
+    data = asyncio.run(run())
+    assert data["truncated"] and data["output_id"]
+    assert data["url"] == "https://x/app" and data["title"] == "Record 7" and data["untrusted"] == common.UNTRUSTED_KEYS

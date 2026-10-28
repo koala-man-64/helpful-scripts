@@ -41,6 +41,12 @@ or `python -m agent_browser_core.mcp_server`. The 18 typed tools share the dispa
 `browser_commit` and `browser_eval` are distinct caller approval targets.
 A tool error carries the same `error` object as CLI stderr; its hint names the equivalent
 CLI command. Bad arguments and unknown tools are `validation`.
+Tool arguments become the CLI's daemon payload: every page tool takes `tab` (`t2` or `2`),
+`browser_action` takes the `tab` operation's `index` the same way, `browser_wait` takes `ref`
+and `selector`, `browser_snapshot` `ref`, `browser_eval` `ref` and `frame`, `browser_read`
+`max_chars`, and `browser_goto` `wait` and `new_tab`. `timeout` follows the CLI rule (0-86400
+seconds; `browser_wait` at most 100). Snapshots default to a 4,500-byte budget so a page read
+fits one 7,000-byte tool reply; narrow with `find` or `ref` instead of paging.
 Use one explicit MCP `session_id` throughout the task. Installing repository templates
 is a separate step; editing them does not update an already-installed caller policy.
 
@@ -65,7 +71,9 @@ with refs/cells, without pagination. `check URL` uses a temporary 390x844 loopba
 diagnostics page and preserves the working tab; `check REF` retains its behavior.
 
 `api URL` uses the current tab's exact origin and browser cookies. Writes require
-`commit api URL --method POST --json-file payload.json`. No redirects or retries;
+`commit api URL --method POST --json-file payload.json`, which sends `Accept` and
+`Content-Type: application/json`. MCP `browser_commit` with `body_file` sends the same
+headers; `content_type` (only with `body_file`) replaces the type. No redirects or retries;
 profile host policy is checked before dispatch. Authentication and redirect response
 headers are omitted. A 401, or a redirect to another origin, a sign-in path or an
 identity provider, opens a human handoff (`needs_human`, `handoff_id`) and focuses the
@@ -141,7 +149,8 @@ Runtime replies are compact single-line JSON with `contract_version: 1`. The com
 encoded CLI/socket reply, including escaping/newline, is bounded to 24,000 UTF-8 bytes.
 MCP text and structured output are bounded together. Overflow is preserved under an
 immutable `output_id`; read `output --id ID --offset 0` and follow `next_offset` until
-null. Later commands cannot replace that artifact; `last_output.json` remains available.
+null. The overflow reply still carries the page's `url`, `title` and `untrusted`.
+Later commands cannot replace that artifact; `last_output.json` remains available.
 `effect` and per-command console/page/network/HTTP error counts describe observations,
 not business success. Repeat `--expect` for AND checks under one action deadline:
 `text:Saved`, `gone:e12`, `url:changed`, `response:POST **/api/items:2xx`.

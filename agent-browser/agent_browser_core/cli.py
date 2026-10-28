@@ -54,13 +54,20 @@ def _demangle_msys(argv: list[str]) -> list[str]:
     return out
 
 
+def _check_timeout(value: float, name: str = "--timeout", *, wait: bool = False) -> float:
+    """The one timeout rule for CLI flags and MCP tool arguments: finite, 0 to MAX_TIMEOUT, and wait at most WAIT_CAP."""
+    if wait and value > core_common.WAIT_CAP:
+        raise core_common._tag(ValueError(f"{name} for wait is capped at {core_common.WAIT_CAP:g} seconds."), core_common.ERR_VALIDATION, hint=core_common._hint("wait_cap"))
+    if not math.isfinite(value) or value < 0 or value > core_common.MAX_TIMEOUT:
+        raise core_common._tag(ValueError(f"{name} must be finite and between 0 and {core_common.MAX_TIMEOUT:g} seconds"), core_common.ERR_VALIDATION)
+    return float(value)
+
+
 def _timeout_for(args: argparse.Namespace, default: float) -> float:
     value = getattr(args, "timeout", None)
     if value is None:
         value = core_common._env_float("AGENT_BROWSER_TIMEOUT_SECONDS", default) if default == core_common.DEFAULT_TIMEOUT else default
-    if not math.isfinite(value) or value < 0 or value > core_common.MAX_TIMEOUT:
-        raise core_common._tag(ValueError(f"--timeout must be finite and between 0 and {core_common.MAX_TIMEOUT:g} seconds"), core_common.ERR_VALIDATION)
-    return float(value)
+    return _check_timeout(value)
 
 
 def _caller_paths(args: argparse.Namespace) -> tuple[core_common.ProfilePaths, dict[str, Any]]:
@@ -247,9 +254,7 @@ def _cmd_screenshot(args: argparse.Namespace) -> Any:
 
 
 def _cmd_wait(args: argparse.Namespace) -> Any:
-    timeout = args.timeout if args.timeout is not None else core_common.WAIT_DEFAULT
-    if timeout > core_common.WAIT_CAP:
-        raise core_common._tag(ValueError(f"--timeout for wait is capped at {core_common.WAIT_CAP:g} seconds."), core_common.ERR_VALIDATION, hint=core_common._hint("wait_cap"))
+    timeout = _check_timeout(args.timeout if args.timeout is not None else core_common.WAIT_DEFAULT, wait=True)
     args.timeout = timeout
     payload = {"url_contains": args.url_contains, "text": args.text, "ref": args.ref, "selector": args.selector, "signed_in": args.signed_in, "seconds": args.seconds}
     if not any(v not in (None, "", 0) for v in payload.values()):
@@ -369,7 +374,9 @@ def _json_line(payload: Any, profile: str | None = None, session_id: str | None 
             output_id = secrets.token_hex(16)
             output_file = paths.outputs / (output_id + ".json")
     core_session._write_json_atomic(paths.workspace / "last_output.json", result, compact=True)
-    bounded = {k: result[k] for k in ("ok", "action", "effect", "observed", "command_id", "session_id", "pending", "status", "executed", "receipt", "note") if k in result}
+    # url and title say which page the stored reply describes; untrusted keeps marking them as page content.
+    bounded = {k: result[k] for k in ("ok", "action", "effect", "observed", "command_id", "session_id", "pending", "status", "executed", "receipt", "note",
+                                      "url", "title", "untrusted") if k in result}
     bounded.update(contract_version=core_common.CONTRACT_VERSION, truncated=True, output_id=output_id,
                    output_file=str(output_file), next_offset=0)
     if "error" in result:
