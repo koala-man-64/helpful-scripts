@@ -682,6 +682,21 @@ def test_clear_reports_files_it_could_not_remove_and_a_later_clear_removes_them(
     assert "files_not_removed" not in again and again["retained_commands"] == 0 and not daemon.paths.shots.exists()
 
 
+def test_clear_counts_an_unreadable_evidence_folder_instead_of_skipping_it(make_daemon, monkeypatch):
+    from pathlib import Path
+    daemon, ctx, page = make_daemon()
+    daemon.paths.shots.mkdir(parents=True, exist_ok=True)
+    shots, iterdir = daemon.paths.shots, Path.iterdir
+
+    def denied(path):
+        if path == shots.resolve():
+            raise PermissionError("access denied")
+        return iterdir(path)
+    monkeypatch.setattr(Path, "iterdir", denied)
+    result = daemon.dispatch("commit", {"operation": "journal", "clear": True}, 1)
+    assert result["files_not_removed"] == 1 and shots.exists()
+
+
 try:
     from _winapi import CreateJunction
 except ImportError:  # junctions are Windows-only

@@ -19,10 +19,14 @@ def _purge_evidence_dir(path: Path, keep: set[str]) -> int:
     receipt, so it goes even when it held a retained receipt's reply; the receipt itself stays readable with
     `output --id r<id>`. Returns how many entries could not be removed (a file held open, say); their rows are
     already gone, so a later clear removes them."""
-    if not path.is_dir():
+    try:
+        entries = list(path.iterdir())
+    except FileNotFoundError:
         return 0
+    except OSError:  # unreadable: counted, never silently skipped
+        return 1
     failed = 0
-    for entry in path.iterdir():
+    for entry in entries:
         if re.split(r"[-.]", entry.name, maxsplit=1)[0] in keep:
             continue
         try:
