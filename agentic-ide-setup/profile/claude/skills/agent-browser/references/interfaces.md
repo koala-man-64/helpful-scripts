@@ -81,12 +81,15 @@ Response byte limits are post-download limits: Playwright buffers the response.
 `table` without a ref reads the page's one visible table, or its one ARIA grid when it has
 no table; grid cells are included. `check URL` (MCP `browser_check_url`) accepts only
 `localhost`, `127.0.0.1` or `::1`. Its temporary page cannot reach other hosts: such
-requests, every redirect hop included, are blocked and their hosts listed (deduplicated,
-at most 20) in the untrusted `blocked_external`; a redirect of the page itself fails as
-`guarded` with the same list in `details`. WebSockets to other hosts never connect, and
-popups are closed (`popups_closed`). Service-worker requests, a popup's first request and
-redirect hops inside a cross-site iframe are not covered. A page that cannot load (for
-example, connection refused) fails as `action_failed`.
+requests, every redirect hop and its workers' requests included, are blocked and their
+hosts listed (deduplicated, at most 20) in the untrusted `blocked_external`; a redirect of
+the page itself, or a page that ends up off loopback, fails as `guarded` with the same list
+in the untrusted `details`. The page's WebSockets to other hosts never connect, and popups
+(and theirs) are closed (`popups_closed`). `unlabeled_controls` is page data too and is
+listed in `untrusted`. Not covered: a popup's traffic until it is closed, a worker's
+WebSockets, service workers (one the page registers stays in the profile for that origin)
+and redirect hops inside a cross-site iframe. A page that cannot load (for example,
+connection refused) fails as `action_failed`.
 
 Use the optional MCP extra (`pip install -e "agent-browser[mcp]"`) and register the
 `agent-browser-mcp` stdio command with your host. Pass the same explicit session ID

@@ -438,6 +438,9 @@ class FakePage(_Emitter):
         self.closed = True
         self.emit("close", self)
 
+    def is_closed(self) -> bool:
+        return self.closed
+
     def bring_to_front(self) -> None:
         pass
 

@@ -94,6 +94,17 @@ def _loopback_socket_route(blocked: dict[str, Any], held: list[Any]) -> Callable
     return handle
 
 
+def _layout(raw: Any) -> dict[str, Any]:
+    """DIAGNOSE_LAYOUT_JS runs in the page's own world, where the page can rewrite what it returns: keep only its two
+    keys, typed and sanitized, so it can neither add reply keys nor overwrite `status` or `viewport`."""
+    raw = raw if isinstance(raw, dict) else {}
+    controls = raw.get("unlabeled_controls") if isinstance(raw.get("unlabeled_controls"), list) else []
+    return {"horizontal_overflow": raw.get("horizontal_overflow") is True,
+            "unlabeled_controls": [{"tag": common.sanitize_text(item.get("tag", ""), 40, single_line=True),
+                                    "type": None if item.get("type") is None else common.sanitize_text(item["type"], 40, single_line=True)}
+                                   for item in controls[:40] if isinstance(item, dict)]}
+
+
 def _close_held(held: list[Any]) -> None:
     while held:
         _close_quietly(held.pop())
@@ -244,9 +255,10 @@ class ReachMixin:
         page.on("requestfailed", lambda req: errors["failed_requests"].append(common.redact_url(req.url)))
         page.on("response", lambda response: errors["http_errors"].append({"status": response.status, "url": common.redact_url(response.url)}) if response.status >= 400 else None)
         # The page shares the signed-in profile, so nothing it loads may reach another host. Its DevTools Fetch domain
-        # checks every hop of every request this page makes; its route also covers out-of-process (cross-site) frames,
-        # but only a request's first hop. WebSockets have their own route where Playwright has one. A popup is a new
-        # page none of these cover, so it is closed, and so are its own popups. Service-worker fetches bypass both.
+        # checks every hop of every request this page and its dedicated workers make; its route also covers
+        # out-of-process (cross-site) frames, but only a request's first hop. The page's WebSockets have their own
+        # route (a worker's do not). A popup is a new page none of these cover, so it is closed, and so are its own
+        # popups. Service-worker fetches bypass all of them.
         popups: list[Any] = []
         sockets: list[Any] = []
 
@@ -258,6 +270,11 @@ class ReachMixin:
         page.on("popup", close_popup)
         session = None
 
+        def stay_on_loopback() -> None:
+            # A refused top-level navigation leaves an error page, not the loopback page the result would describe.
+            if not _is_loopback_url(page.url):
+                raise refused()
+
         def refused() -> ValueError:
             return common._tag(ValueError("check URL reached a non-loopback host; the request was blocked."), common.ERR_GUARDED,
                                details={"blocked_external": list(blocked["hosts"])})
@@ -267,9 +284,7 @@ class ReachMixin:
             session.on("Fetch.requestPaused", _loopback_fetch(session, blocked, session.send("Page.getFrameTree")["frameTree"]["frame"]["id"]))
             session.send("Fetch.enable", {"patterns": [{"urlPattern": "*"}]})
             page.route("**/*", _loopback_route(blocked))
-            route_web_socket = getattr(page, "route_web_socket", None)
-            if route_web_socket is not None:
-                route_web_socket("**/*", _loopback_socket_route(blocked, sockets))
+            page.route_web_socket("**/*", _loopback_socket_route(blocked, sockets))
             page.set_viewport_size({"width": 390, "height": 844})
             try:
                 response = page.goto(url, wait_until="domcontentloaded", timeout=max(timeout, .5) * 1000)
@@ -277,23 +292,26 @@ class ReachMixin:
                 if blocked["navigation"]:
                     raise refused() from exc
                 raise
-            if not _is_loopback_url(page.url):
-                raise refused()
+            stay_on_loopback()
             _close_held(sockets)
             page.wait_for_timeout(300)
             _close_held(sockets)
-            layout = page.evaluate(DIAGNOSE_LAYOUT_JS)
+            layout = _layout(page.evaluate(DIAGNOSE_LAYOUT_JS))
+            stay_on_loopback()
             self.current = page
             shot = self.h_screenshot({"_command_id": args["_command_id"]}, timeout)
             return {"status": response.status if response else None, "viewport": {"width": 390, "height": 844},
                     **layout, **{k: v[:20] for k, v in errors.items()}, "blocked_external": list(blocked["hosts"]),
                     "popups_closed": len(popups), "screenshot": shot["file"],
-                    "untrusted": ["console_errors", "page_errors", "failed_requests", "http_errors", "blocked_external"]}
+                    "untrusted": ["unlabeled_controls", "console_errors", "page_errors", "failed_requests", "http_errors", "blocked_external"]}
         except (ValueError, RuntimeError):
             raise
         except Exception as exc:
             raise self._classify(exc, "check") from exc
         finally:
+            for popup in popups:  # one whose close failed in the handler must not stay open as a session tab
+                if not popup.is_closed():
+                    _close_quietly(popup)
             page.close()  # before the session goes: detaching it first would release requests it holds paused
             if session is not None:
                 try:

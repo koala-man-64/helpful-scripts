@@ -73,12 +73,15 @@ with refs/cells (grid cells included), without pagination. Without a REF it take
 page's one visible table; an ARIA grid only when there is no table. `check URL` uses a
 temporary 390x844 loopback diagnostics page and preserves the working tab; `check REF`
 retains its behavior. That page shares the signed-in profile, so every request it makes
-to a host other than `localhost`, `127.0.0.1` or `::1` is blocked, each redirect hop
-included, and reported by host in `blocked_external` (untrusted). A redirect of the page
-itself off loopback fails the check as `guarded`. WebSockets to other hosts never
-connect, and popups the page opens are closed (`popups_closed`). Not covered: requests
-from a service worker, a popup's first request, and redirect hops inside a cross-site
-iframe (for example a `localhost` frame on a `127.0.0.1` page).
+to a host other than `localhost`, `127.0.0.1` or `::1` is blocked, each redirect hop and
+its workers' requests included, and reported by host in `blocked_external` (untrusted). A
+redirect of the page itself off loopback, or a page that ends up off loopback, fails the
+check as `guarded` (untrusted `details.blocked_external`). The page's WebSockets to other
+hosts never connect, and popups it opens, and theirs, are closed (`popups_closed`).
+Not covered: a popup's traffic until it is closed (its first request at least), a
+worker's WebSockets, a service worker (which the page can also register; it stays in the
+profile for that loopback origin), and redirect hops inside a cross-site iframe (for
+example a `localhost` frame on a `127.0.0.1` page).
 
 `api URL` uses the current tab's exact origin and browser cookies. Writes require
 `commit api URL --method POST --json-file payload.json`, which sends `Accept` and
@@ -366,7 +369,8 @@ still succeeds. Between commands a `beforeunload` raised by a human navigation i
   page outside `allowed_hosts`, polls a `needs-human --signed-in` handoff with `state --handoff ID`.
 - `check URL` loads only loopback. Its temporary page's requests to any other host, redirect hops included, are
   blocked by a page route plus the page's own DevTools Fetch domain (Playwright lets redirects pass page routes).
-  Service-worker requests, a popup's first request and redirect hops inside a cross-site iframe are not covered.
+  Not covered: a popup's traffic until it is closed, a worker's WebSockets, service workers (one the page registers
+  stays in the profile for that loopback origin) and redirect hops inside a cross-site iframe.
 - Playwright's snapshot prints what a field holds, so every input line with a value is checked like a `fill`
   target first. The value and contents of a credential-looking field show as `***`, and so do those of a field
   that cannot be inspected, a field with no ref, every field past the per-snapshot budget (200 checks, 500 ms
