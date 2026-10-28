@@ -21,6 +21,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent_browser_core import common as core_common
+import live_support
 
 
 pytestmark = [pytest.mark.live, pytest.mark.skipif(os.getenv("AGENT_BROWSER_LIVE") != "1", reason="set AGENT_BROWSER_LIVE=1 to run live expansion journeys")]
@@ -154,23 +155,11 @@ def _env(home: Path) -> dict[str, str]:
     return env
 
 
-def _browser_processes(home: Path) -> list[dict]:
-    return [proc for proc in core_common._processes_using(str(home))
-            if proc["name"].lower() in {"msedge.exe", "chrome.exe", "node.exe"}]
-
-
-def _stop_and_cleanup(home: Path) -> None:
+def _stop_and_cleanup(home: Path, failures: live_support.FailureWatch, label: str) -> None:
     subprocess.run([sys.executable, "-X", "utf8", str(TOOL), "stop", "--all", "--force", "--profile", PROFILE],
                    env=_env(home), capture_output=True, timeout=60, check=False)
-    deadline = time.time() + 10
-    leftovers = _browser_processes(home)
-    while leftovers and time.time() < deadline:
-        time.sleep(0.25)
-        leftovers = _browser_processes(home)
-    for proc in leftovers:
-        core_common._kill_tree(proc["pid"])
-    core_common._rmtree_retry(home)
-    assert not leftovers, f"browser processes survived expansion test teardown: {leftovers}"
+    blocking = live_support.finish_home(home, failures, label)
+    assert not blocking, f"browser processes survived expansion test teardown: {blocking}"
 
 
 @pytest.fixture(scope="module")
@@ -186,10 +175,11 @@ def site() -> _Site:
 
 
 @pytest.fixture(scope="module")
-def live_home() -> Path:
+def live_home(request: pytest.FixtureRequest) -> Path:
     home = Path(tempfile.mkdtemp(prefix="abx", dir=os.getenv("TEMP") or None))
+    failures = live_support.FailureWatch(request)
     yield home
-    _stop_and_cleanup(home)
+    _stop_and_cleanup(home, failures, f"{request.module.__name__}-{home.name}")
 
 
 @pytest.fixture(scope="module")
@@ -262,7 +252,9 @@ def test_expectations_report_success_and_failure_without_replaying_click(cli: Cl
     assert success["refs_valid"] is True
     assert site.server.save_calls == 1
 
-    code, _output, error = cli("click", "--role", "button", "--name", "Save", "--expect", "text:never appears", "--timeout", "0.5",
+    # --timeout is the click's budget as well as the expectation's deadline: 3 s outlasts the 1.2 s click stall seen
+    # on main (PR 7), so only the expectation can run out.
+    code, _output, error = cli("click", "--role", "button", "--name", "Save", "--expect", "text:never appears", "--timeout", "3",
                                 "--session", session)
     assert code != 0 and error["class"] == "timeout", error
     assert error["details"]["executed"] is True
@@ -271,7 +263,7 @@ def test_expectations_report_success_and_failure_without_replaying_click(cli: Cl
     assert "2" in cli.ok("text", "--session", session)["text"]
 
     # "saved" shows before this click and after it: text already on the page is no evidence of the action.
-    code, _output, error = cli("click", "--role", "button", "--name", "Save", "--expect", "text:saved", "--timeout", "1",
+    code, _output, error = cli("click", "--role", "button", "--name", "Save", "--expect", "text:saved", "--timeout", "3",
                                 "--session", session)
     assert code != 0 and error["class"] == "timeout", error
     assert error["details"]["executed"] is True
@@ -291,7 +283,9 @@ def test_wait_in_one_session_does_not_block_another_session_read(cli: Cli, site:
         started = time.perf_counter()
         read = cli.ok("text", "--session", reader)
         elapsed = time.perf_counter() - started
-        assert elapsed < 2.0, f"second session read took {elapsed:.2f}s while the first session waited"
+        # The claim is that a 100 s wait in one session does not hold up another session's read. 10 s is a tenth of
+        # that wait and covers a CI runner's CLI start-up plus the daemon's turn (2.78 s and 2.85 s seen on CI).
+        assert elapsed < 10.0, f"second session read took {elapsed:.2f}s while the first session waited"
         assert "Home" in read["text"]
 
         cli.ok("stop", "--session", waiter)

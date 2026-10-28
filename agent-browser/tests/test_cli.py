@@ -624,6 +624,21 @@ def test_only_wait_is_capped_and_the_limit_is_shared_with_the_daemon(capsys: pyt
     assert error_envelope(capsys.readouterr().err)["hint"] == core_common._hint("wait_cap")
 
 
+@pytest.mark.parametrize("argv", [
+    ["goto", "https://x/", "--timeout=-1"], ["goto", "https://x/", "--timeout=nan"],
+    ["goto", "https://x/", f"--timeout={core_common.MAX_TIMEOUT + 1:g}"], ["goto", "https://x/", "--new-tab", "--tab", "1"],
+    ["goto", "https://x/", "--tab", "not-a-tab"], ["check", "https://x/", "--timeout=-1"],
+])
+def test_a_usage_or_validation_error_never_autostarts_a_daemon(argv: list[str], monkeypatch: pytest.MonkeyPatch,
+                                                                 capsys: pytest.CaptureFixture[str]) -> None:
+    # goto and check URL autostart a daemon; one that starts before the arguments are checked outlives the command.
+    started: list[str] = []
+    monkeypatch.setattr(core_session, "start_session", lambda paths, args, timeout=core_common.START_TIMEOUT: started.append(paths.profile) or {})
+    assert core_cli.main(argv) == 2
+    assert error_envelope(capsys.readouterr().err)["class"] in {"usage", "validation"}
+    assert started == []
+
+
 def test_downloads_uses_the_documented_default_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[float] = []
     monkeypatch.setattr(core_cli, "_remote", lambda args, verb, cmd, payload, default_timeout=core_common.DEFAULT_TIMEOUT, autostart=False: seen.append(default_timeout) or {})
