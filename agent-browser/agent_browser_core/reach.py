@@ -188,7 +188,9 @@ class ReachMixin:
             raise common._tag(ValueError("An identical note is already displayed. Inspect the record and prior receipt before another submission."), common.ERR_GUARDED)
         if not args.get("_commit"):
             return {"preview": {"number": number, "work_note": text}, "requires_commit": True}
-        cursor = self.response_cursor
+        record_path = urllib.parse.urlsplit(record_url).path
+        posts = self._watch(lambda method, url, status: method in {"POST", "PATCH"} and 200 <= status < 400
+                            and api.origin(url) == api.origin(record_url) and urllib.parse.urlsplit(url).path == record_path)
         self.h_fill({"target": {"label": "Work notes"}, "text": text, "enter": False, "tab": args.get("tab")}, timeout)
         self.h_click({"target": "button#sysverb_update", "tab": args.get("tab")}, timeout)
         command_id, deadline = args["_command_id"], args.get("_deadline", common._now() + timeout)
@@ -196,10 +198,7 @@ class ReachMixin:
 
         def verify():
             nonlocal reloaded
-            posted = any(seq > cursor and p is page and method in {"POST", "PATCH"} and 200 <= status < 400
-                         and api.origin(url) == api.origin(record_url)
-                         and urllib.parse.urlsplit(url).path == urllib.parse.urlsplit(record_url).path
-                         for seq, p, method, url, status in self.response_events)
+            posted = page in posts["pages"]
             if posted and not reloaded:
                 common._check_url(record_url, self.paths, self.config)
                 current = next((f for f in page.frames if f.name == "gsft_main"), None)
@@ -226,6 +225,6 @@ class ReachMixin:
                 raise common._tag(RuntimeError("Work-note persistence was not verified after reload. Inspect the record; do not replay the write."), common.ERR_TIMEOUT,
                                   details={"command_id": command_id, "executed": True})
             else:
-                self.jobs[command_id] = {"session": self.session_id, "checker": verify, "executed": True}
+                self.jobs[command_id] = {"session": self.session_id, "checker": verify, "executed": True, "watches": [posts]}
             return result
         return verify()

@@ -77,6 +77,46 @@ def test_click_after_frame_navigation_is_stale_ref(make_daemon, outer_text: str)
     assert exc.value.error_class == core_common.ERR_STALE_REF
 
 
+def _navigate_during_frame_map(daemon, monkeypatch, *, once: bool) -> None:
+    """The iframe commits a new document after the snapshot read it and before the serve finishes."""
+    original, fired = daemon._frame_map, []
+
+    def racing(page, lines):
+        if not (once and fired):
+            fired.append(True)
+            page.emit("framenavigated", page.frames[1])
+        return original(page, lines)
+    monkeypatch.setattr(daemon, "_frame_map", racing)
+
+
+def test_frame_that_navigates_while_the_snapshot_is_taken_leaves_its_refs_stale(make_daemon, outer_text: str, monkeypatch) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    _navigate_during_frame_map(daemon, monkeypatch, once=True)
+
+    env = daemon.dispatch("snapshot", {}, 5.0)
+
+    assert env["refs_valid"] is False and env["navigated"] is True
+    assert core_common._hint("refs_moved") in env["note"]
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("click", {"target": _ref(env, r'button "Save"')}, 5.0)
+    assert exc.value.error_class == core_common.ERR_STALE_REF
+    assert page.elements["f1e4"].calls == []
+    # Only the moved frame's refs are stale; the main frame's still resolve.
+    assert daemon.dispatch("click", {"target": "e4"}, 5.0)["refs_valid"] is True
+
+
+def test_action_reply_reports_stale_refs_when_a_frame_navigates_during_its_snapshot(make_daemon, outer_text: str, monkeypatch) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    daemon.dispatch("snapshot", {}, 5.0)
+    _navigate_during_frame_map(daemon, monkeypatch, once=False)
+
+    result = daemon.dispatch("click", {"target": "e4"}, 5.0)
+
+    assert "changes" in result  # the compact reply, which used to claim refs_valid: true
+    assert result["refs_valid"] is False and result["navigated"] is True and result["effect"] == "navigated"
+    assert core_common._hint("refs_moved") in result["note"]
+
+
 @pytest.mark.parametrize("belongs_to_page", [True, False])
 def test_prefixed_main_frame_refs_use_the_element_owner(make_daemon, monkeypatch, belongs_to_page):
     from types import SimpleNamespace

@@ -21,7 +21,7 @@ when the workflow requires it; this skill does not preapprove them.
 
 An observed effect, a click, or HTTP 2xx alone does not prove business success.
 Zero or multiple semantic matches are refused; inspect the bounded candidate refs.
-Use `agent-browser snapshot` after stale refs or navigation.
+Use `agent-browser snapshot` after stale refs, navigation, or `refs_valid: false`.
 
 ## Sessions and permissions
 
@@ -66,7 +66,8 @@ execution failure. Inspect `completed_fields`; there is no automatic rollback.
 
 Repeat `--expect` for AND checks under one deadline: `text:Saved`, `gone:e12`,
 `url:changed`, or `response:POST **/api/items:2xx`. Observation starts before the action.
-Recipes and wait use their own verification conditions.
+`text:` needs a new occurrence: text already on the page does not count, even after a
+reload. Recipes and wait use their own verification conditions.
 
 Replies are compact JSON with `contract_version: 1`, bounded to 24,000 UTF-8 bytes.
 For overflow, retain `output_id`: `agent-browser output --id ID --offset 0`.
