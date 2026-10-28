@@ -250,7 +250,7 @@ Real environment variables, read lazily; no `.env` loading (the tool must run ba
 | `AGENT_BROWSER_MAX_BYTES` / `AGENT_BROWSER_MAX_CHARS` | Snapshot byte budget (16000); `text` character cap (20000). |
 | `AGENT_BROWSER_AUTOSTART` | `false` stops `goto` from starting a browser on its own. |
 | `AGENT_BROWSER_LAUNCHER` | `popen` (default) or `wmi`: how the daemon is detached from the shell. |
-| `AGENT_BROWSER_IDLE_SECONDS` | Daemon stops after this much inactivity (default 0 = never). |
+| `AGENT_BROWSER_IDLE_SECONDS` | Daemon stops after this much inactivity (default 0 = never). Any request counts, `poll`, `wait` and `state` included; an open handoff nobody polls does not. |
 | `AGENT_BROWSER_LIVE` | `1` enables the live pytest suite. |
 
 `%LOCALAPPDATA%\agent-browser\config.json` is a human-written policy file the tool never creates:
@@ -269,7 +269,7 @@ effective list is a configuration error.
   user-data\        the Chromium profile: cookies, local storage, sign-ins (never your daily Edge profile)
   session.json      pid, port, token, browser, heartbeat, busy (request in flight: cmd, since, until), code hash (written by the daemon)
   session.lock      held by the daemon for its lifetime; the OS releases it on death (liveness truth)
-  launch.json       the settings the client handed the daemon
+  launch.json       the settings and token the client hands the daemon; the daemon deletes it once it holds the lock
   daemon.log        command/status/timing diagnostics; no argument values or exception bodies
   journal.sqlite3   redacted receipts, evidence references and durable human handoffs
   last_snapshot.txt the manual session's last filtered snapshot
@@ -278,7 +278,8 @@ effective list is a configuration error.
 ```
 
 One daemon, one browser window, one loopback port per profile. `start` is idempotent; a stale session (daemon died)
-is cleaned and relaunched on the same profile folder, so the sign-in survives. Two profiles run side by side with
+is cleaned and relaunched on the same profile folder, so the sign-in survives. Of two `start`s racing on one profile,
+one launches the daemon and the other reports it as `already_running`. Two profiles run side by side with
 separate cookies; that is opt-in through `--profile`. Selection is explicit profile,
 environment default, then `default`; there is no attachment to whichever profile runs.
 The `_doctor` profile is reserved for internal diagnostics and cannot be selected by callers.
@@ -307,7 +308,8 @@ raised by a human navigation is accepted.
 
 - Playwright talks to the browser over a pipe. No DevTools TCP port is opened on the signed-in profile.
 - The daemon listens on `127.0.0.1` only, behind a per-session token stored in `session.json` under your user profile;
-  a wrong token is dropped without a reply, a request has 5 s to arrive and a 2 MiB input budget.
+  a wrong token (including a non-string one) is logged and dropped without a reply, and a request line must arrive in full
+  within 5 s, however it is chunked, and within a 2 MiB input budget.
 - The tool never types into password, one-time-code, or credential-looking fields, and no flag overrides that. It
   checks where input lands: the label's control for `fill`, and the focused element for key presses (a target that
   cannot take focus leaves keys on the previous field). Open shadow roots are inspected. A field it cannot inspect
@@ -445,6 +447,7 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 | `guarded` on `fill` / `type` / `press` | The field, or the focused field the keys would land in, looks like a password or code field. The human types it in the window; then `wait --signed-in <host>`. |
 | `action_failed` "Could not confirm the field…" | The credential check could not inspect the field (page navigating, frame detached, focus inside a custom element's closed shadow root). Take a fresh `snapshot` and retry; give `press` a ref if a press without one keeps failing. |
 | `unsaved_changes` | The page has edits. Click its Save/Update button or re-run with `--discard-changes`. |
+| `config` from `start` naming a policy key (`permission`, `profiles`, `evidence_max_bytes`, ...) | `config.json` has a malformed profile policy. `start` checks it before launching a browser; fix the named key and start again. |
 | `Profile path is too long` (class `config`) | Set `AGENT_BROWSER_HOME` to a short path such as `C:\ab`. |
 | `browser_launch` with a log tail | Read `daemon.log`; `agent-browser doctor` decodes Edge and Chrome policies (`DeveloperToolsAvailability=2`, `ForceEphemeralProfiles`). Try `--browser chrome`. |
 | `profile_in_use` | A stray browser holds the profile folder. `agent-browser clean --profile <p>`. |
