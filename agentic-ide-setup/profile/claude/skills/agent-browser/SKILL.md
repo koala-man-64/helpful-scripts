@@ -57,6 +57,7 @@ After explicit human confirmation, `agent-browser commit state --handoff ID --re
 records completion when the handoff has no automatic condition.
 Conditional handoffs resolve only after their completion condition is observed.
 Waits poll one original operation; they do not repeat actions or block other sessions.
+With `AGENT_BROWSER_IDLE_SECONDS` set, polls keep the browser up; an unpolled handoff does not.
 
 ## Forms and evidence
 

@@ -208,6 +208,7 @@ class OperatingMixin:
 
     def dispatch(self, cmd: str, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         args = dict(args)
+        self.last_activity = common._now()  # every request counts toward the idle timer, poll and wait included
         # Only the commit operation below declares a commit. A caller's own _commit would pass
         # the verb gates in policy.authorize and turn a recipe preview into a submission.
         args.pop("_commit", None)
@@ -296,6 +297,7 @@ class OperatingMixin:
             exc.details = details
             raise
         finally:
+            self.last_activity = common._now()  # a long command must not end with the idle timer already expired
             self._cmd_target_page = None
             self.watching = []  # a pending job keeps its own response matchers
 

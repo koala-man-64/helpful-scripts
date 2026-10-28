@@ -876,3 +876,32 @@ def test_recipe_persistence_check_survives_unrelated_traffic(make_daemon, monkey
     result = daemon.dispatch("commit", {"operation": "run", "recipe": "sn/add-work-note", "number": "INC0012345", "text": "note"}, 30)
 
     assert result["persisted"] is True and result["pending"] is False and reloaded == [record]
+
+
+def test_every_request_refreshes_the_idle_clock(make_daemon):
+    daemon, _, _ = make_daemon()
+    assert daemon.idle_expired(0) is False  # AGENT_BROWSER_IDLE_SECONDS=0 never expires
+    daemon.last_activity = 0.0
+    assert daemon.idle_expired(60) is True
+    pending = daemon.dispatch("wait", {"seconds": 100, "_session_id": "a", "_cooperative": True}, 100)
+    assert pending["pending"] and not daemon.idle_expired(60)
+    daemon.last_activity = 0.0
+    daemon.dispatch("poll", {"command_id": pending["command_id"], "_session_id": "a"}, 1)
+    assert not daemon.idle_expired(60)
+    daemon.last_activity = 0.0
+    with pytest.raises(ValueError):
+        daemon.dispatch("poll", {"command_id": "unknown", "_session_id": "a"}, 1)
+    assert not daemon.idle_expired(60)
+
+
+def test_a_long_command_does_not_end_with_the_idle_clock_expired(make_daemon, fake_clock, monkeypatch):
+    daemon, _, _ = make_daemon()
+    real_tabs = daemon.h_tabs
+
+    def slow_tabs(args, timeout):
+        fake_clock.sleep(120)
+        return real_tabs(args, timeout)
+
+    monkeypatch.setattr(daemon, "h_tabs", slow_tabs)
+    daemon.dispatch("tabs", {"_session_id": "a"}, 200)
+    assert not daemon.idle_expired(60)
