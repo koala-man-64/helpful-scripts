@@ -580,3 +580,64 @@ def test_downloads_uses_the_documented_default_timeout(monkeypatch: pytest.Monke
     monkeypatch.setattr(core_cli, "_remote", lambda args, verb, cmd, payload, default_timeout=core_common.DEFAULT_TIMEOUT, autostart=False: seen.append(default_timeout) or {})
     core_cli._cmd_downloads(argparse.Namespace())
     assert seen == [core_common.DOWNLOADS_TIMEOUT]
+
+
+# ---------------------------------------------------------------------------
+# dialog answers and stop
+
+
+def _sent_to_daemon(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict[str, Any]]]:
+    captured: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(core_cli, "_session_for", lambda args, verb, autostart=False: (core_common._paths("default"), {"port": 1, "token": "t", "profile": "default"}))
+    monkeypatch.setattr(core_session, "_request", lambda session, cmd, payload, timeout: captured.append((cmd, dict(payload))) or {"ok": True})
+    return captured
+
+
+@pytest.mark.parametrize("argv", [
+    ["click", "e1"], ["fill", "e1", "x"], ["type", "e1", "x"], ["press", "Enter"], ["select", "e1", "High"], ["check", "e1"],
+    ["uncheck", "e1"], ["hover", "e1"], ["scroll", "e1"], ["upload", "e1", "note.txt"], ["eval", "1"], ["fill-form", "--file", "form.json"],
+    ["commit", "press", "Enter", "e1"],
+])
+def test_dialog_flags_reach_the_daemon_from_every_action_verb(argv: list[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Any,
+                                                              capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "note.txt").write_text("note", encoding="utf-8")
+    (tmp_path / "form.json").write_text('[{"target": "e1", "value": "x"}]', encoding="utf-8")
+    captured = _sent_to_daemon(monkeypatch)
+    assert core_cli.main([*argv, "--accept-dialog", "--dialog-text", "ok", "--discard-changes"]) == 0, capsys.readouterr().err
+    cmd, payload = captured[-1]
+    assert cmd == ("commit" if argv[0] == "commit" else argv[0])
+    assert (payload["accept_dialog"], payload["dialog_text"], payload["discard_changes"]) == (True, "ok", True)
+
+
+def test_fill_enter_with_discard_changes_reaches_the_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = _sent_to_daemon(monkeypatch)
+    assert core_cli.main(["fill", "e1", "draft", "--enter", "--discard-changes"]) == 0
+    cmd, payload = captured[-1]
+    assert cmd == "fill" and payload["enter"] is True and payload["discard_changes"] is True
+    assert payload["accept_dialog"] is False and payload["dialog_text"] is None
+
+
+def test_stop_sends_discard_changes_for_this_session_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured = _sent_to_daemon(monkeypatch)
+    monkeypatch.setattr(core_session, "_liveness", lambda paths: ("running", {"pid": 1}))
+    for argv, discard in ((["stop"], False), (["stop", "--discard-changes"], True)):
+        assert core_cli.main(argv) == 0
+        assert captured[-1][0] == "stop" and captured[-1][1]["discard_changes"] is discard
+
+
+@pytest.mark.parametrize("argv", [
+    ["fill", "e1", "x", "--dialog-text", "y"],                                   # a prompt answer without accepting would be dropped
+    ["stop", "--all", "--discard-changes"], ["stop", "--force", "--discard-changes"],  # those already discard everything
+    # An abbreviated flag would slip past the caller's ask rules (*--accept-dialog*, *--all*, *--clear*).
+    ["click", "e1", "--accept"], ["fill", "e1", "x", "--discard"], ["goto", "https://x/", "--discard-ch"], ["stop", "--al"],
+    ["stop", "--forc"], ["journal", "--cl"],
+])
+def test_unsafe_dialog_and_stop_flag_forms_are_usage_errors(argv: list[str], monkeypatch: pytest.MonkeyPatch,
+                                                            capsys: pytest.CaptureFixture[str]) -> None:
+    captured = _sent_to_daemon(monkeypatch)
+    stopped: list[bool] = []
+    monkeypatch.setattr(core_session, "stop_session", lambda paths, force=False: stopped.append(force) or {})
+    assert core_cli.main(argv) == 2
+    assert json.loads(capsys.readouterr().err)["error"]["class"] == core_common.ERR_USAGE
+    assert captured == [] and stopped == []

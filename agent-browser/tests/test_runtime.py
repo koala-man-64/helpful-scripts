@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from agent_browser_core import common, evidence
-from conftest import FakeFrame
+from conftest import FakeDialog, FakeFrame, FakePage, FakePlaywrightError
 
 
 def test_session_identity_precedence(monkeypatch):
@@ -40,6 +40,143 @@ def test_stop_releases_only_its_session(make_daemon):
     assert daemon.stop_reason is None
     daemon.dispatch("state", {"_session_id": "b"}, 1)
     assert daemon.page() is second
+
+
+def _beforeunload_on_close(daemon, page, *, close_later=False):
+    """Make page.close(run_before_unload=True) raise a beforeunload: dismissed, the tab stays open; accepted, it closes,
+    with close_later only once stop waits for it, as Playwright's close() returns before the tab is gone."""
+    raised = []
+
+    def close(run_before_unload=False):
+        raised.append(FakeDialog("beforeunload"))
+        raised[-1].page = page
+        daemon.ctx.emit("dialog", raised[-1])
+        if raised[-1].accepted_with is None:
+            return
+        if not close_later:
+            return FakePage.close(page)
+        page.wait_for_timeout = lambda ms: page.closed or FakePage.close(page)
+    page.close = close
+    return raised
+
+
+def test_stop_keeps_tabs_with_unsaved_edits_and_the_session_until_discarded(make_daemon):
+    daemon, ctx, original = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
+    dirty = daemon.page()
+    raised = _beforeunload_on_close(daemon, dirty)
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("stop", {"_session_id": "a"}, 5)
+    assert exc.value.error_class == common.ERR_UNSAVED and exc.value.hint == common._hint("unsaved_changes")
+    assert exc.value.details["tabs"] == [daemon.tab_ids[dirty]] and exc.value.details["closed"] == 0
+    assert exc.value.details["executed"] is False and exc.value.details["dialogs"][0]["handled"] == "dismissed"
+    assert raised[0].dismissed and not dirty.closed
+    assert "a" in daemon.used_sessions and daemon.sessions["a"]["pages"] == [dirty] and daemon.stop_reason is None
+
+    released = daemon.dispatch("stop", {"_session_id": "a", "discard_changes": True}, 5)
+    assert released["stopped"] is True and raised[1].accepted_with == "" and dirty.closed
+    assert [d["handled"] for d in released["dialogs"]] == ["accepted"] and daemon.dialog_log == []
+    assert "a" not in daemon.used_sessions
+
+
+def test_stop_with_discard_changes_waits_for_the_tab_to_close(make_daemon):
+    daemon, ctx, original = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
+    daemon.dispatch("goto", {"url": "http://x/b", "_session_id": "b"}, 5)
+    dirty = daemon.sessions["a"]["current"]
+    raised = _beforeunload_on_close(daemon, dirty, close_later=True)
+    released = daemon.dispatch("stop", {"_session_id": "a", "discard_changes": True}, 5)
+    assert released["stopped"] is True and raised[0].accepted_with == ""
+    assert dirty.closed and daemon.sessions["a"]["pages"] == [] and daemon.stop_reason is None
+
+
+def test_stop_answers_every_own_tab_not_just_the_current_one(make_daemon):
+    daemon, ctx, original = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
+    dirty = daemon.page()
+    daemon.dispatch("goto", {"url": "http://x/c", "new_tab": True, "_session_id": "a"}, 5)
+    clean = daemon.page()
+    assert daemon.sessions["a"]["current"] is clean
+    _beforeunload_on_close(daemon, dirty)
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("stop", {"_session_id": "a"}, 5)
+    # The clean tab closed before the refusal, so the receipt says the command did something.
+    assert exc.value.details["tabs"] == [daemon.tab_ids[dirty]] and exc.value.details["closed"] == 1
+    assert exc.value.details["executed"] is True and clean.closed and daemon.sessions["a"]["pages"] == [dirty]
+    assert not daemon.sessions["a"].get("dialogs")  # answered by stop, not as another tab's background dialog
+
+
+def test_stop_keeps_every_open_tab_when_a_dismissed_beforeunload_names_no_tab(make_daemon):
+    daemon, ctx, page = make_daemon()
+    waits = []
+    page.close = lambda run_before_unload=False: ctx.emit("dialog", FakeDialog("beforeunload"))
+    page.wait_for_timeout = waits.append
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("stop", {}, 5)
+    assert exc.value.error_class == common.ERR_UNSAVED and exc.value.details["tabs"] == [daemon.tab_ids[page]]
+    assert waits == []  # the unmatched dismissal already decides, so stop does not wait out its deadline
+
+
+def test_a_dismissal_naming_no_tab_does_not_cut_short_the_next_tabs_close(make_daemon):
+    daemon, ctx, original = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
+    dirty = daemon.page()
+    daemon.dispatch("goto", {"url": "http://x/c", "new_tab": True, "_session_id": "a"}, 5)
+    slow = daemon.page()
+    dirty.close = lambda run_before_unload=False: ctx.emit("dialog", FakeDialog("beforeunload"))
+    waits = []
+    slow.close = lambda run_before_unload=False: None
+    slow.wait_for_timeout = lambda ms: waits.append(ms) if len(waits) < 2 else FakePage.close(slow)
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("stop", {"_session_id": "a"}, 5)
+    # The clean tab closed while stop waited for it, so only the dirty tab is reported as kept.
+    assert exc.value.details["tabs"] == [daemon.tab_ids[dirty]] and exc.value.details["closed"] == 1 and slow.closed
+
+
+def test_stop_waits_past_two_seconds_for_a_busy_tab_to_answer_its_beforeunload(make_daemon, fake_clock):
+    # A prompt after stop returns would be answered between commands, where beforeunload is accepted: edits lost.
+    daemon, ctx, page = make_daemon()
+    started = []
+
+    def late_prompt(ms):
+        if fake_clock.value - started[0] > 3.0 and not page.closed:
+            page.wait_for_timeout = lambda ms: None
+            dialog = FakeDialog("beforeunload")
+            dialog.page = page
+            ctx.emit("dialog", dialog)
+    page.close = lambda run_before_unload=False: started.append(fake_clock.value)
+    page.wait_for_timeout = late_prompt
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("stop", {}, 10)
+    assert exc.value.error_class == common.ERR_UNSAVED and exc.value.details["tabs"] == [daemon.tab_ids[page]]
+
+
+def test_stop_that_fails_after_closing_a_tab_says_it_ran(make_daemon):
+    daemon, ctx, original = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
+    first = daemon.page()
+    daemon.dispatch("goto", {"url": "http://x/c", "new_tab": True, "_session_id": "a"}, 5)
+    second = daemon.page()
+
+    def broken(run_before_unload=False):
+        raise FakePlaywrightError("Protocol error (Page.close): Internal error")
+    second.close = broken
+    with pytest.raises(Exception) as exc:
+        daemon.dispatch("stop", {"_session_id": "a"}, 5)
+    assert first.closed and exc.value.details["executed"] is True and "a" in daemon.used_sessions
+
+
+def test_stop_does_not_fail_a_clean_tab_that_is_slow_to_close(make_daemon):
+    daemon, ctx, page = make_daemon()
+    page.close = lambda run_before_unload=False: None  # neither closed nor a beforeunload within the wait
+    assert daemon.dispatch("stop", {}, 5)["stopped"] is True
+
+
+def test_stop_all_still_stops_the_profile_without_asking(make_daemon):
+    daemon, ctx, page = make_daemon()
+    raised = _beforeunload_on_close(daemon, page)
+    assert daemon.dispatch("stop", {"all": True}, 5)["stopping"] is True
+    assert daemon.stop_reason == "stop" and raised == []
 
 
 def test_read_permission_denial_is_journaled_without_values(make_daemon):

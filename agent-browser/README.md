@@ -45,7 +45,9 @@ Tool arguments become the CLI's daemon payload: every page tool takes `tab` (`t2
 `browser_action` takes the `tab` operation's `index` the same way, `browser_wait` takes `ref`
 and `selector`, `browser_snapshot` `ref`, `browser_eval` `ref` and `frame`, `browser_read`
 `max_chars`, and `browser_goto` `wait` and `new_tab`. `timeout` follows the CLI rule (0-86400
-seconds; `browser_wait` at most 100). Snapshots default to a 4,500-byte budget so a page read
+seconds; `browser_wait` at most 100). Only `browser_commit` (`accept_dialog`, `dialog_text`, `discard_changes`) and
+`browser_stop` (`discard_changes`) accept a dialog or discard unsaved edits. MCP rules match tool names only, so the
+template asks before every `browser_commit` but not before `browser_stop`. Snapshots default to a 4,500-byte budget so a page read
 fits one 7,000-byte tool reply; narrow with `find` or `ref` instead of paging.
 Use one explicit MCP `session_id` throughout the task. Installing repository templates
 is a separate step; editing them does not update an already-installed caller policy.
@@ -116,11 +118,11 @@ qualification requires a separately authorized test record.
 | Verb | What it does |
 |---|---|
 | `start [--url U] [--browser msedge\|chrome] [--exe P] [--headless] [--window-size W,H]` | Open the window for a profile. Idempotent: never a second window. |
-| `stop [--all] [--force]` | Release only this session; all/force explicitly affect the shared profile. This profile only: other profiles keep running. Cookies stay. |
+| `stop [--all] [--force] [--discard-changes]` | Release only this session. A tab with unsaved edits stays open and keeps the session (`unsaved_changes`; the other tabs still close) unless `--discard-changes`. all/force explicitly affect the shared profile and close every tab without asking, so `--discard-changes` with them is a usage error. This profile only: other profiles keep running. Cookies stay. |
 | `status [--all]` | Running, pid, tabs, uptime, `stale_code`; `--all` lists every profile. Exit 0 whether or not a browser runs; 2 for an invalid or reserved (`_doctor`) `--profile`; 1 when the profile path is too long for Chromium. |
 | `goto URL [--wait load\|domcontentloaded] [--new-tab] [--discard-changes]` | Navigate (starts the browser if needed) and return the page. |
 | `snapshot [--full] [--find TEXT] [--ref REF]` | The page as refs. `--find` keeps matching lines plus parents; it never matches a masked value or a redacted link. |
-| `click REF [--double] [--right] [--accept-dialog] [--dialog-text T] [--discard-changes]` | Click. Popups become the current tab. |
+| `click REF [--double] [--right]` | Click. Popups become the current tab. |
 | `fill REF TEXT [--enter]` | Replace a field's text. Refuses password and code fields. |
 | `type REF TEXT [--delay MS] [--append] [--enter]` | Type key by key (typeahead fields); clears first unless `--append`. |
 | `press KEY [REF]` | `Enter`, `Tab`, `Escape`, `Control+a`. Only those three on a secret field. |
@@ -136,6 +138,12 @@ qualification requires a separately authorized test record.
 | `needs-human [--signed-in HOST]` | Focus/flash for human input; returns a durable handoff ID. The same reason and condition while that handoff is open return its ID without refocusing. Its receipt is final with status `needs_human`. |
 | `doctor [--live]` | Preflight rows; `--live` boots a headless browser, checks refs, clicks, stops. |
 | `clean [--profile P] [--purge-profile P] [--dry-run]` | Stale sessions/orphans and old download staging files. Evidence stays until explicitly cleared. |
+
+Every action verb (`click`, `fill`, `type`, `press`, `select`, `check`, `uncheck`, `hover`, `scroll`, `upload`, `eval`)
+and `fill-form` also takes `--accept-dialog`, `--dialog-text T` (a prompt answer, only with `--accept-dialog`) and
+`--discard-changes`; `goto`, `back`, `reload` and `tab` take `--discard-changes`. The caller permission template asks
+before any command with either flag runs. Long flags must be spelled out: an abbreviation such as `--accept` is a
+usage error, so it cannot slip past those ask rules.
 
 ### Reading a snapshot
 
@@ -332,9 +340,13 @@ even if its caller then gives up. While a command other than `ping`/`poll` runs,
 from this version; an older one shows `stale_code: true` until the profile restarts.
 
 Dialogs are answered synchronously by the daemon: `alert` is accepted; `confirm`/`prompt` during a command are
-accepted only with `--accept-dialog` (otherwise the command fails with `dialog`); `beforeunload` during a command
-keeps the page and fails with `unsaved_changes` unless `--discard-changes`; between commands a `beforeunload`
-raised by a human navigation is accepted.
+accepted only with `--accept-dialog`. Otherwise an action or `eval` fails with `dialog` after it ran
+(`details.executed`, `details.dialogs`). `beforeunload` during a command keeps the page and fails with
+`unsaved_changes` unless `--discard-changes`. A per-session `stop` answers the `beforeunload` of each of its tabs the
+same way: tabs with edits stay open, the session is kept, and `details.tabs` lists them. A dialog no error reported (one
+raised during a read, or by a page timer between commands) appears in `dialogs` on the next command other than
+`ping`, `poll`, `state`, `journal`, `needs-human`, `stop` and `api`, with a note when it was dismissed; that command
+still succeeds. Between commands a `beforeunload` raised by a human navigation is accepted.
 
 ## Security posture
 
@@ -490,7 +502,7 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 | `guarded` on `fill` / `type` / `press` | The field, or the focused field the keys would land in, looks like a password or code field. The human types it in the window; then `wait --signed-in <host>`, or on a sign-in page outside `allowed_hosts`, `needs-human --signed-in <host>` and `state --handoff ID`. |
 | `guarded` from `check URL` | The page, or one of its redirects, went to a host outside loopback and was blocked; `details.blocked_external` names it. |
 | `action_failed` "Could not confirm the field…" | The credential check could not inspect the field (page navigating, frame detached, focus inside a custom element's closed shadow root). Take a fresh `snapshot` and retry; give `press` a ref if a press without one keeps failing. |
-| `unsaved_changes` | The page has edits. Click its Save/Update button or re-run with `--discard-changes`. |
+| `unsaved_changes` | The page has edits and they were kept. Click its Save/Update button, or re-run with `--discard-changes` once the user agreed to lose them. A refused `stop` lists the kept tabs in `details.tabs` and closed the rest. |
 | `config` from `start` naming a policy key (`permission`, `profiles`, `evidence_max_bytes`, ...) | `config.json` has a malformed profile policy. `start` checks it before launching a browser; fix the named key and start again. |
 | `Profile path is too long` (class `config`) | Set `AGENT_BROWSER_HOME` to a short path such as `C:\ab`. |
 | `browser_launch` with a log tail | Read `daemon.log`; `agent-browser doctor` decodes Edge and Chrome policies (`DeveloperToolsAvailability=2`, `ForceEphemeralProfiles`). Try `--browser chrome`. |

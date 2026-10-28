@@ -97,7 +97,9 @@ Tools send the CLI's daemon payload: page tools take `tab` (`t2` or `2`), the `t
 operation of `browser_action` takes `index` the same way, `browser_wait` takes `ref` and
 `selector`, `browser_snapshot` `ref`, `browser_eval` `ref` and `frame`, `browser_read`
 `max_chars`, `browser_goto` `wait` and `new_tab`. `timeout` is 0-86400 seconds and at most
-100 for `browser_wait`, as on the CLI. Snapshots default to 4,500 bytes so a page read fits
+100 for `browser_wait`, as on the CLI. Only `browser_commit` takes `accept_dialog`, `dialog_text`
+(a prompt answer, only with `accept_dialog`) and `discard_changes`, for its page actions, and only
+`browser_stop` takes `discard_changes`; pass them only with the user's authorization. Snapshots default to 4,500 bytes so a page read fits
 one reply; use `find` or `ref` to narrow it. `browser_commit` api with `body_file` sends
 `Content-Type: application/json` unless `content_type` (only with `body_file`) is given.
 Use `browser_output` and its `next_offset` for smaller MCP pages; an overflow reply keeps
@@ -125,8 +127,10 @@ when a file was held open (a later clear removes it). `--include-unknown` (MCP
 and the shared `journal_bytes`, against `quota`; other sessions' evidence is beyond this
 session's clear.
 
-The canonical Claude settings template asks for commit/eval and evidence clear calls,
-including tools from any MCP server using these browser tool names. A template edit
+The canonical Claude settings template asks for commit/eval and evidence clear calls, and for
+any command with `--accept-dialog` or `--discard-changes` (flags must be spelled out, never
+abbreviated), including tools from any MCP server using these browser tool names. MCP rules see
+tool names only, so `browser_stop` with `discard_changes` is not asked about. A template edit
 does not update an already-installed caller policy. For approval-sensitive workflows,
 verify the installed policy and configure the profile with eval disabled. These
 [permission patterns](https://code.claude.com/docs/en/permissions) are cooperative.

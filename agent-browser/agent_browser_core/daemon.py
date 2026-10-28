@@ -185,6 +185,7 @@ class BrowserEngine:
         self.dialog_blocked = False
         self.unsaved_blocked = False
         self.discarded_unsaved = False
+        self.unsaved_pages: list[Any] = []    # pages whose beforeunload this command dismissed
         self.stop_reason: str | None = None
         self.last_activity = core_common._now()
         self.errors: tuple[type, type] = (Exception, Exception)
@@ -303,10 +304,11 @@ class BrowserEngine:
                 dialog.accept()
                 record["handled"] = "accepted"
             elif kind == "beforeunload":
-                if in_cmd and self.current_cmd != "stop" and not self.cmd_opts.get("discard_changes"):
+                if in_cmd and not self.cmd_opts.get("discard_changes"):
                     dialog.dismiss()
                     record["handled"] = "dismissed"
                     self.unsaved_blocked = True
+                    self.unsaved_pages.append(getattr(dialog, "page", None))
                 else:
                     dialog.accept()
                     record["handled"] = "accepted"
@@ -322,6 +324,7 @@ class BrowserEngine:
         except Exception as exc:  # noqa: BLE001 - dialog already gone
             record["handled"] = f"error: {str(exc)[:100]}"
         self.dialog_log.append(record)
+        del self.dialog_log[:-50]  # a page can raise dialogs between commands while only ping and poll run
 
     def _mark_stop(self, reason: str) -> None:
         if self.stop_reason is None:
@@ -860,6 +863,7 @@ class BrowserEngine:
         self.dialog_blocked = False
         self.unsaved_blocked = False
         self.discarded_unsaved = False
+        self.unsaved_pages = []
         self.new_pages = []
         self.last_activity = core_common._now()
 
@@ -892,10 +896,25 @@ class BrowserEngine:
             self.dlog(f"cannot publish busy state: {type(exc).__name__}")
 
     def _check_blocks(self) -> None:
+        # The error reports the dialogs, so they are drained: the next action stays compact instead of repeating them.
         if self.unsaved_blocked:
-            raise core_common._tag(ValueError("The page has unsaved changes; the navigation was cancelled."), core_common.ERR_UNSAVED, hint=core_common._hint("unsaved_changes", self.profile))
+            raise core_common._tag(ValueError("The page has unsaved changes; the navigation was cancelled."), core_common.ERR_UNSAVED,
+                                   hint=core_common._hint("unsaved_changes", self.profile), details={"dialogs": self._take_dialogs()[-5:]})
         if self.dialog_blocked:
-            raise core_common._tag(ValueError("A dialog was dismissed during the action."), core_common.ERR_DIALOG, hint=core_common._hint("dialog", self.profile), details={"dialogs": self.dialog_log[-3:]})
+            raise core_common._tag(ValueError("A dialog was dismissed during the command; the command itself had already run."), core_common.ERR_DIALOG,
+                                   hint=core_common._hint("dialog", self.profile), details={"dialogs": self._take_dialogs()[-5:]})
+
+    def _annotate_dialogs(self, result: dict[str, Any]) -> None:
+        """Report dialogs that no envelope drained (reads, eval, between commands). Reporting never fails the command."""
+        if not self.dialog_log:
+            return
+        result["dialogs"] = [*(result.get("dialogs") or []), *self._take_dialogs()]
+        if any(d.get("handled") == "dismissed" for d in result["dialogs"]):
+            note = core_common._hint("dialog_dismissed", self.profile)
+            result["note"] = f"{result['note']} {note}" if result.get("note") else note
+        # A reply without its own list gets one from dispatch, which names dialogs among its page keys.
+        if "untrusted" in result and "dialogs" not in result["untrusted"]:
+            result["untrusted"] = [*result["untrusted"], "dialogs"]
 
     def _nav_signature(self, page: Any) -> dict[Any, int]:
         return {frame: self.nav_counts.get(frame, 0) for frame in page.frames}
@@ -938,6 +957,9 @@ class BrowserEngine:
             result = handler(args, timeout)
             result["contract_version"] = core_common.CONTRACT_VERSION
             result["observed"] = {k: self.telemetry[k] - v for k, v in observed_before.items()}
+            # An api reply describes the HTTP exchange; a page dialog stays queued for the next page command.
+            if cmd not in policy.CONTROL and cmd != "api":
+                self._annotate_dialogs(result)
             if "action" in result and "effect" not in result:
                 result["effect"] = ("navigated" if result.get("navigated") else "tab_opened" if result.get("new_tab")
                                     else "downloaded" if result.get("downloads") else "value_set" if "value_after" in result
@@ -970,10 +992,14 @@ class BrowserEngine:
         self._mark_stop("stop")
         return {"stopping": True}
 
-    def _drain_events(self, page: Any, budget: float = 0.6) -> None:
-        """Let queued Playwright events (a beforeunload dialog answered after ERR_ABORTED) reach the handlers."""
+    def _drain_events(self, page: Any, budget: float = 0.6, until: Callable[[], bool] | None = None) -> None:
+        """Let queued Playwright events (a beforeunload dialog answered after ERR_ABORTED) reach the handlers.
+
+        Stops early once `until` holds; by default, once a dialog has been answered.
+        """
+        done = until or (lambda: self.unsaved_blocked or self.dialog_blocked or self.discarded_unsaved)
         deadline = core_common._now() + budget
-        while core_common._now() < deadline and not (self.unsaved_blocked or self.dialog_blocked or self.discarded_unsaved):
+        while core_common._now() < deadline and not done():
             try:
                 page.wait_for_timeout(50)
             except Exception:  # noqa: BLE001
@@ -1424,7 +1450,10 @@ class BrowserEngine:
         except (ValueError, RuntimeError):
             raise
         except Exception as exc:  # noqa: BLE001
+            self._check_blocks()
             raise self._classify(exc, "eval") from exc
+        # A confirm() the script raised was answered Cancel unless --accept-dialog: the script saw that answer.
+        self._check_blocks()
         try:
             json.dumps(value)
         except (TypeError, ValueError):

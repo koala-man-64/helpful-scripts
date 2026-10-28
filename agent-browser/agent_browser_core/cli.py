@@ -16,6 +16,11 @@ from . import policy, evidence
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        # Caller ask rules match flags by their full name (*--accept-dialog*, *--all*); an abbreviation would slip past them.
+        kwargs.setdefault("allow_abbrev", False)
+        super().__init__(*args, **kwargs)
+
     def error(self, message: str) -> None:
         raise core_common._tag(ValueError("Invalid command arguments. Use --help for command syntax."), core_common.ERR_USAGE)
 
@@ -148,12 +153,15 @@ def _cmd_start(args: argparse.Namespace) -> Any:
 
 
 def _cmd_stop(args: argparse.Namespace) -> Any:
+    if args.discard_changes and (args.all or args.force):
+        raise core_common._tag(ValueError("--discard-changes is for this session's stop; --all and --force already close every tab without asking."),
+                               core_common.ERR_USAGE)
     if not args.all and not args.force:
         paths = core_common._paths(core_session._resolve_profile(args.profile))
         state, metadata = core_session._liveness(paths)
         if state in {"none", "stale"}:
             return core_session.stop_session(paths)
-        result = _remote(args, "stop", "stop", {}, core_common.STOP_GRACE)
+        result = _remote(args, "stop", "stop", {"discard_changes": bool(args.discard_changes)}, core_common.STOP_GRACE)
         if result.get("stopping") and metadata:
             deadline = core_common._now() + core_common.STOP_GRACE
             while core_common._pid_alive(int(metadata["pid"])):
@@ -187,48 +195,61 @@ def _cmd_snapshot(args: argparse.Namespace) -> Any:
     return _remote(args, "snapshot", "snapshot", {"full": bool(args.full), "find": args.find, "ref": args.ref})
 
 
+def _add_dialog_flags(p: argparse.ArgumentParser) -> None:
+    """The dialog and unsaved-edit answers every action verb and fill-form take; caller ask rules gate both."""
+    p.add_argument("--accept-dialog", action="store_true", help="accept a confirm()/prompt() the command opens (only with the user's authorization)")
+    p.add_argument("--dialog-text", metavar="TEXT", help="answer for a prompt() when accepting")
+    p.add_argument("--discard-changes", action="store_true", help="leave a page that has unsaved edits (only with the user's authorization)")
+
+
+def _dialog_payload(args: argparse.Namespace) -> dict[str, Any]:
+    accept, text = bool(getattr(args, "accept_dialog", False)), getattr(args, "dialog_text", None)
+    if text is not None and not accept:
+        raise core_common._tag(ValueError("--dialog-text answers a prompt only together with --accept-dialog."), core_common.ERR_USAGE)
+    return {"accept_dialog": accept, "dialog_text": text, "discard_changes": bool(getattr(args, "discard_changes", False))}
+
+
 def _cmd_click(args: argparse.Namespace) -> Any:
-    return _remote(args, "click", "click", {"target": args.target, "double": bool(args.double), "right": bool(args.right),
-                                            "accept_dialog": bool(args.accept_dialog), "dialog_text": args.dialog_text,
-                                            "discard_changes": bool(args.discard_changes)})
+    return _remote(args, "click", "click", {"target": args.target, "double": bool(args.double), "right": bool(args.right), **_dialog_payload(args)})
 
 
 def _cmd_fill(args: argparse.Namespace) -> Any:
     if (getattr(args, "label", None) or getattr(args, "role", None)) and args.text is None and args.target is not None:
         args.text, args.target = args.target, None
-    return _remote(args, "fill", "fill", {"target": args.target, "text": _input_text(args, "text"), "enter": bool(args.enter)})
+    return _remote(args, "fill", "fill", {"target": args.target, "text": _input_text(args, "text"), "enter": bool(args.enter), **_dialog_payload(args)})
 
 
 def _cmd_type(args: argparse.Namespace) -> Any:
     if (getattr(args, "label", None) or getattr(args, "role", None)) and args.text is None and args.target is not None:
         args.text, args.target = args.target, None
-    return _remote(args, "type", "type", {"target": args.target, "text": _input_text(args, "text"), "delay": args.delay, "append": bool(args.append), "enter": bool(args.enter)})
+    return _remote(args, "type", "type", {"target": args.target, "text": _input_text(args, "text"), "delay": args.delay, "append": bool(args.append),
+                                          "enter": bool(args.enter), **_dialog_payload(args)})
 
 
 def _cmd_press(args: argparse.Namespace) -> Any:
-    return _remote(args, "press", "press", {"key": args.key, "target": args.target})
+    return _remote(args, "press", "press", {"key": args.key, "target": args.target, **_dialog_payload(args)})
 
 
 def _cmd_select(args: argparse.Namespace) -> Any:
-    return _remote(args, "select", "select", {"target": args.target, "values": args.values})
+    return _remote(args, "select", "select", {"target": args.target, "values": args.values, **_dialog_payload(args)})
 
 
 def _cmd_check(args: argparse.Namespace) -> Any:
     if args.target.lower().startswith(("http://", "https://")):
         return _remote(args, "check", "diagnose", {"url": args.target}, autostart=True)
-    return _remote(args, "check", "check", {"target": args.target})
+    return _remote(args, "check", "check", {"target": args.target, **_dialog_payload(args)})
 
 
 def _cmd_uncheck(args: argparse.Namespace) -> Any:
-    return _remote(args, "uncheck", "uncheck", {"target": args.target})
+    return _remote(args, "uncheck", "uncheck", {"target": args.target, **_dialog_payload(args)})
 
 
 def _cmd_hover(args: argparse.Namespace) -> Any:
-    return _remote(args, "hover", "hover", {"target": args.target})
+    return _remote(args, "hover", "hover", {"target": args.target, **_dialog_payload(args)})
 
 
 def _cmd_scroll(args: argparse.Namespace) -> Any:
-    return _remote(args, "scroll", "scroll", {"target": args.target, "down": args.down, "up": args.up})
+    return _remote(args, "scroll", "scroll", {"target": args.target, "down": args.down, "up": args.up, **_dialog_payload(args)})
 
 
 def _cmd_text(args: argparse.Namespace) -> Any:
@@ -290,7 +311,7 @@ def _cmd_tab(args: argparse.Namespace) -> Any:
 def _cmd_upload(args: argparse.Namespace) -> Any:
     paths, config = _caller_paths(args)
     files = [str(core_common._check_local_path(f, paths, config)) for f in args.files]
-    return _remote(args, "upload", "upload", {"target": args.target, "files": files})
+    return _remote(args, "upload", "upload", {"target": args.target, "files": files, **_dialog_payload(args)})
 
 
 def _cmd_downloads(args: argparse.Namespace) -> Any:
@@ -298,7 +319,7 @@ def _cmd_downloads(args: argparse.Namespace) -> Any:
 
 
 def _cmd_eval(args: argparse.Namespace) -> Any:
-    return _remote(args, "eval", "eval", {"js": _input_text(args, "js"), "target": args.ref, "frame": args.frame})
+    return _remote(args, "eval", "eval", {"js": _input_text(args, "js"), "target": args.ref, "frame": args.frame, **_dialog_payload(args)})
 
 
 def _input_text(args: argparse.Namespace, name: str) -> str:
@@ -463,6 +484,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p = add("stop", _cmd_stop, "close the browser (cookies and sign-in stay on disk)")
     p.add_argument("--all", action="store_true", help="stop the whole profile: every session and the browser (this profile only; other profiles keep running)")
     p.add_argument("--force", action="store_true", help="kill without asking the daemon")
+    p.add_argument("--discard-changes", action="store_true",
+                   help="close this session's tabs even if they have unsaved edits (only with the user's authorization)")
     p = add("status", _cmd_status, "is the browser running; tabs; staleness (exit 0 whether or not a browser runs; 2 for an invalid or reserved --profile)")
     p.add_argument("--all", action="store_true", help="list every profile under the home folder instead of one")
     p = add("goto", _cmd_goto, "open a URL (starts the browser if needed) and print the page as refs")
@@ -478,14 +501,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("target")
     p.add_argument("--double", action="store_true")
     p.add_argument("--right", action="store_true")
-    p.add_argument("--accept-dialog", action="store_true", help="accept a confirm()/prompt() the click opens")
-    p.add_argument("--dialog-text", metavar="TEXT", help="answer for a prompt() when accepting")
-    p.add_argument("--discard-changes", action="store_true", help="leave a page that has unsaved edits")
+    _add_dialog_flags(p)
     p = add("fill", _cmd_fill, "replace the text of a field (refuses password/code fields)")
     p.add_argument("target")
     p.add_argument("text", nargs="?")
     p.add_argument("--text-file")
     p.add_argument("--enter", action="store_true")
+    _add_dialog_flags(p)
     p = add("type", _cmd_type, "type into a field key by key (typeahead fields); clears it first unless --append")
     p.add_argument("target")
     p.add_argument("text", nargs="?")
@@ -493,22 +515,29 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--delay", type=int, default=30, metavar="MS")
     p.add_argument("--append", action="store_true")
     p.add_argument("--enter", action="store_true")
+    _add_dialog_flags(p)
     p = add("press", _cmd_press, "press a key (Enter, Tab, Escape, Control+a) on the page or a ref")
     p.add_argument("key")
     p.add_argument("target", nargs="?")
+    _add_dialog_flags(p)
     p = add("select", _cmd_select, "choose option(s) in a drop-down by label or value")
     p.add_argument("target")
     p.add_argument("values", nargs="+")
+    _add_dialog_flags(p)
     p = add("check", _cmd_check, "tick a checkbox or radio")
     p.add_argument("target")
+    _add_dialog_flags(p)
     p = add("uncheck", _cmd_uncheck, "untick a checkbox")
     p.add_argument("target")
+    _add_dialog_flags(p)
     p = add("hover", _cmd_hover, "hover a ref")
     p.add_argument("target")
+    _add_dialog_flags(p)
     p = add("scroll", _cmd_scroll, "scroll a ref into view, or the page by pixels")
     p.add_argument("target", nargs="?")
     p.add_argument("--down", type=int, metavar="PX")
     p.add_argument("--up", type=int, metavar="PX")
+    _add_dialog_flags(p)
     p = add("text", _cmd_text, "readable text of the page (all frames) or of a ref")
     p.add_argument("target", nargs="?")
     p.add_argument("--max-chars", type=int, default=None)
@@ -537,12 +566,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p = add("upload", _cmd_upload, "attach local file(s) to a file input or a button that opens a chooser")
     p.add_argument("target")
     p.add_argument("files", nargs="+")
+    _add_dialog_flags(p)
     add("downloads", _cmd_downloads, "save and list files downloaded during this session")
     p = add("eval", _cmd_eval, "run JavaScript on the page (last resort; never for credentials)")
     p.add_argument("js", nargs="?")
     p.add_argument("--js-file")
     p.add_argument("--ref", metavar="REF", help="run with the element as `el`")
     p.add_argument("--frame", metavar="NAME")
+    _add_dialog_flags(p)
     p = add("doctor", _cmd_doctor, "preflight checks (always exit 0)")
     p.add_argument("--live", action="store_true", help="also boot a headless browser and click a ref")
     p.add_argument("--browser", choices=("msedge", "chrome"), default=None)
