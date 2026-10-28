@@ -25,7 +25,7 @@ class Field(TypedDict, total=False):
     value: str | list[str] | bool
 
 
-REPLY_BUDGET = 7000                    # one tool reply: its text and structuredContent are both this compact JSON
+REPLY_BUDGET = 7000                    # each copy of a tool reply's compact JSON (text, structuredContent) stays within this
 
 
 MAX_BYTES = 4500                       # default snapshot budget; leaves room in REPLY_BUDGET for url, title, notes and the receipt
@@ -214,7 +214,8 @@ def make_server():
         raise RuntimeError('Install the optional MCP extra: pip install -e "agent-browser[mcp]"') from exc
     def envelope(result, session_id=None, profile=None):
         from .cli import _json_line
-        # The SDK sends both text and structuredContent. Budget their complete compact envelope.
+        # The SDK sends the same compact JSON twice, as text and as structuredContent. Each copy is bounded to
+        # REPLY_BUDGET, so the whole serialized result (text escaped once more) stays under STDOUT_BUDGET.
         try:
             data = json.loads(_json_line(result, profile, session_id, byte_budget=REPLY_BUDGET))
         except Exception as exc:  # noqa: BLE001 - keep the receipt pointer when the reply cannot be stored

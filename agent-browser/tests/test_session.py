@@ -37,6 +37,13 @@ def test_invalid_profile_names_raise_validation(name: str) -> None:
     assert exc.value.error_class == core_common.ERR_VALIDATION
 
 
+def test_unknown_remote_error_class_maps_to_runtime_error() -> None:
+    # ambiguous_profile was never raised and is gone; a daemon that still sends it, like any class outside EXIT_2_CLASSES, exits 1.
+    with pytest.raises(RuntimeError) as exc:
+        core_session._raise_remote({"class": "ambiguous_profile", "message": "m", "hint": "h"}, "default")
+    assert exc.value.error_class == "ambiguous_profile" and not isinstance(exc.value, ValueError)
+
+
 def test_paths_rejects_a_profile_path_over_the_max_path_chars(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(core_common, "_home", lambda: Path("C:/" + "a" * 200))
     with pytest.raises(RuntimeError) as exc:
