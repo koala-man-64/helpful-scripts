@@ -267,6 +267,7 @@ SAFE_KEYS_ON_SECRET = frozenset({"Enter", "Tab", "Escape"})
 REDACT_QUERY_KEYS = frozenset({
     "code", "code_verifier", "samlresponse", "sid", "key", "otp", "totp", "state", "nonce", "sysparm_ck", "g_ck", "ck", "pwd", "pass",
     "sig", "ticket", "auth", "authcode", "authorization", "session_state", "phpsessid", "sv", "se", "sp", "sr", "skoid",
+    "glide_session_store", "glide_user", "glide_user_activity",
 })
 
 
@@ -575,6 +576,7 @@ HINTS = {
     "journal_full_other": "Most of the evidence belongs to other sessions of this profile, and this session's clear cannot remove it. Tell the user; {tool} state --profile {profile} shows evidence_bytes.",
     "api_not_auth": "Not treated as a sign-in, so no handoff was opened (redirects are not followed). Check the endpoint and the account's access; if the session may have expired, run: {tool} needs-human --signed-in <app host> --profile {profile}",
     "api_auth_unavailable": "If the user must sign in, run: {tool} needs-human --signed-in <app host> --profile {profile}; otherwise open a classic ServiceNow form page in this tab and retry.",
+    "api_body_withheld": "The body was withheld rather than risk returning a session token (body_withheld says why). Request a narrower data endpoint, or read the page with: {tool} text --profile {profile}",
     "tool_arguments": "Check the tool's inputSchema from tools/list and call it again with valid arguments.",
 }
 
@@ -939,6 +941,22 @@ def redact_text(text: Any) -> str:
         bare = url.rstrip(URL_TRAILING)
         return redact_url(bare) + url[len(bare):]
     return URL_IN_TEXT_RE.sub(one, strip_invisible(text))
+
+
+def scrub_json(value: Any, text: Callable[[str], str] = strip_invisible, item: Callable[[str, Any], Any] | None = None) -> Any:
+    """A decoded JSON value with `text` (strip_invisible by default) applied to every string, object keys included.
+    `item(key, value)`, when given, sees each scrubbed object member and returns the value to keep."""
+    if isinstance(value, str):
+        return text(value)
+    if isinstance(value, list):
+        return [scrub_json(v, text, item) for v in value]
+    if isinstance(value, dict):
+        out = {}
+        for key, member in value.items():
+            key, member = text(str(key)), scrub_json(member, text, item)
+            out[key] = item(key, member) if item else member
+        return out
+    return value
 
 
 def _yaml_escape(m: re.Match[str]) -> str:

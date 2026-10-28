@@ -92,7 +92,23 @@ profile host policy is checked before dispatch. Response headers named like cred
 (cookie, `auth`, token, session, `g_ck`, secret, CSRF/XSRF, password, credential, or
 ending in `key`, such as `X-API-Key`) and the redirect pair `Location`/`Refresh` are
 omitted. The rest come back single-line, without invisible characters, and with their
-URLs redacted, including `Content-Location` and `Link` targets. A 401, or a redirect
+URLs redacted, including `Content-Location` and `Link` targets. The body comes back
+inline (JSON, else UTF-8 text with undecodable bytes replaced) and scrubbed: invisible
+characters are stripped, and this session's tokens become `***`. Those are the page's
+`g_ck` (read from its same-origin frames) and the cookie values for the request and page
+URLs, wherever they occur, plus, as a backstop for tokens the daemon cannot know, a
+token-shaped value (16+ characters with a digit or capital) after a credential-named key
+(`g_ck`, `sysparm_ck`, `X-UserToken`, `JSESSIONID`, `glide_session_store`, names ending in
+`token` or `session`, ...), in a hidden input or meta tag named like one, after
+`Bearer`/`Basic`, or shaped like a JWT. `body_masked` counts the masks. A JSON value
+under a credential-named key that is not token-shaped (`"state": "1"`) keeps its value.
+Then the scrubbed body is decoded (HTML entities, JS escapes, percent-encoding) and read
+without separators: a known token still visible there (encoded, split or case-changed),
+or a key-and-token pair only the decoding shows, withholds the whole body. `body` is then
+a placeholder, `body_withheld` says why (`session_token`; `unverified` when the cookies
+cannot be read; `too_large` over 8 MiB; `too_deep` for deeply nested JSON) and a `note`
+suggests a narrower request. Base64, hex or other re-encodings of a token, and tokens of
+other origins, are not detected. The scrub of an 8 MiB body takes about 1.5 s. A 401, or a redirect
 to another origin, a sign-in path or an identity provider, opens a human handoff
 (`needs_human`, `handoff_id`) and focuses the
 window once: a repeat while that handoff is open, with no navigation since, returns the
@@ -101,8 +117,8 @@ instead of its body, which can echo sign-in codes. Other redirects and a 403 ope
 handoff and add a `note`; a 403 returns its real (untrusted) body. A gateway that
 answers an expired session with 403 needs an explicit `needs-human`. Response byte
 limits are post-download checks: Playwright buffers the response, so they do not
-impose a hard memory bound. Guarded files
-transfer binary attachments without oversized JSON. Relative transfer paths resolve
+impose a hard memory bound. Guarded files (the Python bridge's `save_response`)
+transfer binary attachments without oversized JSON; they are byte-exact, not scrubbed. Relative transfer paths resolve
 against the caller's working directory. Cookies/auth headers stay in
 the daemon. `SERVICENOW_AUTH=browser` in servicenow-client needs both packages,
 matching instance origin and a usable same-origin session key. A page without one
@@ -414,7 +430,9 @@ still succeeds. Between commands a `beforeunload` raised by a human navigation i
   a hard link, or a file swapped after the check, is not detected.
 - Page-derived strings are sanitized (control, bidi, zero-width, Unicode tag and other invisible formatting
   characters stripped, lines capped) and only ever appear under keys named in `untrusted` (or `error.untrusted`); hints are static
-  templates. `text` keeps line breaks (U+2028 and U+2029 become newlines). Snapshot names, values and frame labels
+  templates. `text` keeps line breaks (U+2028 and U+2029 become newlines). Every string in an `eval` value and an
+  inline `api` body has the same characters stripped; `eval` values are never masked, `api` bodies are (see the API
+  paragraph). Snapshot names, values and frame labels
   render on one line. URLs are redacted in output and logs: the fragment and `user:pass@` are dropped; credential
   query and `;` path-parameter values are masked (`code`, `state`, `sig`, `SAMLResponse`, and names ending in
   `token`, `secret`, `password`, `session`, `signature`, `api_key`, ... such as `accessToken` or `jsessionid`);

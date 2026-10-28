@@ -167,6 +167,22 @@ def test_check_blocks_a_non_loopback_subresource_and_reports_it_untrusted(make_d
     assert temp.closed and daemon.current is page
 
 
+def test_check_redacts_urls_in_console_and_page_error_text(make_daemon, monkeypatch) -> None:
+    daemon, ctx, page = make_daemon()
+    secret = "c" + "ode-" + "9b1e" * 5  # built at run time: GitGuardian scans every commit
+
+    def load(temp: FakePage) -> None:
+        temp.emit("console", SimpleNamespace(type="error", text=f"callback failed: http://127.0.0.1:3000/cb?code={secret}&next=/"))
+        temp.emit("console", SimpleNamespace(type="log", text=f"ignored {secret}"))
+        temp.emit("pageerror", RuntimeError(f"fetch https://api.example/v1?access_token={secret} failed" + chr(0xE0041)))
+
+    _check_page(ctx, monkeypatch, load)
+    result = daemon.dispatch("diagnose", {"url": "http://127.0.0.1:3000/"}, 5)
+    assert result["console_errors"] == ["callback failed: http://127.0.0.1:3000/cb?code=***&next=/"]
+    assert result["page_errors"] == ["fetch https://api.example/v1?access_token=*** failed"]
+    assert secret not in str(result)
+
+
 def test_check_reports_an_empty_block_list_for_a_self_contained_page(make_daemon, monkeypatch) -> None:
     daemon, ctx, page = make_daemon()
     _check_page(ctx, monkeypatch, lambda temp: _request_handler(temp)(_Route("http://localhost:3000/app.js")))

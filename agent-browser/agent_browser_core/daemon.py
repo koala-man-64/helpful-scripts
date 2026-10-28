@@ -1419,7 +1419,7 @@ class BrowserEngine:
                     rec.download.save_as(str(dest))
                     rec.saved = str(dest).replace("\\", "/")
                 except Exception as exc:  # noqa: BLE001
-                    out.append({"file": rec.suggested, "state": "failed", "error": core_common.sanitize_text(str(exc).splitlines()[0] if str(exc) else "", 200)})
+                    out.append({"file": rec.suggested, "state": "failed", "error": core_common.sanitize_text(core_common.redact_text(str(exc).splitlines()[0] if str(exc) else ""), 200)})
                     continue
             out.append({"file": rec.suggested, "state": "saved", "path": rec.saved, "seen": rec.seen})
         return {"profile": self.profile, "downloads": out, "folder": str(self.paths.downloads).replace("\\", "/")}
@@ -1463,8 +1463,11 @@ class BrowserEngine:
         self._check_blocks()
         try:
             json.dumps(value)
+            value = core_common.scrub_json(value)  # no invisible characters in any string; nothing is masked (decision 5)
         except (TypeError, ValueError):
             value = core_common.sanitize_text(repr(value), 2000)
+        except RecursionError:
+            value = "eval value nested too deeply to return."
         env = self._base_fields(page)
         env.update({"value": value, "untrusted": core_common.UNTRUSTED_KEYS})
         return env

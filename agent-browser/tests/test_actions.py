@@ -917,6 +917,31 @@ def test_downloads_are_saved_under_the_profile_downloads_folder(make_daemon, out
     assert saved_path.startswith(str(daemon.paths.downloads).replace("\\", "/"))
 
 
+def test_download_failure_text_has_its_url_credentials_redacted(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    secret = "s" + "ig" + "-" + "7f3a" * 5  # built at run time: GitGuardian scans every commit
+    download = FakeDownload("report.csv")
+
+    def fail(path: str) -> None:
+        raise FakePlaywrightError(f"net::ERR_FAILED at https://files.example/report.csv?token={secret}&id=7\nsecond line")
+    download.save_as = fail  # type: ignore[method-assign]
+    page.emit("download", download)
+
+    entry = daemon.dispatch("downloads", {}, 5.0)["downloads"][0]
+    assert entry["state"] == "failed" and secret not in entry["error"]
+    assert entry["error"] == "net::ERR_FAILED at https://files.example/report.csv?token=***&id=7"
+
+
+def test_eval_value_drops_invisible_characters_without_masking(make_daemon) -> None:
+    daemon, ctx, page = make_daemon()
+    tag = chr(0xE0041)
+    page.custom_evaluators["window.config"] = {"k" + chr(0x200B): ["v" + tag + chr(0x2060), {"n" + tag: 1}], "token": "kept-as-is"}
+    result = daemon.dispatch("eval", {"js": "window.config"}, 5.0)
+    assert result["value"] == {"k": ["v", {"n": 1}], "token": "kept-as-is"}  # decision 5: eval results are never masked
+    page.custom_evaluators["document.title"] = "ok" + tag + chr(0x2028) + "next"
+    assert daemon.dispatch("eval", {"js": "document.title"}, 5.0)["value"] == "ok\nnext"
+
+
 def test_text_drops_invisible_instruction_characters(make_daemon) -> None:
     daemon, ctx, page = make_daemon()
     page.main_frame.body_text = "ok" + chr(0xE0049) + chr(0x2060) + chr(0x2028) + "next" + chr(0x202E)
