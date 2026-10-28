@@ -69,6 +69,27 @@ def test_redirect_auth_headers_and_body_do_not_escape(make_daemon):
     assert response.disposed
 
 
+def test_public_headers_keep_benign_names_and_drop_credential_names():
+    headers = {"Content-Location": "/api/items/1?token=q#f", "X-Request-Id": "r", "Content-Type": "application/json",
+               "Link": '</api/items?page=2&sig=s>; rel="next", <https://x/api/items?page=9>; rel="last"',
+               "Location": "/login", "Refresh": "0", "X-API-Key": "k", "X-Functions-Key": "k", "Ocp-Apim-Subscription-Key": "k",
+               "X-CSRF-Token": "t", "Set-Cookie": "c", "Set-Coo" + chr(0x200B) + "kie": "c", "Proxy-Authenticate": "p",
+               "Authentication-Info": "nextnonce=n", "X-Auth-Token": "t", "X-Session-Hint": "s", "X-Amz-Security-Token": "t"}
+    assert api.public_headers(headers) == {
+        "Content-Location": "/api/items/1?token=***", "X-Request-Id": "r", "Content-Type": "application/json",
+        "Link": '</api/items?page=2&sig=***>; rel="next", <https://x/api/items?page=9>; rel="last"'}
+
+
+def test_public_headers_sanitise_values_and_cap_all_but_link():
+    link = ", ".join(f'</api/items?page={i}>; rel="p{i}"' for i in range(100))
+    out = api.public_headers({"X-Note": "ok" + chr(7) + chr(0xE0041) + "\r\nInjected: 1", "X-Long": "v" * 5000, "Link": link,
+                              "X-Original-Url": "https://x/a?code=SECRETVALUE"})
+    assert out["X-Note"] == "ok Injected: 1"
+    assert out["X-Long"] == "v" * 1000 + "..."
+    assert len(link) > 1000 and out["Link"] == link
+    assert out["X-Original-Url"] == "https://x/a?code=***"
+
+
 @pytest.fixture
 def focus_calls(monkeypatch):
     from agent_browser_core import session
@@ -246,6 +267,21 @@ def test_api_artifacts_are_session_owned_retained_and_explicitly_cleared(make_da
     assert json.loads(row["outcome"])["body_file"] == str(artifact)
     daemon.dispatch("commit", {"operation": "journal", "clear": True}, 1)
     assert not artifact.exists()
+
+
+def test_saved_response_at_quota_reports_other_sessions_bytes(make_daemon):
+    daemon, ctx, page = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/app", "_session_id": "a"}, 5)
+    daemon.paths.outputs.mkdir(parents=True, exist_ok=True)
+    (daemon.paths.outputs / ("a" * 32 + ".body")).write_bytes(b"x" * 70000)
+    daemon.dispatch("goto", {"url": "http://x/app", "_session_id": "b"}, 5)
+    request_context(ctx, Response(body=b"payload"))
+    daemon.journal.quota = 65536
+    with pytest.raises(RuntimeError) as err:
+        daemon.dispatch("api", {"url": "/download", "save_response": True, "_session_id": "b"}, 1)
+    assert err.value.error_class == "journal_full"
+    assert err.value.details["other_sessions_bytes"] >= 70000 and err.value.details["session_bytes"] < 1000
+    assert not daemon.paths.outputs.exists() or not list(daemon.paths.outputs.iterdir())
 
 
 def test_quota_rejects_complete_output_without_deleting_prior_evidence(tmp_path, monkeypatch):
@@ -446,6 +482,19 @@ def test_api_write_receipt_names_endpoint_path_without_query_or_body(make_daemon
     row = daemon.journal.rows("manual", result["command_id"])[0]
     assert json.loads(row["arguments"])["path"] == "/api/items/42"
     assert "private-filter" not in json.dumps(row)
+
+
+def test_api_receipt_masks_credentials_in_the_path(make_daemon):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    request_context(ctx, Response(204, body=b""))
+    token = "a1b2" * 5
+    result = daemon.dispatch("commit", {"operation": "api", "url": f"http://x/api/reset/{token};jsessionid=SESSIONVALUE/confirm",
+                                        "method": "POST", "headers": {"Content-Type": "application/json"}}, 1)
+    row = daemon.journal.rows("manual", result["command_id"])[0]
+    assert json.loads(row["arguments"])["path"] == "/api/reset/***;jsessionid=***/confirm"
+    assert token not in json.dumps(row) and "SESSIONVALUE" not in json.dumps(row)
+    assert result["url"] == "http://x/api/reset/***;jsessionid=***/confirm"
 
 
 def test_api_response_satisfies_its_own_response_expectation(make_daemon):

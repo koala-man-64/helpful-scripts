@@ -2,13 +2,53 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import shutil
+import stat
 import secrets
 import urllib.parse
+from pathlib import Path
 from typing import Any
 from . import common, evidence, policy
 
-STOP_TAB_WAIT = 2.0  # seconds stop waits for one tab to close or to answer its beforeunload
+STOP_TAB_WAIT = 2.0  # seconds stop waits at least, per tab, for it to close or to answer its beforeunload
+
+
+def _purge_evidence_dir(path: Path, keep: set[str]) -> int:
+    """Empty an evidence folder except the files named for a receipt that stays (`<id>-before.png`, `<id>.body`,
+    `<id>.json`), and remove the folder when nothing stays. An overflow file saved under a random ID names no
+    receipt, so it goes even when it held a retained receipt's reply; the receipt itself stays readable with
+    `output --id r<id>`. Returns how many entries could not be removed (a file held open, say); their rows are
+    already gone, so a later clear removes them."""
+    try:
+        entries = list(path.iterdir())
+    except FileNotFoundError:
+        return 0
+    except OSError:  # unreadable: counted, never silently skipped
+        return 1
+    failed = 0
+    for entry in entries:
+        if re.split(r"[-.]", entry.name, maxsplit=1)[0] in keep:
+            continue
+        try:
+            # A symlink or a Windows junction (not a symlink to pathlib) is removed itself, never followed.
+            if entry.is_symlink() or getattr(entry.lstat(), "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+                os.unlink(entry)
+            elif entry.is_dir():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            failed += 1
+    if not keep and not failed:
+        try:
+            path.rmdir()
+        except OSError:
+            failed += 1
+    return failed
 
 
 class OperatingMixin:
@@ -170,6 +210,7 @@ class OperatingMixin:
 
     def dispatch(self, cmd: str, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         args = dict(args)
+        self.last_activity = common._now()  # every request counts toward the idle timer, poll and wait included
         # Only the commit operation below declares a commit. A caller's own _commit would pass
         # the verb gates in policy.authorize and turn a recipe preview into a submission.
         args.pop("_commit", None)
@@ -199,7 +240,7 @@ class OperatingMixin:
                 raise common._tag(ValueError("Recipes and wait have their own verification conditions; --expect applies to ordinary actions and API calls."), common.ERR_USAGE)
             # journal and state write only SQLite rows (a clear, a handoff resolution), so they work at quota.
             if mutating and cmd not in {"journal", "state"}:
-                self.journal.require_space()
+                self.journal.require_space(workspace=self.paths.workspace)
             if cmd == "goto":
                 args["url"] = common._check_url(args.get("url", ""), self.paths, self.config)
             if cmd == "upload":
@@ -259,6 +300,7 @@ class OperatingMixin:
             exc.details = details
             raise
         finally:
+            self.last_activity = common._now()  # a long command must not end with the idle timer already expired
             self._cmd_target_page = None
             self.watching = []  # a pending job keeps its own response matchers
 
@@ -267,7 +309,7 @@ class OperatingMixin:
         if not conditions:
             raise common._tag(ValueError("wait needs a condition."), common.ERR_USAGE)
         started = common._now()
-        self.jobs[command_id] = {"session": self.session_id, "page": self.target_page(args), "conditions": conditions,
+        self.jobs[command_id] = {"session": self.session_id, "page": self.target_page(args), "conditions": conditions, "executed": False,
                                 "started": started, "deadline": args.get("_deadline", started + timeout), "max_bytes": args.get("max_bytes")}
         return self._poll({"command_id": command_id})
 
@@ -358,14 +400,20 @@ class OperatingMixin:
         if args.get("all"):
             return super().h_stop(args, timeout)
         pages = list(self.pages)
+        # A prompt that arrives after stop returns is answered between commands, where a beforeunload is accepted,
+        # so a slow tab may use the whole stop deadline.
+        deadline = common._now() + max(STOP_TAB_WAIT, timeout - 1.0)
         for page in pages:
             try:
                 page.close(run_before_unload=True)
             except Exception as exc:  # noqa: BLE001
                 if not self._closed(page):
-                    raise self._classify(exc, "stop") from exc
+                    failure = self._classify(exc, "stop")
+                    failure.executed = any(p not in self.pages for p in pages)  # type: ignore[attr-defined]
+                    raise failure from exc
             # close() returns before the tab is gone: wait for this tab's own answer, closed or its beforeunload dismissed.
-            self._drain_events(page, STOP_TAB_WAIT, until=lambda page=page: self._closed(page) or page in self.unsaved_pages)
+            self._drain_events(page, max(STOP_TAB_WAIT, deadline - common._now()),
+                               until=lambda page=page: self._closed(page) or page in self.unsaved_pages or None in self.unsaved_pages)
         # A dismissal without a page cannot be matched to its tab, so every tab still open is kept.
         kept = [p for p in pages if not self._closed(p) and (p in self.unsaved_pages or None in self.unsaved_pages)]
         if kept:
@@ -384,7 +432,7 @@ class OperatingMixin:
             self._mark_stop("stop")
         result = {"released": self.session_id, "stopped": True, "stopping": self.stop_reason is not None}
         if self.dialog_log:  # the beforeunload prompts --discard-changes accepted belong to this reply, not a later command
-            result.update(dialogs=self._take_dialogs(), untrusted=["dialogs"])
+            result["dialogs"] = self._take_dialogs()
         return result
 
     def h_state(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
@@ -428,23 +476,39 @@ class OperatingMixin:
                 "permission": self.config.get("permission", "commit"), "eval": self.config.get("eval", True) and self.config.get("permission", "commit") == "commit"}
 
     def h_journal(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
+        if args.get("include_unknown") and not args.get("clear"):
+            raise common._tag(ValueError("--include-unknown applies only to commit journal --clear."), common.ERR_USAGE)
         if not args.get("clear"):
             return self.journal.page(self.session_id, args.get("command_id"), int(args.get("offset", 0)))
+        # A linked workspace or evidence folder could point the purge at another session's evidence or the browser profile.
+        root, workspace = self.paths.dir.resolve(), self.paths.workspace.resolve()
+        targets = [target.resolve() for target in (self.paths.outputs, self.paths.shots)]
+        if not (workspace == root or workspace.parent == root / "sessions") or targets != [workspace / "outputs", workspace / "shots"]:
+            raise common._tag(ValueError("Unsafe evidence path."), common.ERR_GUARDED)
+        self.action_attempted = True
+        # An abandoned job's receipt is finished, not dropped: a job that ran leaves an unknown receipt the clear keeps.
         for command_id, job in list(self.jobs.items()):
             if job["session"] == self.session_id:
+                self.journal.finish(command_id, "unknown" if job["executed"] else "failed",
+                                    {"error_class": "cleared", "executed": job["executed"], "pending": False})
                 self.jobs.pop(command_id)
-        self.action_attempted = True
-        count = self.journal.clear(self.session_id, args.get("_command_id", ""))
-        root = self.paths.dir.resolve()
-        for target in (self.paths.outputs, self.paths.shots):
-            resolved = target.resolve()
-            if not resolved.is_relative_to(root) or resolved == root:
-                raise common._tag(ValueError("Unsafe evidence path."), common.ERR_GUARDED)
-            if resolved.is_dir(): shutil.rmtree(resolved)
-        (self.paths.workspace / "last_output.json").unlink(missing_ok=True)
-        for snap_path in self.paths.workspace.glob("last_snapshot*.txt"):
-            snap_path.unlink(missing_ok=True)
-        return {"cleared_commands": count}
+        result, retained = self.journal.clear(self.session_id, args.get("_command_id", ""), bool(args.get("include_unknown")))
+        # The rows are gone now, so a file that cannot be removed is reported, not raised; a later clear retries it.
+        failed = sum(_purge_evidence_dir(resolved, retained) for resolved in targets)
+        for leftover in (self.paths.workspace / "last_output.json", *self.paths.workspace.glob("last_snapshot*.txt")):
+            try:
+                leftover.unlink(missing_ok=True)
+            except OSError:
+                failed += 1
+        notes = []
+        if result["retained_commands"] or result["retained_handoffs"]:
+            notes.append(common._hint("clear_retained", self.profile))
+        if failed:
+            result["files_not_removed"] = failed
+            notes.append(common._hint("clear_files_left", self.profile))
+        if notes:
+            result["note"] = " ".join(notes)
+        return result
 
     def h_needs_human(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         condition = args.get("condition") or {}

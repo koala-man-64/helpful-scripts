@@ -128,6 +128,81 @@ def test_liveness_none_when_nothing_present(tmp_path: Path) -> None:
     assert state == "none" and session is None
 
 
+# ---------------------------------------------------------------------------
+# Lock probes and the daemon's lock acquisition
+
+
+def _probe_sequence(monkeypatch: pytest.MonkeyPatch, answers: list[bool]) -> list[Path]:
+    """`_lock_held` answers in order (the last repeats): True where another client's probe held the lock."""
+    calls: list[Path] = []
+
+    def probe(path: Path) -> bool:
+        calls.append(path)
+        return answers[min(len(calls), len(answers)) - 1]
+
+    monkeypatch.setattr(core_common, "_lock_held", probe)
+    return calls
+
+
+@pytest.mark.parametrize("record, expected", [(None, "none"), ({"port": 1, "token": "t", "pid": 4242}, "stale")])
+def test_a_colliding_probe_is_not_mistaken_for_a_lock_owner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock,
+                                                            record: dict[str, Any] | None, expected: str) -> None:
+    paths = core_common._paths("default")
+    _touch_lock(paths)
+    if record:
+        core_session._write_json_atomic(paths.session, record)
+    calls = _probe_sequence(monkeypatch, [True, False])
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: False)
+    assert core_session._transport_state(paths)[0] == expected
+    assert len(calls) == 2
+
+
+def test_a_live_recorded_owner_is_believed_on_the_first_probe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
+    paths = core_common._paths("default")
+    _touch_lock(paths)
+    core_session._write_json_atomic(paths.session, {"port": 1, "token": "t", "pid": 4242, "protocol_version": core_common.PROTOCOL_VERSION})
+    calls = _probe_sequence(monkeypatch, [True, False])
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: pid == 4242)
+    assert core_session._transport_state(paths)[0] == "running"
+    assert len(calls) == 1  # a running daemon's hot path stays one non-blocking attempt
+
+
+def test_running_profiles_skips_a_profile_whose_lock_was_only_another_probe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
+    _make_running_profile("alpha")
+    _probe_sequence(monkeypatch, [True, False])
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: False)
+    assert core_session._running_profiles() == []
+
+
+def test_acquire_lock_retries_through_a_transient_probe(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
+    sentinel = object()
+    answers = [None, None, sentinel]
+    monkeypatch.setattr(core_common, "_try_lock", lambda path: answers.pop(0))
+    assert core_common._acquire_lock(tmp_path / "x.lock", wait=1.0) is sentinel
+
+    monkeypatch.setattr(core_common, "_try_lock", lambda path: None)
+    began = fake_clock.value
+    assert core_common._acquire_lock(tmp_path / "x.lock", wait=1.0) is None
+    assert fake_clock.value - began >= 1.0
+
+
+def test_acquire_lock_waits_for_a_real_short_lived_holder(tmp_path: Path) -> None:
+    import threading
+
+    path = tmp_path / "x.lock"
+    holder = core_common._try_lock(path)
+    assert holder is not None
+    threading.Timer(0.1, core_common._release_lock, [holder]).start()
+    handle = core_common._acquire_lock(path, wait=2.0)
+    try:
+        assert handle is not None
+        began = time.monotonic()
+        assert core_common._acquire_lock(path, wait=0.3) is None  # a lock another daemon keeps still fails
+        assert time.monotonic() - began < 1.5
+    finally:
+        core_common._release_lock(handle)
+
+
 @pytest.mark.parametrize("until, expected", [
     (60, "busy"),                      # inside the published request's deadline: another command holds the daemon
     (-60, "unresponsive"),             # still in a request past its caller's deadline: hung
@@ -283,12 +358,14 @@ def test_start_session_returns_already_running_without_spawning(monkeypatch: pyt
     result = core_session.start_session(paths, _start_args())
     assert result["status"] == "already_running"
     assert result["pid"] == 9999
+    assert result["url"] == "about:blank" and result["untrusted"] == core_common.UNTRUSTED_KEYS
 
 
 def _install_success_recorder(monkeypatch: pytest.MonkeyPatch, paths: core_common.ProfilePaths) -> None:
     def fake_spawn(argv: list[str], log_path: Path, cwd: Path) -> tuple[int, str]:
         assert argv[0] == core_common.sys.executable and argv[1:3] == ["-X", "utf8"]
-        session = _valid_session(paths, pid=1234, port=5555)
+        token = json.loads(paths.launch.read_text(encoding="utf-8"))["token"]  # a real daemon serves the token it was launched with
+        session = _valid_session(paths, pid=1234, port=5555, token=token)
         core_session._write_json_atomic(paths.session, session)
         return 1234, "popen"
 
@@ -399,6 +476,139 @@ def test_start_session_daemon_exit_early_generic_launch_failure(monkeypatch: pyt
     with pytest.raises(RuntimeError) as exc:
         core_session.start_session(paths, _start_args())
     assert exc.value.error_class == core_common.ERR_LAUNCH
+
+
+@pytest.mark.parametrize("config, word", [
+    ({"profiles": {"default": {"permission": "bogus"}}}, "permission"),
+    ({"profiles": {"default": "act"}}, "profiles"),
+    ({"evidence_max_bytes": 1}, "evidence_max_bytes"),
+])
+def test_start_session_rejects_a_malformed_profile_policy_before_spawning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                                                         config: dict[str, Any], word: str) -> None:
+    paths = core_common._paths("default")
+    core_common._home().mkdir(parents=True, exist_ok=True)
+    (core_common._home() / "config.json").write_text(json.dumps(config), encoding="utf-8")
+
+    def refuse_spawn(*a: Any, **k: Any) -> Any:
+        raise AssertionError("_spawn_daemon must not be called for a malformed profile policy")
+
+    monkeypatch.setattr(core_common, "_spawn_daemon", refuse_spawn)
+    with pytest.raises(RuntimeError) as exc:
+        core_session.start_session(paths, _start_args())
+    assert exc.value.error_class == core_common.ERR_CONFIG and word in str(exc.value)
+    assert not paths.launch.exists()
+
+
+@pytest.mark.parametrize("alive", [False, True], ids=["daemon exited", "start timed out"])
+def test_start_session_removes_its_launch_record_when_no_daemon_comes_up(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock, alive: bool) -> None:
+    paths = core_common._paths("default")
+    monkeypatch.setattr(core_common, "_spawn_daemon", lambda argv, log_path, cwd: (4321, "popen"))
+    monkeypatch.setattr(core_session, "_ping", lambda s, timeout=core_common.PING_TIMEOUT: None)
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: alive)
+    monkeypatch.setattr(core_common, "_kill_tree", lambda pid: None)
+    monkeypatch.setattr(core_common, "policy_blockers", lambda policies: [])
+
+    with pytest.raises(RuntimeError) as exc:
+        core_session.start_session(paths, _start_args(), timeout=2.0)
+    assert exc.value.error_class == core_common.ERR_LAUNCH
+    assert not paths.launch.exists()  # the token it carries outlived no failed start
+
+
+def test_discard_launch_deletes_only_the_record_it_wrote(tmp_path: Path) -> None:
+    paths = core_common._paths("default")
+    core_session._write_json_atomic(paths.launch, {"token": "other-start"})
+    core_session._discard_launch(paths.launch, "this-start")
+    assert paths.launch.exists()  # a concurrent start's daemon still has to read it
+    core_session._discard_launch(paths.launch, "other-start")
+    assert not paths.launch.exists()
+    core_session._discard_launch(paths.launch, "other-start")  # already gone: no error
+    paths.launch.write_text("not json", encoding="utf-8")
+    core_session._discard_launch(paths.launch, "other-start")
+    assert paths.launch.exists()
+
+
+def _install_lost_race(monkeypatch: pytest.MonkeyPatch, paths: core_common.ProfilePaths, winner_after: int | None) -> list[int]:
+    """This start's daemon exits at once while another start's daemon holds the lock (and, after `winner_after` probes, serves)."""
+    killed: list[int] = []
+    probes = {"n": 0}
+
+    def held_by_winner(path: Path) -> bool:
+        probes["n"] += 1
+        if winner_after is not None and probes["n"] == winner_after:
+            core_session._write_json_atomic(paths.session, _valid_session(paths, pid=7777, port=6666, launcher="wmi"))
+        return True
+
+    monkeypatch.setattr(core_common, "_spawn_daemon", lambda argv, log_path, cwd: (4321, "popen"))
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(core_common, "_lock_held", held_by_winner)
+    monkeypatch.setattr(core_common, "_kill_tree", killed.append)
+    monkeypatch.setattr(core_common, "policy_blockers", lambda policies: [])
+    monkeypatch.setattr(core_session, "_ping", lambda s, timeout=core_common.PING_TIMEOUT: {"pong": True})
+    return killed
+
+
+def test_start_session_waits_for_a_concurrent_starts_daemon_instead_of_failing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
+    paths = core_common._paths("default")
+    killed = _install_lost_race(monkeypatch, paths, winner_after=3)
+
+    result = core_session.start_session(paths, _start_args())
+
+    assert result["status"] == "already_running" and result["pid"] == 7777 and result["port"] == 6666
+    assert result["launcher"] == "wmi" and core_session._read_session(paths)["launcher"] == "wmi"  # the winner's, not this start's
+    assert killed == []
+    assert not paths.launch.exists()  # this start's record, which no daemon will consume
+
+
+def test_start_session_timeout_after_a_lost_race_does_not_kill_the_exited_pid(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
+    paths = core_common._paths("default")
+    killed = _install_lost_race(monkeypatch, paths, winner_after=None)
+    seen = {"n": 0}
+
+    def recycled(pid: int) -> bool:  # exited, then the OS hands the pid to an unrelated process
+        seen["n"] += 1
+        return seen["n"] > 1
+
+    monkeypatch.setattr(core_common, "_pid_alive", recycled)
+
+    with pytest.raises(RuntimeError) as exc:
+        core_session.start_session(paths, _start_args(), timeout=2.0)
+
+    assert exc.value.error_class == core_common.ERR_LAUNCH and "did not become ready" in str(exc.value)
+    assert killed == []
+
+
+def test_start_session_reports_another_starts_daemon_while_its_own_still_waits_for_the_lock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock
+) -> None:
+    paths = core_common._paths("default")
+    killed = _install_lost_race(monkeypatch, paths, winner_after=None)
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: True)  # this start's daemon is still retrying the lock
+
+    def winner_serves(argv: list[str], log_path: Path, cwd: Path) -> tuple[int, str]:
+        core_session._write_json_atomic(paths.session, _valid_session(paths, pid=7777, port=6666, launcher="wmi"))
+        return 4321, "popen"
+
+    monkeypatch.setattr(core_common, "_spawn_daemon", winner_serves)
+
+    result = core_session.start_session(paths, _start_args())
+
+    assert result["status"] == "already_running" and result["pid"] == 7777 and result["launcher"] == "wmi"
+    assert core_session._read_session(paths)["launcher"] == "wmi"  # the winner's session.json is not this start's to edit
+    assert killed == [] and not paths.launch.exists()
+
+
+def test_start_session_checks_the_profile_policy_before_cleaning_a_stale_session(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    paths = core_common._paths("default")
+    core_session._write_json_atomic(paths.session, _valid_session(paths))  # stale: no lock held
+    (core_common._home() / "config.json").write_text(json.dumps({"permission": "bogus"}), encoding="utf-8")
+    killed: list[Path] = []
+    monkeypatch.setattr(core_common, "_kill_browsers_using", lambda user_data, dry_run=False: killed.append(user_data) or [])
+
+    with pytest.raises(RuntimeError) as exc:
+        core_session.start_session(paths, _start_args())
+
+    assert exc.value.error_class == core_common.ERR_CONFIG
+    assert killed == [] and paths.session.exists()
 
 
 # ---------------------------------------------------------------------------

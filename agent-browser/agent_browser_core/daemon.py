@@ -7,6 +7,7 @@ import select
 import socket
 import socketserver
 import sys
+import time
 import traceback
 import urllib.parse
 from dataclasses import dataclass, field
@@ -148,6 +149,17 @@ class DownloadRecord:
     saved: str | None = None
 
 
+def _log_line(message: str) -> None:
+    """One daemon.log entry; serve writes these itself before a Daemon exists."""
+    # One physical line per entry: a multi-line exception or traceback, or a forged newline, cannot add log lines.
+    flat = str(message).replace("\r\n", "\n").replace("\n", " | ").replace("\r", " ")
+    line = f"{core_common._utc_now()} {core_common.sanitize_text(core_common.redact_text(flat), 2000, single_line=True)}"
+    try:
+        print(line, file=sys.stderr, flush=True)
+    except (OSError, ValueError):
+        pass
+
+
 class BrowserEngine:
     """Owns one Playwright persistent context. Single-threaded: only the main thread touches Playwright."""
 
@@ -184,11 +196,7 @@ class BrowserEngine:
     # -- logging -------------------------------------------------------------------------
 
     def dlog(self, message: str) -> None:
-        line = f"{core_common._utc_now()} {message}"
-        try:
-            print(line, file=sys.stderr, flush=True)
-        except (OSError, ValueError):
-            pass
+        _log_line(message)
 
     # -- lifecycle -----------------------------------------------------------------------
 
@@ -322,6 +330,10 @@ class BrowserEngine:
         if self.stop_reason is None:
             self.stop_reason = reason
 
+    def idle_expired(self, limit: float) -> bool:
+        """True once `limit` seconds (0 = never) passed since a request last started or finished."""
+        return bool(limit) and core_common._now() - self.last_activity > limit
+
     def close(self) -> None:
         try:
             if self.ctx is not None:
@@ -379,25 +391,27 @@ class BrowserEngine:
 
     def _classify(self, exc: Exception, verb: str) -> Exception:
         """Map a Playwright error to the repo's error contract."""
-        message = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
         text = str(exc)
+        # Playwright quotes the URL it was loading in the message and the call log; both are redacted like any URL.
+        message = core_common.sanitize_text(core_common.redact_text(text.splitlines()[0] if text else type(exc).__name__))
         p = self.profile
         if "Invalid frame in aria-ref selector" in text or "does not match any element" in text:
-            return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_STALE_REF, hint=core_common._hint("stale_ref", p))
+            return core_common._tag(ValueError(message), core_common.ERR_STALE_REF, hint=core_common._hint("stale_ref", p))
         if "has been closed" in text or "Target closed" in text or "browser has been closed" in text.lower():
-            return core_common._tag(RuntimeError(core_common.sanitize_text(message)), core_common.ERR_BROWSER_CLOSED, hint=core_common._hint("browser_closed", p))
+            return core_common._tag(RuntimeError(message), core_common.ERR_BROWSER_CLOSED, hint=core_common._hint("browser_closed", p))
         if "Not a checkbox or radio button" in text:
-            return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_ACTION_FAILED, hint=core_common._hint("check_not_checkbox", p))
+            return core_common._tag(ValueError(message), core_common.ERR_ACTION_FAILED, hint=core_common._hint("check_not_checkbox", p))
         if "not a <select> element" in text:
-            return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_ACTION_FAILED, hint=core_common._hint("select_not_select", p))
+            return core_common._tag(ValueError(message), core_common.ERR_ACTION_FAILED, hint=core_common._hint("select_not_select", p))
         if "Element is not an <input>" in text:
-            return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_ACTION_FAILED, hint=core_common._hint("fill_not_input", p))
+            return core_common._tag(ValueError(message), core_common.ERR_ACTION_FAILED, hint=core_common._hint("fill_not_input", p))
         if "strict mode violation" in text:
-            return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_AMBIGUOUS, hint=core_common._hint("action_failed", p))
+            return core_common._tag(ValueError(message), core_common.ERR_AMBIGUOUS, hint=core_common._hint("action_failed", p))
         if self._is_timeout(exc):
-            return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_ACTION_TIMEOUT, hint=core_common._hint("action_timeout", p))
+            return core_common._tag(ValueError(message), core_common.ERR_ACTION_TIMEOUT, hint=core_common._hint("action_timeout", p))
         calllog = [l.strip() for l in text.splitlines()[1:6] if l.strip()]
-        return core_common._tag(ValueError(core_common.sanitize_text(message)), core_common.ERR_ACTION_FAILED, hint=core_common._hint("action_failed", p), details={"log": [core_common.sanitize_text(l, 200) for l in calllog]})
+        return core_common._tag(ValueError(message), core_common.ERR_ACTION_FAILED, hint=core_common._hint("action_failed", p),
+                                details={"log": [core_common.sanitize_text(core_common.redact_text(l), 200) for l in calllog]})
 
     def _ref_target(self, page: Any, ref: str) -> Any:
         m = core_common.REF_RE.match(ref)
@@ -898,9 +912,9 @@ class BrowserEngine:
         if any(d.get("handled") == "dismissed" for d in result["dialogs"]):
             note = core_common._hint("dialog_dismissed", self.profile)
             result["note"] = f"{result['note']} {note}" if result.get("note") else note
-        untrusted = list(result.get("untrusted") or [])
-        if "dialogs" not in untrusted:
-            result["untrusted"] = [*untrusted, "dialogs"]
+        # A reply without its own list gets one from dispatch, which names dialogs among its page keys.
+        if "untrusted" in result and "dialogs" not in result["untrusted"]:
+            result["untrusted"] = [*result["untrusted"], "dialogs"]
 
     def _nav_signature(self, page: Any) -> dict[Any, int]:
         return {frame: self.nav_counts.get(frame, 0) for frame in page.frames}
@@ -943,6 +957,10 @@ class BrowserEngine:
                 result["effect"] = ("navigated" if result.get("navigated") else "tab_opened" if result.get("new_tab")
                                     else "downloaded" if result.get("downloads") else "value_set" if "value_after" in result
                                     else "dom_changed" if any(result.get("changes", {}).values()) else "none")
+            if "untrusted" not in result:  # every reply that carries page data says so, whichever handler built it
+                page_keys = [k for k in core_common.UNTRUSTED_KEYS if k in result]
+                if page_keys:
+                    result["untrusted"] = page_keys
             if "snapshot" in result:
                 result["snapshot"] = result.pop("snapshot")
             return result
@@ -1230,12 +1248,12 @@ class BrowserEngine:
                     except Exception:  # noqa: BLE001
                         continue
                     label = frame.name or ("(main)" if frame is page.main_frame else core_common.redact_url(frame.url))
-                    chunks.append(f"--- frame: {core_common.sanitize_text(label, 80)} ---\n{body}" if frame is not page.main_frame else body)
+                    chunks.append(f"--- frame: {core_common.sanitize_text(label, 80, single_line=True)} ---\n{body}" if frame is not page.main_frame else body)
         except (ValueError, RuntimeError):
             raise
         except Exception as exc:  # noqa: BLE001
             raise self._classify(exc, "text") from exc
-        text = core_common.CONTROL_CHARS_RE.sub("", "\n\n".join(chunks))
+        text = core_common.strip_invisible("\n\n".join(chunks))
         truncated = len(text) > max_chars
         env = self._base_fields(page)
         env.update({"chars": len(text), "truncated": truncated, "untrusted": core_common.UNTRUSTED_KEYS, "text": text[:max_chars]})
@@ -1537,28 +1555,28 @@ def _caller_gone(sock: socket.socket) -> bool:
         return True
 
 
+def _token_ok(supplied: object, expected: str) -> bool:
+    """Constant-time token check that never raises: a non-string or a lone surrogate is just a wrong token."""
+    return isinstance(supplied, str) and hmac.compare_digest(supplied.encode("utf-8", "surrogatepass"), expected.encode("utf-8", "surrogatepass"))
+
+
 class _Handler(socketserver.StreamRequestHandler):
     def handle(self) -> None:  # noqa: D102
         daemon: Daemon = self.server.daemon  # type: ignore[attr-defined]
         if self.client_address[0] not in ("127.0.0.1", "::1"):
             return
-        self.request.settimeout(core_common.FIRST_READ_TIMEOUT)
-        try:
-            line = self.rfile.readline(core_common.REQUEST_CAP + 1)
-        except (OSError, ValueError):
-            return
-        if not line or len(line) > core_common.REQUEST_CAP:
+        line = self._read_line()
+        if not line:
             return
         try:
             message = json.loads(line.decode("utf-8"))
-        except ValueError:
+        except (ValueError, RecursionError):  # RecursionError: a deeply nested line, before any token check
             self._reply({"ok": False, "error": {"class": core_common.ERR_USAGE, "message": "Malformed request."}})
             return
         if not isinstance(message, dict):
             self._reply({"ok": False, "error": {"class": core_common.ERR_USAGE, "message": "Request must be an object."}})
             return
-        token = str(message.get("token") or "")
-        if not hmac.compare_digest(token, daemon.token):
+        if not _token_ok(message.get("token"), daemon.token):
             daemon.dlog("rejected a request with a bad token")
             return
         if message.get("protocol_version") != core_common.PROTOCOL_VERSION:
@@ -1611,6 +1629,38 @@ class _Handler(socketserver.StreamRequestHandler):
             daemon._mark_idle()
         self._reply(reply)
 
+    def _read_line(self) -> bytes | None:
+        """The request line, or None when it takes over FIRST_READ_TIMEOUT in total or exceeds REQUEST_CAP.
+
+        A socket timeout restarts with every chunk, so a caller sending a byte at a time could hold this
+        serial server indefinitely before its token is even checked. The deadline runs on time.monotonic,
+        not the fakeable core_common._now, so it bounds real time.
+        """
+        deadline = time.monotonic() + core_common.FIRST_READ_TIMEOUT
+        buffer = bytearray()
+        searched = 0
+        while True:
+            end = buffer.find(b"\n", searched)
+            if end >= 0:
+                line = bytes(buffer[:end + 1])
+                break
+            if len(buffer) > core_common.REQUEST_CAP:
+                return None
+            searched = len(buffer)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            try:
+                self.request.settimeout(remaining)
+                chunk = self.request.recv(65536)
+            except (OSError, ValueError):
+                return None
+            if not chunk:  # the caller closed after a final line without a newline
+                line = bytes(buffer)
+                break
+            buffer += chunk
+        return line if len(line) <= core_common.REQUEST_CAP else None
+
     def _reply(self, reply: dict[str, Any]) -> None:
         reply["protocol_version"] = core_common.PROTOCOL_VERSION
         reply["contract_version"] = core_common.CONTRACT_VERSION
@@ -1648,20 +1698,39 @@ class _Server(socketserver.TCPServer):
 
 def serve(launch_file: Path) -> int:
     launch = json.loads(launch_file.read_text(encoding="utf-8"))
-    daemon = Daemon(launch)
+    paths = core_common.ProfilePaths(launch["profile"], Path(launch["home"]))
     log_path = Path(launch["log"])
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log = open(log_path, "a", buffering=1, encoding="utf-8", errors="replace")  # noqa: SIM115 - lives as long as the daemon
+    log = open(log_path, "a", buffering=1, encoding="utf-8", errors="replace")  # noqa: SIM115 - closed when serve returns
+    streams = sys.stdout, sys.stderr
     sys.stdout = sys.stderr = log
-    daemon.log_handle = log
-    daemon.dlog(f"daemon starting pid {os.getpid()} profile {daemon.profile} python {sys.executable}")
-    lock = core_common._try_lock(daemon.paths.lock)
-    if lock is None:
-        daemon.dlog("another daemon holds the session lock; exiting")
-        return 1
+    try:
+        _log_line(f"daemon starting pid {os.getpid()} profile {paths.profile} python {sys.executable}")
+        lock = core_common._acquire_lock(paths.lock)
+        if lock is None:
+            # A live daemon owns this profile: its session.json, journal and launch record are not this process's to touch.
+            _log_line("another daemon holds the session lock; exiting")
+            return 1
+        try:
+            return _serve_locked(launch_file, launch, paths, log)
+        finally:
+            core_common._release_lock(lock)
+    finally:
+        sys.stdout, sys.stderr = streams
+        log.close()
+
+
+def _serve_locked(launch_file: Path, launch: dict[str, Any], paths: core_common.ProfilePaths, log: Any) -> int:
+    # launch.json carries the token, which from here lives only in memory and in session.json.
+    core_session._discard_launch(launch_file, str(launch.get("token") or ""))
+    daemon: Daemon | None = None
     server: _Server | None = None
     exit_code = 0
     try:
+        # Built under the lock: Daemon() opens the journal, whose restart sweep marks running rows unknown,
+        # and validates the profile policy, whose failure must reach startup_error.json.
+        daemon = Daemon(launch)
+        daemon.log_handle = log
         daemon.started_at = core_common._utc_now()
         daemon.start_browser()
         server = _Server(("127.0.0.1", 0), _Handler)
@@ -1679,25 +1748,25 @@ def serve(launch_file: Path) -> int:
             if core_common._now() - last_heartbeat >= core_common.HEARTBEAT_SECONDS:
                 daemon.write_session(port)
                 last_heartbeat = core_common._now()
-            if idle_limit and core_common._now() - daemon.last_activity > idle_limit:
+            if daemon.idle_expired(idle_limit):
                 daemon._mark_stop("idle")
         daemon.dlog(f"stopping: {daemon.stop_reason}")
     except (ValueError, RuntimeError) as exc:
-        daemon.dlog(f"fatal {getattr(exc, 'error_class', '')}: {exc}")
-        _write_startup_error(daemon.paths, getattr(exc, "error_class", core_common.ERR_LAUNCH), str(exc), getattr(exc, "hint", None))
+        _log_line(f"fatal {getattr(exc, 'error_class', '')}: {exc}")
+        _write_startup_error(paths, getattr(exc, "error_class", core_common.ERR_LAUNCH), str(exc), getattr(exc, "hint", None))
         exit_code = 1
     except Exception as exc:  # noqa: BLE001
-        daemon.dlog("fatal: " + traceback.format_exc()[-1500:])
-        _write_startup_error(daemon.paths, core_common.ERR_LAUNCH, f"{type(exc).__name__}: {exc}", None)
+        _log_line("fatal: " + traceback.format_exc()[-1500:])
+        _write_startup_error(paths, core_common.ERR_LAUNCH, f"{type(exc).__name__}: {exc}", None)
         exit_code = 1
     finally:
-        daemon.close()
+        if daemon is not None:
+            daemon.close()
         if server is not None:
             try:
                 server.server_close()
             except OSError:
                 pass
-        daemon.paths.session.unlink(missing_ok=True)
-        core_common._release_lock(lock)
-        daemon.dlog("exited")
+        paths.session.unlink(missing_ok=True)
+        _log_line("exited")
     return exit_code

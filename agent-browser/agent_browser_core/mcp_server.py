@@ -151,17 +151,19 @@ def browser_commit(operation: Literal["click", "fill", "type", "press", "select"
                    body_file: str | None = None, servicenow: bool = False, recipe: Literal["sn/add-work-note"] | None = None,
                    number: str | None = None, clear: bool = False, handoff_id: str | None = None,
                    resolve: bool = False, expect: list[str] | None = None, content_type: str | None = None,
-                   tab: int | str | None = None, accept_dialog: bool = False, dialog_text: str | None = None,
-                   discard_changes: bool = False) -> dict[str, Any]:
+                   tab: int | str | None = None, include_unknown: bool = False, accept_dialog: bool = False,
+                   dialog_text: str | None = None, discard_changes: bool = False) -> dict[str, Any]:
     """Explicit committing operation. Require caller approval when the workflow requires human approval.
     An api body_file is sent as application/json unless content_type names another type.
+    journal with clear keeps unknown write receipts and open handoffs; include_unknown removes them too.
     accept_dialog (with dialog_text for a prompt) and discard_changes answer a confirm or an unsaved-edits
     prompt for page actions; pass them only with the user's authorization."""
     return _call(operation, {"target": target, "text": text, "key": key, "values": values or [], "files": files or [],
                              "fields": fields or [], "url": url, "method": method, "body_file": body_file, "servicenow": servicenow,
                              "recipe": recipe, "number": number, "clear": clear, "handoff_id": handoff_id,
                              "resolve": resolve, "expect": expect or [], "content_type": content_type, "tab": tab,
-                             "accept_dialog": accept_dialog, "dialog_text": dialog_text, "discard_changes": discard_changes},
+                             "include_unknown": include_unknown, "accept_dialog": accept_dialog, "dialog_text": dialog_text,
+                             "discard_changes": discard_changes},
                  session_id, profile, committing=True)
 
 

@@ -69,6 +69,17 @@ def test_mcp_manual_handoff_resolution_uses_commit_dispatch(monkeypatch):
     assert kwargs["committing"] is True
 
 
+def test_mcp_clear_carries_include_unknown_like_the_cli(monkeypatch):
+    command, cli_payload, _ = _cli_sent(monkeypatch, ["commit", "journal", "--clear", "--include-unknown"])
+    calls = _recorder(monkeypatch)
+    mcp_server.browser_commit("journal", "s", clear=True, include_unknown=True)
+    mcp_server.browser_commit("journal", "s", clear=True)
+    (sent, payload, kwargs), (_, default, _) = calls
+    assert command == "commit" and cli_payload["operation"] == "journal" and cli_payload["include_unknown"] is True
+    assert sent == "journal" and kwargs["committing"] is True and payload["clear"] is True and payload["include_unknown"] is True
+    assert default["include_unknown"] is False
+
+
 def test_mcp_can_inspect_and_page_receipts_when_quota_is_full(make_daemon, monkeypatch):
     daemon, ctx, page = make_daemon()
     monkeypatch.setenv("AGENT_BROWSER_HOME", str(daemon.paths.root))
@@ -313,7 +324,8 @@ def test_mcp_schema_exposes_the_cli_parameters(monkeypatch):
     # Accepting a dialog or discarding unsaved edits happens only through browser_commit and browser_stop.
     assert DIALOG_KEYS <= set(tools["browser_commit"]) and DIALOG_KEYS & set(tools["browser_stop"]) == {"discard_changes"}
     assert all(not DIALOG_KEYS & set(props) for name, props in tools.items() if name not in {"browser_commit", "browser_stop"})
-    assert list(inspect.signature(mcp_server.browser_commit).parameters)[-4:] == ["tab", "accept_dialog", "dialog_text", "discard_changes"]
+    params = list(inspect.signature(mcp_server.browser_commit).parameters)
+    assert params[-3:] == ["accept_dialog", "dialog_text", "discard_changes"] and params.index("tab") < params.index("accept_dialog")
     # A JSON integer tab stays an integer and a tab id stays a string through the SDK's argument validation.
     calls = _recorder(monkeypatch)
 

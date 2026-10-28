@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import json
 import socket
+import sys
 import threading
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Iterator
 
 import pytest
@@ -138,6 +140,67 @@ def test_wrong_token_gets_no_reply(daemon_server: _ServerHarness) -> None:
     with pytest.raises(RuntimeError) as exc:
         core_session._request(bad_session, "ping", {}, timeout=2.0)
     assert exc.value.error_class == core_common.ERR_DAEMON
+
+
+@pytest.mark.parametrize("supplied", ["abd", "", chr(0xE9), chr(0xD800), None, 123, ["abc"], {"token": "abc"}, b"abc"])
+def test_token_comparison_is_total(supplied: Any) -> None:
+    assert core_daemon._token_ok("abc", "abc") is True
+    assert core_daemon._token_ok(supplied, "abc") is False
+
+
+@pytest.mark.parametrize("token", [chr(0xE9), chr(0xD800), 123, None, ["x"]])
+def test_odd_token_is_dropped_without_reply_or_traceback(daemon_server: _ServerHarness, capsys: pytest.CaptureFixture[str], token: Any) -> None:
+    raw = json.dumps({"token": token, "cmd": "ping", "args": {}, "timeout": 2.0, "protocol_version": core_common.PROTOCOL_VERSION}) + "\n"
+    assert _raw_send(daemon_server.info["port"], raw.encode("utf-8")) == b""
+    assert core_session._request(daemon_server.session, "ping", {}, timeout=2.0)["pong"] is True
+    err = capsys.readouterr().err
+    assert "rejected a request with a bad token" in err and "Traceback" not in err
+
+
+def test_slow_drip_request_line_is_cut_off_by_wall_clock(daemon_server: _ServerHarness, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(core_common, "FIRST_READ_TIMEOUT", 0.5)
+    sock = socket.create_connection(("127.0.0.1", daemon_server.info["port"]), timeout=5.0)
+    stop = threading.Event()
+
+    def drip() -> None:  # one byte every 0.1 s for 3 s: each byte used to restart a per-recv timeout
+        for _ in range(30):
+            if stop.wait(0.1):
+                return
+            try:
+                sock.sendall(b"{")
+            except OSError:
+                return
+
+    dripper = threading.Thread(target=drip, daemon=True)
+    began = time.monotonic()
+    dripper.start()
+    try:
+        try:
+            closed = sock.recv(1)
+        except (ConnectionResetError, ConnectionAbortedError):
+            closed = b""
+        elapsed = time.monotonic() - began
+    finally:
+        stop.set()
+        dripper.join(timeout=2.0)
+        sock.close()
+    assert closed == b"" and elapsed < 1.5, elapsed
+    assert core_session._request(daemon_server.session, "ping", {}, timeout=2.0)["pong"] is True
+
+
+def test_deeply_nested_request_is_malformed_not_a_traceback(daemon_server: _ServerHarness, capsys: pytest.CaptureFixture[str]) -> None:
+    reply = json.loads(_raw_send(daemon_server.info["port"], b"[" * 100_000 + b"\n"))
+    assert reply["ok"] is False and reply["error"]["class"] == core_common.ERR_USAGE
+    assert core_session._request(daemon_server.session, "ping", {}, timeout=2.0)["pong"] is True
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_request_line_over_the_cap_is_dropped_and_the_server_keeps_serving(daemon_server: _ServerHarness, monkeypatch: pytest.MonkeyPatch) -> None:
+    cap = core_common.REQUEST_CAP
+    monkeypatch.setattr(core_common, "REQUEST_CAP", 64)
+    assert _raw_send(daemon_server.info["port"], b'{"pad": "' + b"x" * 200 + b'"}\n') == b""
+    monkeypatch.setattr(core_common, "REQUEST_CAP", cap)
+    assert core_session._request(daemon_server.session, "ping", {}, timeout=2.0)["pong"] is True
 
 
 def test_wire_cannot_forge_the_commit_flag(daemon_server: _ServerHarness) -> None:
@@ -383,6 +446,33 @@ def test_busy_record_spans_the_callers_deadline_and_clears_after(make_daemon: An
     assert core_session._read_session(daemon.paths)["busy"] is None
 
 
+def test_dlog_writes_one_sanitised_line_per_message(make_daemon: Any, capsys: pytest.CaptureFixture[str]) -> None:
+    daemon, _ctx, _page = make_daemon()
+    capsys.readouterr()
+    daemon.dlog("launch failed: a\nFORGED line" + chr(27) + "[31m" + chr(0xE0041) + chr(0x2028) + "x\r\nat https://h/cb?code=SECRETVALUE")
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1 and "\r" not in err
+    assert err.rstrip("\n").endswith(" launch failed: a | FORGED line[31m x | at https://h/cb?code=***")
+
+
+def test_classify_redacts_urls_in_the_message_and_call_log(make_daemon: Any) -> None:
+    from conftest import FakePlaywrightError, FakePlaywrightTimeoutError
+    daemon, _ctx, _page = make_daemon()
+    failed = daemon._classify(FakePlaywrightError(
+        "Page.goto: net::ERR_ABORTED at https://h/cb?code=SECRETVALUE\nCall log:\n"
+        '  - navigating to "https://h/cb?code=SECRETVALUE&state=STATEVALUE", waiting until "load"'), "goto")
+    assert str(failed) == "Page.goto: net::ERR_ABORTED at https://h/cb?code=***"
+    assert failed.details["log"] == ["Call log:", '- navigating to "https://h/cb?code=***&state=***", waiting until "load"']
+    timed_out = daemon._classify(FakePlaywrightTimeoutError("Page.goto: Timeout 500ms exceeded at https://h/?token=SECRETVALUE"), "goto")
+    assert timed_out.error_class == core_common.ERR_ACTION_TIMEOUT and "SECRETVALUE" not in str(timed_out)
+
+
+def test_log_tail_in_error_details_is_sanitised_and_redacted(tmp_path: Any) -> None:
+    log = tmp_path / "daemon.log"
+    log.write_text("first\nbrowser stderr " + chr(27) + "[0m https://h/cb?code=SECRETVALUE" + chr(0xE0041) + "\nlast\n", encoding="utf-8")
+    assert core_common._tail(log) == "first\nbrowser stderr [0m https://h/cb?code=***\nlast"
+
+
 def test_unpublishable_busy_state_never_fails_the_command(make_daemon: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     daemon, _ctx, _page = make_daemon()
     daemon.port = 4321
@@ -406,3 +496,96 @@ def test_idle_connection_does_not_block_a_following_legitimate_request(
         assert result["pong"] is True
     finally:
         idle_sock.close()
+
+
+# ---------------------------------------------------------------------------
+# serve(): what happens before the loop (lock, launch record, startup errors)
+
+
+def _write_launch(paths: core_common.ProfilePaths, token: str, **overrides: Any) -> Path:
+    launch = {"profile": paths.profile, "home": str(paths.root), "log": str(paths.log), "token": token,
+              "browser": "msedge", "exe": None, "headless": True, "window_size": None, "code_hash": "deadbeef",
+              "config": {}, "idle_seconds": 0.0, "tool_version": core_common.TOOL_VERSION, **overrides}
+    core_session._write_json_atomic(paths.launch, launch)
+    return paths.launch
+
+
+@pytest.fixture
+def serve_seams(monkeypatch: pytest.MonkeyPatch, fake_clock: Any) -> list[bool]:
+    """Keep serve's stream rebinding contained and record, at browser launch, whether launch.json still existed."""
+    from conftest import FakeContext, FakePage, FakePlaywright
+
+    monkeypatch.setattr(sys, "stdout", sys.stdout)
+    monkeypatch.setattr(sys, "stderr", sys.stderr)
+    launch_seen: list[bool] = []
+
+    def ctx_factory(user_data_dir: str, options: dict[str, Any]) -> Any:
+        launch_seen.append((Path(user_data_dir).parent / "launch.json").exists())
+        ctx = FakeContext()
+        ctx.pages.append(FakePage(ctx))
+        return ctx
+
+    monkeypatch.setattr(core_common, "_playwright_factory", lambda: FakePlaywright(ctx_factory))
+    return launch_seen
+
+
+def test_serve_consumes_launch_json_once_it_holds_the_lock(serve_seams: list[bool]) -> None:
+    paths = core_common._paths("default")
+    launch_file = _write_launch(paths, "daemon-token", idle_seconds=0.01)  # the first idle check ends the loop
+
+    assert core_daemon.serve(launch_file) == 0
+
+    assert serve_seams == [False]  # gone before the browser starts, not left for the daemon's lifetime
+    assert not paths.session.exists() and not core_common._lock_held(paths.lock)
+    assert "exited" in paths.log.read_text(encoding="utf-8")
+
+
+def test_serve_writes_startup_error_for_a_config_the_client_did_not_catch(serve_seams: list[bool]) -> None:
+    paths = core_common._paths("default")
+    launch_file = _write_launch(paths, "daemon-token", config={"permission": "bogus"})
+
+    assert core_daemon.serve(launch_file) == 1
+
+    reported = core_daemon._take_startup_error(paths)
+    assert reported["class"] == core_common.ERR_CONFIG and "permission" in reported["message"]
+    assert serve_seams == []  # the browser never started
+    assert not core_common._lock_held(paths.lock) and not paths.session.exists() and not launch_file.exists()
+    assert "fatal config" in paths.log.read_text(encoding="utf-8")
+
+
+def test_losing_duplicate_daemon_leaves_the_winners_state_alone(serve_seams: list[bool]) -> None:
+    from agent_browser_core import evidence
+
+    paths = core_common._paths("default")
+    journal = evidence.Journal(paths.dir)
+    journal.start("c" * 32, "a", "click", {}, "http://x/")  # the winner's command in flight
+    winner_session = {"port": 4444, "token": "winner-token", "pid": 4242}
+    core_session._write_json_atomic(paths.session, winner_session)
+    launch_file = _write_launch(paths, "winner-token")
+    winner_lock = core_common._try_lock(paths.lock)
+    try:
+        assert core_daemon.serve(launch_file) == 1
+    finally:
+        core_common._release_lock(winner_lock)
+
+    assert [row["status"] for row in journal.rows("a")] == ["running"]  # no restart sweep against a live daemon
+    assert launch_file.exists() and json.loads(launch_file.read_text(encoding="utf-8"))["token"] == "winner-token"
+    assert core_session._read_session(paths) == winner_session
+    assert core_daemon._take_startup_error(paths) is None and serve_seams == []
+    assert "another daemon holds the session lock" in paths.log.read_text(encoding="utf-8")
+
+
+def test_serve_logs_a_failure_before_the_daemon_exists_as_one_redacted_line(serve_seams: list[bool], monkeypatch: pytest.MonkeyPatch) -> None:
+    paths = core_common._paths("default")
+    launch_file = _write_launch(paths, "daemon-token")
+
+    def failing_daemon(launch: dict[str, Any]) -> Any:
+        raise core_common._tag(RuntimeError("cannot start\nFORGED line at https://h/cb?code=SECRETVALUE"), core_common.ERR_CONFIG)
+
+    monkeypatch.setattr(core_daemon, "Daemon", failing_daemon)
+    assert core_daemon.serve(launch_file) == 1
+
+    log = paths.log.read_text(encoding="utf-8")
+    fatal = [line for line in log.splitlines() if "fatal" in line]
+    assert len(fatal) == 1 and "FORGED line" in fatal[0]  # one physical line per entry
+    assert "SECRETVALUE" not in log and not any(line.startswith("FORGED") for line in log.splitlines())
