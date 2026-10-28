@@ -614,6 +614,9 @@ def test_redact_text_redacts_every_url_in_free_text() -> None:
     assert core_common.redact_text("no link here: code=1") == "no link here: code=1"
     assert core_common.redact_text("navigating to https://a.com/it's?token=SEC") == "navigating to https://a.com/it's?token=***"
     assert core_common.redact_text("goto 'https://h/p?code=SEC', then") == "goto 'https://h/p?code=***', then"
+    for joined in ("'https://h/?a=1','https://h2/?token=SEC'", "https://h/?a=1'https://h2/?token=SEC",
+                   "https://h/?a=1,https://h2/?token=SEC", "a=1https://h2/?token=SEC", "foo_https://h2/?token=SEC"):
+        assert core_common.redact_text(joined).endswith("https://h2/?token=***" + ("'" if joined.endswith("'") else "")), joined
     assert core_common.redact_url("https://h/cb?next=%20https://b.com/?token=SEC") == "https://h/cb?next=https://b.com/%3Ftoken%3D***"
 
 def test_sanitize_text_strips_tag_characters_and_invisible_formats() -> None:

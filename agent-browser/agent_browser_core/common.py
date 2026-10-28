@@ -295,7 +295,8 @@ NESTED_URL_DEPTH = 2  # a URL inside a query value is redacted too, this many le
 
 
 # Browsers leave ' raw in a path (/it's?token=...), so a URL in text runs on through it; a closing quote is trailing.
-URL_IN_TEXT_RE = re.compile(r"\b(?:https?|wss?)://[^\s\"<>`]+", re.I)
+# Every scheme starts a new match, so URLs joined by a quote, a comma or nothing are each redacted on their own.
+URL_IN_TEXT_RE = re.compile(r"(?:https?|wss?)://(?:(?!(?:https?|wss?)://)[^\s\"<>`])+", re.I)
 
 
 URL_TRAILING = ".,;:!?)]}'"  # sentence punctuation and a closing quote after a URL in free text, kept outside the redaction
