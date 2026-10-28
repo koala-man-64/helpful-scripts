@@ -106,7 +106,7 @@ operation `stop`. That stop takes only `discard_changes` and releases the sessio
 have unsaved edits, which a plain `browser_stop` keeps; pass them only with the user's authorization. Snapshots default to 4,500 bytes so a page read fits
 one reply; use `find` or `ref` to narrow it. `browser_commit` api with `body_file` sends
 `Content-Type: application/json` unless `content_type` (only with `body_file`) is given.
-Use `browser_output` and its `next_offset` for smaller MCP pages; an overflow reply keeps
+Use `browser_output` and its `next_offset` for smaller MCP pages (each is `untrusted: ["chunk"]`); an overflow reply keeps
 `url`, `title` and `untrusted`. A tool error has the same `error` object as CLI stderr
 (`class`, `http_status`, `message`, `hint`, optional `details`); its hint names the
 equivalent CLI command. `error.untrusted` names `message` (Playwright's text) and `details`

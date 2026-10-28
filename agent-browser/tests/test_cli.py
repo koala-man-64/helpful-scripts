@@ -229,6 +229,9 @@ def test_cli_error_overflow_stubs_keep_the_untrusted_marker(monkeypatch: pytest.
     assert stub["error"]["untrusted"] == ["details"]
     stored = json.loads(Path(stub["output_file"]).read_text(encoding="utf-8"))
     assert stored["error"]["details"]["candidates"] == candidates and stored["error"]["untrusted"] == ["details"]
+    # Reading it back by ID: every page of a stored reply can hold page text.
+    page = core_cli._cmd_output(argparse.Namespace(profile=None, session=None, id=stub["output_id"], offset=0))
+    assert page["chunk"].startswith('{"error":') and page["untrusted"] == ["chunk"]
     # The last-resort stub, used when even the bounded one is over budget, keeps it too.
     minimal = json.loads(core_cli._json_line(core_cli._error_payload(exc), byte_budget=200))
     assert minimal["error"] == {"class": "oversized_error", "message": "Read full error details by output ID.", "untrusted": ["details"]}

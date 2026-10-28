@@ -338,6 +338,7 @@ def test_mcp_ambiguous_error_marks_its_candidates_untrusted_through_the_reply_bu
         chunks, offset = [], 0
         while offset is not None:
             page = (await server.call_tool("browser_output", {"session_id": "s", "output_id": stub["output_id"], "offset": offset})).structuredContent
+            assert page["untrusted"] == ["chunk"]
             chunks.append(page["chunk"])
             offset = page["next_offset"]
         return stub, json.loads("".join(chunks))

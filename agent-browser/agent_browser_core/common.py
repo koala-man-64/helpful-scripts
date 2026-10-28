@@ -527,7 +527,7 @@ HINTS = {
     "off_allowlist_wait": "wait cannot watch a page outside allowed_hosts. For a sign-in on an identity provider, run: {tool} needs-human --signed-in <app host> --profile {profile} and poll it with: {tool} state --handoff <id> --profile {profile}; otherwise use: {tool} back --profile {profile}.",
     "dialog": "A page dialog was answered Cancel and the command had already run; see details.dialogs and details.executed. Only if the user authorized accepting it, check the page, then repeat the action with --accept-dialog (and --dialog-text TEXT for a prompt); on MCP, browser_commit takes accept_dialog.",
     "dialog_dismissed": "A page dialog was answered Cancel (see dialogs); this command's own result is still valid. Ask the user before repeating whatever opened it.",
-    "unsaved_changes": "The page has unsaved edits and they were kept. Click its Save/Update button first; only if the user agreed to lose them, repeat the command with --discard-changes (on MCP, pass discard_changes to browser_commit, as operation stop when stopping).",
+    "unsaved_changes": "The page has unsaved edits and they were kept. Click its Save/Update button first; only if the user agreed to lose them, repeat the command with --discard-changes (on MCP, only browser_commit takes discard_changes: for its page actions and operation stop).",
     "action_timeout": "The element is hidden, disabled, or covered. Run: {tool} snapshot --profile {profile} and pick a visible enabled element, or: {tool} wait --ref <ref> --profile {profile}",
     "action_failed": "Run: {tool} snapshot --profile {profile} and try a different element or verb.",
     "wait_timeout": "Still waiting. Run the same wait command again, or ask the user whether sign-in is finished.",

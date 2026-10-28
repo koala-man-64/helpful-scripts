@@ -321,6 +321,14 @@ class ReachMixin:
             self.current = previous
             self.sessions[self.session_id]["current"] = previous
 
+    def _check_page_url(self, url: str) -> None:
+        """common._check_url on a URL the page chose, such as a frame's: its refusal quotes the page's host."""
+        try:
+            common._check_url(url, self.paths, self.config)
+        except ValueError as exc:
+            exc.untrusted = ["message"]  # type: ignore[attr-defined]
+            raise
+
     def h_run(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         recipe = args.get("recipe")
         if not isinstance(recipe, str) or recipe not in common.RECIPES or not common.RECORD_NUMBER_RE.fullmatch(str(args.get("number", ""))):
@@ -339,7 +347,7 @@ class ReachMixin:
         if frame is None:
             return hand_off("Recipe requires the classic gsft_main record form")
         record_url = frame.url
-        common._check_url(record_url, self.paths, self.config)
+        self._check_page_url(record_url)
         if api.origin(record_url) != api.origin(page.url):
             raise common._tag(ValueError("Classic record form must share the working tab's origin."), common.ERR_GUARDED)
         record_id = urllib.parse.parse_qs(urllib.parse.urlsplit(record_url).query).get("sys_id", [""])[0]
@@ -374,7 +382,7 @@ class ReachMixin:
             nonlocal reloaded
             posted = page in posts["pages"]
             if posted and not reloaded:
-                common._check_url(record_url, self.paths, self.config)
+                self._check_page_url(record_url)
                 current = next((f for f in page.frames if f.name == "gsft_main"), None)
                 if current is not None:
                     current.goto(record_url, wait_until="domcontentloaded", timeout=min(2, max(.1, deadline-common._now()))*1000)

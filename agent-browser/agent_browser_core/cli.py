@@ -364,8 +364,9 @@ def _cmd_output(args: argparse.Namespace) -> dict[str, Any]:
     page_size = min(3000, max(1, getattr(args, "page_size", 3000)))
     chunk = data[args.offset:args.offset + page_size]
     end = args.offset + len(chunk)
+    # A stored reply or receipt keeps whatever page text it held, so every page of it is untrusted.
     return {"offset": args.offset, "next_offset": end if end < len(data) else None,
-            "total_chars": len(data), "chunk": chunk}
+            "total_chars": len(data), "chunk": chunk, "untrusted": ["chunk"]}
 
 
 def _json_line(payload: Any, profile: str | None = None, session_id: str | None = None, *, byte_budget: int = core_common.STDOUT_BUDGET) -> str:

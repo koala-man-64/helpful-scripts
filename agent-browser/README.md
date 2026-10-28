@@ -179,7 +179,8 @@ Runtime replies are compact single-line JSON with `contract_version: 1`. The com
 encoded CLI/socket reply, including escaping/newline, is bounded to 24,000 UTF-8 bytes.
 MCP text and structured output are bounded together. Overflow is preserved under an
 immutable `output_id`; read `output --id ID --offset 0` and follow `next_offset` until
-null. The overflow reply still carries the page's `url`, `title` and `untrusted`.
+null. The overflow reply still carries the page's `url`, `title` and `untrusted`; every `output` page is
+`untrusted: ["chunk"]`, since a stored reply keeps its page text.
 Later commands cannot replace that artifact; `last_output.json` remains available.
 `effect` and per-command console/page/network/HTTP error counts describe observations,
 not business success. Repeat `--expect` for AND checks under one action deadline:
