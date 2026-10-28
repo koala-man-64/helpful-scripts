@@ -151,7 +151,13 @@ QUEUE_WAIT = 30.0                      # one daemon serves a profile serially; p
 PING_TIMEOUT = 3.0
 
 
-FIRST_READ_TIMEOUT = 5.0
+FIRST_READ_TIMEOUT = 5.0               # the whole request line must arrive within this, however it is chunked
+
+
+LOCK_ACQUIRE_GRACE = 2.0               # how long a starting daemon retries the session lock past clients' probes
+
+
+LOCK_PROBE_RETRY = 0.025               # a second look at a lock no live process explains
 
 
 HEARTBEAT_SECONDS = 5.0
@@ -1163,6 +1169,34 @@ def _lock_held(path: Path) -> bool:
         return True
     _release_lock(handle)
     return False
+
+
+def _acquire_lock(path: Path, wait: float = LOCK_ACQUIRE_GRACE) -> Any:
+    """`_try_lock`, retried for up to `wait` seconds.
+
+    `_lock_held` probes by taking the lock for an instant, so a starting daemon's single attempt
+    could lose to a client's probe and exit. A lock that another daemon really holds still fails.
+    """
+    deadline = _now() + wait
+    while True:
+        handle = _try_lock(path)
+        if handle is not None or _now() >= deadline:
+            return handle
+        _sleep(0.05)
+
+
+def _lock_in_use(path: Path, recorded_pid: int) -> bool:
+    """`_lock_held`, without mistaking another client's probe for the owner.
+
+    Two probes can each catch the other holding the lock. A live recorded owner explains a held
+    lock at once, which keeps a running daemon's check a single attempt; otherwise look once more.
+    """
+    if not _lock_held(path):
+        return False
+    if recorded_pid > 0 and _pid_alive(recorded_pid):
+        return True
+    _sleep(LOCK_PROBE_RETRY)
+    return _lock_held(path)
 
 
 def _drive_is_fixed(path: Path) -> bool:

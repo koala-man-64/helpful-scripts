@@ -140,6 +140,60 @@ def test_wrong_token_gets_no_reply(daemon_server: _ServerHarness) -> None:
     assert exc.value.error_class == core_common.ERR_DAEMON
 
 
+@pytest.mark.parametrize("supplied", ["abd", "", chr(0xE9), chr(0xD800), None, 123, ["abc"], {"token": "abc"}, b"abc"])
+def test_token_comparison_is_total(supplied: Any) -> None:
+    assert core_daemon._token_ok("abc", "abc") is True
+    assert core_daemon._token_ok(supplied, "abc") is False
+
+
+@pytest.mark.parametrize("token", [chr(0xE9), chr(0xD800), 123, None, ["x"]])
+def test_odd_token_is_dropped_without_reply_or_traceback(daemon_server: _ServerHarness, capsys: pytest.CaptureFixture[str], token: Any) -> None:
+    raw = json.dumps({"token": token, "cmd": "ping", "args": {}, "timeout": 2.0, "protocol_version": core_common.PROTOCOL_VERSION}) + "\n"
+    assert _raw_send(daemon_server.info["port"], raw.encode("utf-8")) == b""
+    assert core_session._request(daemon_server.session, "ping", {}, timeout=2.0)["pong"] is True
+    err = capsys.readouterr().err
+    assert "rejected a request with a bad token" in err and "Traceback" not in err
+
+
+def test_slow_drip_request_line_is_cut_off_by_wall_clock(daemon_server: _ServerHarness, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(core_common, "FIRST_READ_TIMEOUT", 0.5)
+    sock = socket.create_connection(("127.0.0.1", daemon_server.info["port"]), timeout=5.0)
+    stop = threading.Event()
+
+    def drip() -> None:  # one byte every 0.1 s for 3 s: each byte used to restart a per-recv timeout
+        for _ in range(30):
+            if stop.wait(0.1):
+                return
+            try:
+                sock.sendall(b"{")
+            except OSError:
+                return
+
+    dripper = threading.Thread(target=drip, daemon=True)
+    began = time.monotonic()
+    dripper.start()
+    try:
+        try:
+            closed = sock.recv(1)
+        except (ConnectionResetError, ConnectionAbortedError):
+            closed = b""
+        elapsed = time.monotonic() - began
+    finally:
+        stop.set()
+        dripper.join(timeout=2.0)
+        sock.close()
+    assert closed == b"" and elapsed < 1.5, elapsed
+    assert core_session._request(daemon_server.session, "ping", {}, timeout=2.0)["pong"] is True
+
+
+def test_request_line_over_the_cap_is_dropped_and_the_server_keeps_serving(daemon_server: _ServerHarness, monkeypatch: pytest.MonkeyPatch) -> None:
+    cap = core_common.REQUEST_CAP
+    monkeypatch.setattr(core_common, "REQUEST_CAP", 64)
+    assert _raw_send(daemon_server.info["port"], b'{"pad": "' + b"x" * 200 + b'"}\n') == b""
+    monkeypatch.setattr(core_common, "REQUEST_CAP", cap)
+    assert core_session._request(daemon_server.session, "ping", {}, timeout=2.0)["pong"] is True
+
+
 def test_wire_cannot_forge_the_commit_flag(daemon_server: _ServerHarness) -> None:
     with pytest.raises((ValueError, RuntimeError)) as exc:
         core_session._request(daemon_server.session, "journal", {"clear": True, "_commit": True}, timeout=2.0)

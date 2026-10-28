@@ -7,6 +7,7 @@ import select
 import socket
 import socketserver
 import sys
+import time
 import traceback
 import urllib.parse
 from dataclasses import dataclass, field
@@ -318,6 +319,10 @@ class BrowserEngine:
     def _mark_stop(self, reason: str) -> None:
         if self.stop_reason is None:
             self.stop_reason = reason
+
+    def idle_expired(self, limit: float) -> bool:
+        """True once `limit` seconds (0 = never) passed since a request last started or finished."""
+        return bool(limit) and core_common._now() - self.last_activity > limit
 
     def close(self) -> None:
         try:
@@ -1508,17 +1513,18 @@ def _caller_gone(sock: socket.socket) -> bool:
         return True
 
 
+def _token_ok(supplied: object, expected: str) -> bool:
+    """Constant-time token check that never raises: a non-string or a lone surrogate is just a wrong token."""
+    return isinstance(supplied, str) and hmac.compare_digest(supplied.encode("utf-8", "surrogatepass"), expected.encode("utf-8", "surrogatepass"))
+
+
 class _Handler(socketserver.StreamRequestHandler):
     def handle(self) -> None:  # noqa: D102
         daemon: Daemon = self.server.daemon  # type: ignore[attr-defined]
         if self.client_address[0] not in ("127.0.0.1", "::1"):
             return
-        self.request.settimeout(core_common.FIRST_READ_TIMEOUT)
-        try:
-            line = self.rfile.readline(core_common.REQUEST_CAP + 1)
-        except (OSError, ValueError):
-            return
-        if not line or len(line) > core_common.REQUEST_CAP:
+        line = self._read_line()
+        if not line:
             return
         try:
             message = json.loads(line.decode("utf-8"))
@@ -1528,8 +1534,7 @@ class _Handler(socketserver.StreamRequestHandler):
         if not isinstance(message, dict):
             self._reply({"ok": False, "error": {"class": core_common.ERR_USAGE, "message": "Request must be an object."}})
             return
-        token = str(message.get("token") or "")
-        if not hmac.compare_digest(token, daemon.token):
+        if not _token_ok(message.get("token"), daemon.token):
             daemon.dlog("rejected a request with a bad token")
             return
         if message.get("protocol_version") != core_common.PROTOCOL_VERSION:
@@ -1582,6 +1587,38 @@ class _Handler(socketserver.StreamRequestHandler):
             daemon._mark_idle()
         self._reply(reply)
 
+    def _read_line(self) -> bytes | None:
+        """The request line, or None when it takes over FIRST_READ_TIMEOUT in total or exceeds REQUEST_CAP.
+
+        A socket timeout restarts with every chunk, so a caller sending a byte at a time could hold this
+        serial server indefinitely before its token is even checked. The deadline runs on time.monotonic,
+        not the fakeable core_common._now, so it bounds real time.
+        """
+        deadline = time.monotonic() + core_common.FIRST_READ_TIMEOUT
+        buffer = bytearray()
+        searched = 0
+        while True:
+            end = buffer.find(b"\n", searched)
+            if end >= 0:
+                line = bytes(buffer[:end + 1])
+                break
+            if len(buffer) > core_common.REQUEST_CAP:
+                return None
+            searched = len(buffer)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            try:
+                self.request.settimeout(remaining)
+                chunk = self.request.recv(65536)
+            except (OSError, ValueError):
+                return None
+            if not chunk:  # the caller closed after a final line without a newline
+                line = bytes(buffer)
+                break
+            buffer += chunk
+        return line if len(line) <= core_common.REQUEST_CAP else None
+
     def _reply(self, reply: dict[str, Any]) -> None:
         reply["protocol_version"] = core_common.PROTOCOL_VERSION
         reply["contract_version"] = core_common.CONTRACT_VERSION
@@ -1626,7 +1663,7 @@ def serve(launch_file: Path) -> int:
     sys.stdout = sys.stderr = log
     daemon.log_handle = log
     daemon.dlog(f"daemon starting pid {os.getpid()} profile {daemon.profile} python {sys.executable}")
-    lock = core_common._try_lock(daemon.paths.lock)
+    lock = core_common._acquire_lock(daemon.paths.lock)
     if lock is None:
         daemon.dlog("another daemon holds the session lock; exiting")
         return 1
@@ -1650,7 +1687,7 @@ def serve(launch_file: Path) -> int:
             if core_common._now() - last_heartbeat >= core_common.HEARTBEAT_SECONDS:
                 daemon.write_session(port)
                 last_heartbeat = core_common._now()
-            if idle_limit and core_common._now() - daemon.last_activity > idle_limit:
+            if daemon.idle_expired(idle_limit):
                 daemon._mark_stop("idle")
         daemon.dlog(f"stopping: {daemon.stop_reason}")
     except (ValueError, RuntimeError) as exc:
