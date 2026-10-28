@@ -325,7 +325,7 @@ Real environment variables, read lazily; no `.env` loading (the tool must run ba
 | `AGENT_BROWSER_HEADLESS` | `true` = no window (tests). A human cannot sign in headless. |
 | `AGENT_BROWSER_TIMEOUT_SECONDS` | Default action timeout (15). |
 | `AGENT_BROWSER_MAX_BYTES` / `AGENT_BROWSER_MAX_CHARS` | Snapshot byte budget (16000, at least 500); `text` character cap (20000). |
-| `AGENT_BROWSER_AUTOSTART` | `false` stops `goto` and `check URL` from starting a browser on their own (they start one only when none runs or the last one died). |
+| `AGENT_BROWSER_AUTOSTART` | `false` stops `goto` and `check URL` from starting a browser on their own (they start one only when none runs or the last one died, and never for a call that fails its argument checks, such as a bad `--timeout`). |
 | `AGENT_BROWSER_LAUNCHER` | `popen` (default) or `wmi`: how the daemon is detached from the shell. `start` and `status` report `popen-breakaway` when the daemon left the shell's Job. Any other value, and `wmi` outside Windows, uses `popen`. |
 | `AGENT_BROWSER_IDLE_SECONDS` | Daemon stops after this much inactivity (default 0 = never). Any request counts, `poll`, `wait` and `state` included; an open handoff nobody polls does not. |
 | `AGENT_BROWSER_LIVE` | `1` enables the live pytest suite. |
