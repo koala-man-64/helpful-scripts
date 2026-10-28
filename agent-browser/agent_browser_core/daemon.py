@@ -1580,13 +1580,9 @@ class _Handler(socketserver.StreamRequestHandler):
                         if bounded.get("output_id"):
                             reply["error"]["details"] = {**(reply["error"].get("details") or {}), "output_id": bounded["output_id"], "next_offset": 0}
                 except (OSError, ValueError, RuntimeError) as exc:
-                    result = reply.get("result", {})
-                    original = reply.get("error", {}).get("details") or {}
-                    command_id = result.get("command_id") or original.get("command_id")
+                    source = reply.get("result") if reply.get("ok") else reply
                     reply = {"ok": False, "protocol_version": core_common.PROTOCOL_VERSION, "contract_version": core_common.CONTRACT_VERSION,
-                             "error": {"class": getattr(exc, "error_class", "output_storage"), "message": "Cannot preserve oversized reply; inspect the journal before repeating an action.",
-                                       "details": {"command_id": command_id, "executed": result.get("executed", original.get("executed")),
-                                                   "receipt": "state --command " + command_id if command_id else "journal"}}}
+                             **core_common._storage_error(source, exc, daemon.profile)}
                 encoded = json.dumps(reply, ensure_ascii=False, default=str, separators=(",", ":"))
             self.wfile.write((encoded + "\n").encode("utf-8"))
             self.wfile.flush()

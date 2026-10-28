@@ -65,7 +65,10 @@ Use the optional MCP extra (`pip install -e "agent-browser[mcp]"`) and register 
 through every tool in one task. The 18 typed tools share the daemon dispatcher;
 `browser_commit` and `browser_eval` are distinct approval targets. Tool text is compact
 JSON and matches structuredContent; complete serialized tool replies are bounded.
-Use `browser_output` and its `next_offset` for smaller MCP pages.
+Use `browser_output` and its `next_offset` for smaller MCP pages. A tool error has the
+same `error` object as CLI stderr (`class`, `http_status`, `message`, `hint`, optional
+`details`); its hint names the equivalent CLI command. Bad arguments and unknown tools
+are `validation`. A reply that cannot be stored keeps `details.receipt`.
 
 Journal inspection returns `next_offset`; state command history returns
 `command_next_offset`. Use `--offset` for the next page. Oversized receipts return

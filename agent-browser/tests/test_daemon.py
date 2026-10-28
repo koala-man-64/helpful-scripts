@@ -182,6 +182,24 @@ def test_oversized_error_preserves_write_receipt_when_output_storage_is_full(mon
     reply = json.loads(handler.wfile.getvalue())
     assert reply["error"]["details"] == {"command_id": command_id, "executed": True, "receipt": "state --command " + command_id}
     assert len(handler.wfile.getvalue()) <= core_common.STDOUT_BUDGET
+    assert reply["error"]["class"] == "journal_full" and reply["error"]["hint"] == core_common._hint("inspect_receipt", "default")
+
+
+@pytest.mark.parametrize("failure, cls", [(OSError("disk"), "output_storage"),
+                                          (core_common._tag(ValueError("bad profile"), core_common.ERR_VALIDATION), "output_storage")])
+def test_unstorable_reply_of_any_shape_gets_the_shared_storage_envelope(monkeypatch, failure, cls):
+    from io import BytesIO
+    from types import SimpleNamespace
+    from agent_browser_core import cli
+    def fail(*args, **kwargs):
+        raise failure
+    monkeypatch.setattr(cli, "_json_line", fail)
+    handler = SimpleNamespace(server=SimpleNamespace(daemon=SimpleNamespace(profile="work", session_id="manual")), wfile=BytesIO())
+    core_daemon._Handler._reply(handler, {"ok": True, "result": ["x" * 30000]})
+    reply = json.loads(handler.wfile.getvalue())
+    assert reply["ok"] is False and reply["protocol_version"] == core_common.PROTOCOL_VERSION
+    assert reply["error"] == core_common._storage_error(None, failure, "work")["error"]
+    assert reply["error"]["class"] == cls and reply["error"]["details"]["receipt"] == "journal"
 
 
 def test_complete_wire_reply_is_bounded_with_recoverable_output(daemon_server):

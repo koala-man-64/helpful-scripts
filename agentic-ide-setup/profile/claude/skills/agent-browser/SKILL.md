@@ -111,6 +111,8 @@ separately identifiable. Read [interfaces](references/interfaces.md) for example
 | `busy` | Another session held the browser; the command was not run. Repeat it. |
 | `protocol_mismatch` | Explicitly restart the shared profile; do not replay a write. |
 | `journal_full` | Inspect and explicitly clear evidence when authorized. |
+| `output_storage`, `io` | The reply was lost; read the `details.receipt` receipt before repeating. |
+| `daemon` | Unexpected failure; run `agent-browser journal` before repeating an action. |
 
 Run `agent-browser stop` when the task-owned browser session is no longer needed.
 For ServiceNow, read [references/servicenow.md](references/servicenow.md).
