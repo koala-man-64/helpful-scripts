@@ -4,26 +4,61 @@ from __future__ import annotations
 import fnmatch
 import json
 import re
-from collections import deque
-from typing import Any
+from typing import Any, Callable
 from . import common, snapshots
 
 
 class VerifiedActionsMixin:
     def __init__(self, launch: dict[str, Any]):
         super().__init__(launch)
-        self.response_events = deque(maxlen=1000)
-        self.response_cursor = 0
+        # Response matchers of the command in flight; a pending job keeps its own under "watches".
+        self.watching: list[dict[str, Any]] = []
 
     def _track_page(self, page: Any) -> None:
         super()._track_page(page)
         page.on("response", lambda response: self._response(page, response))
 
     def _response(self, page: Any, response: Any) -> None:
-        self.response_cursor += 1
         request = getattr(response, "request", None)
-        self.response_events.append((self.response_cursor, page, getattr(request, "method", ""),
-                                     getattr(response, "url", ""), response.status))
+        self._record_response(page, getattr(request, "method", ""), getattr(response, "url", ""), response.status)
+
+    def _watch(self, match: Callable[[str, str, int], bool]) -> dict[str, Any]:
+        """Match each later response on this session's pages as it arrives, so no other traffic can push a match out."""
+        watch = {"session": self.session_id, "match": match, "pages": set()}
+        self.watching.append(watch)
+        return watch
+
+    def _record_response(self, page: Any, method: str, url: str, status: int) -> None:
+        owner = self.page_owners.get(page, self.session_id)
+        pending = [watch for job in list(self.jobs.values()) if job["session"] == owner for watch in job.get("watches", ())]
+        for watch in [*self.watching, *pending]:
+            if watch["session"] != owner or page in watch["pages"]:
+                continue
+            try:
+                hit = watch["match"](method, url, status)
+            except Exception:  # noqa: BLE001 - a response the matcher cannot read is not evidence; event delivery goes on
+                hit = False
+            if hit:
+                watch["pages"].add(page)
+
+    def _text_counts(self, page: Any, text: str) -> dict[Any, int | None]:
+        """Case-insensitive occurrences of text in each frame's rendered body text; None where it cannot be read."""
+        needle, counts = text.lower(), {}
+        for frame in page.frames:
+            try:
+                counts[frame] = frame.locator("body").inner_text(timeout=1000).lower().count(needle)
+            except Exception:  # noqa: BLE001 - a detached or navigating frame
+                counts[frame] = None
+        return counts
+
+    def _text_appeared(self, spec: dict[str, Any], *pages: Any) -> bool:
+        """Some frame shows the text more often than before the action. A frame or tab the action opened starts at 0;
+        a frame keeps its baseline when it navigates, so a reloaded page that still shows the text does not count."""
+        for page in dict.fromkeys(pages):
+            for frame, count in self._text_counts(page, spec["value"]).items():
+                if count is not None and count > spec["baseline"].get(frame, 0):
+                    return True
+        return False
 
     def resolve(self, page: Any, target: Any) -> Any:
         if not isinstance(target, dict):
@@ -144,6 +179,13 @@ class VerifiedActionsMixin:
                 raise common._tag(ValueError("Use text:TEXT, gone:REF, url:changed, or response:METHOD URL_GLOB:STATUS."), common.ERR_USAGE)
             spec = {"kind": kind, "value": value}
             if kind == "url" and value != "changed": raise common._tag(ValueError("URL expectation must be url:changed."), common.ERR_USAGE)
+            if kind == "text":
+                # Text already shown does not count. A frame that cannot be read has no baseline, and 0 would let
+                # its existing text pass, so the action does not run.
+                spec["baseline"] = self._text_counts(page, value)
+                if None in spec["baseline"].values():
+                    raise common._tag(ValueError("Could not read the page text before the action, so a text: check has no baseline; nothing was done."),
+                                      common.ERR_ACTION_FAILED, hint=common._hint("expect_text_baseline", self.profile))
             if kind == "gone":
                 spec["element"] = self.resolve(page, value).element_handle()
                 if spec["element"] is None or not spec["element"].is_visible():
@@ -152,13 +194,15 @@ class VerifiedActionsMixin:
                 match = re.fullmatch(r"([A-Z]+) (.+):([1-5][0-9x]{2})", value)
                 if not match: raise common._tag(ValueError("Response expectation needs METHOD URL_GLOB:STATUS, e.g. POST **/table/**:2xx."), common.ERR_USAGE)
                 spec.update(method=match[1], glob=match[2], status=match[3].replace("x", "?"))
+                spec["watch"] = self._watch(lambda method, url, status, s=spec: method == s["method"] and fnmatch.fnmatchcase(url, s["glob"])
+                                            and fnmatch.fnmatchcase(str(status), s["status"]))
             parsed.append(spec)
         return parsed
 
     def _do_action(self, args, timeout, action, run, **kwargs):
         return super()._do_action(args, timeout, action, run, **kwargs)
 
-    def _verify_result(self, command_id, result, specs, page, url, cursor, deadline):
+    def _verify_result(self, command_id, result, specs, page, url, deadline):
         def expired(satisfied):
             self.jobs.pop(command_id, None)
             self.journal.finish(command_id, "failed", {"error_class": "expectation_failed", "executed": bool(result.get("executed"))})
@@ -173,7 +217,7 @@ class VerifiedActionsMixin:
             for spec in specs:
                 kind = spec["kind"]
                 if kind == "text":
-                    ok = self._page_has_text(page, spec["value"]) or (check_page is not page and self._page_has_text(check_page, spec["value"]))
+                    ok = self._text_appeared(spec, page, check_page)
                 elif kind == "url":
                     ok = page.url != url or (check_page is not page and check_page.url != url)
                 elif kind == "gone":
@@ -193,8 +237,7 @@ class VerifiedActionsMixin:
                         else:
                             raise common._tag(RuntimeError("The disappearance check became unavailable; inspect the receipt before repeating an action."), "verification_unavailable") from None
                 else:
-                    ok = any(seq > cursor and (p is page or p is check_page) and method == spec["method"] and fnmatch.fnmatchcase(request_url, spec["glob"]) and fnmatch.fnmatchcase(str(status), spec["status"])
-                             for seq, p, method, request_url, status in self.response_events)
+                    ok = page in spec["watch"]["pages"] or check_page in spec["watch"]["pages"]
                 satisfied.append({"kind": kind, "passed": ok})
             reply = {**result, "command_id": command_id, "session_id": self.session_id,
                      "contract_version": common.CONTRACT_VERSION, "executed": bool(result.get("executed")), "expectations": satisfied}
@@ -205,7 +248,8 @@ class VerifiedActionsMixin:
                 reply["pending"] = False
                 self.journal.finish(command_id, "completed", reply)
                 return reply
-            self.jobs[command_id] = {"session": self.session_id, "checker": check, "executed": bool(result.get("executed", self.action_attempted))}
+            self.jobs[command_id] = {"session": self.session_id, "checker": check, "executed": bool(result.get("executed", self.action_attempted)),
+                                     "watches": [spec["watch"] for spec in specs if "watch" in spec]}
             reply["pending"] = True
             return reply
         return check()

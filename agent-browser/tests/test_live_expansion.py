@@ -249,6 +249,7 @@ def test_expectations_report_success_and_failure_without_replaying_click(cli: Cl
     success = cli.ok("click", "--role", "button", "--name", "Save", "--expect", "response:POST **/save:2xx", "--timeout", "5",
                      "--session", session)
     assert success["expectations"] == [{"kind": "response", "passed": True}]
+    assert success["refs_valid"] is True
     assert site.server.save_calls == 1
 
     code, _output, error = cli("click", "--role", "button", "--name", "Save", "--expect", "text:never appears", "--timeout", "0.5",
@@ -258,6 +259,13 @@ def test_expectations_report_success_and_failure_without_replaying_click(cli: Cl
     assert error["details"]["command_id"]
     assert site.server.save_calls == 2
     assert "2" in cli.ok("text", "--session", session)["text"]
+
+    # "saved" shows before this click and after it: text already on the page is no evidence of the action.
+    code, _output, error = cli("click", "--role", "button", "--name", "Save", "--expect", "text:saved", "--timeout", "1",
+                                "--session", session)
+    assert code != 0 and error["class"] == "timeout", error
+    assert error["details"]["executed"] is True
+    assert site.server.save_calls == 3
 
 
 def test_wait_in_one_session_does_not_block_another_session_read(cli: Cli, site: _Site) -> None:

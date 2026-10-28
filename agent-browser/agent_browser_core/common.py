@@ -499,6 +499,8 @@ HINTS = {
     "not_running": "Run: {tool} start --profile {profile}",
     "starting": "The browser is still starting. Run: {tool} status --profile {profile}",
     "stale_ref": "The page changed since the last snapshot. Run: {tool} snapshot --profile {profile}",
+    "refs_moved": "A frame navigated while this reply's snapshot was taken, so its refs are stale. Run: {tool} snapshot --profile {profile}",
+    "expect_text_baseline": "The page text could not be read before the action, so text: had nothing to compare with and nothing was done. Run: {tool} snapshot --profile {profile} and repeat the command, or expect response:, gone: or url:changed instead.",
     "ref_not_found": "That ref is not on the current page. Run: {tool} snapshot --profile {profile}",
     "bad_ref": "Refs look like e12 or f2e5 and come from: {tool} snapshot --profile {profile}",
     "ambiguous_profile": "Several browsers are running. Add --profile NAME (see: {tool} status --all)",

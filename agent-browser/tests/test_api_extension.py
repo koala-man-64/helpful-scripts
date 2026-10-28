@@ -464,3 +464,11 @@ def test_api_receipt_masks_credentials_in_the_path(make_daemon):
     assert json.loads(row["arguments"])["path"] == "/api/reset/***;jsessionid=***/confirm"
     assert token not in json.dumps(row) and "SESSIONVALUE" not in json.dumps(row)
     assert result["url"] == "http://x/api/reset/***;jsessionid=***/confirm"
+
+
+def test_api_response_satisfies_its_own_response_expectation(make_daemon):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    request_context(ctx, Response())
+    result = daemon.dispatch("api", {"url": "/api/items", "expect": ["response:GET **/api/items:2xx"]}, 5)
+    assert result["pending"] is False and result["expectations"] == [{"kind": "response", "passed": True}]
