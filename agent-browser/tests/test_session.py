@@ -363,7 +363,8 @@ def test_start_session_returns_already_running_without_spawning(monkeypatch: pyt
 def _install_success_recorder(monkeypatch: pytest.MonkeyPatch, paths: core_common.ProfilePaths) -> None:
     def fake_spawn(argv: list[str], log_path: Path, cwd: Path) -> tuple[int, str]:
         assert argv[0] == core_common.sys.executable and argv[1:3] == ["-X", "utf8"]
-        session = _valid_session(paths, pid=1234, port=5555)
+        token = json.loads(paths.launch.read_text(encoding="utf-8"))["token"]  # a real daemon serves the token it was launched with
+        session = _valid_session(paths, pid=1234, port=5555, token=token)
         core_session._write_json_atomic(paths.session, session)
         return 1234, "popen"
 
@@ -560,12 +561,53 @@ def test_start_session_waits_for_a_concurrent_starts_daemon_instead_of_failing(m
 def test_start_session_timeout_after_a_lost_race_does_not_kill_the_exited_pid(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
     paths = core_common._paths("default")
     killed = _install_lost_race(monkeypatch, paths, winner_after=None)
+    seen = {"n": 0}
+
+    def recycled(pid: int) -> bool:  # exited, then the OS hands the pid to an unrelated process
+        seen["n"] += 1
+        return seen["n"] > 1
+
+    monkeypatch.setattr(core_common, "_pid_alive", recycled)
 
     with pytest.raises(RuntimeError) as exc:
         core_session.start_session(paths, _start_args(), timeout=2.0)
 
     assert exc.value.error_class == core_common.ERR_LAUNCH and "did not become ready" in str(exc.value)
     assert killed == []
+
+
+def test_start_session_reports_another_starts_daemon_while_its_own_still_waits_for_the_lock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock
+) -> None:
+    paths = core_common._paths("default")
+    killed = _install_lost_race(monkeypatch, paths, winner_after=None)
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: True)  # this start's daemon is still retrying the lock
+
+    def winner_serves(argv: list[str], log_path: Path, cwd: Path) -> tuple[int, str]:
+        core_session._write_json_atomic(paths.session, _valid_session(paths, pid=7777, port=6666, launcher="wmi"))
+        return 4321, "popen"
+
+    monkeypatch.setattr(core_common, "_spawn_daemon", winner_serves)
+
+    result = core_session.start_session(paths, _start_args())
+
+    assert result["status"] == "already_running" and result["pid"] == 7777 and result["launcher"] == "wmi"
+    assert core_session._read_session(paths)["launcher"] == "wmi"  # the winner's session.json is not this start's to edit
+    assert killed == [] and not paths.launch.exists()
+
+
+def test_start_session_checks_the_profile_policy_before_cleaning_a_stale_session(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    paths = core_common._paths("default")
+    core_session._write_json_atomic(paths.session, _valid_session(paths))  # stale: no lock held
+    (core_common._home() / "config.json").write_text(json.dumps({"permission": "bogus"}), encoding="utf-8")
+    killed: list[Path] = []
+    monkeypatch.setattr(core_common, "_kill_browsers_using", lambda user_data, dry_run=False: killed.append(user_data) or [])
+
+    with pytest.raises(RuntimeError) as exc:
+        core_session.start_session(paths, _start_args())
+
+    assert exc.value.error_class == core_common.ERR_CONFIG
+    assert killed == [] and paths.session.exists()
 
 
 # ---------------------------------------------------------------------------

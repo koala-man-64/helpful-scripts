@@ -269,6 +269,8 @@ def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, tim
     if state == "starting":
         session = _require_running(paths, "start")
         return start_session(paths, args, timeout)
+    token = secrets.token_hex(32)
+    launch = _launch_record(paths, args, token)  # validates browser, exe and profile policy before any cleanup or spawn
     if state == "stale":
         paths.session.unlink(missing_ok=True)
         killed = core_common._kill_browsers_using(paths.user_data)
@@ -276,8 +278,6 @@ def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, tim
             core_common._log(f"killed stale processes {killed}")
     paths.dir.mkdir(parents=True, exist_ok=True)
     (paths.dir / "startup_error.json").unlink(missing_ok=True)
-    token = secrets.token_hex(32)
-    launch = _launch_record(paths, args, token)
     _write_json_atomic(paths.launch, launch)
     started = False
     try:
@@ -293,23 +293,24 @@ def _await_daemon(paths: core_common.ProfilePaths, launch: dict[str, Any], timeo
     argv = [sys.executable, "-X", "utf8", str(core_common.ENTRY_PATH), "serve", "--launch-file", str(paths.launch)]
     pid, launcher = core_common._spawn_daemon(argv, paths.log, paths.dir)
     deadline = core_common._now() + timeout
-    lost_race = False
+    exited = False
     while core_common._now() < deadline:
         core_common._sleep(0.1)
         session = _read_session(paths)
         if session is not None and _ping(session) is not None:
-            if not lost_race:
+            # A concurrent start's daemon may be the one serving; only this start's token makes it this start's daemon.
+            own = core_daemon._token_ok(session.get("token"), launch["token"])
+            if own:
                 session["launcher"] = launcher
                 _write_json_atomic(paths.session, session)
-            return {"profile": paths.profile, "status": "already_running" if lost_race else "started", "pid": session.get("pid"), "port": session.get("port"),
+            return {"profile": paths.profile, "status": "started" if own else "already_running", "pid": session.get("pid"), "port": session.get("port"),
                     "browser": session.get("browser"), "browser_version": session.get("browser_version"), "headless": session.get("headless"),
-                    "user_data_dir": str(paths.user_data), "launcher": session.get("launcher") if lost_race else launcher, "log": str(paths.log),
+                    "user_data_dir": str(paths.user_data), "launcher": launcher if own else session.get("launcher"), "log": str(paths.log),
                     "window": core_common._hint("window")}
-        if not core_common._pid_alive(pid):
+        if exited or not core_common._pid_alive(pid):
+            exited = True  # once seen exited, the pid may be reused by an unrelated process: never signal it again
             if core_common._lock_in_use(paths.lock, 0):
-                # A concurrent start's daemon took the lock and this one exited; wait for that daemon instead.
-                lost_race = True
-                continue
+                continue  # a concurrent start's daemon took the lock; wait for that daemon instead
             tail = core_common._tail(paths.log)
             reported = core_daemon._take_startup_error(paths) or {}
             cls = str(reported.get("class") or "")
@@ -326,7 +327,7 @@ def _await_daemon(paths: core_common.ProfilePaths, launch: dict[str, Any], timeo
                 raise core_common._tag(RuntimeError("Browser policy blocks automation: " + "; ".join(blockers)), core_common.ERR_POLICY, details={"log": tail})
             message = reported.get("message") or f"The daemon exited before the browser was ready (log: {paths.log})."
             raise core_common._tag(RuntimeError(message), core_common.ERR_LAUNCH, hint=core_common._hint("launch", paths.profile), details={"log": tail})
-    if core_common._pid_alive(pid):  # an exited pid may already name an unrelated process
+    if not exited and core_common._pid_alive(pid):
         core_common._kill_tree(pid)
     raise core_common._tag(RuntimeError(f"The browser did not become ready within {timeout:g}s (log: {paths.log})."), core_common.ERR_LAUNCH, hint=core_common._hint("launch", paths.profile), details={"log": core_common._tail(paths.log)})
 

@@ -188,6 +188,13 @@ def test_slow_drip_request_line_is_cut_off_by_wall_clock(daemon_server: _ServerH
     assert core_session._request(daemon_server.session, "ping", {}, timeout=2.0)["pong"] is True
 
 
+def test_deeply_nested_request_is_malformed_not_a_traceback(daemon_server: _ServerHarness, capsys: pytest.CaptureFixture[str]) -> None:
+    reply = json.loads(_raw_send(daemon_server.info["port"], b"[" * 100_000 + b"\n"))
+    assert reply["ok"] is False and reply["error"]["class"] == core_common.ERR_USAGE
+    assert core_session._request(daemon_server.session, "ping", {}, timeout=2.0)["pong"] is True
+    assert "Traceback" not in capsys.readouterr().err
+
+
 def test_request_line_over_the_cap_is_dropped_and_the_server_keeps_serving(daemon_server: _ServerHarness, monkeypatch: pytest.MonkeyPatch) -> None:
     cap = core_common.REQUEST_CAP
     monkeypatch.setattr(core_common, "REQUEST_CAP", 64)

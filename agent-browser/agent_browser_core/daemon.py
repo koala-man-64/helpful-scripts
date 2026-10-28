@@ -1528,7 +1528,7 @@ class _Handler(socketserver.StreamRequestHandler):
             return
         try:
             message = json.loads(line.decode("utf-8"))
-        except ValueError:
+        except (ValueError, RecursionError):  # RecursionError: a deeply nested line, before any token check
             self._reply({"ok": False, "error": {"class": core_common.ERR_USAGE, "message": "Malformed request."}})
             return
         if not isinstance(message, dict):
