@@ -121,7 +121,7 @@ def test_api_artifacts_are_session_owned_retained_and_explicitly_cleared(make_da
     assert artifact.read_bytes() == b"binary\x00payload"
     row = daemon.journal.rows("manual", result["command_id"])[0]
     assert json.loads(row["outcome"])["body_file"] == str(artifact)
-    daemon.dispatch("journal", {"clear": True}, 1)
+    daemon.dispatch("commit", {"operation": "journal", "clear": True}, 1)
     assert not artifact.exists()
 
 
@@ -255,3 +255,14 @@ def test_partial_form_failure_reports_receipt_without_rollback_or_remaining_edit
     row = daemon.journal.rows("manual", err.value.details["command_id"])[0]
     assert json.loads(row["outcome"])["completed_fields"] == [0] and row["status"] == "unknown"
     assert "private note" not in json.dumps(row)
+
+
+def test_api_write_receipt_names_endpoint_path_without_query_or_body(make_daemon):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    request_context(ctx, Response(204, body=b""))
+    result = daemon.dispatch("commit", {"operation": "api", "url": "http://x/api/items/42?sysparm_query=private-filter", "method": "PATCH",
+                                        "headers": {"Content-Type": "application/json"}}, 1)
+    row = daemon.journal.rows("manual", result["command_id"])[0]
+    assert json.loads(row["arguments"])["path"] == "/api/items/42"
+    assert "private-filter" not in json.dumps(row)

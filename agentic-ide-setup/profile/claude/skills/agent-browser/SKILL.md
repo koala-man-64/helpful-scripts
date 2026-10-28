@@ -48,7 +48,8 @@ Never type passwords, one-time codes, or other credentials, and never read or se
 with eval: only its `--ref` element is checked, not what the script touches. Snapshots show
 credential-looking, unverifiable or over-budget field values as `***`; `--find` cannot match them. For `sign_in_suspected`,
 use `agent-browser needs-human --signed-in example.com` and let the user sign in.
-Poll with `agent-browser state --handoff ID`, or use
+Its receipt is final (`needs_human`); the handoff ID carries the open human action.
+Poll with `agent-browser state --handoff ID` (another session's or a cleared ID is `not_found`), or use
 `agent-browser wait --signed-in example.com`. Only handoffs focus/flash the window.
 After explicit human confirmation, `agent-browser commit state --handoff ID --resolve`
 records completion when the handoff has no automatic condition.
@@ -72,14 +73,15 @@ For overflow, retain `output_id`: `agent-browser output --id ID --offset 0`.
 Follow `next_offset` until null. Later commands cannot replace that artifact.
 
 Use `agent-browser state --command ID` or `agent-browser journal --command ID`
-after interruption or failed verification. Completed, failed and unknown receipts
-are distinct. If `executed` is true, inspect the outcome before another action.
+after interruption or failed verification. Completed, failed, unknown and needs_human
+receipts are distinct. If `executed` is true, inspect the outcome before another action.
 Writes are never automatically replayed.
 
 Journal, screenshots and raw API response artifacts stay until explicitly cleared.
 The default profile quota is 1 GiB; reaching it blocks new audited mutations/captures.
-Inspection remains available. Explicit clearing is a commit operation:
-`agent-browser commit journal --clear`. It clears the current session's evidence.
+Inspection, explicit clearing and handoff resolution remain available. Clearing is a
+commit operation, `agent-browser commit journal --clear`; a bare `journal --clear` is
+refused. It clears the current session's evidence and handoffs.
 
 ## Reach
 
@@ -99,7 +101,7 @@ separately identifiable. Read [interfaces](references/interfaces.md) for example
 | --- | --- |
 | `stale_ref` | Take a fresh snapshot and select the new ref. |
 | `ref_not_found` | Read the newest snapshot; do not guess refs. |
-| `not_found` | Verify the target and current page. |
+| `not_found` | Verify the target, current page or handoff ID. |
 | `action_timeout` | Inspect state before retrying a potentially completed action. |
 | `action_failed` | Read the error and verify the control state. |
 | `guarded` | Respect the guard; use the human-owned route. |

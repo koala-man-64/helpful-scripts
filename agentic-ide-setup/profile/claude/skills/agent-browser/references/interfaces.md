@@ -74,7 +74,8 @@ are `validation`. A reply that cannot be stored keeps `details.receipt`.
 Journal inspection returns `next_offset`; state command history returns
 `command_next_offset`. Use `--offset` for the next page. Oversized receipts return
 an `output_id` prefixed with `r`; `output --id ID --offset 0` reads an immutable
-terminal receipt directly from SQLite, including when quota is full.
+terminal receipt (completed, failed, unknown or needs_human) directly from SQLite,
+including when quota is full.
 Pending receipts are unavailable through this fallback until they finish.
 
 The canonical Claude settings template asks for commit/eval and evidence clear calls,

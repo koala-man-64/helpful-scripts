@@ -139,3 +139,17 @@ def test_doctor_live_probe_keeps_internal_data_fixture_route(
     assert calls[0][0] == "goto" and calls[0][1]["url"].startswith("data:")
     assert calls[1] == ("click", {"target": "e1"})
     assert next(check for check in checks if check["id"] == "live_click")["status"] == "ok"
+
+
+def test_journal_clear_needs_both_the_commit_verb_and_a_commit_profile(make_daemon: Any) -> None:
+    acting, _ctx, _page = make_daemon(config={"permission": "act"})
+    acting.journal.start("seed", "manual", "goto", {}, "http://x/")
+    with pytest.raises(ValueError, match="commit profile") as exc:
+        acting.dispatch("commit", {"operation": "journal", "clear": True}, 1)
+    assert exc.value.error_class == common.ERR_GUARDED
+    assert "seed" in {row["id"] for row in acting.journal.rows("manual")}
+    with pytest.raises(ValueError, match="commit journal --clear"):
+        policy.authorize({"permission": "read"}, "journal", {"clear": True})
+    with pytest.raises(ValueError, match="commit journal --clear"):
+        policy.authorize({"permission": "commit"}, "journal", {"clear": True})
+    assert policy.authorize({"permission": "commit"}, "journal", {"clear": True, "_commit": True}) is True

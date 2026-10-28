@@ -35,6 +35,8 @@ def authorize(config: dict[str, Any], command: str, args: dict[str, Any]) -> boo
     resolving = command == "state" and bool(args.get("resolve"))
     if resolving and not args.get("_commit"):
         raise common._tag(ValueError("Human completion requires commit state --handoff ID --resolve."), common.ERR_GUARDED)
+    if command == "journal" and args.get("clear") and not args.get("_commit"):
+        raise common._tag(ValueError("Clearing evidence requires commit journal --clear."), common.ERR_GUARDED, hint=common._hint("commit_clear"))
     committing = bool(args.get("_commit")) or command == "eval" or bool(args.get("enter")) or (command == "journal" and args.get("clear"))
     if committing and level != "commit":
         raise common._tag(ValueError("This operation requires a commit profile."), common.ERR_GUARDED)

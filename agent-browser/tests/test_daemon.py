@@ -140,6 +140,12 @@ def test_wrong_token_gets_no_reply(daemon_server: _ServerHarness) -> None:
     assert exc.value.error_class == core_common.ERR_DAEMON
 
 
+def test_wire_cannot_forge_the_commit_flag(daemon_server: _ServerHarness) -> None:
+    with pytest.raises((ValueError, RuntimeError)) as exc:
+        core_session._request(daemon_server.session, "journal", {"clear": True, "_commit": True}, timeout=2.0)
+    assert exc.value.error_class == core_common.ERR_GUARDED and "commit journal --clear" in str(exc.value)
+
+
 def test_malformed_json_is_a_usage_error(daemon_server: _ServerHarness) -> None:
     line = _raw_send(daemon_server.info["port"], b"not json at all\n")
     reply = json.loads(line)

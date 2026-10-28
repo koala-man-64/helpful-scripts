@@ -101,7 +101,7 @@ qualification requires a separately authorized test record.
 | `back` / `reload` / `tabs` / `tab TAB [--close]` | Navigation and tabs (`TAB` is a stable id `t1`, `t2` or 1-based index). Pass `--tab TAB` on any command to drive tabs in parallel without switching focus. Closing the last tab is refused. |
 | `upload REF FILE...` / `downloads` | Attach local files; save and list files the page downloaded. |
 | `eval JS [--ref REF] [--frame NAME]` | Run JavaScript. Off when `config.json` says `"eval": false`. Refuses a credential field as `--ref`; the script itself, like page and `--frame` eval, can still reach any field. |
-| `needs-human [--signed-in HOST]` | Focus/flash for human input; returns a durable handoff ID. |
+| `needs-human [--signed-in HOST]` | Focus/flash for human input; returns a durable handoff ID. Its receipt is final with status `needs_human`. |
 | `doctor [--live]` | Preflight rows; `--live` boots a headless browser, checks refs, clicks, stops. |
 | `clean [--profile P] [--purge-profile P] [--dry-run]` | Stale sessions/orphans and old download staging files. Evidence stays until explicitly cleared. |
 
@@ -141,19 +141,26 @@ Waits and action checks reject success first observed after their original deadl
 Wait observation/capture errors finish the receipt and remove the pending operation.
 
 Inspect `state --command ID` or `journal --command ID` after a failed check/interruption.
-Receipts distinguish completed, failed and unknown. `executed` means attempted, not
-business success. Interrupted writes are never automatically replayed.
+Receipts distinguish completed, failed, unknown and needs_human. `executed` means attempted, not
+business success. Interrupted writes are never automatically replayed. A `needs_human` receipt
+is final: the handoff row (`state --handoff ID`) carries the open human action, and the reply
+still says `pending: true, status: needs_human`. A handoff ID that another session owns or
+that was cleared is `not_found`.
 
 Journal, masked screenshots, overflow JSON and raw API response files remain until
 explicitly cleared. The default quota is 1 GiB/profile (`evidence_max_bytes`, minimum
-65536); reaching it blocks new audited mutations/captures while preserving inspection
-and explicit clear. `commit journal --clear` clears this session's evidence only.
+65536); reaching it blocks new audited mutations/captures while preserving inspection,
+explicit clear and handoff resolution (`commit state --handoff ID --resolve` takes no
+screenshots). `commit journal --clear` clears this session's evidence and handoffs only;
+a bare `journal --clear` is refused as `guarded`.
 Journal pages return `next_offset`; state returns `command_next_offset`. Pass that
 value with `--offset`. A large receipt returns `r` plus its command ID as `output_id`;
 use `output --id ID --offset 0` to read the terminal receipt directly from SQLite.
 This read creates no evidence files and works at quota. The distinct receipt ID
 cannot be confused with an earlier pending-result overflow artifact.
 Entered text, JS, bodies and credentials are omitted from SQLite receipt arguments.
+Receipts keep an API call's path (never its query string) and a recipe's name and
+record number. `ping`, which every `status` sends, writes no receipt.
 Commit UI operations capture before/after screenshots. API response artifacts contain
 application data and count toward quota; transient request staging files are removed.
 
@@ -323,7 +330,8 @@ raised by a human navigation is accepted.
   an extra line with its own ref.
 - Environment variables, profile policy, caller allowlists and the socket credential
   are cooperative controls. A hostile local process can rewrite config or call the
-  socket directly. Eval remains enabled by default; approval-sensitive workflows
+  socket directly. Only the `commit` verb declares a commit: the daemon drops a `_commit`
+  field a caller sends itself. Eval remains enabled by default; approval-sensitive workflows
   disable it and use declared commits under caller authorization rules. Ordinary UI
   actions can still autosave or submit; these controls do not prove a submission gate.
 
