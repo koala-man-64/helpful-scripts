@@ -612,6 +612,9 @@ def test_redact_text_redacts_every_url_in_free_text() -> None:
             == 'navigating to "https://h/p?token=***", waiting until "load"')
     assert core_common.redact_text("(see https://u:" + "pw" + "@h/x?sig=abc).") == "(see https://h/x?sig=***)."
     assert core_common.redact_text("no link here: code=1") == "no link here: code=1"
+    assert core_common.redact_text("navigating to https://a.com/it's?token=SEC") == "navigating to https://a.com/it's?token=***"
+    assert core_common.redact_text("goto 'https://h/p?code=SEC', then") == "goto 'https://h/p?code=***', then"
+    assert core_common.redact_url("https://h/cb?next=%20https://b.com/?token=SEC") == "https://h/cb?next=https://b.com/%3Ftoken%3D***"
 
 def test_sanitize_text_strips_tag_characters_and_invisible_formats() -> None:
     hidden = ("a" + chr(0xE0041) + "b" + chr(0x2060) + "c" + chr(0x061C) + "d" + chr(0x2064) + "e" + chr(0xE0101) + "f"

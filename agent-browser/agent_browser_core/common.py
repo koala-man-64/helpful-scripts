@@ -294,10 +294,11 @@ TOKEN_SEGMENT_RE = re.compile(r"(?=.*[0-9A-Z])[A-Za-z0-9_.~%=+-]{16,}")  # 16+ c
 NESTED_URL_DEPTH = 2  # a URL inside a query value is redacted too, this many levels deep; deeper ones are masked whole
 
 
-URL_IN_TEXT_RE = re.compile(r"\b(?:https?|wss?)://[^\s\"'<>`]+", re.I)
+# Browsers leave ' raw in a path (/it's?token=...), so a URL in text runs on through it; a closing quote is trailing.
+URL_IN_TEXT_RE = re.compile(r"\b(?:https?|wss?)://[^\s\"<>`]+", re.I)
 
 
-URL_TRAILING = ".,;:!?)]}"  # sentence punctuation after a URL in free text, kept outside the redaction
+URL_TRAILING = ".,;:!?)]}'"  # sentence punctuation and a closing quote after a URL in free text, kept outside the redaction
 
 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
@@ -860,8 +861,8 @@ def redact_path(path: str) -> str:
 def _redact_value(key: str, value: str, depth: int) -> str:
     if _sensitive_key(key) or JWT_RE.fullmatch(value):
         return MASK
-    if value.lower().startswith(("/", "http://", "https://")):  # next=/a?code=..., redirect_uri=https://...
-        return _redact(value, depth + 1) if depth < NESTED_URL_DEPTH else MASK
+    if value.lstrip().lower().startswith(("/", "http://", "https://")):  # next=/a?code=..., redirect_uri=https://...
+        return _redact(value.lstrip(), depth + 1) if depth < NESTED_URL_DEPTH else MASK
     return _mask_params(value)  # a=1;token=... where the server reads ; as a separator
 
 

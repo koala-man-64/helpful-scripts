@@ -1191,7 +1191,7 @@ class BrowserEngine:
                     except Exception:  # noqa: BLE001
                         continue
                     label = frame.name or ("(main)" if frame is page.main_frame else core_common.redact_url(frame.url))
-                    chunks.append(f"--- frame: {core_common.sanitize_text(label, 80)} ---\n{body}" if frame is not page.main_frame else body)
+                    chunks.append(f"--- frame: {core_common.sanitize_text(label, 80, single_line=True)} ---\n{body}" if frame is not page.main_frame else body)
         except (ValueError, RuntimeError):
             raise
         except Exception as exc:  # noqa: BLE001
