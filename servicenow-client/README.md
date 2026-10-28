@@ -20,7 +20,8 @@ install python-dotenv`, and it runs. The folder exists for the tests.
 Browser authentication retains raw response bodies under the owning agent-browser
 session's `outputs/` directory. They contain application data, count against the
 default 1 GiB profile evidence quota, and remain until explicitly cleared with
-`agent-browser commit journal --clear` for that session. Request staging files are
+`agent-browser commit journal --clear` for that session (which keeps those of unknown
+write receipts unless `--include-unknown` is added). Request staging files are
 transient. The response size setting is a post-download check: Playwright buffers
 the response, so it is not a hard memory limit. Browser writes with explicit
 `write_outcome: unknown` preserve receipt/execution metadata and require inspection

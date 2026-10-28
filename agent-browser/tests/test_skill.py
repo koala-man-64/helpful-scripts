@@ -68,7 +68,8 @@ def test_shared_shutdown_and_commit_operations_require_caller_approval() -> None
     settings = json.loads((SKILL_DIR.parents[1] / "settings.template.json").read_text(encoding="utf-8"))
     rules = settings["permissions"]["ask"]
     for shell in ("Bash", "PowerShell"):
-        for verb in ("stop *--all*", "stop *--force*", "commit *", "* commit *"):
+        for verb in ("stop *--all*", "stop *--force*", "commit *", "* commit *", "journal *--clear*", "* journal *--clear*",
+                     "journal *--include-unknown*", "* journal *--include-unknown*"):
             assert f"{shell}(agent-browser {verb})" in rules
     assert "mcp__*__browser_commit" in rules
 

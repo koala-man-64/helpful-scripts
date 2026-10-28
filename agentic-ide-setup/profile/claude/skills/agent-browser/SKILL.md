@@ -84,7 +84,10 @@ Journal, screenshots and raw API response artifacts stay until explicitly cleare
 The default profile quota is 1 GiB; reaching it blocks new audited mutations/captures.
 Inspection, explicit clearing and handoff resolution remain available. Clearing is a
 commit operation, `agent-browser commit journal --clear`; a bare `journal --clear` is
-refused. It clears the current session's evidence and handoffs.
+refused. It clears the current session's finished receipts, their files and resolved
+handoffs, but keeps unknown write receipts and open handoffs (`retained_*` counts).
+Only with the user's approval, `agent-browser commit journal --clear --include-unknown`
+removes those too.
 
 ## Reach
 
@@ -117,7 +120,7 @@ commit/eval tools stay separately identifiable. Read [interfaces](references/int
 | `timeout` | The command may have run: inspect its receipt or `state` first; only a wait is safe to repeat. |
 | `busy` | Another session held the browser; the command was not run. Repeat it. |
 | `protocol_mismatch` | Explicitly restart the shared profile; do not replay a write. |
-| `journal_full` | Inspect and explicitly clear evidence when authorized. |
+| `journal_full` | Inspect and explicitly clear evidence when authorized; `details.other_sessions_bytes` is beyond this session's clear. |
 | `output_storage`, `io` | The reply was lost; read the `details.receipt` receipt before repeating. |
 | `daemon` | Unexpected failure; run `agent-browser journal` before repeating an action. |
 

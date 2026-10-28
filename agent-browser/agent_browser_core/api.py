@@ -164,7 +164,7 @@ class ApiMixin:
             # A 403 is usually an access decision a sign-in cannot change, so its body (untrusted, like any body) is returned.
             result["note"] = common._hint("api_not_auth", self.profile)
         if args.get("save_response"):
-            self.journal.require_space(len(data))
+            self.journal.require_space(len(data), self.paths.workspace)
             self.paths.outputs.mkdir(parents=True, exist_ok=True)
             target = self.paths.outputs / (args["_command_id"] + ".body")
             target.write_bytes(data)
