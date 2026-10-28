@@ -543,6 +543,72 @@ def test_confirm_dialog_blocks_unless_accepted(make_daemon, outer_text: str) -> 
     assert any(d["handled"] == "accepted" for d in result["dialogs"])
 
 
+def test_confirm_raised_by_eval_fails_with_dialog_after_running_and_is_not_repeated(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    raised: list[FakeDialog] = []
+
+    def script_confirm() -> bool:
+        raised.append(FakeDialog("confirm", "Delete record?"))
+        ctx.emit("dialog", raised[-1])
+        return raised[-1].accepted_with is not None
+    page.custom_evaluators["confirm('Delete record?')"] = script_confirm
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("eval", {"js": "confirm('Delete record?')"}, 5.0)
+    assert exc.value.error_class == core_common.ERR_DIALOG and exc.value.hint == core_common._hint("dialog")
+    assert exc.value.details["executed"] is True
+    assert [(d["message"], d["handled"]) for d in exc.value.details["dialogs"]] == [("Delete record?", "dismissed")]
+    assert raised[0].dismissed and daemon.dialog_log == []
+
+    # The error reported the dialog, so the next action is the compact change list rather than a full snapshot.
+    after = daemon.dispatch("click", {"target": "e4"}, 5.0)
+    assert "changes" in after and "frames" not in after and after["dialogs"] == []
+
+    accepted = daemon.dispatch("eval", {"js": "confirm('Delete record?')", "accept_dialog": True}, 5.0)
+    assert accepted["value"] is True and raised[-1].accepted_with == ""
+    assert [d["handled"] for d in accepted["dialogs"]] == ["accepted"] and "note" not in accepted
+
+
+def test_dialog_between_commands_is_reported_by_the_next_page_command_without_failing_it(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    timer = FakeDialog("confirm", "Leave this page?")
+    ctx.emit("dialog", timer)  # a page timer fires while no command runs
+    assert timer.dismissed
+    daemon.dispatch("ping", {}, 1.0)  # control commands leave it for the next page command
+    assert [d["message"] for d in daemon.dialog_log] == ["Leave this page?"]
+
+    text = daemon.dispatch("text", {}, 5.0)
+    assert [(d["message"], d["handled"]) for d in text["dialogs"]] == [("Leave this page?", "dismissed")]
+    assert text["note"] == core_common._hint("dialog_dismissed") and "dialogs" in text["untrusted"]
+    assert daemon.dialog_log == []
+
+    ctx.emit("dialog", FakeDialog("alert", "Saved"))
+    downloads = daemon.dispatch("downloads", {}, 5.0)
+    assert [d["handled"] for d in downloads["dialogs"]] == ["accepted"] and "note" not in downloads
+    assert downloads["untrusted"] == ["dialogs"]  # dialog messages are page text
+
+
+def test_fill_enter_confirm_is_accepted_only_with_the_flag(make_daemon, outer_text: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    press = FakeLocator.press
+    raised: list[FakeDialog] = []
+
+    def press_and_confirm(self: FakeLocator, key: str, timeout: float | None = None) -> None:
+        press(self, key, timeout)
+        if key == "Enter":
+            raised.append(FakeDialog("confirm", "Submit the form?"))
+            ctx.emit("dialog", raised[-1])
+    monkeypatch.setattr(FakeLocator, "press", press_and_confirm)
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("fill", {"target": "f1e3", "text": "Abel", "enter": True}, 5.0)
+    assert exc.value.error_class == core_common.ERR_DIALOG and exc.value.details["executed"] is True
+    assert raised[0].dismissed
+
+    result = daemon.dispatch("fill", {"target": "f1e3", "text": "Abel", "enter": True, "accept_dialog": True}, 5.0)
+    assert raised[1].accepted_with == "" and [d["handled"] for d in result["dialogs"]] == ["accepted"]
+
+
 def test_alert_is_always_accepted(make_daemon, outer_text: str) -> None:
     daemon, ctx, page = make_daemon(snapshot_text=outer_text)
     page.elements["e4"].click_side_effect = lambda: ctx.emit("dialog", FakeDialog("alert", "Saved!"))

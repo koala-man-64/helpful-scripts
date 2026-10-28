@@ -337,6 +337,29 @@ def test_unsaved_changes_block_navigation_until_discarded(cli: Cli, base_url: st
     assert left["url"].endswith("home.html")
 
 
+def test_confirm_raised_by_eval_is_reported_and_accepted_only_with_the_flag(cli: Cli, base_url: str) -> None:
+    cli.ok("goto", f"{base_url}/dialogs.html")
+    code, _out, err = cli("eval", "confirm('Delete record?')")
+    assert code == 2 and err["class"] == "dialog" and err["details"]["executed"] is True, err
+    assert [(d["message"], d["handled"]) for d in err["details"]["dialogs"]] == [("Delete record?", "dismissed")]
+    accepted = cli.ok("eval", "confirm('Delete record?')", "--accept-dialog")
+    assert accepted["value"] is True and [d["handled"] for d in accepted["dialogs"]] == ["accepted"]
+
+
+def test_stop_keeps_a_tab_with_unsaved_edits_until_discarded(cli: Cli, base_url: str) -> None:
+    cli.ok("goto", f"{base_url}/home.html")  # this module's own session keeps the browser running
+    session = ("--session", "live-unsaved-stop")
+    env = cli.ok("goto", f"{base_url}/dirty.html", *session)
+    cli.ok("fill", ref(env, r'textbox "Note"'), "draft", *session)
+    code, _out, err = cli("stop", *session)
+    assert code == 2 and err["class"] == "unsaved_changes", err
+    assert len(err["details"]["tabs"]) == 1 and err["details"]["closed"] == 0 and err["details"]["executed"] is False
+    tabs = cli.ok("tabs", *session)["tabs"]
+    assert len(tabs) == 1 and tabs[0]["url"].endswith("dirty.html")
+    assert cli.ok("stop", *session, "--discard-changes")["stopped"] is True
+    assert cli.ok("status")["running"] is True
+
+
 def test_popup_switches_tabs_and_tab_close(cli: Cli, base_url: str) -> None:
     env = cli.ok("goto", f"{base_url}/popup.html")
     clicked = cli.ok("click", ref(env, r'link "Open popup"'))

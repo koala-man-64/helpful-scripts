@@ -8,6 +8,8 @@ import urllib.parse
 from typing import Any
 from . import common, evidence, policy
 
+STOP_TAB_WAIT = 2.0  # seconds stop waits for one tab to close or to answer its beforeunload
+
 
 class OperatingMixin:
     def __init__(self, launch: dict[str, Any]):
@@ -203,7 +205,8 @@ class OperatingMixin:
             if cmd == "upload":
                 args["files"] = [str(self._api_path(str(path), args)) for path in args.get("files", [])]
             target_page = self.target_page(args) if args.get("tab") is not None else self.current
-            self._cmd_target_page = target_page
+            # stop closes every tab of this session, so each tab's beforeunload is this command's to answer.
+            self._cmd_target_page = None if cmd == "stop" else target_page
             if args.get("_commit") and target_page and cmd not in {"journal", "state"}:
                 screenshots.append(self._capture(command_id, "before", target_page))
             args["_command_id"] = command_id
@@ -346,12 +349,32 @@ class OperatingMixin:
             result.update(pending=True, satisfied=satisfied)
         return result
 
+    def _closed(self, page: Any) -> bool:
+        if page in self.pages and callable(getattr(page, "is_closed", None)) and page.is_closed():
+            self._on_page_closed(page)  # closed before its close event reached the handlers
+        return page not in self.pages
+
     def h_stop(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         if args.get("all"):
             return super().h_stop(args, timeout)
-        for page in list(self.pages):
-            page.close(run_before_unload=True)
-            self._check_blocks()
+        pages = list(self.pages)
+        for page in pages:
+            try:
+                page.close(run_before_unload=True)
+            except Exception as exc:  # noqa: BLE001
+                if not self._closed(page):
+                    raise self._classify(exc, "stop") from exc
+            # close() returns before the tab is gone: wait for this tab's own answer, closed or its beforeunload dismissed.
+            self._drain_events(page, STOP_TAB_WAIT, until=lambda page=page: self._closed(page) or page in self.unsaved_pages)
+        # A dismissal without a page cannot be matched to its tab, so every tab still open is kept.
+        kept = [p for p in pages if not self._closed(p) and (p in self.unsaved_pages or None in self.unsaved_pages)]
+        if kept:
+            closed = sum(p not in self.pages for p in pages)
+            exc = common._tag(ValueError("Tabs with unsaved edits were kept open, so this session was not released."), common.ERR_UNSAVED,
+                              hint=common._hint("unsaved_changes", self.profile),
+                              details={"tabs": [self._tab_id(p) for p in kept], "closed": closed, "dialogs": self._take_dialogs()[-5:]})
+            exc.executed = closed > 0  # type: ignore[attr-defined]  # the clean tabs are already closed
+            raise exc
         self.used_sessions.discard(self.session_id)
         for command_id, job in list(self.jobs.items()):
             if job["session"] == self.session_id:
@@ -359,7 +382,10 @@ class OperatingMixin:
                 self.jobs.pop(command_id)
         if not self.used_sessions:
             self._mark_stop("stop")
-        return {"released": self.session_id, "stopped": True, "stopping": self.stop_reason is not None}
+        result = {"released": self.session_id, "stopped": True, "stopping": self.stop_reason is not None}
+        if self.dialog_log:  # the beforeunload prompts --discard-changes accepted belong to this reply, not a later command
+            result.update(dialogs=self._take_dialogs(), untrusted=["dialogs"])
+        return result
 
     def h_state(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         if args.get("resolve") and not args.get("handoff_id"):

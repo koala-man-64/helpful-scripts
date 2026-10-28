@@ -39,6 +39,7 @@ def extended(args: argparse.Namespace):
             payload = {"fields": json.loads(path.read_text(encoding="utf-8-sig"))}
         except (ValueError, OSError) as exc:
             raise common._tag(ValueError("Form file must be valid UTF-8 JSON."), common.ERR_VALIDATION) from exc
+        payload.update(cli._dialog_payload(args))
     elif cmd == "table": payload = {"target": args.target}
     elif cmd == "api":
         payload = {"url": args.url, "method": args.method, "servicenow": args.servicenow}
@@ -79,6 +80,8 @@ def configure(parser, sub, add):
     p.add_argument("--signed-in")
     p = add("fill-form", extended, "preflight and fill fields without submitting")
     p.add_argument("--file", required=True)
+    from .cli import _add_dialog_flags
+    _add_dialog_flags(p)
     p = add("table", extended, "read one rendered table with row refs")
     p.add_argument("target", nargs="?")
     p = add("api", extended, "same-origin authenticated request")

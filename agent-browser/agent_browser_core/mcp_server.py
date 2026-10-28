@@ -31,6 +31,10 @@ REPLY_BUDGET = 7000                    # one tool reply: its text and structured
 MAX_BYTES = 4500                       # default snapshot budget; leaves room in REPLY_BUDGET for url, title, notes and the receipt
 
 
+DIALOG_KEYS = ("accept_dialog", "dialog_text", "discard_changes")  # only browser_commit and browser_stop take them
+NO_DIALOG_OPERATIONS = frozenset({"api", "run", "journal", "state"})  # their CLI verbs have no dialog flags
+
+
 def _payload(command: str, arguments: dict[str, Any], profile: str | None) -> dict[str, Any]:
     """Tool arguments as the CLI's payload: the same keys and values, validated where the CLI validates them."""
     payload = {k: v for k, v in arguments.items() if not (k in ("tab", "index") and v is None)}
@@ -44,6 +48,10 @@ def _payload(command: str, arguments: dict[str, Any], profile: str | None) -> di
         payload["headers"] = api.body_headers(content_type)
     elif content_type is not None:
         raise common._tag(ValueError("content_type needs operation api with a body_file."), common.ERR_USAGE)
+    if payload.get("dialog_text") is not None and not payload.get("accept_dialog"):
+        raise common._tag(ValueError("dialog_text answers a prompt only together with accept_dialog."), common.ERR_USAGE)
+    if command in NO_DIALOG_OPERATIONS and any(payload.get(key) for key in DIALOG_KEYS):
+        raise common._tag(ValueError("accept_dialog, dialog_text and discard_changes apply to page actions, not this operation."), common.ERR_USAGE)
     payload.setdefault("max_bytes", MAX_BYTES)
     return payload
 
@@ -143,13 +151,17 @@ def browser_commit(operation: Literal["click", "fill", "type", "press", "select"
                    body_file: str | None = None, servicenow: bool = False, recipe: Literal["sn/add-work-note"] | None = None,
                    number: str | None = None, clear: bool = False, handoff_id: str | None = None,
                    resolve: bool = False, expect: list[str] | None = None, content_type: str | None = None,
-                   tab: int | str | None = None) -> dict[str, Any]:
+                   tab: int | str | None = None, accept_dialog: bool = False, dialog_text: str | None = None,
+                   discard_changes: bool = False) -> dict[str, Any]:
     """Explicit committing operation. Require caller approval when the workflow requires human approval.
-    An api body_file is sent as application/json unless content_type names another type."""
+    An api body_file is sent as application/json unless content_type names another type.
+    accept_dialog (with dialog_text for a prompt) and discard_changes answer a confirm or an unsaved-edits
+    prompt for page actions; pass them only with the user's authorization."""
     return _call(operation, {"target": target, "text": text, "key": key, "values": values or [], "files": files or [],
                              "fields": fields or [], "url": url, "method": method, "body_file": body_file, "servicenow": servicenow,
                              "recipe": recipe, "number": number, "clear": clear, "handoff_id": handoff_id,
-                             "resolve": resolve, "expect": expect or [], "content_type": content_type, "tab": tab},
+                             "resolve": resolve, "expect": expect or [], "content_type": content_type, "tab": tab,
+                             "accept_dialog": accept_dialog, "dialog_text": dialog_text, "discard_changes": discard_changes},
                  session_id, profile, committing=True)
 
 
@@ -176,8 +188,10 @@ def browser_start(session_id: str, profile: str | None = None) -> dict[str, Any]
     return {**result, "contract_version": common.CONTRACT_VERSION, "session_id": session_id}
 
 
-def browser_stop(session_id: str, profile: str | None = None) -> dict[str, Any]:
-    return _call("stop", {}, session_id, profile)
+def browser_stop(session_id: str, profile: str | None = None, discard_changes: bool = False) -> dict[str, Any]:
+    """Release this session. Tabs with unsaved edits stay open and the session is kept (unsaved_changes) unless
+    discard_changes, which loses those edits: pass it only with the user's authorization."""
+    return _call("stop", {"discard_changes": discard_changes}, session_id, profile)
 
 
 def make_server():

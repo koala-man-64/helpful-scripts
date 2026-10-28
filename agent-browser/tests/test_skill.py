@@ -68,7 +68,7 @@ def test_shared_shutdown_and_commit_operations_require_caller_approval() -> None
     settings = json.loads((SKILL_DIR.parents[1] / "settings.template.json").read_text(encoding="utf-8"))
     rules = settings["permissions"]["ask"]
     for shell in ("Bash", "PowerShell"):
-        for verb in ("stop *--all*", "stop *--force*", "commit *", "* commit *"):
+        for verb in ("stop *--all*", "stop *--force*", "commit *", "* commit *", "*--accept-dialog*", "*--discard-changes*"):
             assert f"{shell}(agent-browser {verb})" in rules
     assert "mcp__*__browser_commit" in rules
 
@@ -109,6 +109,20 @@ def test_errors_table_covers_every_exit_2_class_the_model_can_hit() -> None:
     text = _skill()
     for cls in ("stale_ref", "ref_not_found", "not_found", "action_timeout", "action_failed", "guarded", "dialog", "unsaved_changes", "ambiguous_profile", "not_running", "timeout", "busy"):
         assert f"`{cls}`" in text, f"errors table lacks {cls}"
+
+
+ACTION_VERBS = ("click", "fill", "type", "press", "select", "check", "uncheck", "hover", "scroll", "upload", "eval", "fill-form")
+
+
+def test_dialog_hints_only_promise_flags_the_failing_verbs_have() -> None:
+    verbs = _parser_verbs()
+    dialog_flags = set(re.findall(r"--[a-z-]+", core_common.HINTS["dialog"]))
+    unsaved_flags = set(re.findall(r"--[a-z-]+", core_common.HINTS["unsaved_changes"]))
+    assert dialog_flags == {"--accept-dialog", "--dialog-text"} and unsaved_flags == {"--discard-changes"}
+    for verb in ACTION_VERBS:
+        assert dialog_flags | unsaved_flags <= verbs[verb], verb
+    for verb in ("goto", "back", "reload", "tab", "stop"):  # navigation and stop can only meet unsaved edits
+        assert unsaved_flags <= verbs[verb], verb
 
 
 def test_hints_only_name_real_verbs() -> None:
