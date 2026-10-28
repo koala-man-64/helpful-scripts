@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
-from . import common as core_common, daemon as core_daemon
+from . import common as core_common, daemon as core_daemon, policy as core_policy
 
 
 def _write_json_atomic(path: Path, data: dict[str, Any], *, compact: bool = False) -> None:
@@ -59,6 +59,20 @@ def _read_session(paths: core_common.ProfilePaths) -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) and data.get("port") and data.get("token") else None
+
+
+def _discard_launch(path: Path, token: str) -> None:
+    """Delete the launch record (it carries the daemon token) while it is still the one written with `token`.
+
+    Concurrent starts share launch.json, so neither a failed start nor the daemon that won the lock
+    deletes a record another start wrote for its own daemon.
+    """
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(record, dict) and record.get("token") == token:
+            path.unlink()
+    except (OSError, ValueError):
+        pass
 
 
 def _ping(session: dict[str, Any], timeout: float = core_common.PING_TIMEOUT) -> dict[str, Any] | None:
@@ -225,11 +239,13 @@ def _launch_record(paths: core_common.ProfilePaths, args: argparse.Namespace, to
         raise core_common._tag(ValueError(f"--browser must be msedge or chrome, not {browser!r}"), core_common.ERR_VALIDATION)
     exe = core_common._check_browser_exe(getattr(args, "exe", None) or os.getenv("AGENT_BROWSER_EXE") or None)
     headless = bool(getattr(args, "headless", False)) or core_common._env_flag("AGENT_BROWSER_HEADLESS")
+    config = core_common._load_config()
+    core_policy.profile_config(config, paths.profile)  # a bad policy fails here, as config, not later as a daemon launch failure
     return {
         "profile": paths.profile, "home": str(core_common._absolute(paths.root)), "log": str(paths.log), "token": token,
         "browser": browser, "exe": exe, "headless": headless,
         "window_size": getattr(args, "window_size", None) or core_common.DEFAULT_WINDOW_SIZE,
-        "code_hash": core_common._code_hash(), "config": core_common._load_config(),
+        "code_hash": core_common._code_hash(), "config": config,
         "idle_seconds": core_common._env_float("AGENT_BROWSER_IDLE_SECONDS", 0.0),
         "tool_version": core_common.TOOL_VERSION,
     }
@@ -263,6 +279,17 @@ def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, tim
     token = secrets.token_hex(32)
     launch = _launch_record(paths, args, token)
     _write_json_atomic(paths.launch, launch)
+    started = False
+    try:
+        result = _await_daemon(paths, launch, timeout)
+        started = result["status"] == "started"
+        return result
+    finally:
+        if not started:  # this start's daemon is not serving; a daemon that serves deleted its record once it held the lock
+            _discard_launch(paths.launch, token)
+
+
+def _await_daemon(paths: core_common.ProfilePaths, launch: dict[str, Any], timeout: float) -> dict[str, Any]:
     argv = [sys.executable, "-X", "utf8", str(core_common.ENTRY_PATH), "serve", "--launch-file", str(paths.launch)]
     pid, launcher = core_common._spawn_daemon(argv, paths.log, paths.dir)
     deadline = core_common._now() + timeout
@@ -485,7 +512,6 @@ def doctor(browser: str | None = None, exe: str | None = None, live: bool = Fals
     config = core_common._home() / "config.json"
     if config.is_file():
         try:
-            from . import policy as core_policy
             loaded = core_common._load_config()
             core_policy.profile_config(loaded, core_common.DEFAULT_PROFILE)
             if isinstance(loaded.get("profiles"), dict):

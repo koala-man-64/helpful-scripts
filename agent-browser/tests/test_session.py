@@ -476,6 +476,55 @@ def test_start_session_daemon_exit_early_generic_launch_failure(monkeypatch: pyt
     assert exc.value.error_class == core_common.ERR_LAUNCH
 
 
+@pytest.mark.parametrize("config, word", [
+    ({"profiles": {"default": {"permission": "bogus"}}}, "permission"),
+    ({"profiles": {"default": "act"}}, "profiles"),
+    ({"evidence_max_bytes": 1}, "evidence_max_bytes"),
+])
+def test_start_session_rejects_a_malformed_profile_policy_before_spawning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+                                                                         config: dict[str, Any], word: str) -> None:
+    paths = core_common._paths("default")
+    core_common._home().mkdir(parents=True, exist_ok=True)
+    (core_common._home() / "config.json").write_text(json.dumps(config), encoding="utf-8")
+
+    def refuse_spawn(*a: Any, **k: Any) -> Any:
+        raise AssertionError("_spawn_daemon must not be called for a malformed profile policy")
+
+    monkeypatch.setattr(core_common, "_spawn_daemon", refuse_spawn)
+    with pytest.raises(RuntimeError) as exc:
+        core_session.start_session(paths, _start_args())
+    assert exc.value.error_class == core_common.ERR_CONFIG and word in str(exc.value)
+    assert not paths.launch.exists()
+
+
+@pytest.mark.parametrize("alive", [False, True], ids=["daemon exited", "start timed out"])
+def test_start_session_removes_its_launch_record_when_no_daemon_comes_up(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock, alive: bool) -> None:
+    paths = core_common._paths("default")
+    monkeypatch.setattr(core_common, "_spawn_daemon", lambda argv, log_path, cwd: (4321, "popen"))
+    monkeypatch.setattr(core_session, "_ping", lambda s, timeout=core_common.PING_TIMEOUT: None)
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: alive)
+    monkeypatch.setattr(core_common, "_kill_tree", lambda pid: None)
+    monkeypatch.setattr(core_common, "policy_blockers", lambda policies: [])
+
+    with pytest.raises(RuntimeError) as exc:
+        core_session.start_session(paths, _start_args(), timeout=2.0)
+    assert exc.value.error_class == core_common.ERR_LAUNCH
+    assert not paths.launch.exists()  # the token it carries outlived no failed start
+
+
+def test_discard_launch_deletes_only_the_record_it_wrote(tmp_path: Path) -> None:
+    paths = core_common._paths("default")
+    core_session._write_json_atomic(paths.launch, {"token": "other-start"})
+    core_session._discard_launch(paths.launch, "this-start")
+    assert paths.launch.exists()  # a concurrent start's daemon still has to read it
+    core_session._discard_launch(paths.launch, "other-start")
+    assert not paths.launch.exists()
+    core_session._discard_launch(paths.launch, "other-start")  # already gone: no error
+    paths.launch.write_text("not json", encoding="utf-8")
+    core_session._discard_launch(paths.launch, "other-start")
+    assert paths.launch.exists()
+
+
 def _install_lost_race(monkeypatch: pytest.MonkeyPatch, paths: core_common.ProfilePaths, winner_after: int | None) -> list[int]:
     """This start's daemon exits at once while another start's daemon holds the lock (and, after `winner_after` probes, serves)."""
     killed: list[int] = []
@@ -505,6 +554,7 @@ def test_start_session_waits_for_a_concurrent_starts_daemon_instead_of_failing(m
     assert result["status"] == "already_running" and result["pid"] == 7777 and result["port"] == 6666
     assert result["launcher"] == "wmi" and core_session._read_session(paths)["launcher"] == "wmi"  # the winner's, not this start's
     assert killed == []
+    assert not paths.launch.exists()  # this start's record, which no daemon will consume
 
 
 def test_start_session_timeout_after_a_lost_race_does_not_kill_the_exited_pid(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:

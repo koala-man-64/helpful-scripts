@@ -1654,22 +1654,53 @@ class _Server(socketserver.TCPServer):
     daemon: Daemon
 
 
+def _serve_log(message: str) -> None:
+    """A daemon.log line from serve while no Daemon exists, in BrowserEngine.dlog's format."""
+    try:
+        print(f"{core_common._utc_now()} {message}", file=sys.stderr, flush=True)
+    except (OSError, ValueError):
+        pass
+
+
 def serve(launch_file: Path) -> int:
     launch = json.loads(launch_file.read_text(encoding="utf-8"))
-    daemon = Daemon(launch)
+    paths = core_common.ProfilePaths(launch["profile"], Path(launch["home"]))
     log_path = Path(launch["log"])
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log = open(log_path, "a", buffering=1, encoding="utf-8", errors="replace")  # noqa: SIM115 - lives as long as the daemon
+    log = open(log_path, "a", buffering=1, encoding="utf-8", errors="replace")  # noqa: SIM115 - closed when serve returns
+    streams = sys.stdout, sys.stderr
     sys.stdout = sys.stderr = log
-    daemon.log_handle = log
-    daemon.dlog(f"daemon starting pid {os.getpid()} profile {daemon.profile} python {sys.executable}")
-    lock = core_common._acquire_lock(daemon.paths.lock)
-    if lock is None:
-        daemon.dlog("another daemon holds the session lock; exiting")
-        return 1
+    try:
+        _serve_log(f"daemon starting pid {os.getpid()} profile {paths.profile} python {sys.executable}")
+        lock = core_common._acquire_lock(paths.lock)
+        if lock is None:
+            # A live daemon owns this profile: its session.json, journal and launch record are not this process's to touch.
+            _serve_log("another daemon holds the session lock; exiting")
+            return 1
+        try:
+            return _serve_locked(launch_file, launch, paths, log)
+        finally:
+            core_common._release_lock(lock)
+    finally:
+        sys.stdout, sys.stderr = streams
+        log.close()
+
+
+def _serve_locked(launch_file: Path, launch: dict[str, Any], paths: core_common.ProfilePaths, log: Any) -> int:
+    # launch.json carries the token, which from here lives only in memory and in session.json.
+    core_session._discard_launch(launch_file, str(launch.get("token") or ""))
+    daemon: Daemon | None = None
     server: _Server | None = None
     exit_code = 0
+
+    def note(message: str) -> None:
+        (daemon.dlog if daemon is not None else _serve_log)(message)
+
     try:
+        # Built under the lock: Daemon() opens the journal, whose restart sweep marks running rows unknown,
+        # and validates the profile policy, whose failure must reach startup_error.json.
+        daemon = Daemon(launch)
+        daemon.log_handle = log
         daemon.started_at = core_common._utc_now()
         daemon.start_browser()
         server = _Server(("127.0.0.1", 0), _Handler)
@@ -1691,21 +1722,21 @@ def serve(launch_file: Path) -> int:
                 daemon._mark_stop("idle")
         daemon.dlog(f"stopping: {daemon.stop_reason}")
     except (ValueError, RuntimeError) as exc:
-        daemon.dlog(f"fatal {getattr(exc, 'error_class', '')}: {exc}")
-        _write_startup_error(daemon.paths, getattr(exc, "error_class", core_common.ERR_LAUNCH), str(exc), getattr(exc, "hint", None))
+        note(f"fatal {getattr(exc, 'error_class', '')}: {exc}")
+        _write_startup_error(paths, getattr(exc, "error_class", core_common.ERR_LAUNCH), str(exc), getattr(exc, "hint", None))
         exit_code = 1
     except Exception as exc:  # noqa: BLE001
-        daemon.dlog("fatal: " + traceback.format_exc()[-1500:])
-        _write_startup_error(daemon.paths, core_common.ERR_LAUNCH, f"{type(exc).__name__}: {exc}", None)
+        note("fatal: " + traceback.format_exc()[-1500:])
+        _write_startup_error(paths, core_common.ERR_LAUNCH, f"{type(exc).__name__}: {exc}", None)
         exit_code = 1
     finally:
-        daemon.close()
+        if daemon is not None:
+            daemon.close()
         if server is not None:
             try:
                 server.server_close()
             except OSError:
                 pass
-        daemon.paths.session.unlink(missing_ok=True)
-        core_common._release_lock(lock)
-        daemon.dlog("exited")
+        paths.session.unlink(missing_ok=True)
+        note("exited")
     return exit_code

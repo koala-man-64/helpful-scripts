@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import json
 import socket
+import sys
 import threading
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Iterator
 
 import pytest
@@ -460,3 +462,80 @@ def test_idle_connection_does_not_block_a_following_legitimate_request(
         assert result["pong"] is True
     finally:
         idle_sock.close()
+
+
+# ---------------------------------------------------------------------------
+# serve(): what happens before the loop (lock, launch record, startup errors)
+
+
+def _write_launch(paths: core_common.ProfilePaths, token: str, **overrides: Any) -> Path:
+    launch = {"profile": paths.profile, "home": str(paths.root), "log": str(paths.log), "token": token,
+              "browser": "msedge", "exe": None, "headless": True, "window_size": None, "code_hash": "deadbeef",
+              "config": {}, "idle_seconds": 0.0, "tool_version": core_common.TOOL_VERSION, **overrides}
+    core_session._write_json_atomic(paths.launch, launch)
+    return paths.launch
+
+
+@pytest.fixture
+def serve_seams(monkeypatch: pytest.MonkeyPatch, fake_clock: Any) -> list[bool]:
+    """Keep serve's stream rebinding contained and record, at browser launch, whether launch.json still existed."""
+    from conftest import FakeContext, FakePage, FakePlaywright
+
+    monkeypatch.setattr(sys, "stdout", sys.stdout)
+    monkeypatch.setattr(sys, "stderr", sys.stderr)
+    launch_seen: list[bool] = []
+
+    def ctx_factory(user_data_dir: str, options: dict[str, Any]) -> Any:
+        launch_seen.append((Path(user_data_dir).parent / "launch.json").exists())
+        ctx = FakeContext()
+        ctx.pages.append(FakePage(ctx))
+        return ctx
+
+    monkeypatch.setattr(core_common, "_playwright_factory", lambda: FakePlaywright(ctx_factory))
+    return launch_seen
+
+
+def test_serve_consumes_launch_json_once_it_holds_the_lock(serve_seams: list[bool]) -> None:
+    paths = core_common._paths("default")
+    launch_file = _write_launch(paths, "daemon-token", idle_seconds=0.01)  # the first idle check ends the loop
+
+    assert core_daemon.serve(launch_file) == 0
+
+    assert serve_seams == [False]  # gone before the browser starts, not left for the daemon's lifetime
+    assert not paths.session.exists() and not core_common._lock_held(paths.lock)
+    assert "exited" in paths.log.read_text(encoding="utf-8")
+
+
+def test_serve_writes_startup_error_for_a_config_the_client_did_not_catch(serve_seams: list[bool]) -> None:
+    paths = core_common._paths("default")
+    launch_file = _write_launch(paths, "daemon-token", config={"permission": "bogus"})
+
+    assert core_daemon.serve(launch_file) == 1
+
+    reported = core_daemon._take_startup_error(paths)
+    assert reported["class"] == core_common.ERR_CONFIG and "permission" in reported["message"]
+    assert serve_seams == []  # the browser never started
+    assert not core_common._lock_held(paths.lock) and not paths.session.exists() and not launch_file.exists()
+    assert "fatal config" in paths.log.read_text(encoding="utf-8")
+
+
+def test_losing_duplicate_daemon_leaves_the_winners_state_alone(serve_seams: list[bool]) -> None:
+    from agent_browser_core import evidence
+
+    paths = core_common._paths("default")
+    journal = evidence.Journal(paths.dir)
+    journal.start("c" * 32, "a", "click", {}, "http://x/")  # the winner's command in flight
+    winner_session = {"port": 4444, "token": "winner-token", "pid": 4242}
+    core_session._write_json_atomic(paths.session, winner_session)
+    launch_file = _write_launch(paths, "winner-token")
+    winner_lock = core_common._try_lock(paths.lock)
+    try:
+        assert core_daemon.serve(launch_file) == 1
+    finally:
+        core_common._release_lock(winner_lock)
+
+    assert [row["status"] for row in journal.rows("a")] == ["running"]  # no restart sweep against a live daemon
+    assert launch_file.exists() and json.loads(launch_file.read_text(encoding="utf-8"))["token"] == "winner-token"
+    assert core_session._read_session(paths) == winner_session
+    assert core_daemon._take_startup_error(paths) is None and serve_seams == []
+    assert "another daemon holds the session lock" in paths.log.read_text(encoding="utf-8")
