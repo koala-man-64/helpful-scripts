@@ -108,7 +108,9 @@ or a key-and-token pair only the decoding shows, withholds the whole body. `body
 a placeholder, `body_withheld` says why (`session_token`; `unverified` when the cookies
 cannot be read; `too_large` over 8 MiB; `too_deep` for deeply nested JSON) and a `note`
 suggests a narrower request. Base64, hex or other re-encodings of a token, and tokens of
-other origins, are not detected. The scrub of an 8 MiB body takes about 1.5 s. A 401, or a redirect
+other origins, are not detected, so read pages with `text` or `snapshot` and keep `api`
+for data endpoints (the skill preapproves `api`). The scrub of an 8 MiB body takes about
+1.5 s. A 401, or a redirect
 to another origin, a sign-in path or an identity provider, opens a human handoff
 (`needs_human`, `handoff_id`) and focuses the
 window once: a repeat while that handoff is open, with no navigation since, returns the
@@ -117,11 +119,13 @@ instead of its body, which can echo sign-in codes. Other redirects and a 403 ope
 handoff and add a `note`; a 403 returns its real (untrusted) body. A gateway that
 answers an expired session with 403 needs an explicit `needs-human`. Response byte
 limits are post-download checks: Playwright buffers the response, so they do not
-impose a hard memory bound. Guarded files (the Python bridge's `save_response`)
-transfer binary attachments without oversized JSON; they are byte-exact, not scrubbed. Relative transfer paths resolve
-against the caller's working directory. Cookies/auth headers stay in
-the daemon. `SERVICENOW_AUTH=browser` in servicenow-client needs both packages,
-matching instance origin and a usable same-origin session key. A page without one
+impose a hard memory bound. An inline body holds at most 8 MiB, and binary content is not
+preserved. Only the Python bridge (`client.browser_request`, used by servicenow-client) can
+save a response to a guarded file, which carries binary attachments without oversized
+JSON; that file is byte-exact, not scrubbed. Relative transfer paths resolve against the caller's working directory.
+`--servicenow` sends the page's `g_ck` session key (from a same-origin frame) as `X-UserToken`; the reply
+carries no request headers. Cookies/auth headers stay in the daemon.
+`SERVICENOW_AUTH=browser` in servicenow-client needs both packages, matching instance origin and a usable same-origin session key. A page without one
 (not signed in, or not a classic page) returns `unsupported_browser_auth` before any
 request and opens no handoff; its hint names `needs-human --signed-in`. An expired
 session (401 or sign-in redirect) opens a handoff as above.
@@ -138,8 +142,8 @@ qualification requires a separately authorized test record.
 | Verb | What it does |
 |---|---|
 | `start [--url U] [--browser msedge\|chrome] [--exe P] [--headless] [--window-size W,H]` | Open the window for a profile. Idempotent: never a second window. |
-| `stop [--all] [--force] [--discard-changes]` | Release only this session. A tab with unsaved edits stays open and keeps the session (`unsaved_changes`; the other tabs still close) unless `--discard-changes`. all/force explicitly affect the shared profile and close every tab without asking, so `--discard-changes` with them is a usage error. This profile only: other profiles keep running. Cookies stay. |
-| `status [--all]` | Running, pid, tabs, uptime, `stale_code`; `--all` lists every profile. Exit 0 whether or not a browser runs; 2 for an invalid or reserved (`_doctor`) `--profile`; 1 when the profile path is too long for Chromium. |
+| `stop [--all] [--force] [--discard-changes]` | Release only this session. A tab with unsaved edits stays open and keeps the session (`unsaved_changes`; the other tabs still close) unless `--discard-changes`. When every other session that used the browser has stopped too (tabs a human opened by hand don't count), this stop also closes the window and ends the daemon (`stopping: true`). all/force explicitly affect the shared profile and close every tab without asking, so `--discard-changes` with them is a usage error. This profile only: other profiles keep running. Cookies stay. |
+| `status [--all]` | Running, pid, tabs, uptime, `stale_code`; `--all` lists every profile, and so does a plain `status` (no `--profile`, no `AGENT_BROWSER_PROFILE`) while more than one profile runs. Exit 0 whether or not a browser runs; 2 for an invalid or reserved (`_doctor`) `--profile`; 1 when the profile path is too long for Chromium. |
 | `goto URL [--wait load\|domcontentloaded] [--new-tab] [--discard-changes]` | Navigate (starts the browser if needed) and return the page. |
 | `snapshot [--full] [--find TEXT] [--ref REF]` | The page as refs. `--find` keeps matching lines plus parents; it never matches a masked value or a redacted link. |
 | `click REF [--double] [--right]` | Click. Popups become the current tab. |
@@ -147,17 +151,29 @@ qualification requires a separately authorized test record.
 | `type REF TEXT [--delay MS] [--append] [--enter]` | Type key by key (typeahead fields); clears first unless `--append`. |
 | `press KEY [REF]` | `Enter`, `Tab`, `Escape`, `Control+a`. Only those three on a secret field. |
 | `select REF VALUE...` | Pick options by label or value; a bad label fails at once with the options listed. |
-| `check REF` / `uncheck REF` / `hover REF` / `scroll [REF] [--down PX\|--up PX]` | Idempotent element actions. |
+| `check REF` / `uncheck REF` / `hover REF` / `scroll [REF] [--down PX\|--up PX]` | Idempotent element actions. `check URL` is the loopback diagnostics page below. |
 | `text [REF] [--max-chars N]` | Readable text of the page (every frame) or of one element. |
 | `value REF` | Current value of a field (masked on secret fields). |
-| `screenshot [REF] [--path F.png] [--full-page]` | PNG under the profile's `shots/` (or a path under the cwd). |
+| `screenshot [REF] [--path F.png] [--full-page] [--annotate]` | PNG under the profile's `shots/` (or a path under the cwd); `--annotate` draws temporary ref labels. |
 | `wait [--url-contains S] [--text S] [--ref R] [--selector S] [--signed-in HOST] [--seconds N] [--timeout S]` | Conditions AND-ed; cooperative polling; default 60 s, at most 100 s per call; inspect the receipt after timeout before deciding what to do next. Refused on a page outside `allowed_hosts`. |
 | `back` / `reload` / `tabs` / `tab TAB [--close]` | Navigation and tabs (`TAB` is a stable id `t1`, `t2` or 1-based index). Pass `--tab TAB` on any command to drive tabs in parallel without switching focus. Closing the last tab is refused. |
 | `upload REF FILE...` / `downloads` | Attach local files; save and list files the page downloaded. |
 | `eval JS [--ref REF] [--frame NAME]` | Run JavaScript. Off when `config.json` says `"eval": false`. Refuses a credential field as `--ref`; the script itself, like page and `--frame` eval, can still reach any field. |
-| `needs-human [--signed-in HOST]` | Focus/flash for human input; returns a durable handoff ID. The same reason and condition while that handoff is open return its ID without refocusing. Its receipt is final with status `needs_human`. |
-| `doctor [--live]` | Preflight rows; `--live` boots a headless browser, checks refs, clicks, stops. Exit 0 even when a row fails. `home_private` warns when other local accounts may read the profile folders: on Windows, a home outside your user profile and `%LOCALAPPDATA%`; on POSIX, a `profiles/<name>` folder with group or other permission bits. |
+| `needs-human [--signed-in HOST] [--reason TEXT]` | Focus/flash for human input; returns a durable handoff ID. The same reason and condition while that handoff is open return its ID without refocusing. Its receipt is final with status `needs_human`. |
+| `doctor [--live] [--browser msedge\|chrome] [--exe P]` | Preflight rows; `--live` boots a headless browser, checks refs, clicks, stops. Exit 0 even when a row fails. `home_private` warns when other local accounts may read the profile folders: on Windows, a home outside your user profile and `%LOCALAPPDATA%`; on POSIX, a `profiles/<name>` folder with group or other permission bits. |
 | `clean [--profile P] [--purge-profile P] [--dry-run]` | Stale sessions/orphans and old download staging files. Evidence stays until explicitly cleared. A purge lists the profile in `profiles_purged` only once its folder is gone; if a program still holds some of its files, `clean` finishes the other profiles and then fails with `profile_in_use` and `details.profiles_purge_failed`. |
+| `output --id ID [--offset N]` | Page through a stored overflow reply or a large receipt (`r<command id>`). |
+| `state [--command ID] [--handoff ID [--resolve]] [--offset N]` | Session state, a receipt or a handoff; `--resolve` only as `commit state`. |
+| `journal [--command ID] [--handoff ID] [--offset N] [--clear [--include-unknown]]` | Receipts and handoffs; `--clear` only as `commit journal`. |
+| `fill-form --file F.json` | Preflight, then fill/select/check/uncheck many fields; never submits. |
+| `table [REF]` | One rendered table or grid as columns and rows with refs. |
+| `api URL [--method M] [--json-file F] [--servicenow]` | Same-origin request with the tab's cookies; methods other than GET/HEAD only as `commit api`. `--servicenow` adds the page's session key (`X-UserToken`). |
+| `run sn/add-work-note --number N (--text T \| --text-file F)` | Preview the built-in recipe; `commit run` executes it. |
+| `commit VERB ...` | Declare a commit: `click`, `fill`, `type`, `press`, `select`, `check`, `uncheck`, `upload`, `fill-form`, `api`, `run`, `journal` or `state`. |
+
+`click`, `fill` and `type` take an exact `--role ROLE [--name NAME]` or `--label LABEL` target instead of a REF (zero
+or several matches are refused with candidate refs). `fill`/`type` and `run` read their text from `--text-file F`, and
+`eval` its script from `--js-file F`; those files follow the upload path rules below.
 
 Every action verb (`click`, `fill`, `type`, `press`, `select`, `check`, `uncheck`, `hover`, `scroll`, `upload`, `eval`)
 and `fill-form` also takes `--accept-dialog`, `--dialog-text T` (a prompt answer, only with `--accept-dialog`) and
@@ -178,22 +194,28 @@ usage error, so it cannot slip past those ask rules.
   - textbox "Work notes" [ref=f2e20]
 ```
 
-Buttons, links, fields, checkboxes, tabs, menu items and iframes keep their ref; headings, dialogs and named
-regions are kept as context without a ref; everything else is dropped. Iframe lines show the frame's name and the
+Buttons, links, fields, checkboxes, radios, switches, sliders, tabs, menu and tree items, iframes and clickable
+(`cursor=pointer`) generic elements keep their ref. Headings, dialogs, alerts, status lines, tab lists, tables, list
+boxes and menus (with the options inside them), and named regions, forms, navigation, main areas and groups are kept as
+context without a ref; everything else is dropped. Text, `/url` and paragraph lines appear only with `--find` or
+`--full`; `--full` keeps every line and ignores `--find`. Iframe lines show the frame's name and the
 prefix its children use. A ref stays bound to the same element until its frame navigates; then the tool answers
-`stale_ref` and the next `snapshot` renumbers. Each frame's navigation count is read before the snapshot is taken, so
+`stale_ref` and the next `snapshot` renumbers. A scoped `snapshot --ref` also makes refs outside its scope `stale_ref`,
+and a ref whose element was removed answers `ref_not_found`. Each frame's navigation count is read before the snapshot is taken, so
 a frame that navigates while it is taken makes its refs stale at once: that reply says `refs_valid: false` and
 `navigated: true`, and a note asks for a fresh `snapshot`.
 
-Actions that do not navigate return a compact envelope: `target_line`, `value_after`, a `changes` diff and
-`refs_valid`. When the page navigated, a dialog was handled, or `--snapshot` was passed, the full snapshot comes back
-instead.
+Actions that do not navigate return a compact envelope: `target_line`, `value_after` (after `fill`, `type`, `select`,
+`check`, `uncheck`, and `press` on a ref), a `changes` diff (at most 40 added and 40 removed lines, each side within
+half the byte budget, `truncated` when cut), `refs_valid`, `new_tab` and `downloads`. When the page navigated (a
+popup counts), a dialog was handled, or `--snapshot` was passed, the full snapshot comes back instead.
 
 ## Output contract (for agent authors)
 
 Runtime replies are compact single-line JSON with `contract_version: 1`. The complete
 encoded CLI/socket reply, including escaping/newline, is bounded to 24,000 UTF-8 bytes.
-MCP text and structured output are bounded together. Overflow is preserved under an
+An MCP reply carries the same compact JSON twice, as text and as structuredContent; each copy is bounded to
+7,000 UTF-8 bytes, and the whole serialized tool reply stays under 24,000. Overflow is preserved under an
 immutable `output_id`; read `output --id ID --offset 0` and follow `next_offset` until
 null. The overflow reply still carries the page's `url`, `title` and `untrusted`; every `output` page is
 `untrusted: ["chunk"]`, since a stored reply keeps its page text.
@@ -212,7 +234,8 @@ Waits and action checks reject success first observed after their original deadl
 Wait observation/capture errors finish the receipt and remove the pending operation.
 
 Inspect `state --command ID` or `journal --command ID` after a failed check/interruption.
-Receipts distinguish completed, failed, unknown and needs_human. `executed` means attempted, not
+Receipts distinguish completed, failed, unknown and needs_human; until its command finishes a receipt is
+`running` or `pending`, and a daemon restart turns those into `unknown`. `executed` means attempted, not
 business success. Interrupted writes are never automatically replayed. A `needs_human` receipt
 is final: the handoff row (`state --handoff ID`) carries the open human action, and the reply
 still says `pending: true, status: needs_human`. A handoff ID that another session owns or
@@ -271,16 +294,21 @@ with start gives its health response the requested start deadline.
   `journal_full` or `output_storage`. A reply that cannot be written to stdout fails with `io`. Both keep
   `details.command_id`, `details.executed` and `details.receipt` (`state --command ID`, or `journal` without an ID).
   When an error cannot be stored, its exit code stays the original error's.
-- Exit `2` = fix the call: `usage`, `validation`, `ambiguous_profile`, `ref_not_found`, `stale_ref`, `not_found`,
+- Exit `2` = fix the call: `usage`, `validation`, `ref_not_found`, `stale_ref`, `not_found`,
   `ambiguous`, `action_timeout`, `action_failed`, `guarded`, `dialog`, `unsaved_changes`.
-- Exit `1` = fix the environment or start the browser: `config`, `playwright_missing`, `browser_not_found`,
+- Exit `1` = fix the environment or start the browser: every class not named under exit 2, 124 or 130, namely
+  `config`, `playwright_missing`, `browser_not_found`,
   `edge_policy`, `browser_launch`, `profile_in_use`, `not_running`, `browser_closed`, `daemon`, `daemon_unresponsive`,
-  `io`, `output_storage`, `journal_full`,
+  `protocol_mismatch`, `io`, `output_storage`, `journal_full`, `journal_unavailable`, the API's `unsupported_browser_auth`,
+  `response_too_large` and `unavailable` (transport failure), the recipe's `persistence_unverified`, an action's
+  `verification_unavailable` (the active tab kept changing), and
   `busy` (another session's command held the browser past this request's queue deadline; it was not run, repeat it).
+  An exit-1 class raised after the command ran (`unavailable`, `persistence_unverified`) needs the receipt checked
+  before any retry.
 - Exit `124` = `timeout`: the command may already have run. Inspect its receipt (`details.receipt`, or `state`)
   before repeating it; only a timed-out wait is safe to run again. When the client stops waiting for the daemon,
   the message says the command may have run and the hint names `state`; a navigation timeout's hint asks for a
-  snapshot first, because the page may still finish loading. Exit `130` = interrupted (same caution).
+  snapshot first, because the page may still finish loading. Exit `130` = `interrupted` (same caution).
 - Every `hint` is a literal next command rendered with the profile in use (`default` when the given name is not
   a valid profile name).
 
@@ -291,6 +319,9 @@ overrides live under `profiles` in config, for example
 `{"profiles":{"snow-read":{"permission":"read","eval":false}}}`.
 `read` permits observation/navigation, `act` adds ordinary interaction, and `commit`
 adds declared submissions, write APIs, mutating recipes and arbitrary eval.
+Observation also covers `goto`, `back`, `reload`, `screenshot`, `wait`, `table`, `check URL`, `api` GET/HEAD and `run`
+previews. `fill`/`type --enter` needs a `commit` profile but not the `commit` verb, and `press Enter` or a click
+on a Submit button needs only `act`: ordinary interaction can submit a form, and no caller ask rule covers it.
 `uploads: false` blocks file uploads and file-backed API bodies. `upload_roots` adds
 folders that file inputs and `--path` targets may use, on top of the caller's current
 folder and the session's `downloads`/`shots`; it never restricts them. To forbid file
@@ -308,16 +339,17 @@ Real environment variables, read lazily; no `.env` loading (the tool must run ba
 | `AGENT_BROWSER_BROWSER` / `AGENT_BROWSER_EXE` | `msedge` (default) or `chrome`; an explicit executable. |
 | `AGENT_BROWSER_HEADLESS` | `true` = no window (tests). A human cannot sign in headless. |
 | `AGENT_BROWSER_TIMEOUT_SECONDS` | Default action timeout (15). |
-| `AGENT_BROWSER_MAX_BYTES` / `AGENT_BROWSER_MAX_CHARS` | Snapshot byte budget (16000); `text` character cap (20000). |
-| `AGENT_BROWSER_AUTOSTART` | `false` stops `goto` from starting a browser on its own. |
-| `AGENT_BROWSER_LAUNCHER` | `popen` (default) or `wmi`: how the daemon is detached from the shell. |
+| `AGENT_BROWSER_MAX_BYTES` / `AGENT_BROWSER_MAX_CHARS` | Snapshot byte budget (16000, at least 500); `text` character cap (20000). |
+| `AGENT_BROWSER_AUTOSTART` | `false` stops `goto` and `check URL` from starting a browser on their own (they start one only when none runs or the last one died, and never for a call that fails its argument checks, such as a bad `--timeout`). |
+| `AGENT_BROWSER_LAUNCHER` | `popen` (default) or `wmi`: how the daemon is detached from the shell. `start` and `status` report `popen-breakaway` when the daemon left the shell's Job. Any other value, and `wmi` outside Windows, uses `popen`. |
 | `AGENT_BROWSER_IDLE_SECONDS` | Daemon stops after this much inactivity (default 0 = never). Any request counts, `poll`, `wait` and `state` included; an open handoff nobody polls does not. |
 | `AGENT_BROWSER_LIVE` | `1` enables the live pytest suite. |
 | `AGENT_BROWSER_LIVE_ARTIFACTS` | Where a failed live test keeps its profile's capped `daemon.log` tail and last outputs before teardown deletes the temp home (default `%TEMP%\agent-browser-live-artifacts`). CI uploads it as `live-test-logs`. |
 
 `%LOCALAPPDATA%\agent-browser\config.json` is a human-written policy file the tool never creates:
 `{"eval": false, "allowed_hosts": ["dev12345.service-now.com"], "upload_roots": ["C:/exports"]}`. With
-`allowed_hosts`, `goto` refuses other hosts and a page that wanders off the list gets `off_allowlist: true` with only
+`allowed_hosts`, `goto` refuses other hosts (an entry is a bare host name and also admits its subdomains; scheme, port
+and path are ignored, so an entry written with a scheme or port matches nothing) and a page that wanders off the list gets `off_allowlist: true` with only
 `back`, `goto`, `snapshot`, `text`, `tabs`, `tab`, and `stop` (plus `state`, `journal`, `output` and `needs-human`)
 allowed until it is back. `wait` is refused there too: during a sign-in on an identity provider outside the list, run
 `needs-human --signed-in <app host>` and poll it with `state --handoff ID`. The daemon reads `config.json`
@@ -331,13 +363,15 @@ effective list is a configuration error.
 ```
 %LOCALAPPDATA%\agent-browser\profiles\<name>\
   user-data\        the Chromium profile: cookies, local storage, sign-ins (never your daily Edge profile)
-  session.json      pid, port, token, browser, heartbeat, busy (request in flight: cmd, since, until), code hash (written by the daemon)
+  session.json      pid, port, token, browser, heartbeat, busy (request in flight: cmd, since, until), code hash (written by the
+                    daemon; the `start` that launched it adds `launcher`)
   session.lock      held by the daemon for its lifetime; the OS releases it on death (liveness truth)
   launch.json       the settings and token the client hands the daemon; the daemon deletes it once it holds the lock
   daemon.log        command/status/timing diagnostics and truncated launch/shutdown error text, one sanitised,
                     URL-redacted line per entry; no command arguments, page content or request values
   journal.sqlite3   redacted receipts, evidence references and durable human handoffs
-  last_snapshot.txt the manual session's last filtered snapshot
+  last_snapshot.txt the manual session's last filtered snapshot; with several tabs, also last_snapshot_<tab>.txt
+                    per tab (`snapshot_file` names the one written)
   downloads\  shots\  outputs\
   sessions\<hash>\   other sessions' snapshots, downloads, screenshots and outputs
 ```
@@ -347,7 +381,9 @@ is cleaned and relaunched on the same profile folder, so the sign-in survives. O
 one launches the daemon and the other reports it as `already_running`. Two profiles run side by side with
 separate cookies; that is opt-in through `--profile`. Selection is explicit profile,
 environment default, then `default`; there is no attachment to whichever profile runs.
-The `_doctor` profile is reserved for internal diagnostics and cannot be selected by callers.
+The `_doctor` profile is reserved for internal diagnostics and cannot be selected by callers; only `clean --profile
+_doctor` reaches it, to remove a diagnostics browser `doctor --live` left behind. `_live` is the live test suite's
+profile (`TEST_PROFILES`): it stays selectable and has no extra privilege, but do not use it for real work.
 
 Session identity is explicit `--session`, CODEX_THREAD_ID, CLAUDE_CODE_SESSION_ID,
 then stable `manual`. Tabs, refs, receipts, outputs and downloads belong to that ID;
@@ -370,8 +406,11 @@ accepted only with `--accept-dialog`. Otherwise an action or `eval` fails with `
 `unsaved_changes` unless `--discard-changes`. A per-session `stop` answers the `beforeunload` of each of its tabs the
 same way: tabs with edits stay open, the session is kept, and `details.tabs` lists them. A dialog no error reported (one
 raised during a read, or by a page timer between commands) appears in `dialogs` on the next command other than
-`ping`, `poll`, `state`, `journal`, `needs-human`, `stop` and `api`, with a note when it was dismissed; that command
-still succeeds. Between commands a `beforeunload` raised by a human navigation is accepted.
+`ping`, `poll`, `state`, `journal`, `output`, `needs-human`, `stop` and `api`, with a note when it was dismissed; that command
+still succeeds. Between commands a `beforeunload` raised by a human navigation is accepted on a tab of the session that
+sent the last command. A dialog on any other session's tab, or during a command on one of the caller's other tabs, takes
+the background route: `alert` is accepted, everything else (`beforeunload` included) is dismissed, and that session's
+`state` lists it under `background_dialogs`.
 
 ## Security posture
 
@@ -461,14 +500,16 @@ them from the next Bash tool call.
 | Claude Code Bash tool, Windows 11, 2026-09-01 | yes | `0x0` (no kill-on-close) | survives, stays in the same Job | survives, lands in WmiPrvSE's Job (`0x1800`) |
 | Claude Desktop / VS Code extension | not yet measured | | | |
 
-`doctor` prints the `job_object` row for the shell you run it from; if it ever shows `kill_on_job_close`, set
-`AGENT_BROWSER_LAUNCHER=wmi`.
+`doctor` prints the `job_object` row for the shell you run it from. It warns only for a Job that kills children on
+close and also forbids breakaway (no `BREAKAWAY_OK` or `SILENT_BREAKAWAY_OK`), since the daemon otherwise leaves the
+Job; on that warning, set `AGENT_BROWSER_LAUNCHER=wmi`.
 
 ## Validate (offline, no browser)
 
 ```powershell
 cd agent-browser
-python -m pytest        # seams, pure snapshot layer, security policy, CLI contract, skill consistency
+python -m pip install -e ".[dev,mcp]"   # pytest; without the mcp extra the MCP tests are skipped
+python -m pytest                         # every module against fakes: CLI, daemon, runtime, actions, API, MCP, policy, snapshots, skill
 ```
 
 ## Live smoke test
@@ -479,7 +520,7 @@ a separately authorized test record; the manual record-edit step below is condit
 on that authorization.
 
 ```powershell
-$env:AGENT_BROWSER_LIVE = "1"; python -m pytest -m live     # real headless Edge against tests/fixtures (~40 s)
+$env:AGENT_BROWSER_LIVE = "1"; python -m pytest -m live     # real headless Edge against tests/fixtures (~4 min)
 agent-browser doctor --live                                  # boots a headless browser, checks refs, clicks, stops
 ```
 
@@ -501,12 +542,12 @@ Small modules behind a thin entry point; every OS edge is a module-level seam th
 | Constants | Timeouts, byte budgets, role sets for the snapshot filter, secret-field and sign-in heuristics, error classes, the static hint table. |
 | Config helpers | `_tag()` rides `error_class`/`hint`/`details` on builtin exceptions; lazy env reads; `ProfilePaths`; the human-written `config.json`. |
 | Text hygiene | `strip_invisible`, `sanitize_text` (`single_line`), `redact_url` (with `redact_path`), `redact_text` for URLs in free text, `redact_href` (with `yaml_unquote`), `safe_name`. |
-| Browser discovery | `find_browser` (explicit > env > PATH > known folders > App Paths), version from the install folder, Edge and Chrome policy decoding. |
+| Browser discovery | For `doctor`'s `browser_found` row: `find_browser` (explicit > env > PATH > known folders > App Paths), version from the install folder, Edge and Chrome policy decoding. A launch without `--exe`/`AGENT_BROWSER_EXE` does not use it: Playwright opens the installed `msedge` or `chrome` channel, so the path `doctor` shows (an Edge Beta, say) can differ from the browser that runs. |
 | Process seams | detached spawn with the breakaway retry and the WMI fallback, lock files, Job Object facts, CIM process listing by full profile path. |
 | Session store | atomic `session.json`, lock liveness, explicit profile/session selection and protocol compatibility. |
 | Client protocol | one JSON line over a loopback socket; remote errors re-raised through `_tag()` so `main()` maps exit codes the same way for local and remote failures. |
 | Snapshot pure layer | `parse_ai_snapshot`, `frame_prefixes`, `filter_snapshot`, `budget_lines`, `diff_lines`: pure functions over Playwright's ai-mode text, tested against captured real output. |
-| Daemon | `Daemon` owns one persistent context; context-level dialog/download/page listeners; per-frame navigation counters, read before each snapshot, that turn a ref from a navigated frame into `stale_ref`; heal-once re-snapshot when a scoped snapshot reset Playwright's ref map; settle across frames; one handler per verb. |
+| Daemon | `Daemon` owns one persistent context; context-level dialog and page listeners, per-page download, navigation and error listeners; per-frame navigation counters, read before each snapshot, that turn a ref from a navigated frame into `stale_ref`; heal-once re-snapshot when a scoped snapshot reset Playwright's ref map; settle across frames. `OperatingMixin.dispatch` (`runtime.py`) runs first for every request: it routes it to the caller's session, resolves `commit` and `poll`, keeps receipts and expectations, and runs `wait` as a cooperative poll; the rest reach an `h_<verb>` handler (`reach.py` wraps `click` and owns `screenshot`). |
 | Client verbs | `start`, session-scoped `stop`, `status`, `clean`, `doctor`, human handoff and typed optional MCP. |
 | CLI | argparse with a shared parent parser, MSYS argument de-mangling, UTF-8 stdout on pipes, `_emit_error`, exit mapping. |
 
@@ -515,9 +556,11 @@ one connection, so a new connection renumbers the page and the model's `e7` can 
 after any DOM change. One long-lived connection keeps a ref bound to its element until its frame navigates, keeps
 dialog and download listeners live between commands, and avoids an unauthenticated DevTools port on a signed-in profile.
 
-Verified against Playwright 1.61 on this machine: `aria_snapshot(mode="ai")` puts refs on every visible node that
+Verified against Playwright 1.61 on this machine (CI installs the newest release `playwright>=1.61,<2` allows, 1.64 so
+far; both lines are in `TESTED_PLAYWRIGHT`, and another line only gets a `doctor` warning): `aria_snapshot(mode="ai")` puts refs on every visible node that
 receives pointer events (headings and generic divs included, hence the role-based filter); refs inside a frame carry
-`f<N>` prefixes and resolve through `page.locator("aria-ref=f1e4")`; a scoped snapshot empties the ref map and a full
+`f<N>` prefixes and resolve through `page.locator("aria-ref=f1e4")` (newer versions can prefix main-frame refs too, so
+each prefix is resolved through its element's owner frame); a scoped snapshot empties the ref map and a full
 one refills it with the same numbers; a frame navigation reuses numbers (hence the counters); a page reload raises
 "Invalid frame in aria-ref selector"; `select_option` blocks on a bad label (hence options are read first);
 `press_sequentially` appends (hence `type` clears first); a context-level dialog listener catches timer dialogs.
@@ -544,7 +587,7 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 | Git Bash turned `/incident.do` into `C:/Program Files/Git/incident.do` | The tool de-mangles arguments when `MSYSTEM` is set and says so in `note` on success or `error.note` on failure (at most 300 characters per argument); prefer host names and never start an argument with `/`. |
 | A Bash call was denied by the shell guard | The user's PreToolUse guard denies statements starting with `echo`, `cat`, `type`, `set` when the command mentions a secret word. One `agent-browser` command per call, nothing before it. |
 | `stale_code: true` in `status` | Package implementation changed; explicitly stop/restart the shared profile. |
-| `doctor` shows `kill_on_job_close` | Your shell's Job kills children on close. `AGENT_BROWSER_LAUNCHER=wmi`. |
+| `doctor` warns on `job_object` | Your shell's Job kills children on close and forbids breakaway. `AGENT_BROWSER_LAUNCHER=wmi`. |
 | pip hits `pkgs.dev.azure.com` | Prefix with `$env:PIP_INDEX_URL = "https://pypi.org/simple"; $env:PIP_EXTRA_INDEX_URL = ""`. |
 
 ## Follow-ups

@@ -68,7 +68,8 @@ Same-page network matches are evidence, not proof of a causal business operation
 API reads use GET/HEAD; other supported methods require `commit api`. The current
 tab and request must have identical scheme, host and effective port. No automatic
 redirects or request retries occur. Cookies and internal ServiceNow authentication
-headers stay in the daemon. Response headers named like credentials (cookie, `auth`,
+headers stay in the daemon. Inline bodies are scrubbed of this session's tokens (below);
+read pages with `text` or `snapshot`. Response headers named like credentials (cookie, `auth`,
 token, session, `g_ck`, secret, CSRF/XSRF, password, credential, or ending in `key`) and
 `Location`/`Refresh` are omitted; the rest are single-line with URLs redacted, including
 `Content-Location` and `Link` targets.
@@ -107,8 +108,9 @@ connection refused) fails as `action_failed`.
 Use the optional MCP extra (`pip install -e "agent-browser[mcp]"`) and register the
 `agent-browser-mcp` stdio command with your host. Pass the same explicit session ID
 through every tool in one task. The 18 typed tools share the daemon dispatcher;
-`browser_commit` and `browser_eval` are distinct approval targets. Tool text is compact
-JSON and matches structuredContent; complete serialized tool replies are bounded.
+`browser_commit` and `browser_eval` are distinct approval targets. A tool reply carries the
+same compact JSON twice, as text and as structuredContent; each copy is bounded to 7,000
+UTF-8 bytes, and the whole serialized reply stays under 24,000.
 Tools send the CLI's daemon payload: page tools take `tab` (`t2` or `2`), the `tab`
 operation of `browser_action` takes `index` the same way, `browser_wait` takes `ref` and
 `selector`, `browser_snapshot` `ref`, `browser_eval` `ref` and `frame`, `browser_read`
@@ -149,7 +151,8 @@ The canonical Claude settings template asks for commit/eval and evidence clear c
 any command with `--accept-dialog` or `--discard-changes` (flags must be spelled out, never
 abbreviated), including tools from any MCP server using these browser tool names. MCP rules see
 tool names only, so a stop that discards edits is `browser_commit` operation `stop`, which is
-asked about, and a plain `browser_stop` is not. A template edit
+asked about, and a plain `browser_stop` is not. Nothing asks before `press Enter`, a Submit
+click or `fill`/`type --enter` (which needs a `commit` profile, not the `commit` verb). A template edit
 does not update an already-installed caller policy. For approval-sensitive workflows,
 verify the installed policy and configure the profile with eval disabled. These
 [permission patterns](https://code.claude.com/docs/en/permissions) are cooperative.

@@ -7,8 +7,8 @@ the displayed record. Preview record changes and submit only within the user's
 explicit authorization. A successful click does not prove the record was saved;
 verify the resulting record and any validation message.
 
-`run sn/add-work-note --number INC0010023 --text-file note.txt` previews a built-in
-classic `gsft_main` operation. Use `commit run` only within the authorized write
+`agent-browser run sn/add-work-note --number INC0010023 --text-file note.txt` previews a built-in
+classic `gsft_main` operation. Use `agent-browser commit run` only within the authorized write
 scope. It verifies Number/stable record identity, refuses an existing draft or
 identical displayed note, submits once, reloads that record and checks persisted
 noneditable activity. The preview is a read: it makes the same identity and
@@ -23,7 +23,12 @@ Optional `SERVICENOW_AUTH=browser` in servicenow-client uses the same signed-in
 profile and daemon API. Install both packages, select the intended profile/session
 and navigate to the configured exact instance origin. Basic auth stays available;
 all existing client write/delete/dry-run/attachment guards still apply first.
-No cookies, authentication headers or session key values leave the daemon. A page
+The cookies, authentication headers and session key the daemon sends never leave it.
+`agent-browser api URL --servicenow` does the same from the shell: it sends the page's
+`g_ck` session key as `X-UserToken`, and the reply carries no request headers. An inline
+body comes back with that key, the session cookies and other token carriers as `***`, or
+withheld (`body_withheld`) when it shows one in a form that cannot be masked in place
+(see interfaces), so call JSON endpoints with `api` and read pages with `text` or `snapshot`. A page
 without a usable session key (not signed in, or not a classic page) fails as
 `unsupported_browser_auth` before any request and opens no handoff. If the user must
 sign in, run `agent-browser needs-human --signed-in <instance host>`; otherwise open a

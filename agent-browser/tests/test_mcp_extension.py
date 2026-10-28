@@ -61,6 +61,26 @@ def test_mcp_schema_and_complete_result_budget(monkeypatch):
     asyncio.run(run())
 
 
+@pytest.mark.parametrize(("value", "inline"), [
+    ("x" * 6500, True),             # fits one copy
+    ("\\" * 3400, True),            # fits one copy, but text escapes every backslash once more inside the serialized reply
+    ("x" * 8000, False),            # just over one copy: overflow stub
+    ("😀\\\"" * 15000, False),      # far over
+], ids=["fits", "fits-escaped", "just-over", "far-over"])
+def test_mcp_each_copy_is_within_its_own_budget_and_total_within_stdout_budget(monkeypatch, value, inline):
+    monkeypatch.setattr(mcp_server.client, "invoke", lambda *a, **kw: {"value": value})
+
+    async def run():
+        reply = await mcp_server.make_server().call_tool("browser_snapshot", {"session_id": "gate"})
+        text = reply.content[0].text
+        compact = json.dumps(reply.structuredContent, ensure_ascii=False, separators=(",", ":"))
+        assert text == compact
+        assert len(text.encode("utf-8")) + 1 <= mcp_server.REPLY_BUDGET  # +1: the budget counts a CLI line's newline
+        assert ("value" in reply.structuredContent) is inline and ("output_id" in reply.structuredContent) is not inline
+        assert len(reply.model_dump_json().encode("utf-8")) < common.STDOUT_BUDGET
+    asyncio.run(run())
+
+
 def test_mcp_manual_handoff_resolution_uses_commit_dispatch(monkeypatch):
     called = []
     monkeypatch.setattr(mcp_server.client, "invoke", lambda *a, **kw: called.append((a, kw)) or {})
