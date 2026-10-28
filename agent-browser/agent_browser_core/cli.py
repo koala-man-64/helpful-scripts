@@ -19,6 +19,15 @@ class JsonArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
         raise core_common._tag(ValueError("Invalid command arguments. Use --help for command syntax."), core_common.ERR_USAGE)
 
+    def parse_args(self, args: Sequence[str] | None = None, namespace: argparse.Namespace | None = None) -> argparse.Namespace:  # type: ignore[override]
+        # Sub-parsers write their namespace over the top-level one, so --expect after the verb is kept apart
+        # (expect_tail) and appended here. Sub-parsers never call parse_args, so this merges exactly once.
+        parsed = super().parse_args(args, namespace)
+        tail = vars(parsed).pop("expect_tail", None)
+        if tail:
+            parsed.expect = list(getattr(parsed, "expect", None) or []) + tail
+        return parsed
+
 
 def _demangle_msys(argv: list[str]) -> list[str]:
     """Undo Git Bash (MSYS) path conversion of arguments that start with '/'."""
@@ -49,8 +58,8 @@ def _timeout_for(args: argparse.Namespace, default: float) -> float:
     value = getattr(args, "timeout", None)
     if value is None:
         value = core_common._env_float("AGENT_BROWSER_TIMEOUT_SECONDS", default) if default == core_common.DEFAULT_TIMEOUT else default
-    if not math.isfinite(value) or value < 0 or value > 86400:
-        raise core_common._tag(ValueError("--timeout must be finite and between 0 and 86400 seconds"), core_common.ERR_VALIDATION)
+    if not math.isfinite(value) or value < 0 or value > core_common.MAX_TIMEOUT:
+        raise core_common._tag(ValueError(f"--timeout must be finite and between 0 and {core_common.MAX_TIMEOUT:g} seconds"), core_common.ERR_VALIDATION)
     return float(value)
 
 
@@ -280,7 +289,7 @@ def _cmd_upload(args: argparse.Namespace) -> Any:
 
 
 def _cmd_downloads(args: argparse.Namespace) -> Any:
-    return _remote(args, "downloads", "downloads", {}, 60.0)
+    return _remote(args, "downloads", "downloads", {}, core_common.DOWNLOADS_TIMEOUT)
 
 
 def _cmd_eval(args: argparse.Namespace) -> Any:
@@ -405,8 +414,14 @@ examples:
 output contract:
   success -> JSON on stdout, exit 0. Failure -> {{"error": {{"class", "message", "hint"}}}} on stderr:
   exit 2 = fix the call (stale ref, bad target, guarded), exit 1 = fix the environment or start the
-  browser, 124 = still waiting (run the same command again), 130 = interrupted.
+  browser, 124 = timed out and the command may already have run: read error.details.receipt (or run
+  state) before repeating it; only a timed-out wait is safe to run again. 130 = interrupted (same caution).
 """
+
+_TIMEOUT_HELP = (f"seconds, 0-{core_common.MAX_TIMEOUT:g}. Defaults: {core_common.DEFAULT_TIMEOUT:g} for actions "
+                 f"(AGENT_BROWSER_TIMEOUT_SECONDS), {core_common.GOTO_TIMEOUT:g} goto/back/reload, {core_common.START_TIMEOUT:g} start "
+                 f"(browser boot only), {core_common.STOP_GRACE:g} stop, {core_common.DOWNLOADS_TIMEOUT:g} downloads, "
+                 f"{core_common.WAIT_DEFAULT:g} wait. Only wait is capped, at {core_common.WAIT_CAP:g}.")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -415,7 +430,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"{core_common.TOOL_NAME} {core_common.TOOL_VERSION}")
     parser.add_argument("--profile", metavar="NAME", default=None, help="browser profile (cookies persist per profile; default: 'default')")
     parser.add_argument("--tab", metavar="TAB", default=None, help="target a specific tab by id (t1, t2) or 1-based index without switching the active tab")
-    parser.add_argument("--timeout", type=float, metavar="SECONDS", default=None, help="per-action timeout (default 15; goto 30; wait 60, max 100)")
+    parser.add_argument("--timeout", type=float, metavar="SECONDS", default=None, help=_TIMEOUT_HELP)
     parser.add_argument("--max-bytes", type=int, metavar="N", default=None, help="snapshot byte budget per response (default 16000)")
     parser.add_argument("--snapshot", action="store_true", default=False, help="return a full snapshot after an action instead of the compact change list")
     sub = parser.add_subparsers(dest="command", metavar="<command>", required=True)
@@ -423,7 +438,7 @@ def _build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--profile", metavar="NAME", default=argparse.SUPPRESS)
     common.add_argument("--tab", metavar="TAB", default=argparse.SUPPRESS)
-    common.add_argument("--timeout", type=float, metavar="SECONDS", default=argparse.SUPPRESS)
+    common.add_argument("--timeout", type=float, metavar="SECONDS", default=argparse.SUPPRESS, help=_TIMEOUT_HELP)
     common.add_argument("--max-bytes", type=int, metavar="N", default=argparse.SUPPRESS)
     common.add_argument("--snapshot", action="store_true", default=argparse.SUPPRESS)
 
@@ -439,10 +454,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--headless", action="store_true", help="no window (tests; a human cannot sign in)")
     p.add_argument("--window-size", metavar="W,H")
     p = add("stop", _cmd_stop, "close the browser (cookies and sign-in stay on disk)")
-    p.add_argument("--all", action="store_true")
+    p.add_argument("--all", action="store_true", help="stop the whole profile: every session and the browser (this profile only; other profiles keep running)")
     p.add_argument("--force", action="store_true", help="kill without asking the daemon")
-    p = add("status", _cmd_status, "is the browser running; tabs; staleness (always exit 0)")
-    p.add_argument("--all", action="store_true")
+    p = add("status", _cmd_status, "is the browser running; tabs; staleness (exit 0 whether or not a browser runs; 2 for an invalid or reserved --profile)")
+    p.add_argument("--all", action="store_true", help="list every profile under the home folder instead of one")
     p = add("goto", _cmd_goto, "open a URL (starts the browser if needed) and print the page as refs")
     p.add_argument("url")
     p.add_argument("--wait", choices=("load", "domcontentloaded"), default="load")
@@ -496,7 +511,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("target", nargs="?")
     p.add_argument("--path", metavar="FILE.png")
     p.add_argument("--full-page", action="store_true")
-    p = add("wait", _cmd_wait, "wait until every given condition holds (max 100 s per call)")
+    p = add("wait", _cmd_wait, f"wait until every given condition holds (default {core_common.WAIT_DEFAULT:g} s, max {core_common.WAIT_CAP:g} s per call)")
     p.add_argument("--url-contains", metavar="TEXT")
     p.add_argument("--text", metavar="TEXT")
     p.add_argument("--ref", metavar="REF")

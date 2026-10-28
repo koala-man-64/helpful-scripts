@@ -50,12 +50,21 @@ def extended(args: argparse.Namespace):
     return cli._remote(args, cmd, cmd, payload)
 
 
+EXPECT_HELP = ("post-action check, repeatable before and after the verb; every check must hold "
+               "(text:S, gone:REF, url:changed, response:METHOD GLOB:2xx)")
+
+
+def _shared_flags(sp):
+    """A verb's own --expect group lands in expect_tail; JsonArgumentParser.parse_args appends it to the group before the verb."""
+    sp.add_argument("--session", default=argparse.SUPPRESS)
+    sp.add_argument("--expect", action="append", dest="expect_tail", metavar="CHECK", default=argparse.SUPPRESS, help=EXPECT_HELP)
+
+
 def configure(parser, sub, add):
     parser.add_argument("--session", default=None)
-    parser.add_argument("--expect", action="append", default=[])
+    parser.add_argument("--expect", action="append", metavar="CHECK", default=[], help=EXPECT_HELP)
     for sp in sub.choices.values():
-        sp.add_argument("--session", default=argparse.SUPPRESS)
-        sp.add_argument("--expect", action="append", default=argparse.SUPPRESS)
+        _shared_flags(sp)
     p = add("commit", commit, "explicit commit operation under caller approval policy")
     p.add_argument("arguments", nargs=argparse.REMAINDER)
     for name in ("state", "journal"):
@@ -91,6 +100,4 @@ def configure(parser, sub, add):
     sub.choices["screenshot"].add_argument("--annotate", action="store_true")
     # New verbs receive shared flags as well.
     for name in ("commit", "state", "journal", "needs-human", "fill-form", "table", "api", "run"):
-        sp = sub.choices[name]
-        sp.add_argument("--session", default=argparse.SUPPRESS)
-        sp.add_argument("--expect", action="append", default=argparse.SUPPRESS)
+        _shared_flags(sub.choices[name])

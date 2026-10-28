@@ -112,6 +112,12 @@ WAIT_DEFAULT = 60.0
 WAIT_CAP = 100.0                       # the Claude Code Bash tool kills a call at 120 s by default
 
 
+DOWNLOADS_TIMEOUT = 60.0
+
+
+MAX_TIMEOUT = 86400.0                  # the largest --timeout the CLI and the daemon accept
+
+
 SETTLE_CAP = 8.0
 
 
@@ -452,6 +458,7 @@ HINTS = {
     "action_timeout": "The element is hidden, disabled, or covered. Run: {tool} snapshot --profile {profile} and pick a visible enabled element, or: {tool} wait --ref <ref> --profile {profile}",
     "action_failed": "Run: {tool} snapshot --profile {profile} and try a different element or verb.",
     "wait_timeout": "Still waiting. Run the same wait command again, or ask the user whether sign-in is finished.",
+    "nav_timeout": "The page did not finish loading in time and the navigation may still complete. Run: {tool} snapshot --profile {profile} before repeating it.",
     "wait_cap": "wait runs at most 100 seconds per call. Use --timeout 100 and run the same wait again if needed.",
     "no_wait_condition": "Give at least one condition: --url-contains, --text, --ref, --selector, --signed-in, or --seconds.",
     "daemon_unresponsive": "Run: {tool} stop --force --profile {profile}",
@@ -469,6 +476,7 @@ HINTS = {
     "eval_disabled": "eval is disabled by config.json on this machine.",
     "browser_closed": "The browser window was closed. Run: {tool} start --profile {profile} (sign-in is kept)",
     "timeout_client": "The browser did not answer in time. Run: {tool} status --profile {profile}",
+    "timeout_client_action": "The daemon did not answer in time and the command may have run. Run: {tool} state --profile {profile} (this session's receipts) before repeating it.",
     "last_tab": "This is the last tab. Use: {tool} stop --profile {profile} to close the browser.",
     "tab_index": "Run: {tool} tabs --profile {profile} and use one of the listed tab ids (t1, t2) or indexes (1, 2).",
     "upload_target": "Give a file input or the button that opens the file chooser.",

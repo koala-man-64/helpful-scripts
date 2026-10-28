@@ -154,7 +154,7 @@ def test_nonobject_envelope_is_rejected_without_crashing(daemon_server, raw):
     assert core_session._request(daemon_server.session, "ping", {}, timeout=2)["pong"]
 
 
-@pytest.mark.parametrize("timeout", [-1, "bad", float("nan"), float("inf"), 86401, True])
+@pytest.mark.parametrize("timeout", [-1, "bad", float("nan"), float("inf"), core_common.MAX_TIMEOUT + 1, True])
 def test_invalid_wire_timeout_is_rejected_without_dispatch(daemon_server, timeout):
     message = {**daemon_server.session, "protocol_version": core_common.PROTOCOL_VERSION, "cmd": "ping", "timeout": timeout}
     reply = json.loads(_raw_send(daemon_server.info["port"], (json.dumps(message) + "\n").encode()))

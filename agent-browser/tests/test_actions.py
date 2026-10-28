@@ -16,7 +16,7 @@ import pytest
 
 import agent_browser as ab
 from agent_browser_core import common as core_common, daemon as core_daemon
-from conftest import FakeDialog, FakeDownload, FakeElement, FakeLocator, FakePage, FakePlaywrightError
+from conftest import FakeDialog, FakeDownload, FakeElement, FakeLocator, FakePage, FakePlaywrightError, FakePlaywrightTimeoutError
 
 # ---------------------------------------------------------------------------
 # goto / snapshot envelope shape
@@ -824,3 +824,22 @@ def test_off_allowlist_blocks_actions_before_resolving_a_target(make_daemon) -> 
         daemon.dispatch("click", {"target": "e1"}, 5.0)
     assert exc.value.error_class == core_common.ERR_GUARDED
     assert exc.value.hint == core_common._hint("off_allowlist", daemon.profile)
+
+
+# ---------------------------------------------------------------------------
+# Navigation timeouts (remediation PR 5)
+
+@pytest.mark.parametrize("verb", ["goto", "back", "reload"])
+def test_navigation_timeout_does_not_use_the_wait_hint(make_daemon, verb: str) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text="- generic [ref=e1]:\n")
+    def time_out(*args, **kwargs):
+        raise FakePlaywrightTimeoutError("Timeout 1000ms exceeded.")
+    if verb == "goto":
+        page.goto_error = FakePlaywrightTimeoutError("Timeout 1000ms exceeded.")
+    else:
+        setattr(page, "go_back" if verb == "back" else "reload", time_out)
+    args = {"url": "https://example.com/next"} if verb == "goto" else {}
+    with pytest.raises(RuntimeError) as exc:
+        daemon.dispatch(verb, args, 1.0)
+    assert exc.value.error_class == core_common.ERR_TIMEOUT
+    assert exc.value.hint == core_common._hint("nav_timeout", daemon.profile) != core_common._hint("wait_timeout", daemon.profile)

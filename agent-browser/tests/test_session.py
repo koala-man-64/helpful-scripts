@@ -664,3 +664,60 @@ def test_spawn_daemon_wmi_launcher_parses_the_pid(monkeypatch: pytest.MonkeyPatc
     assert pid == 9876 and launcher == "wmi"
     assert seen_cmd["cmd"][0] == "powershell"
     assert "Invoke-CimMethod" in seen_cmd["cmd"][-1]
+
+
+# ---------------------------------------------------------------------------
+# Client socket timeout wording (remediation PR 5)
+
+
+class _SilentSocket:
+    """A connected socket whose daemon never answers."""
+
+    def __enter__(self) -> "_SilentSocket":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        return None
+
+    def settimeout(self, value: float) -> None:
+        self.timeout = value
+
+    def sendall(self, data: bytes) -> None:
+        self.sent = data
+
+    def makefile(self, mode: str) -> Any:
+        sock = self
+
+        class Reader:
+            def __enter__(self) -> "Reader":
+                return self
+
+            def __exit__(self, *exc: Any) -> None:
+                return None
+
+            def readline(self) -> bytes:
+                raise core_session.socket.timeout(f"timed out after {sock.timeout}")
+
+        return Reader()
+
+
+def test_client_socket_timeout_hint_points_at_receipts(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setattr(core_session.socket, "create_connection", lambda address, timeout=None: _SilentSocket())
+    session = {"port": 1, "token": "t", "profile": "work"}
+    with pytest.raises(RuntimeError) as exc:
+        core_session._request(session, "click", {"target": "e1"}, timeout=1.0)
+    assert exc.value.error_class == core_common.ERR_TIMEOUT
+    assert "may have run" in str(exc.value)
+    assert exc.value.hint == core_common._hint("timeout_client_action", "work") and "state --profile work" in exc.value.hint
+
+    # A ping is a health probe, not a command: nothing ran, so it keeps the plain wording.
+    with pytest.raises(RuntimeError) as exc:
+        core_session._request(session, "ping", {}, timeout=0.0, grace=0.0, queue_wait=1.0)
+    assert exc.value.error_class == core_common.ERR_TIMEOUT
+    assert "may have run" not in str(exc.value) and exc.value.hint == core_common._hint("timeout_client", "work")
+
+    from agent_browser_core import cli as core_cli
+    monkeypatch.setattr(core_cli, "_session_for", lambda args, verb, autostart=False: (core_common._paths("work"), session))
+    assert core_cli.main(["click", "e1", "--profile", "work"]) == core_common.EXIT_TIMEOUT
+    error = json.loads(capsys.readouterr().err)["error"]
+    assert error["class"] == core_common.ERR_TIMEOUT and error["hint"] == core_common._hint("timeout_client_action", "work")

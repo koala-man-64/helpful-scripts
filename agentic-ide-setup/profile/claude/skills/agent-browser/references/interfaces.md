@@ -51,7 +51,8 @@ described from the masked page snapshot, without their values.
 Expectations accept exact `text:...` presence, an initially visible ref `gone:e12`,
 `url:changed`, and `response:METHOD URL_GLOB:STATUS` with a three-digit status or
 `2xx`-style mask. Responses must occur after observation starts on the same page.
-Repeat checks for AND semantics. They share the action's deadline and never replay it.
+Repeat checks for AND semantics; checks given before and after the verb (and around
+`commit`) all apply, in order. They share the action's deadline and never replay it.
 Same-page network matches are evidence, not proof of a causal business operation.
 
 API reads use GET/HEAD; other supported methods require `commit api`. The current

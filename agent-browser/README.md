@@ -48,6 +48,10 @@ is a separate step; editing them does not update an already-installed caller pol
 
 Global flags, before or after the verb: `--profile NAME`, `--tab TAB` (target a specific tab by stable id `t1`, `t2` or 1-based index without switching the active tab), `--timeout SECONDS`, `--snapshot` (full snapshot after an
 action), `--max-bytes N`, `--session ID`, repeatable `--expect CHECK`, and `--version`.
+`--expect` may appear before and after the verb (and around `commit`); every check from every place
+applies, in command-line order. `--timeout` takes 0-86400 seconds. Defaults: 15 for actions
+(`AGENT_BROWSER_TIMEOUT_SECONDS`), 30 for goto/back/reload, 45 for start (browser boot only; the
+`start --url` navigation keeps 30), 10 for stop, 60 for downloads and 60 for wait. Only wait is capped, at 100.
 
 The detailed [agent interface reference](../agentic-ide-setup/profile/claude/skills/agent-browser/references/interfaces.md)
 covers exact role/name or label targets, UTF-8 text/JS file inputs, form JSON and MCP.
@@ -80,8 +84,8 @@ qualification requires a separately authorized test record.
 | Verb | What it does |
 |---|---|
 | `start [--url U] [--browser msedge\|chrome] [--exe P] [--headless] [--window-size W,H]` | Open the window for a profile. Idempotent: never a second window. |
-| `stop [--all] [--force]` | Release only this session; all/force explicitly affect the shared profile. Cookies stay. |
-| `status [--all]` | Running, pid, tabs, uptime, `stale_code`. Always exit 0. |
+| `stop [--all] [--force]` | Release only this session; all/force explicitly affect the shared profile. This profile only: other profiles keep running. Cookies stay. |
+| `status [--all]` | Running, pid, tabs, uptime, `stale_code`; `--all` lists every profile. Exit 0 whether or not a browser runs; 2 for an invalid or reserved (`_doctor`) `--profile`; 1 when the profile path is too long for Chromium. |
 | `goto URL [--wait load\|domcontentloaded] [--new-tab] [--discard-changes]` | Navigate (starts the browser if needed) and return the page. |
 | `snapshot [--full] [--find TEXT] [--ref REF]` | The page as refs. `--find` keeps matching lines plus parents; it never matches a masked value or a redacted link. |
 | `click REF [--double] [--right] [--accept-dialog] [--dialog-text T] [--discard-changes]` | Click. Popups become the current tab. |
@@ -93,7 +97,7 @@ qualification requires a separately authorized test record.
 | `text [REF] [--max-chars N]` | Readable text of the page (every frame) or of one element. |
 | `value REF` | Current value of a field (masked on secret fields). |
 | `screenshot [REF] [--path F.png] [--full-page]` | PNG under the profile's `shots/` (or a path under the cwd). |
-| `wait [--url-contains S] [--text S] [--ref R] [--selector S] [--signed-in HOST] [--seconds N] [--timeout S]` | Conditions AND-ed; cooperative polling; inspect the receipt after timeout before deciding what to do next. |
+| `wait [--url-contains S] [--text S] [--ref R] [--selector S] [--signed-in HOST] [--seconds N] [--timeout S]` | Conditions AND-ed; cooperative polling; default 60 s, at most 100 s per call; inspect the receipt after timeout before deciding what to do next. |
 | `back` / `reload` / `tabs` / `tab TAB [--close]` | Navigation and tabs (`TAB` is a stable id `t1`, `t2` or 1-based index). Pass `--tab TAB` on any command to drive tabs in parallel without switching focus. Closing the last tab is refused. |
 | `upload REF FILE...` / `downloads` | Attach local files; save and list files the page downloaded. |
 | `eval JS [--ref REF] [--frame NAME]` | Run JavaScript. Off when `config.json` says `"eval": false`. Refuses a credential field as `--ref`; the script itself, like page and `--frame` eval, can still reach any field. |
@@ -177,8 +181,10 @@ with start gives its health response the requested start deadline.
   `edge_policy`, `browser_launch`, `profile_in_use`, `not_running`, `browser_closed`, `daemon`, `daemon_unresponsive`,
   `io`, `output_storage`, `journal_full`,
   `busy` (another session's command held the browser past this request's queue deadline; it was not run, repeat it).
-- Exit `124` = `timeout`: inspect the receipt before another action; the action may already have run.
-  Exit `130` = interrupted.
+- Exit `124` = `timeout`: the command may already have run. Inspect its receipt (`details.receipt`, or `state`)
+  before repeating it; only a timed-out wait is safe to run again. When the client stops waiting for the daemon,
+  the message says the command may have run and the hint names `state`; a navigation timeout's hint asks for a
+  snapshot first, because the page may still finish loading. Exit `130` = interrupted (same caution).
 - Every `hint` is a literal next command rendered with the profile in use (`default` when the given name is not
   a valid profile name).
 
