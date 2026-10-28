@@ -241,7 +241,8 @@ def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, tim
                                    hint=core_common._hint("daemon_unresponsive", paths.profile))
         return {"profile": paths.profile, "status": "already_running", "pid": session.get("pid"), "port": session.get("port"),
                 "browser": session.get("browser"), "browser_version": session.get("browser_version"), "headless": session.get("headless"),
-                "current_tab": pong.get("current_tab"), "url": pong.get("url"), "launcher": session.get("launcher"), "log": session.get("log")}
+                "current_tab": pong.get("current_tab"), "url": pong.get("url"), "launcher": session.get("launcher"), "log": session.get("log"),
+                "untrusted": core_common.UNTRUSTED_KEYS}
     if state == "unresponsive":
         raise core_common._tag(RuntimeError("A daemon holds the lock but does not answer."), core_common.ERR_DAEMON_UNRESPONSIVE, hint=core_common._hint("daemon_unresponsive", paths.profile))
     if state == "starting":

@@ -121,14 +121,16 @@ def frame_prefixes(lines: Sequence[SnapLine]) -> dict[str, str]:
 
 def _render(line: SnapLine, keep_ref: bool, frame_names: dict[str, str] | None, prefixes: dict[str, str],
             name: str | None, value: str | None, cap: int = core_common.LINE_CHAR_CAP) -> str:
+    # Names, values and frame labels are page text: rendered single-line and without invisible characters, so none
+    # can start a second line or carry text a person reading the snapshot would not see.
     attrs = [a for a in line.attrs if a.split("=")[0] in core_common.KEEP_ATTRS or a.startswith("level=")]
     parts = ["- " + line.role]
     if line.role == "iframe" and line.ref:
         label = (frame_names or {}).get(line.ref)
         if label:
-            parts.append(f'"{core_common.sanitize_text(label, 80)}"')
+            parts.append('"' + core_common.sanitize_text(label, 80, single_line=True).replace('"', '\\"') + '"')
     elif name is not None:
-        parts.append('"' + core_common.sanitize_text(name, cap).replace('"', '\\"') + '"')
+        parts.append('"' + core_common.sanitize_text(name, cap, single_line=True).replace('"', '\\"') + '"')
     parts.extend(f"[{a}]" for a in attrs)
     if keep_ref and line.ref:
         parts.append(f"[ref={line.ref}]")
@@ -136,7 +138,7 @@ def _render(line: SnapLine, keep_ref: bool, frame_names: dict[str, str] | None, 
         parts.append(f"(children {prefixes[line.ref]}e...)")
     text = " ".join(parts)
     if value is not None and line.role != "iframe":
-        text += ": " + core_common.sanitize_text(value, cap)
+        text += ": " + core_common.sanitize_text(value, cap, single_line=True)
     elif line.has_children:
         text += ":"
     return text.translate(core_common.LINE_BREAKS)
