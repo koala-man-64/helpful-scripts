@@ -132,6 +132,51 @@ class FakeDialog:
         self.dismissed = True
 
 
+class SemanticMatch:
+    """One element a semantic target (role/name/label) matches, for a patched FakeFrame.get_by_role."""
+
+    def __init__(self, ref: str, name: str, visible: bool = True) -> None:
+        self.ref = ref
+        self.name = name
+        self.visible = visible
+
+    def is_visible(self) -> bool:
+        return self.visible
+
+    def aria_snapshot(self, mode: str = "ai") -> str:
+        assert mode == "ai"
+        return f'- button "{self.name}" [ref={self.ref}]'
+
+
+class SemanticMatches:
+    def __init__(self, matches: list[SemanticMatch]) -> None:
+        self.matches = matches
+
+    def count(self) -> int:
+        return len(self.matches)
+
+    def nth(self, index: int) -> SemanticMatch:
+        return self.matches[index]
+
+
+def beforeunload_on_close(daemon: Any, page: "FakePage", *, close_later: bool = False) -> list[FakeDialog]:
+    """Make page.close(run_before_unload=True) raise a beforeunload: dismissed, the tab stays open; accepted, it closes,
+    with close_later only once stop waits for it, as Playwright's close() returns before the tab is gone."""
+    raised: list[FakeDialog] = []
+
+    def close(run_before_unload: bool = False) -> None:
+        raised.append(FakeDialog("beforeunload"))
+        raised[-1].page = page  # type: ignore[attr-defined]
+        daemon.ctx.emit("dialog", raised[-1])
+        if raised[-1].accepted_with is None:
+            return
+        if not close_later:
+            return FakePage.close(page)
+        page.wait_for_timeout = lambda ms: page.closed or FakePage.close(page)  # type: ignore[method-assign]
+    page.close = close  # type: ignore[method-assign]
+    return raised
+
+
 class FakeDownload:
     """Stand-in for a Playwright `download` event object."""
 

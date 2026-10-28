@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from agent_browser_core import common, evidence
-from conftest import FakeDialog, FakeFrame, FakePage, FakePlaywrightError
+from conftest import FakeDialog, FakeFrame, FakePage, FakePlaywrightError, beforeunload_on_close
 
 
 def test_session_identity_precedence(monkeypatch):
@@ -42,29 +42,11 @@ def test_stop_releases_only_its_session(make_daemon):
     assert daemon.page() is second
 
 
-def _beforeunload_on_close(daemon, page, *, close_later=False):
-    """Make page.close(run_before_unload=True) raise a beforeunload: dismissed, the tab stays open; accepted, it closes,
-    with close_later only once stop waits for it, as Playwright's close() returns before the tab is gone."""
-    raised = []
-
-    def close(run_before_unload=False):
-        raised.append(FakeDialog("beforeunload"))
-        raised[-1].page = page
-        daemon.ctx.emit("dialog", raised[-1])
-        if raised[-1].accepted_with is None:
-            return
-        if not close_later:
-            return FakePage.close(page)
-        page.wait_for_timeout = lambda ms: page.closed or FakePage.close(page)
-    page.close = close
-    return raised
-
-
 def test_stop_keeps_tabs_with_unsaved_edits_and_the_session_until_discarded(make_daemon):
     daemon, ctx, original = make_daemon()
     daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
     dirty = daemon.page()
-    raised = _beforeunload_on_close(daemon, dirty)
+    raised = beforeunload_on_close(daemon, dirty)
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("stop", {"_session_id": "a"}, 5)
     assert exc.value.error_class == common.ERR_UNSAVED and exc.value.hint == common._hint("unsaved_changes")
@@ -84,7 +66,7 @@ def test_stop_with_discard_changes_waits_for_the_tab_to_close(make_daemon):
     daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
     daemon.dispatch("goto", {"url": "http://x/b", "_session_id": "b"}, 5)
     dirty = daemon.sessions["a"]["current"]
-    raised = _beforeunload_on_close(daemon, dirty, close_later=True)
+    raised = beforeunload_on_close(daemon, dirty, close_later=True)
     released = daemon.dispatch("stop", {"_session_id": "a", "discard_changes": True}, 5)
     assert released["stopped"] is True and raised[0].accepted_with == ""
     assert dirty.closed and daemon.sessions["a"]["pages"] == [] and daemon.stop_reason is None
@@ -97,7 +79,7 @@ def test_stop_answers_every_own_tab_not_just_the_current_one(make_daemon):
     daemon.dispatch("goto", {"url": "http://x/c", "new_tab": True, "_session_id": "a"}, 5)
     clean = daemon.page()
     assert daemon.sessions["a"]["current"] is clean
-    _beforeunload_on_close(daemon, dirty)
+    beforeunload_on_close(daemon, dirty)
     with pytest.raises(ValueError) as exc:
         daemon.dispatch("stop", {"_session_id": "a"}, 5)
     # The clean tab closed before the refusal, so the receipt says the command did something.
@@ -174,7 +156,7 @@ def test_stop_does_not_fail_a_clean_tab_that_is_slow_to_close(make_daemon):
 
 def test_stop_all_still_stops_the_profile_without_asking(make_daemon):
     daemon, ctx, page = make_daemon()
-    raised = _beforeunload_on_close(daemon, page)
+    raised = beforeunload_on_close(daemon, page)
     assert daemon.dispatch("stop", {"all": True}, 5)["stopping"] is True
     assert daemon.stop_reason == "stop" and raised == []
 

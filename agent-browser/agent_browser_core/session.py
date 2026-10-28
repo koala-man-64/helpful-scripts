@@ -204,7 +204,7 @@ def _raise_remote(error: dict[str, Any], profile: str) -> None:
     hint = error.get("hint")
     details = error.get("details")
     exc: Exception = ValueError(message) if cls in core_common.EXIT_2_CLASSES else RuntimeError(message)
-    raise core_common._tag(exc, cls, hint=hint, details=details)
+    raise core_common._tag(exc, cls, hint=hint, details=details, untrusted=error.get("untrusted"))
 
 
 def _require_running(paths: core_common.ProfilePaths, verb: str) -> dict[str, Any]:

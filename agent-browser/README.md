@@ -45,9 +45,10 @@ Tool arguments become the CLI's daemon payload: every page tool takes `tab` (`t2
 `browser_action` takes the `tab` operation's `index` the same way, `browser_wait` takes `ref`
 and `selector`, `browser_snapshot` `ref`, `browser_eval` `ref` and `frame`, `browser_read`
 `max_chars`, and `browser_goto` `wait` and `new_tab`. `timeout` follows the CLI rule (0-86400
-seconds; `browser_wait` at most 100). Only `browser_commit` (`accept_dialog`, `dialog_text`, `discard_changes`) and
-`browser_stop` (`discard_changes`) accept a dialog or discard unsaved edits. MCP rules match tool names only, so the
-template asks before every `browser_commit` but not before `browser_stop`. Snapshots default to a 4,500-byte budget so a page read
+seconds; `browser_wait` at most 100). Only `browser_commit` (`accept_dialog`, `dialog_text`, `discard_changes`)
+accepts a dialog or discards unsaved edits; a stop that discards them is its operation `stop`, which takes only
+`discard_changes`. MCP rules match tool names only, so the template asks before every `browser_commit` but not
+before `browser_stop`, which keeps tabs with unsaved edits (`unsaved_changes`). Snapshots default to a 4,500-byte budget so a page read
 fits one 7,000-byte tool reply; narrow with `find` or `ref` instead of paging.
 Use one explicit MCP `session_id` throughout the task. Installing repository templates
 is a separate step; editing them does not update an already-installed caller policy.
@@ -229,7 +230,10 @@ with start gives its health response the requested start deadline.
 - **Success**: JSON on stdout, exit `0`. Every reply that carries page-derived keys (`state`, `ping` and `journal`
   included) lists them in `untrusted`; hints never contain page text.
   Metadata keys come before `snapshot`, so a truncated read still carries `url`, `title`, `truncated`, `note`.
-- **Failure**: `{"error": {"class", "http_status": null, "message", "hint", "details"?, "note"?}}` on stderr, stdout empty.
+- **Failure**: `{"error": {"class", "http_status": null, "message", "hint", "details"?, "untrusted"?, "note"?}}` on stderr, stdout empty.
+  `error.untrusted` names `message` when it is Playwright's text (an `eval` error can carry the page's own exception
+  message) and `details` when it holds page text (`ambiguous` candidates, `select` options, dialogs, a call log);
+  receipt pointers and byte counts alone are not marked. The overflow stub keeps it for the stored details.
   Never a traceback: an unexpected internal error is class `daemon` with `details.exception` naming its type,
   and an unclassified local file error is `io`; neither echoes the exception text.
 - A reply that cannot be stored (oversized while the profile quota is full or the disk refuses it) fails with
@@ -383,7 +387,7 @@ still succeeds. Between commands a `beforeunload` raised by a human navigation i
   such as the `.claude\worktrees\` of a Claude Code worktree, is fine. These are best-effort guards, not a sandbox:
   a hard link, or a file swapped after the check, is not detected.
 - Page-derived strings are sanitized (control, bidi, zero-width, Unicode tag and other invisible formatting
-  characters stripped, lines capped) and only ever appear under keys named in `untrusted`; hints are static
+  characters stripped, lines capped) and only ever appear under keys named in `untrusted` (or `error.untrusted`); hints are static
   templates. `text` keeps line breaks (U+2028 and U+2029 become newlines). Snapshot names, values and frame labels
   render on one line. URLs are redacted in output and logs: the fragment and `user:pass@` are dropped; credential
   query and `;` path-parameter values are masked (`code`, `state`, `sig`, `SAMLResponse`, and names ending in
@@ -484,7 +488,7 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 | `action_failed` "Could not read the page text before the action…" | A `text:` check needs each frame's text before the action, and a frame was navigating or detached; nothing was done. Take a fresh `snapshot` and repeat, or expect `response:`, `gone:` or `url:changed` instead. |
 | `guarded` on `fill` / `type` / `press` | The field, or the focused field the keys would land in, looks like a password or code field. The human types it in the window; then `wait --signed-in <host>`. |
 | `action_failed` "Could not confirm the field…" | The credential check could not inspect the field (page navigating, frame detached, focus inside a custom element's closed shadow root). Take a fresh `snapshot` and retry; give `press` a ref if a press without one keeps failing. |
-| `unsaved_changes` | The page has edits and they were kept. Click its Save/Update button, or re-run with `--discard-changes` once the user agreed to lose them. A refused `stop` lists the kept tabs in `details.tabs` and closed the rest. |
+| `unsaved_changes` | The page has edits and they were kept. Click its Save/Update button, or re-run with `--discard-changes` (MCP: `browser_commit` with `discard_changes`, operation `stop` for a stop) once the user agreed to lose them. A refused `stop` lists the kept tabs in `details.tabs` and closed the rest. |
 | `config` from `start` naming a policy key (`permission`, `profiles`, `evidence_max_bytes`, ...) | `config.json` has a malformed profile policy. `start` checks it before launching a browser; fix the named key and start again. |
 | `Profile path is too long` (class `config`) | Set `AGENT_BROWSER_HOME` to a short path such as `C:\ab`. |
 | `browser_launch` with a log tail | Read `daemon.log`; `agent-browser doctor` decodes Edge and Chrome policies (`DeveloperToolsAvailability=2`, `ForceEphemeralProfiles`). Try `--browser chrome`. |

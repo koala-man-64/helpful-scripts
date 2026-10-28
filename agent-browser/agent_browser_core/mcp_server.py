@@ -31,12 +31,14 @@ REPLY_BUDGET = 7000                    # one tool reply: its text and structured
 MAX_BYTES = 4500                       # default snapshot budget; leaves room in REPLY_BUDGET for url, title, notes and the receipt
 
 
-DIALOG_KEYS = ("accept_dialog", "dialog_text", "discard_changes")  # only browser_commit and browser_stop take them
+DIALOG_KEYS = ("accept_dialog", "dialog_text", "discard_changes")  # only browser_commit takes them
 NO_DIALOG_OPERATIONS = frozenset({"api", "run", "journal", "state"})  # their CLI verbs have no dialog flags
 
 
 def _payload(command: str, arguments: dict[str, Any], profile: str | None) -> dict[str, Any]:
     """Tool arguments as the CLI's payload: the same keys and values, validated where the CLI validates them."""
+    if command == "stop" and set(arguments) - {"discard_changes"}:
+        raise common._tag(ValueError("stop releases the whole session and takes only discard_changes."), common.ERR_USAGE)
     payload = {k: v for k, v in arguments.items() if not (k in ("tab", "index") and v is None)}
     for key in ("tab", "index"):
         if key in payload:
@@ -143,7 +145,8 @@ def browser_eval(js: str, session_id: str, profile: str | None = None, ref: str 
     return _call("eval", {"js": js, "target": ref, "frame": frame, "tab": tab}, session_id, profile)
 
 
-def browser_commit(operation: Literal["click", "fill", "type", "press", "select", "check", "uncheck", "upload", "fill-form", "api", "run", "journal", "state"],
+def browser_commit(operation: Literal["click", "fill", "type", "press", "select", "check", "uncheck", "upload", "fill-form", "api", "run", "journal", "state",
+                                      "stop"],
                    session_id: str, profile: str | None = None, target: str | Target | None = None,
                    text: str | None = None, key: str | None = None, values: list[str] | None = None,
                    files: list[str] | None = None, fields: list[dict[str, Any]] | None = None,
@@ -157,14 +160,21 @@ def browser_commit(operation: Literal["click", "fill", "type", "press", "select"
     An api body_file is sent as application/json unless content_type names another type.
     journal with clear keeps unknown write receipts and open handoffs; include_unknown removes them too.
     accept_dialog (with dialog_text for a prompt) and discard_changes answer a confirm or an unsaved-edits
-    prompt for page actions; pass them only with the user's authorization."""
-    return _call(operation, {"target": target, "text": text, "key": key, "values": values or [], "files": files or [],
-                             "fields": fields or [], "url": url, "method": method, "body_file": body_file, "servicenow": servicenow,
-                             "recipe": recipe, "number": number, "clear": clear, "handoff_id": handoff_id,
-                             "resolve": resolve, "expect": expect or [], "content_type": content_type, "tab": tab,
-                             "include_unknown": include_unknown, "accept_dialog": accept_dialog, "dialog_text": dialog_text,
-                             "discard_changes": discard_changes},
-                 session_id, profile, committing=True)
+    prompt for page actions; pass them only with the user's authorization.
+    stop with discard_changes releases this session and closes its tabs even when their unsaved edits are lost;
+    browser_stop keeps such tabs open. stop takes no other argument."""
+    arguments = {"target": target, "text": text, "key": key, "values": values or [], "files": files or [],
+                 "fields": fields or [], "url": url, "method": method, "body_file": body_file, "servicenow": servicenow,
+                 "recipe": recipe, "number": number, "clear": clear, "handoff_id": handoff_id,
+                 "resolve": resolve, "expect": expect or [], "content_type": content_type, "tab": tab,
+                 "include_unknown": include_unknown, "accept_dialog": accept_dialog, "dialog_text": dialog_text,
+                 "discard_changes": discard_changes}
+    if operation == "stop":
+        # MCP permission rules match tool names only, so the stop that can lose edits is a browser_commit operation.
+        # It is the daemon's plain per-session stop; any other argument set here is refused rather than ignored.
+        given = {k: v for k, v in arguments.items() if not (v is None or v is False or v == [] or (k, v) == ("method", "GET"))}
+        return _call("stop", {"discard_changes": discard_changes, **given}, session_id, profile)
+    return _call(operation, arguments, session_id, profile, committing=True)
 
 
 def browser_recipe(number: str, text: str, session_id: str, profile: str | None = None, tab: int | str | None = None) -> dict[str, Any]:
@@ -190,10 +200,10 @@ def browser_start(session_id: str, profile: str | None = None) -> dict[str, Any]
     return {**result, "contract_version": common.CONTRACT_VERSION, "session_id": session_id}
 
 
-def browser_stop(session_id: str, profile: str | None = None, discard_changes: bool = False) -> dict[str, Any]:
-    """Release this session. Tabs with unsaved edits stay open and the session is kept (unsaved_changes) unless
-    discard_changes, which loses those edits: pass it only with the user's authorization."""
-    return _call("stop", {"discard_changes": discard_changes}, session_id, profile)
+def browser_stop(session_id: str, profile: str | None = None) -> dict[str, Any]:
+    """Release this session. Tabs with unsaved edits stay open and the session is kept (unsaved_changes);
+    only with the user's authorization, browser_commit operation stop with discard_changes loses those edits."""
+    return _call("stop", {"discard_changes": False}, session_id, profile)
 
 
 def make_server():

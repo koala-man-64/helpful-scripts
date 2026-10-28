@@ -718,6 +718,7 @@ def test_wait_timeout_raises_timeout_class(make_daemon) -> None:
     with pytest.raises(RuntimeError) as exc:
         daemon.dispatch("wait", {"text": "never-there"}, 0.2)
     assert exc.value.error_class == core_common.ERR_TIMEOUT
+    assert "(url " in str(exc.value) and exc.value.untrusted == ["message"]  # the message quotes the page's URL
 
 
 def test_wait_with_no_condition_is_usage_error(make_daemon) -> None:
