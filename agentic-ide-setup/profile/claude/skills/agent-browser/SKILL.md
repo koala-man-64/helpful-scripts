@@ -33,7 +33,7 @@ Open additional tabs with `goto URL --new-tab` and drive tabs in parallel by pas
 `--tab t2` (stable tab ID from `tabs`/`tab_id`) or `--tab 2` on any command without
 switching the active tab.
 Popups follow their opener. `agent-browser stop` releases only the current session.
-An explicit profile stop closes every session; preserve others' work before using it.
+An explicit profile stop closes every session of that profile (other profiles are untouched); preserve others' work first.
 Caller permission templates ask before `stop --all`, `stop --force`, commit and eval.
 
 Unconfigured profiles keep full access and eval enabled. Configured `read`, `act`,
@@ -107,7 +107,7 @@ separately identifiable. Read [interfaces](references/interfaces.md) for example
 | `unsaved_changes` | Preserve edits; do not discard without authorization. |
 | `ambiguous_profile` | Select the intended profile explicitly. |
 | `not_running` | Open the authorized URL to start a session. |
-| `timeout` | Inspect current state; repeat an authorized wait when appropriate. |
+| `timeout` | The command may have run: inspect its receipt or `state` first; only a wait is safe to repeat. |
 | `busy` | Another session held the browser; the command was not run. Repeat it. |
 | `protocol_mismatch` | Explicitly restart the shared profile; do not replay a write. |
 | `journal_full` | Inspect and explicitly clear evidence when authorized. |

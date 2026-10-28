@@ -158,7 +158,10 @@ def _request(session: dict[str, Any], cmd: str, args: dict[str, Any], timeout: f
             with sock.makefile("rb") as reader:
                 line = reader.readline()
     except socket.timeout as exc:
-        raise core_common._tag(RuntimeError(f"The daemon did not answer within {patience:g}s."), core_common.ERR_TIMEOUT, hint=core_common._hint("timeout_client", session.get("profile", core_common.DEFAULT_PROFILE))) from exc
+        profile = session.get("profile", core_common.DEFAULT_PROFILE)
+        if cmd == "ping":  # a health probe does no browser work, so nothing can have run
+            raise core_common._tag(RuntimeError(f"The daemon did not answer within {patience:g}s."), core_common.ERR_TIMEOUT, hint=core_common._hint("timeout_client", profile)) from exc
+        raise core_common._tag(RuntimeError(f"The daemon did not answer within {patience:g}s; the command may have run."), core_common.ERR_TIMEOUT, hint=core_common._hint("timeout_client_action", profile)) from exc
     except OSError as exc:
         raise core_common._tag(RuntimeError(f"Cannot reach the daemon on port {session.get('port')}: {exc}"), core_common.ERR_NOT_RUNNING, hint=core_common._hint("not_running", session.get("profile", core_common.DEFAULT_PROFILE))) from exc
     if not line:

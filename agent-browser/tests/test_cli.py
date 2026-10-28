@@ -3,8 +3,8 @@
 No test here starts a daemon or opens a socket. Verbs that would normally need a running
 browser (wait, goto) are exercised only up to the point where they fail argument validation
 before ever looking for a session; status/stop are exercised for real against an empty
-AGENT_BROWSER_HOME (both are designed to always succeed, running or not); doctor runs for
-real with its registry/PATH/subprocess touchpoints replaced by fakes.
+AGENT_BROWSER_HOME (both exit 0 whether or not a browser runs; an invalid --profile is exit 2);
+doctor runs for real with its registry/PATH/subprocess touchpoints replaced by fakes.
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ def test_goto_guarded_scheme_fires_before_any_session_lookup(capsys: pytest.Capt
     assert not (core_common._home() / "profiles").exists()  # no profile dir touched: nothing tried to reach a daemon
 
 # ---------------------------------------------------------------------------
-# status / stop against an empty home: always exit 0
+# status / stop against an empty home: exit 0 when no browser runs
 
 def test_status_and_stop_on_an_empty_home_exit_zero(capsys: pytest.CaptureFixture[str]) -> None:
     assert core_cli.main(["status"]) == 0
@@ -453,3 +453,130 @@ def test_msys_notes_are_capped_and_survive_overflow(monkeypatch: pytest.MonkeyPa
     error = json.loads(core_cli._json_line({"error": {"class": "timeout", "message": "x" * 30000, "note": "kept"}}))
     assert error["error"]["note"] == "kept"
 
+
+
+# ---------------------------------------------------------------------------
+# Parser and help (remediation PR 5)
+
+def _subparsers(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
+    return next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction)).choices
+
+
+def _option(parser: argparse.ArgumentParser, flag: str) -> argparse.Action:
+    return next(a for a in parser._actions if flag in a.option_strings)
+
+
+def _fake_remote_transport(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict[str, Any], float]]:
+    sent: list[tuple[str, dict[str, Any], float]] = []
+    monkeypatch.setattr(core_cli, "_session_for", lambda args, verb, autostart=False: (core_common._paths("default"), {"port": 1, "token": "t", "profile": "default"}))
+    monkeypatch.setattr(core_session, "_request", lambda session, cmd, payload, timeout: sent.append((cmd, dict(payload), timeout)) or {"ok": True})
+    return sent
+
+
+@pytest.mark.parametrize("argv, expected", [
+    (["--expect", "A", "click", "e1", "--expect", "B"], ["A", "B"]),
+    (["--expect", "A", "click", "e1"], ["A"]),
+    (["click", "e1", "--expect", "B"], ["B"]),
+    (["--expect", "A", "--expect", "B", "click", "e1", "--expect", "C", "--expect", "D"], ["A", "B", "C", "D"]),
+    (["click", "e1"], []),
+])
+def test_expect_groups_before_and_after_the_verb_are_merged(argv: list[str], expected: list[str]) -> None:
+    parsed = core_cli._build_parser().parse_args(argv)
+    assert parsed.expect == expected
+    assert not hasattr(parsed, "expect_tail")
+
+
+def test_expect_reaches_the_daemon_payload_for_a_plain_verb(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    sent = _fake_remote_transport(monkeypatch)
+    assert core_cli.main(["--expect", "text:A", "click", "e1", "--expect", "gone:e1"]) == 0
+    assert sent[-1][0] == "click" and sent[-1][1]["expect"] == ["text:A", "gone:e1"]
+    assert core_cli.main(["--expect", "text:A", "api", "https://example.com/x", "--expect", "response:GET **:2xx"]) == 0
+    assert sent[-1][0] == "api" and sent[-1][1]["expect"] == ["text:A", "response:GET **:2xx"]
+    capsys.readouterr()
+
+
+def test_commit_merges_expect_groups_from_commit_level_and_inner_verb(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    sent = _fake_remote_transport(monkeypatch)
+    assert core_cli.main(["--expect", "A", "commit", "--expect", "B", "click", "e1", "--expect", "C"]) == 0
+    cmd, payload, _ = sent[-1]
+    assert cmd == "commit" and payload["operation"] == "click" and payload["expect"] == ["A", "B", "C"]
+    assert core_cli.main(["commit", "--expect", "A", "--expect", "A", "click", "--expect", "B", "e1"]) == 0
+    assert sent[-1][1]["expect"] == ["A", "A", "B"]  # ordered, never deduplicated
+    capsys.readouterr()
+
+
+def test_every_expect_flag_reads_check_and_has_help() -> None:
+    parser = core_cli._build_parser()
+    flags = [_option(parser, "--expect")] + [_option(sp, "--expect") for name, sp in _subparsers(parser).items() if name != "serve"]
+    assert len(flags) > 30
+    for action in flags:
+        assert action.metavar == "CHECK" and "repeatable" in action.help
+
+
+def test_help_epilog_does_not_tell_agents_to_blindly_repeat_after_124() -> None:
+    epilog = core_cli._EPILOG.lower()
+    assert "run the same command again" not in epilog
+    assert "may already have run" in epilog and "only a timed-out wait" in epilog
+
+
+def test_status_exits_2_for_reserved_or_invalid_profile_and_help_says_so(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    for argv in (["status", "--profile", "_doctor"], ["status", "--profile", "bad name"]):
+        assert core_cli.main(argv) == 2
+        assert error_envelope(capsys.readouterr().err)["class"] == core_common.ERR_VALIDATION
+    monkeypatch.setenv("AGENT_BROWSER_PROFILE", "_doctor")
+    assert core_cli.main(["status"]) == 2
+    capsys.readouterr()
+    description = _subparsers(core_cli._build_parser())["status"].description
+    assert "always exit 0" not in description and "invalid" in description
+
+
+def test_stop_all_stops_only_the_resolved_profile(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    for name in ("a", "b"):
+        core_common._paths(name).dir.mkdir(parents=True)
+    stopped: list[tuple[str, bool]] = []
+    monkeypatch.setattr(core_session, "stop_session", lambda paths, force=False: stopped.append((paths.profile, force)) or {"profile": paths.profile})
+    assert core_cli.main(["stop", "--all", "--profile", "a"]) == 0
+    assert stopped == [("a", False)]
+    assert core_cli.main(["status", "--all"]) == 0
+    capsys.readouterr()
+    payload = core_cli._cmd_status(argparse.Namespace(all=True, profile=None))
+    assert [p["profile"] for p in payload["profiles"]] == ["a", "b"]
+
+
+def test_all_flags_have_distinguishing_help() -> None:
+    subs = _subparsers(core_cli._build_parser())
+    stop_help, status_help = _option(subs["stop"], "--all").help, _option(subs["status"], "--all").help
+    assert "this profile only" in stop_help and "other profiles keep running" in stop_help
+    assert "every profile" in status_help
+
+
+def test_timeout_help_lists_every_default_and_only_wait_is_capped() -> None:
+    parser = core_cli._build_parser()
+    for action in (_option(parser, "--timeout"), _option(_subparsers(parser)["click"], "--timeout")):
+        text = action.help
+        assert "%" not in text  # argparse %-formats help strings
+        for value in (core_common.DEFAULT_TIMEOUT, core_common.GOTO_TIMEOUT, core_common.START_TIMEOUT, core_common.STOP_GRACE,
+                      core_common.DOWNLOADS_TIMEOUT, core_common.WAIT_DEFAULT, core_common.WAIT_CAP, core_common.MAX_TIMEOUT):
+            assert f"{value:g}" in text
+        assert "back" in text and "reload" in text and "only wait is capped" in text.lower()
+        assert "max 100)" not in text
+    wait = _subparsers(parser)["wait"].description
+    assert f"default {core_common.WAIT_DEFAULT:g} s" in wait and f"max {core_common.WAIT_CAP:g} s" in wait
+
+
+def test_only_wait_is_capped_and_the_limit_is_shared_with_the_daemon(capsys: pytest.CaptureFixture[str]) -> None:
+    assert core_cli._timeout_for(argparse.Namespace(timeout=3600.0), core_common.DEFAULT_TIMEOUT) == 3600.0
+    assert core_cli._timeout_for(argparse.Namespace(timeout=core_common.MAX_TIMEOUT), core_common.DEFAULT_TIMEOUT) == core_common.MAX_TIMEOUT
+    for bad in (core_common.MAX_TIMEOUT + 1, float("nan"), -1.0):
+        with pytest.raises(ValueError) as exc:
+            core_cli._timeout_for(argparse.Namespace(timeout=bad), core_common.DEFAULT_TIMEOUT)
+        assert exc.value.error_class == core_common.ERR_VALIDATION
+    assert core_cli.main(["wait", "--text", "x", "--timeout", f"{core_common.WAIT_CAP + 1:g}"]) == 2
+    assert error_envelope(capsys.readouterr().err)["hint"] == core_common._hint("wait_cap")
+
+
+def test_downloads_uses_the_documented_default_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[float] = []
+    monkeypatch.setattr(core_cli, "_remote", lambda args, verb, cmd, payload, default_timeout=core_common.DEFAULT_TIMEOUT, autostart=False: seen.append(default_timeout) or {})
+    core_cli._cmd_downloads(argparse.Namespace())
+    assert seen == [core_common.DOWNLOADS_TIMEOUT]

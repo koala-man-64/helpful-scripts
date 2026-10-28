@@ -953,7 +953,7 @@ class BrowserEngine:
                         raise self._classify(retry_exc, verb) from retry_exc
                 return
             if self._is_timeout(exc):
-                raise core_common._tag(RuntimeError(f"{verb} did not finish within {timeout:g}s."), core_common.ERR_TIMEOUT, hint=core_common._hint("wait_timeout", self.profile)) from exc
+                raise core_common._tag(RuntimeError(f"{verb} did not finish within {timeout:g}s."), core_common.ERR_TIMEOUT, hint=core_common._hint("nav_timeout", self.profile)) from exc
             raise self._classify(exc, verb) from exc
         self._drain_events(page, budget=0.15)
         self._check_blocks()
@@ -1523,8 +1523,8 @@ class _Handler(socketserver.StreamRequestHandler):
         args["_cooperative"] = True
         import math
         raw_timeout = message.get("timeout", core_common.DEFAULT_TIMEOUT)
-        if type(raw_timeout) not in (float, int) or not math.isfinite(raw_timeout) or not 0 <= raw_timeout <= 86400:
-            self._reply({"ok": False, "error": {"class": core_common.ERR_VALIDATION, "message": "Timeout must be finite and between 0 and 86400 seconds."}})
+        if type(raw_timeout) not in (float, int) or not math.isfinite(raw_timeout) or not 0 <= raw_timeout <= core_common.MAX_TIMEOUT:
+            self._reply({"ok": False, "error": {"class": core_common.ERR_VALIDATION, "message": f"Timeout must be finite and between 0 and {core_common.MAX_TIMEOUT:g} seconds."}})
             return
         timeout = float(raw_timeout)
         start_by = message.get("start_by")
