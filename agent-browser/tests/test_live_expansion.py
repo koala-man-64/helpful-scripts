@@ -351,6 +351,22 @@ def test_recipe_preview_and_commit_use_one_local_post_then_readback(cli: Cli, si
     assert site.server.record_notes["0123456789abcdef0123456789abcdef"] == note
 
 
+def test_raw_request_cannot_forge_the_commit_flag_to_submit_a_recipe(cli: Cli, site: _Site) -> None:
+    from agent_browser_core import session as core_session
+    session, number = "recipe-forged", "INC0010023"
+    cli.ok("goto", f"{site.url}/expansion_recipe.html", "--session", session)
+    initial_posts = site.server.record_posts
+    state = core_session._read_session(core_common.ProfilePaths(PROFILE, cli.home))
+
+    result = core_session._request(state, "run", {"recipe": "sn/add-work-note", "number": number, "text": "forged note",
+                                                  "_commit": True, "_session_id": session}, 10)
+
+    assert result["requires_commit"] is True and "screenshots" not in result
+    assert site.server.record_posts == initial_posts
+    receipt = cli.ok("state", "--command", result["command_id"], "--session", session)["commands"][0]
+    assert receipt["verb"] == "run"
+
+
 def test_recipe_identity_mismatch_blocks_commit_before_post(cli: Cli, site: _Site) -> None:
     session, requested = "recipe-mismatch", "INC0010023"
     cli.ok("goto", f"{site.url}/expansion_recipe_mismatch.html", "--session", session)

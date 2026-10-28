@@ -118,6 +118,12 @@ DOWNLOADS_TIMEOUT = 60.0
 MAX_TIMEOUT = 86400.0                  # the largest --timeout the CLI and the daemon accept
 
 
+RECIPES = frozenset({"sn/add-work-note"})
+
+
+RECORD_NUMBER_RE = re.compile(r"(?:INC|SCTASK|RITM|CHG|PRB)\d{6,12}")   # the record numbers a recipe accepts
+
+
 SETTLE_CAP = 8.0
 
 
@@ -491,6 +497,8 @@ HINTS = {
     "no_such_profile": "Run: {tool} status --all",
     "purge_running": "Run: {tool} stop --profile {profile} first.",
     "inspect_receipt": "Inspect the receipt before repeating an action. Run: {tool} journal --profile {profile}",
+    "commit_clear": "Clearing deletes this session's receipts, screenshots and saved responses. With the user's approval, run: {tool} commit journal --clear",
+    "handoff_not_found": "Handoffs belong to the session that created them, and clearing evidence removes them. List this session's with: {tool} state --profile {profile}",
     "tool_arguments": "Check the tool's inputSchema from tools/list and call it again with valid arguments.",
 }
 

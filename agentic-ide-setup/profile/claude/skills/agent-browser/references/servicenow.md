@@ -11,8 +11,10 @@ verify the resulting record and any validation message.
 classic `gsft_main` operation. Use `commit run` only within the authorized write
 scope. It verifies Number/stable record identity, refuses an existing draft or
 identical displayed note, submits once, reloads that record and checks persisted
-noneditable activity. Unfamiliar layouts return a human handoff. Inspect the receipt
-before any retry. Real instance writes need a separately authorized test record.
+noneditable activity. Unfamiliar layouts return a human handoff before anything is
+typed; that receipt's status is `needs_human`. Receipts keep the recipe and record
+number, never the note. Inspect the receipt before any retry. Real instance writes
+need a separately authorized test record.
 
 Optional `SERVICENOW_AUTH=browser` in servicenow-client uses the same signed-in
 profile and daemon API. Install both packages, select the intended profile/session

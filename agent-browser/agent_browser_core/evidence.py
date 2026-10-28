@@ -5,6 +5,7 @@ import json
 import sqlite3
 import secrets
 import os
+import urllib.parse
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any
@@ -44,11 +45,44 @@ def read_receipt(directory: Path, session: str, command_id: str) -> dict[str, An
     try:
         with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)) as db:
             db.row_factory = sqlite3.Row
-            row = db.execute("SELECT * FROM commands WHERE session=? AND id=? AND status IN ('completed','failed','unknown')",
+            row = db.execute("SELECT * FROM commands WHERE session=? AND id=? AND status IN ('completed','failed','unknown','needs_human')",
                              (session, command_id)).fetchone()
         return dict(row) if row else None
     except sqlite3.Error as exc:
         raise common._tag(RuntimeError("Journal storage cannot be read."), "journal_unavailable") from exc
+
+
+def _receipt_args(verb: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Argument names and structural targeting only. Values and script/body/file contents are omitted."""
+    safe = {k: (common.sanitize_text(v, 160) if k in {"target", "role", "name", "label", "operation", "method"} and isinstance(v, str) else "<omitted>")
+            for k, v in args.items() if not k.startswith("_") and k not in PRIVATE_ARGS}
+    name = verb.rsplit(" ", 1)[-1]
+    if name == "run":
+        # The recipe and record number say which record a work note went to. The receipt is written before
+        # h_run validates them, so only values that validation would accept are stored.
+        if isinstance(args.get("recipe"), str) and args["recipe"] in common.RECIPES:
+            safe["recipe"] = args["recipe"]
+        if isinstance(args.get("number"), str) and common.RECORD_NUMBER_RE.fullmatch(args["number"]):
+            safe["number"] = args["number"]
+    if name == "api" and "url" in args:
+        # The path names the endpoint and record. The query string can carry business data or secrets, so it is never stored.
+        try:
+            safe["path"] = common.sanitize_text(urllib.parse.urlsplit(args["url"]).path, 240) if isinstance(args["url"], str) else "<invalid>"
+        except ValueError:
+            safe["path"] = "<invalid>"
+    return safe
+
+
+def _restore_needs_human(db: sqlite3.Connection) -> None:
+    """Older daemons left handoff receipts pending, and a restart then swept them to unknown although nothing ran."""
+    rows = db.execute("SELECT id, outcome FROM commands WHERE status IN ('pending','unknown') AND outcome LIKE '%needs_human%'").fetchall()
+    for row in rows:
+        try:
+            outcome = json.loads(row["outcome"])
+        except ValueError:
+            continue
+        if isinstance(outcome, dict) and outcome.get("status") == "needs_human" and outcome.get("executed") is False:
+            db.execute("UPDATE commands SET status='needs_human', outcome=? WHERE id=?", (json.dumps({**outcome, "pending": False}), row["id"]))
 
 
 class Journal:
@@ -66,6 +100,7 @@ class Journal:
                     id TEXT PRIMARY KEY, session TEXT NOT NULL, reason TEXT NOT NULL,
                     condition TEXT NOT NULL, status TEXT NOT NULL);
             """)
+            _restore_needs_human(db)
             # A daemon restart cannot establish whether an interrupted write reached the server.
             db.execute("UPDATE commands SET status='unknown' WHERE status IN ('running','pending')")
 
@@ -89,15 +124,12 @@ class Journal:
         require_space(self.directory, self.quota, additional)
 
     def start(self, command_id: str, session: str, verb: str, args: dict[str, Any], url: str) -> None:
-        # Record argument names and structural targeting only. Values and script/body/file contents are omitted.
-        safe = {k: (common.sanitize_text(v, 160) if k in {"target", "role", "name", "label", "operation", "method"} and isinstance(v, str) else "<omitted>")
-                for k, v in args.items() if not k.startswith("_") and k not in PRIVATE_ARGS}
         with self.connect() as db:
             db.execute("INSERT INTO commands VALUES (?,?,?,?,NULL,'running',?,?,NULL)",
-                       (command_id, session, verb, common._utc_now(), json.dumps(safe), common.redact_url(url)))
+                       (command_id, session, verb, common._utc_now(), json.dumps(_receipt_args(verb, args)), common.redact_url(url)))
 
     def finish(self, command_id: str, status: str, outcome: dict[str, Any]) -> None:
-        keys = {"effect", "observed", "error_class", "executed", "screenshots", "completed_fields", "pending", "handoff_id", "body_file", "expectations", "cleared_commands", "status", "write_outcome", "persisted"}
+        keys = {"effect", "observed", "error_class", "executed", "screenshots", "completed_fields", "pending", "handoff_id", "body_file", "expectations", "cleared_commands", "status", "write_outcome", "persisted", "number"}
         safe = {k: outcome[k] for k in keys if k in outcome}
         with self.connect() as db:
             previous = db.execute("SELECT outcome FROM commands WHERE id=?", (command_id,)).fetchone()

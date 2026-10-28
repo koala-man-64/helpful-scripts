@@ -63,7 +63,7 @@ def test_quota_blocks_edit_without_erasing_receipts(make_daemon):
     with pytest.raises(RuntimeError) as exc:
         daemon.dispatch("fill", {"target": "e1", "text": "value"}, 1)
     assert exc.value.error_class == "journal_full"
-    assert len(daemon.journal.rows("manual")) == 2
+    assert len(daemon.journal.rows("manual")) == 1
 
 
 def test_restart_marks_unfinished_commands_unknown_and_never_replays(tmp_path):
@@ -93,7 +93,9 @@ def test_generic_handoff_is_durable_and_explicitly_resolved(make_daemon, monkeyp
     with pytest.raises(ValueError, match="commit state"):
         daemon.dispatch("state", {"handoff_id": handoff_id, "resolve": True}, 1)
     assert daemon.dispatch("commit", {"operation": "state", "handoff_id": handoff_id, "resolve": True}, 1)["handoffs"][0]["status"] == "resolved"
-    assert not daemon.dispatch("state", {"handoff_id": handoff_id, "_session_id": "other"}, 1)["handoffs"]
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("state", {"handoff_id": handoff_id, "_session_id": "other"}, 1)
+    assert exc.value.error_class == common.ERR_NOT_FOUND
 
 
 @pytest.mark.parametrize("level", ["read", "act"])
@@ -134,7 +136,7 @@ def test_background_dialog_cannot_consume_another_sessions_accept_option(make_da
 def test_clear_cancels_only_own_pending_operations(make_daemon):
     daemon, ctx, page = make_daemon()
     wait = daemon.dispatch("wait", {"seconds": 100, "_cooperative": True}, 100)
-    daemon.dispatch("journal", {"clear": True}, 1)
+    daemon.dispatch("commit", {"operation": "journal", "clear": True}, 1)
     with pytest.raises(ValueError):
         daemon.dispatch("poll", {"command_id": wait["command_id"]}, 1)
 
@@ -381,3 +383,139 @@ def test_clean_prunes_session_downloads_and_evidence_usage_excludes_downloads(tm
     assert not old_dl.exists()
 
 
+
+
+def test_bare_journal_clear_requires_commit_verb_and_is_journaled(make_daemon):
+    daemon, ctx, page = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a"}, 5)
+    seeded = daemon.journal.rows("manual")[0]["id"]
+    with pytest.raises(ValueError, match="commit journal --clear") as exc:
+        daemon.dispatch("journal", {"clear": True}, 1)
+    assert exc.value.error_class == common.ERR_GUARDED and "commit journal --clear" in exc.value.hint
+    denied = daemon.journal.rows("manual")[0]
+    assert denied["verb"] == "journal" and denied["status"] == "failed"
+    assert seeded in {row["id"] for row in daemon.journal.rows("manual")}
+    assert daemon.dispatch("commit", {"operation": "journal", "clear": True}, 1)["cleared_commands"] == 2
+
+
+@pytest.mark.parametrize("cmd,args,message", [("journal", {"clear": True}, "commit journal --clear"),
+                                              ("state", {"resolve": True}, "commit state"),
+                                              ("api", {"url": "/api/items", "method": "POST"}, "commit api")])
+def test_forged_commit_flag_cannot_pass_the_commit_gate(make_daemon, cmd, args, message):
+    from types import SimpleNamespace
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    sent = []
+    ctx.request = SimpleNamespace(fetch=lambda url, **kwargs: sent.append(url))
+    handoff_id = daemon.journal.handoff("manual", "Inspect layout", {})
+    with pytest.raises(ValueError, match=message) as exc:
+        daemon.dispatch(cmd, {**args, "handoff_id": handoff_id, "_commit": True}, 1)
+    assert exc.value.error_class == common.ERR_GUARDED
+    assert sent == []
+    assert daemon.journal.handoffs("manual", handoff_id)[0]["status"] == "needs_human"
+    receipt = daemon.journal.rows("manual")[0]
+    assert receipt["verb"] == cmd and receipt["status"] == "failed"
+
+
+def test_handoff_resolution_works_at_full_quota_without_new_artifacts(make_daemon):
+    daemon, ctx, page = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a"}, 5)
+    handoff_id = daemon.journal.handoff("manual", "Confirm the change", {})
+    daemon.journal.quota = 0
+    result = daemon.dispatch("commit", {"operation": "state", "handoff_id": handoff_id, "resolve": True}, 1)
+    assert result["handoffs"][0]["status"] == "resolved" and "screenshots" not in result
+    assert daemon.dispatch("commit", {"operation": "journal"}, 1)["commands"]
+    assert not daemon.paths.shots.exists() or not list(daemon.paths.shots.glob("*.png"))
+    with pytest.raises(RuntimeError) as exc:
+        daemon.dispatch("fill", {"target": "e1", "text": "value"}, 1)
+    assert exc.value.error_class == "journal_full"
+
+
+def test_unknown_handoff_id_is_not_found_for_queries_and_resolution(make_daemon):
+    daemon, ctx, page = make_daemon()
+    other = daemon.journal.handoff("other", "Inspect layout", {})
+    for cmd, args in (("state", {"handoff_id": "f" * 32}),
+                      ("commit", {"operation": "state", "handoff_id": other, "resolve": True})):
+        with pytest.raises(ValueError, match="No handoff") as exc:
+            daemon.dispatch(cmd, args, 1)
+        assert exc.value.error_class == common.ERR_NOT_FOUND and "state --profile" in exc.value.hint
+    assert daemon.journal.handoffs("other", other)[0]["status"] == "needs_human"
+    rows = daemon.journal.rows("manual")
+    assert len(rows) == 1 and rows[0]["status"] == "failed"
+    assert exc.value.details["receipt"] == "state --command " + rows[0]["id"]
+
+
+def test_unrecorded_command_errors_point_at_no_receipt(make_daemon):
+    daemon, ctx, page = make_daemon()
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("state", {"handoff_id": "f" * 32}, 1)
+    assert exc.value.details == {"executed": False}
+    assert daemon.journal.rows("manual") == []
+
+
+def test_needs_human_receipt_is_terminal_and_survives_restart(make_daemon, monkeypatch):
+    from agent_browser_core import session
+    daemon, ctx, page = make_daemon()
+    monkeypatch.setattr(session, "focus_window", lambda paths: {"focused": False})
+    result = daemon.dispatch("needs-human", {"reason": "Inspect unfamiliar layout"}, 1)
+    assert result["pending"] is True and result["status"] == "needs_human"
+    row = daemon.journal.rows("manual", result["command_id"])[0]
+    assert row["status"] == "needs_human" and json.loads(row["outcome"])["pending"] is False
+    restored = evidence.Journal(daemon.paths.dir)
+    assert restored.rows("manual", result["command_id"])[0]["status"] == "needs_human"
+    assert restored.handoffs("manual", result["handoff_id"])[0]["status"] == "needs_human"
+    assert evidence.read_receipt(daemon.paths.dir, "manual", result["command_id"])["status"] == "needs_human"
+
+
+def test_recipe_handoff_receipt_is_needs_human_not_pending(make_daemon, monkeypatch):
+    from agent_browser_core import session
+    daemon, ctx, page = make_daemon()
+    monkeypatch.setattr(session, "focus_window", lambda paths: {"focused": False})
+    result = daemon.dispatch("commit", {"operation": "run", "recipe": "sn/add-work-note", "number": "INC0012345", "text": "private note"}, 1)
+    assert result["pending"] is True and result["status"] == "needs_human" and result["executed"] is False
+    row = daemon.journal.rows("manual", result["command_id"])[0]
+    assert row["verb"] == "commit run" and row["status"] == "needs_human"
+
+
+def test_restart_restores_needs_human_receipts_left_by_older_daemons(tmp_path):
+    journal = evidence.Journal(tmp_path)
+    old = {"status": "needs_human", "handoff_id": "h", "pending": True, "executed": False}
+    for command_id, status in (("pending-one", "pending"), ("swept-one", "unknown")):
+        journal.start(command_id, "a", "needs-human", {}, "http://x/")
+        journal.finish(command_id, status, old)
+    journal.start("swept-write", "a", "commit api", {}, "http://x/")
+    journal.finish("swept-write", "unknown", {**old, "executed": True})
+    journal.start("wait", "a", "wait", {}, "http://x/")
+    journal.finish("wait", "pending", {"pending": True, "executed": False})
+    restored = {row["id"]: row for row in evidence.Journal(tmp_path).rows("a")}
+    assert restored["pending-one"]["status"] == restored["swept-one"]["status"] == "needs_human"
+    assert json.loads(restored["pending-one"]["outcome"])["pending"] is False
+    assert restored["swept-write"]["status"] == restored["wait"]["status"] == "unknown"
+
+
+def test_ping_does_not_write_receipts(make_daemon):
+    daemon, ctx, page = make_daemon()
+    for _ in range(3):
+        daemon.dispatch("ping", {}, 1)
+    assert daemon.journal.rows("manual") == []
+    daemon.dispatch("goto", {"url": "http://x/a"}, 5)
+    assert len(daemon.journal.rows("manual")) == 1
+
+
+def test_receipt_records_api_path_and_recipe_number_but_not_values(tmp_path):
+    journal = evidence.Journal(tmp_path)
+    journal.start("c1", "manual", "commit api", {"url": "/api/now/table/incident?sysparm_query=secret", "method": "POST", "body_file": "x.json"}, "http://x/")
+    journal.start("c2", "manual", "api", {"url": "https://x/api/items/42?token=secret#frag"}, "http://x/")
+    journal.start("c3", "manual", "commit run", {"recipe": "sn/add-work-note", "number": "INC0012345", "text": "private"}, "http://x/")
+    journal.start("c4", "manual", "run", {"recipe": "sn/add-work-note", "number": "INC0012345 private words", "text": "private"}, "http://x/")
+    journal.start("c5", "manual", "run", {"recipe": "privaterecipe", "number": "ABCprivate0123456789", "text": "x"}, "http://x/")
+    journal.start("c6", "manual", "run", {"recipe": ["sn/add-work-note"], "number": 12345}, "http://x/")
+    journal.finish("c3", "completed", {"number": "INC0012345", "persisted": True})
+    stored = {row["id"]: row for row in journal.rows("manual")}
+    args = {key: json.loads(row["arguments"]) for key, row in stored.items()}
+    assert args["c1"]["path"] == "/api/now/table/incident" and args["c2"]["path"] == "/api/items/42"
+    assert args["c3"]["number"] == "INC0012345" and args["c3"]["recipe"] == "sn/add-work-note"
+    assert args["c4"]["number"] == "<omitted>"
+    assert args["c5"] == args["c6"] == {"recipe": "<omitted>", "number": "<omitted>"}
+    assert "secret" not in json.dumps(stored) and "private" not in json.dumps(stored) and "frag" not in json.dumps(stored)
+    assert json.loads(stored["c3"]["outcome"])["number"] == "INC0012345"

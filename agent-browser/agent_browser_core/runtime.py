@@ -168,6 +168,9 @@ class OperatingMixin:
 
     def dispatch(self, cmd: str, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         args = dict(args)
+        # Only the commit operation below declares a commit. A caller's own _commit would pass
+        # the verb gates in policy.authorize and turn a recipe preview into a submission.
+        args.pop("_commit", None)
         raw_session = args.get("_session_id")
         sid = common.session_identity(raw_session or "manual")
         self._activate(sid, cmd not in policy.CONTROL)
@@ -182,7 +185,7 @@ class OperatingMixin:
             args["_commit"] = True
         command_id = secrets.token_hex(16)
         before = dict(self.session_counts.get(sid, dict.fromkeys(self.telemetry, 0)))
-        record_receipt = not (cmd in {"state", "journal"} and not args.get("resolve") and not args.get("clear"))
+        record_receipt = not (cmd in {"ping", "state", "journal"} and not args.get("resolve") and not args.get("clear"))
         if record_receipt:
             self.journal.start(command_id, sid, ("commit " if args.get("_commit") else "") + cmd, args, self.current.url if self.current else "")
         executed, screenshots = False, []
@@ -192,7 +195,8 @@ class OperatingMixin:
             mutating = policy.authorize(self.config, cmd, args)
             if args.get("expect") and cmd in {"run", "wait"}:
                 raise common._tag(ValueError("Recipes and wait have their own verification conditions; --expect applies to ordinary actions and API calls."), common.ERR_USAGE)
-            if mutating and not (cmd == "journal" and args.get("clear")):
+            # journal and state write only SQLite rows (a clear, a handoff resolution), so they work at quota.
+            if mutating and cmd not in {"journal", "state"}:
                 self.journal.require_space()
             if cmd == "goto":
                 args["url"] = common._check_url(args.get("url", ""), self.paths, self.config)
@@ -200,7 +204,7 @@ class OperatingMixin:
                 args["files"] = [str(self._api_path(str(path), args)) for path in args.get("files", [])]
             target_page = self.target_page(args) if args.get("tab") is not None else self.current
             self._cmd_target_page = target_page
-            if args.get("_commit") and target_page and cmd != "journal":
+            if args.get("_commit") and target_page and cmd not in {"journal", "state"}:
                 screenshots.append(self._capture(command_id, "before", target_page))
             args["_command_id"] = command_id
             args["_deadline"] = expectation_deadline
@@ -220,7 +224,7 @@ class OperatingMixin:
             result.update(command_id=command_id, session_id=sid, contract_version=common.CONTRACT_VERSION)
             result["observed"] = {k: self.session_counts.get(sid, {}).get(k, 0) - v for k, v in before.items()}
             after_page = self.target_page(args) if args.get("tab") is not None and self.pages else self.current
-            if args.get("_commit") and after_page and cmd != "journal":
+            if args.get("_commit") and after_page and cmd not in {"journal", "state"}:
                 screenshots.append(self._capture(command_id, "after", after_page))
                 result["screenshots"] = screenshots
             result["executed"] = executed
@@ -230,9 +234,12 @@ class OperatingMixin:
             if (host == "service-now.com" or host.endswith(".service-now.com")) and host not in noted:
                 result["site_notes"] = ["ServiceNow: use the classic record form for sn/add-work-note; verify Number before committing. Preview with run, submit with commit run, and inspect its receipt before any retry. Never enter sign-in credentials."]
                 noted.add(host)
-            status = "unknown" if result.get("write_outcome") == "unknown" else "pending" if result.get("pending") else "completed"
+            # A handoff finishes this command; its handoff row, not the receipt, carries the open human action.
+            # The reply stays pending: true with status needs_human, which tells callers to stop polling.
+            needs_human = result.get("status") == "needs_human"
+            status = "unknown" if result.get("write_outcome") == "unknown" else "needs_human" if needs_human else "pending" if result.get("pending") else "completed"
             if record_receipt:
-                self.journal.finish(command_id, status, result)
+                self.journal.finish(command_id, status, {**result, "pending": False} if needs_human else result)
             if "snapshot" in result:
                 result["snapshot"] = result.pop("snapshot")
             return result
@@ -243,7 +250,9 @@ class OperatingMixin:
                     "error_class": getattr(exc, "error_class", "daemon"), "executed": executed, "screenshots": screenshots,
                     "completed_fields": (getattr(exc, "details", None) or {}).get("completed_fields", [])})
             details = dict(getattr(exc, "details", None) or {})
-            details.update(command_id=command_id, executed=executed, receipt="state --command " + command_id)
+            details["executed"] = executed
+            if record_receipt:  # ping and plain state/journal reads write no receipt to point at
+                details.update(command_id=command_id, receipt="state --command " + command_id)
             exc.details = details
             raise
         finally:
@@ -355,6 +364,8 @@ class OperatingMixin:
         if args.get("resolve") and not args.get("handoff_id"):
             raise common._tag(ValueError("Resolving a handoff requires its ID and explicit human completion."), common.ERR_USAGE)
         handoffs = self.journal.handoffs(self.session_id, args.get("handoff_id"))
+        if args.get("handoff_id") and not handoffs:
+            raise common._tag(ValueError("No handoff with that ID in this session."), common.ERR_NOT_FOUND, hint=common._hint("handoff_not_found", self.profile))
         for item in handoffs:
             condition = json.loads(item["condition"])
             navigated = not condition.get("require_navigation") or self.current and self.nav_counts.get(self.current.main_frame, 0) > condition.get("navigation", 0)
