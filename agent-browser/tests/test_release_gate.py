@@ -135,7 +135,7 @@ def test_expectation_failure_keeps_one_completed_click_and_receipt(make_daemon, 
     assert first["expectations"] == [{"kind": "response", "passed": True}]
     assert button.calls == [("click", "left")] and requests == ["POST"]
 
-    daemon._page_has_text = lambda _page, _text: False
+    daemon._text_counts = lambda _page, _text: {}
     pending = daemon.dispatch("click", {"target": "e2", "expect": ["text:never appears"]}, 5.0)
     assert pending["pending"] is True
     assert button.calls == [("click", "left"), ("click", "left")]

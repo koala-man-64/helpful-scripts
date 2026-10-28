@@ -93,7 +93,7 @@ def test_failed_action_expectation_keeps_unknown_execution_without_replay(make_d
     def fail(*args, **kwargs):
         raise RuntimeError("Verification unavailable")
 
-    monkeypatch.setattr(daemon, "_page_has_text", fail)
+    monkeypatch.setattr(daemon, "_text_counts", fail)
     with pytest.raises(RuntimeError) as raised:
         daemon.dispatch("poll", {"command_id": command_id}, 2)
 

@@ -138,10 +138,13 @@ qualification requires a separately authorized test record.
 Buttons, links, fields, checkboxes, tabs, menu items and iframes keep their ref; headings, dialogs and named
 regions are kept as context without a ref; everything else is dropped. Iframe lines show the frame's name and the
 prefix its children use. A ref stays bound to the same element until its frame navigates; then the tool answers
-`stale_ref` and the next `snapshot` renumbers.
+`stale_ref` and the next `snapshot` renumbers. Each frame's navigation count is read before the snapshot is taken, so
+a frame that navigates while it is taken makes its refs stale at once: that reply says `refs_valid: false` and
+`navigated: true`, and a note asks for a fresh `snapshot`.
 
-Actions that do not navigate return a compact envelope: `target_line`, `value_after`, and a `changes` diff. When the
-page navigated, a dialog was handled, or `--snapshot` was passed, the full snapshot comes back instead.
+Actions that do not navigate return a compact envelope: `target_line`, `value_after`, a `changes` diff and
+`refs_valid`. When the page navigated, a dialog was handled, or `--snapshot` was passed, the full snapshot comes back
+instead.
 
 ## Output contract (for agent authors)
 
@@ -155,6 +158,12 @@ Later commands cannot replace that artifact; `last_output.json` remains availabl
 not business success. Repeat `--expect` for AND checks under one action deadline:
 `text:Saved`, `gone:e12`, `url:changed`, `response:POST **/api/items:2xx`.
 Checks are installed before the action. Recipes and wait use their own conditions.
+`text:` needs a new occurrence: before the action each frame's body text is read, and the check passes when a frame
+shows the text (a case-insensitive substring) more times than it did then. Text already on the page does not count,
+including after its frame reloads; a frame or tab the action opened counts from zero. When a frame's text cannot be
+read beforehand, the command fails with `action_failed` and nothing is done. `wait --text` still passes on text
+already shown. `response:` checks match each response on the same page as it arrives, so no amount of other traffic,
+from this session or another, can push a match out.
 Waits and action checks reject success first observed after their original deadline.
 Wait observation/capture errors finish the receipt and remove the pending operation.
 
@@ -409,7 +418,7 @@ Small modules behind a thin entry point; every OS edge is a module-level seam th
 | Session store | atomic `session.json`, lock liveness, explicit profile/session selection and protocol compatibility. |
 | Client protocol | one JSON line over a loopback socket; remote errors re-raised through `_tag()` so `main()` maps exit codes the same way for local and remote failures. |
 | Snapshot pure layer | `parse_ai_snapshot`, `frame_prefixes`, `filter_snapshot`, `budget_lines`, `diff_lines`: pure functions over Playwright's ai-mode text, tested against captured real output. |
-| Daemon | `Daemon` owns one persistent context; context-level dialog/download/page listeners; per-frame navigation counters that turn a ref from a navigated frame into `stale_ref`; heal-once re-snapshot when a scoped snapshot reset Playwright's ref map; settle across frames; one handler per verb. |
+| Daemon | `Daemon` owns one persistent context; context-level dialog/download/page listeners; per-frame navigation counters, read before each snapshot, that turn a ref from a navigated frame into `stale_ref`; heal-once re-snapshot when a scoped snapshot reset Playwright's ref map; settle across frames; one handler per verb. |
 | Client verbs | `start`, session-scoped `stop`, `status`, `clean`, `doctor`, human handoff and typed optional MCP. |
 | CLI | argparse with a shared parent parser, MSYS argument de-mangling, UTF-8 stdout on pipes, `_emit_error`, exit mapping. |
 
@@ -431,7 +440,8 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 |---|---|
 | `not_running` on every command | No daemon for that profile. `agent-browser start --profile <p>`; `goto` starts one by itself unless `AGENT_BROWSER_AUTOSTART=false`. |
 | `protocol_mismatch` | Explicitly restart the shared profile after preserving every session's work. |
-| `stale_ref` / `ref_not_found` | The page or its frame navigated, or a scoped snapshot was taken. `agent-browser snapshot` and pick again. |
+| `stale_ref` / `ref_not_found` / `refs_valid: false` | The page or its frame navigated, also while the snapshot was taken, or a scoped snapshot was taken. `agent-browser snapshot` and pick again. |
+| `action_failed` "Could not read the page text before the action…" | A `text:` check needs each frame's text before the action, and a frame was navigating or detached; nothing was done. Take a fresh `snapshot` and repeat, or expect `response:`, `gone:` or `url:changed` instead. |
 | `guarded` on `fill` / `type` / `press` | The field, or the focused field the keys would land in, looks like a password or code field. The human types it in the window; then `wait --signed-in <host>`. |
 | `action_failed` "Could not confirm the field…" | The credential check could not inspect the field (page navigating, frame detached, focus inside a custom element's closed shadow root). Take a fresh `snapshot` and retry; give `press` a ref if a press without one keeps failing. |
 | `unsaved_changes` | The page has edits. Click its Save/Update button or re-run with `--discard-changes`. |

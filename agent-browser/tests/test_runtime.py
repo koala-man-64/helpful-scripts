@@ -1,9 +1,11 @@
 """Session ownership, audit retention and cooperative scheduling contracts."""
 import json
 import time
+from types import SimpleNamespace
 
 import pytest
 from agent_browser_core import common, evidence
+from conftest import FakeFrame
 
 
 def test_session_identity_precedence(monkeypatch):
@@ -539,3 +541,65 @@ def test_receipt_records_api_path_and_recipe_number_but_not_values(tmp_path):
     assert args["c5"] == args["c6"] == {"recipe": "<omitted>", "number": "<omitted>"}
     assert "secret" not in json.dumps(stored) and "private" not in json.dumps(stored) and "frag" not in json.dumps(stored)
     assert json.loads(stored["c3"]["outcome"])["number"] == "INC0012345"
+
+
+def _response(method, url, status=200):
+    return SimpleNamespace(request=SimpleNamespace(method=method), url=url, status=status)
+
+
+def _other_session_page(daemon):
+    daemon.dispatch("goto", {"url": "http://x/b", "_session_id": "b"}, 5)
+    return daemon.sessions["b"]["pages"][0]
+
+
+def test_response_match_survives_unrelated_traffic_from_this_and_other_sessions(make_daemon):
+    daemon, _, page = make_daemon(snapshot_text='- button "Save" [ref=e2]\n')
+    other = _other_session_page(daemon)
+    pending = daemon.dispatch("click", {"target": "e2", "expect": ["response:POST **/api/items:2xx"]}, 30)
+    assert pending["pending"] is True
+
+    page.emit("response", _response("POST", "http://x/api/items", 201))
+    for index in range(1100):  # more than any bounded history would keep
+        page.emit("response", _response("GET", f"http://x/asset{index}.js"))
+        other.emit("response", _response("GET", f"http://x/other{index}.js"))
+
+    done = daemon.dispatch("poll", {"command_id": pending["command_id"]}, 2)
+    assert done["pending"] is False and done["expectations"] == [{"kind": "response", "passed": True}]
+
+
+def test_response_on_another_sessions_page_never_satisfies_an_expectation(make_daemon):
+    daemon, _, page = make_daemon(snapshot_text='- button "Save" [ref=e2]\n')
+    other = _other_session_page(daemon)
+    pending = daemon.dispatch("click", {"target": "e2", "expect": ["response:POST **/api/items:2xx"]}, 30)
+    other.emit("response", _response("POST", "http://x/api/items", 201))
+    still = daemon.dispatch("poll", {"command_id": pending["command_id"]}, 2)
+    assert still["pending"] is True and still["expectations"] == [{"kind": "response", "passed": False}]
+
+
+def test_recipe_persistence_check_survives_unrelated_traffic(make_daemon, monkeypatch):
+    record = "http://x/incident.do?sys_id=" + "a" * 32
+    daemon, _, page = make_daemon(page_url="http://x/nav_to.do")
+    other = _other_session_page(daemon)
+    form = FakeFrame(name="gsft_main", url=record)
+    page.frames = [page.main_frame, form]
+    reloaded = []
+    note = SimpleNamespace(is_visible=lambda: True, evaluate=lambda js: True)
+    form.get_by_text = lambda text, exact=False: SimpleNamespace(all=lambda: [note] if reloaded else [])
+    form.get_by_label = lambda label, exact=False: SimpleNamespace(count=lambda: 1, input_value=lambda: "INC0012345")
+    form.goto = lambda url, **kwargs: reloaded.append(url)
+    fields = {"Number": "INC0012345", "Work notes": ""}
+    monkeypatch.setattr(daemon, "resolve", lambda _page, target: SimpleNamespace(
+        input_value=lambda: fields.get(target.get("label"), "") if isinstance(target, dict) else ""))
+    monkeypatch.setattr(daemon, "h_fill", lambda args, timeout: {})
+
+    def submit(args, timeout):
+        page.emit("response", _response("POST", record))
+        for index in range(1100):
+            page.emit("response", _response("GET", f"http://x/asset{index}.js"))
+            other.emit("response", _response("POST", record))  # another session's page: never this record's evidence
+        return {}
+    monkeypatch.setattr(daemon, "h_click", submit)
+
+    result = daemon.dispatch("commit", {"operation": "run", "recipe": "sn/add-work-note", "number": "INC0012345", "text": "note"}, 30)
+
+    assert result["persisted"] is True and result["pending"] is False and reloaded == [record]
