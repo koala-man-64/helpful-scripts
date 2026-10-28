@@ -97,7 +97,7 @@ def needs_sign_in(status: int, target: str, request_url: str) -> bool:
 #    match that only the decoding shows, withholds the whole body.
 # Header values and JSON numbers (as digits) go through the same scrub. A Range request is refused inline: a slice
 # can end inside a token, and no known value matches half of one.
-SCRUB_BODY_CAP = 8 * 1024 * 1024  # a larger inline body is withheld; 8 MiB takes 1-2 s to scrub, a hostile one up to ~4 s
+SCRUB_BODY_CAP = 8 * 1024 * 1024  # a larger inline body is withheld; 8 MiB takes 1-2 s to scrub, a hostile one up to ~4.5 s
 KNOWN_VALUE_MIN = 16
 KNOWN_LETTERS_MIN = 12  # a known value's letters-and-digits form shorter than this is not looked for in step 3
 G_CK_JS = "() => typeof window.g_ck === 'string' ? window.g_ck : null"
@@ -194,8 +194,16 @@ def _decoded(text: str) -> str:
 
 
 def _letters(text: str) -> str:
-    """Letters and digits only, lowercased, after NFKC (fullwidth and other compatibility forms read as ASCII)."""
-    return NOT_LETTER_RE.sub("", unicodedata.normalize("NFKC", text)).lower()
+    """Letters and digits only, lowercased. A non-ASCII character whose NFKC form holds exactly one ASCII letter or
+    digit (fullwidth, mathematical, circled, superscript) is read as it; every other one is dropped, ligatures and
+    multi-letter symbols included. Each distinct character is folded once and the text translated: NFKC over a whole
+    string is quadratic in characters that expand (U+FDFA becomes 18), and translate is slow when one becomes several."""
+    fold = {}
+    for c in set(text):
+        if ord(c) > 127:
+            ascii_form = NOT_LETTER_RE.sub("", unicodedata.normalize("NFKC", c))
+            fold[ord(c)] = ascii_form if len(ascii_form) == 1 else ""
+    return NOT_LETTER_RE.sub("", text.translate(fold)).lower()
 
 
 class BodyScrub:
@@ -260,7 +268,7 @@ def scrub_body(data: bytes, known: Iterable[str] | None, headers: dict[str, str]
     reason = "unverified" if known is None else "too_large" if len(data) > SCRUB_BODY_CAP else None
     if reason is None:
         scrub = BodyScrub(known or ())
-        scrubbed_headers = {name: scrub.text(value) for name, value in (headers or {}).items()}
+        scrubbed_headers = {scrub.text(name): scrub.text(value) for name, value in (headers or {}).items()}
         try:
             try:
                 body = json.loads(data)

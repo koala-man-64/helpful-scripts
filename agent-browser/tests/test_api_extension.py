@@ -697,9 +697,9 @@ def test_api_header_values_are_scrubbed_and_a_withheld_body_drops_them(make_daem
     daemon, ctx, page = make_daemon()
     page.url = page.main_frame.url = SN_PAGE
     page.main_frame.g_ck = live
-    request_context(ctx, Response(200, {"X-Debug": f"seen {live}", "ETag": f'"{live}"', "Content-Type": "text/plain"}, b"ok"))
+    request_context(ctx, Response(200, {"X-Debug": f"seen {live}", "ETag": f'"{live}"', "Content-Type": "text/plain", f"X-{live}": "1"}, b"ok"))
     result = daemon.dispatch("api", {"url": "/x"}, 1)
-    assert result["headers"] == {"X-Debug": "seen ***", "ETag": '"***"', "Content-Type": "text/plain"} and result["body_masked"] == 2
+    assert result["headers"] == {"X-Debug": "seen ***", "ETag": '"***"', "Content-Type": "text/plain", "X-***": "1"} and result["body_masked"] == 3
     request_context(ctx, Response(200, {"X-Debug": _escaped(live, "percent")}, b"ok"))
     result = daemon.dispatch("api", {"url": "/x"}, 1)
     assert result["body_withheld"] == "session_token" and result["headers"] == {}
@@ -721,6 +721,15 @@ def test_api_body_with_a_disguised_live_token_is_withheld(make_daemon, form):
         shown = joiner.join(live[i:i + 8] for i in range(0, len(live), 8))
     result, _ = _inline_api(make_daemon, f"<p>{shown}</p>", g_ck=live)
     assert result["body_withheld"] == "session_token"
+
+
+@pytest.mark.parametrize("char", [0xFDFA, 0xFB03])  # NFKC makes 18 and 3 characters of one
+def test_api_scrub_of_expanding_compatibility_characters_stays_linear(char):
+    # NFKC over the whole text took about 73 s for 350k of U+FDFA (quadratic); the fold is per distinct character.
+    import time
+    started = time.perf_counter()
+    assert api.scrub_body((chr(char) * 400_000).encode(), [_token("g_ck")])["body"] == chr(char) * 400_000
+    assert time.perf_counter() - started < 10
 
 
 def test_api_backstop_covers_quoted_schemes_argument_lists_and_more_key_names(make_daemon):

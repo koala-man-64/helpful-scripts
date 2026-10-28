@@ -94,10 +94,10 @@ ending in `key`, such as `X-API-Key`) and the redirect pair `Location`/`Refresh`
 omitted. The rest come back single-line, without invisible characters, and with their
 URLs redacted, including `Content-Location` and `Link` targets. The body comes back
 inline (JSON, else UTF-8 text with undecodable bytes replaced) and scrubbed, and the
-returned header values go through the same scrub. Invisible characters are stripped, and
+returned header names and values go through the same scrub. Invisible characters are stripped, and
 this session's tokens become `***`. Those are the page's `g_ck` (read from its same-origin
 frames) and the cookie values for the request and page URLs, wherever they occur (in
-strings, keys, header values, and JSON numbers read as digits), plus, as a backstop for
+strings, keys, headers, and JSON numbers read as digits), plus, as a backstop for
 tokens the daemon cannot know, a token-shaped value (16+ characters with a digit or
 capital) after a credential-named key (`g_ck`, `sysparm_ck`, `X-UserToken`, `JSESSIONID`,
 `glide_session_store`, names ending in `token`, `session` or `secret_key`, ...) as
@@ -106,18 +106,18 @@ after `Bearer`/`Basic`, or shaped like a JWT. `body_masked` counts the masks. A 
 under a credential-named key that is not token-shaped (`"state": "1"`) keeps its value; a
 long one with a digit or capital (`"code": "ERR_INVALID_PAYLOAD"`) is masked even when it
 is not a secret. Then the scrubbed body is decoded (HTML entities, JS escapes,
-percent-encoding; two layers deep), folded with NFKC and read without separators or
-markup: a known token still visible there (encoded, split, case-changed or in fullwidth
-letters), or a key-and-token pair only the decoding shows, withholds the whole body. `body`
+percent-encoding; two layers deep) and read without separators or markup, with a
+character whose NFKC form is one ASCII letter or digit read as it: a known token still
+visible there (encoded, split, case-changed or in fullwidth letters), or a key-and-token pair only the decoding shows, withholds the whole body. `body`
 is then a placeholder, `headers` is empty, `body_withheld` says why (`session_token`;
 `unverified` when the cookies cannot be read; `too_large` over 8 MiB; `too_deep` for
 deeply nested JSON) and a `note` suggests a narrower request. Not detected: base64, hex or
-three-layer encodings of a token, a token split by other text (one piece per table cell
-or JSON member), tokens of other origins, and an unknown token in a shape the backstop
+three-layer encodings of a token, ligatures and other multi-letter forms, a token split
+by other text (one piece per table cell or JSON member), tokens of other origins, and an unknown token in a shape the backstop
 does not list. So read pages with `text` or `snapshot` and keep `api` for data endpoints
 (the skill preapproves `api`). An inline request may not send `Range`: a slice could end
 inside a token. The scrub of an ordinary 8 MiB body takes 1-2 s, a hostile one up to about
-4 s. A 401, or a redirect
+4.5 s. A 401, or a redirect
 to another origin, a sign-in path or an identity provider, opens a human handoff
 (`needs_human`, `handoff_id`) and focuses the
 window once: a repeat while that handoff is open, with no navigation since, returns the
