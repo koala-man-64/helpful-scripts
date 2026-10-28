@@ -105,8 +105,9 @@ hosts, redirects included, are blocked and listed in `blocked_external`; popups 
 
 `agent-browser api https://example.com/api/items` uses the current tab's exact origin
 and signed-in cookies. Redirects/retries are disabled. Writes require `commit api`.
-Bodies come back raw and unredacted (a page's HTML can embed its session token), so read
-pages with `text` or `snapshot` and use `api` for data endpoints.
+Bodies come back with this session's tokens as `***` (`body_masked` counts them); a body
+that still shows one in another form is withheld (`body_withheld`). Base64 and other
+re-encodings are not detected, so read pages with `text` or `snapshot` and use `api` for data endpoints.
 A 401 or a sign-in/off-origin redirect opens a handoff (`needs_human`). Other redirects
 (`redirect: true`, body withheld) and a 403 (real body) add a `note` instead.
 The optional MCP server uses the same dispatcher, policy and options (`tab`, `ref`, `timeout`);

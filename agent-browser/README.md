@@ -92,7 +92,32 @@ profile host policy is checked before dispatch. Response headers named like cred
 (cookie, `auth`, token, session, `g_ck`, secret, CSRF/XSRF, password, credential, or
 ending in `key`, such as `X-API-Key`) and the redirect pair `Location`/`Refresh` are
 omitted. The rest come back single-line, without invisible characters, and with their
-URLs redacted, including `Content-Location` and `Link` targets. A 401, or a redirect
+URLs redacted, including `Content-Location` and `Link` targets. The body comes back
+inline (JSON, else UTF-8 text with undecodable bytes replaced) and scrubbed, and the
+returned header names and values go through the same scrub. Invisible characters are stripped, and
+this session's tokens become `***`. Those are the page's `g_ck` (read from its same-origin
+frames) and the cookie values for the request and page URLs, wherever they occur (in
+strings, keys, headers, and JSON numbers read as digits), plus, as a backstop for
+tokens the daemon cannot know, a token-shaped value (16+ characters with a digit or
+capital) after a credential-named key (`g_ck`, `sysparm_ck`, `X-UserToken`, `JSESSIONID`,
+`glide_session_store`, names ending in `token`, `session` or `secret_key`, ...) as
+`key: value`, `key = value` or `'key', 'value'`, in an `<input>` or `<meta>` named like one,
+after `Bearer`/`Basic`, or shaped like a JWT. `body_masked` counts the masks. A JSON value
+under a credential-named key that is not token-shaped (`"state": "1"`) keeps its value; a
+long one with a digit or capital (`"code": "ERR_INVALID_PAYLOAD"`) is masked even when it
+is not a secret. Then the scrubbed body is decoded (HTML entities, JS escapes,
+percent-encoding; two layers deep) and read without separators or markup, with a
+character whose NFKC form is one ASCII letter or digit read as it: a known token still
+visible there (encoded, split, case-changed or in fullwidth letters), or a key-and-token pair only the decoding shows, withholds the whole body. `body`
+is then a placeholder, `headers` is empty, `body_withheld` says why (`session_token`;
+`unverified` when the cookies cannot be read; `too_large` over 8 MiB; `too_deep` for
+deeply nested JSON) and a `note` suggests a narrower request. Not detected: base64, hex or
+three-layer encodings of a token, ligatures and other multi-letter forms, a token split
+by other text (one piece per table cell or JSON member), tokens of other origins, and an unknown token in a shape the backstop
+does not list. So read pages with `text` or `snapshot` and keep `api` for data endpoints
+(the skill preapproves `api`). An inline request may not send `Range`: a slice could end
+inside a token. The scrub of an ordinary 8 MiB body takes 1-2 s, a hostile one up to about
+4.5 s. A 401, or a redirect
 to another origin, a sign-in path or an identity provider, opens a human handoff
 (`needs_human`, `handoff_id`) and focuses the
 window once: a repeat while that handoff is open, with no navigation since, returns the
@@ -101,13 +126,10 @@ instead of its body, which can echo sign-in codes. Other redirects and a 403 ope
 handoff and add a `note`; a 403 returns its real (untrusted) body. A gateway that
 answers an expired session with 403 needs an explicit `needs-human`. Response byte
 limits are post-download checks: Playwright buffers the response, so they do not
-impose a hard memory bound. The CLI and MCP `api` return the body inline (JSON, else
-UTF-8 text with undecodable bytes replaced, so binary content is not preserved; at most
-8 MiB) and raw: bodies are not redacted, and a page's HTML can embed its own session
-token (ServiceNow's `g_ck`), so read pages with `text` or `snapshot` and keep `api` for
-data endpoints. The skill preapproves `api`, so such a read does not ask the caller. Only the Python bridge (`client.browser_request`, used by servicenow-client) can
+impose a hard memory bound. An inline body holds at most 8 MiB, and binary content is not
+preserved. Only the Python bridge (`client.browser_request`, used by servicenow-client) can
 save a response to a guarded file, which carries binary attachments without oversized
-JSON. Relative transfer paths resolve against the caller's working directory.
+JSON; that file is byte-exact, not scrubbed. Relative transfer paths resolve against the caller's working directory.
 `--servicenow` sends the page's `g_ck` session key (from a same-origin frame) as `X-UserToken`; the reply
 carries no request headers. Cookies/auth headers stay in the daemon.
 `SERVICENOW_AUTH=browser` in servicenow-client needs both packages, matching instance origin and a usable same-origin session key. A page without one
@@ -454,7 +476,9 @@ the background route: `alert` is accepted, everything else (`beforeunload` inclu
   a hard link, or a file swapped after the check, is not detected.
 - Page-derived strings are sanitized (control, bidi, zero-width, Unicode tag and other invisible formatting
   characters stripped, lines capped) and only ever appear under keys named in `untrusted` (or `error.untrusted`); hints are static
-  templates. `text` keeps line breaks (U+2028 and U+2029 become newlines). Snapshot names, values and frame labels
+  templates. `text` keeps line breaks (U+2028 and U+2029 become newlines). Every string in an `eval` value and an
+  inline `api` body has the same characters stripped; `eval` values are never masked, `api` bodies are (see the API
+  paragraph). Snapshot names, values and frame labels
   render on one line. URLs are redacted in output and logs: the fragment and `user:pass@` are dropped; credential
   query and `;` path-parameter values are masked (`code`, `state`, `sig`, `SAMLResponse`, and names ending in
   `token`, `secret`, `password`, `session`, `signature`, `api_key`, ... such as `accessToken` or `jsessionid`);
@@ -575,8 +599,6 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 
 ## Follow-ups
 
-- Scrub session tokens (`g_ck`, `sysparm_ck`, CSRF fields) out of `api` response bodies (remediation PR 19). Until it
-  lands, bodies are raw, and the skill preapproves `api`, so a page's token can reach the agent without a prompt.
 - Measure the host matrix for Claude Desktop and the VS Code extension, and after the host quits.
 - Console capture (`console` verb) and network summaries.
 - A Windows named pipe with an owner-only DACL instead of the token-gated loopback socket.

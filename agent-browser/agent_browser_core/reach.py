@@ -250,8 +250,8 @@ class ReachMixin:
         page = self.ctx.new_page()
         errors = {"console_errors": [], "page_errors": [], "failed_requests": [], "http_errors": []}
         blocked: dict[str, Any] = {"hosts": [], "navigation": False}
-        page.on("console", lambda msg: errors["console_errors"].append(common.sanitize_text(msg.text, 500)) if msg.type == "error" else None)
-        page.on("pageerror", lambda error: errors["page_errors"].append(common.sanitize_text(str(error), 500)))
+        page.on("console", lambda msg: errors["console_errors"].append(common.sanitize_text(common.redact_text(msg.text), 500)) if msg.type == "error" else None)
+        page.on("pageerror", lambda error: errors["page_errors"].append(common.sanitize_text(common.redact_text(str(error)), 500)))
         page.on("requestfailed", lambda req: errors["failed_requests"].append(common.redact_url(req.url)))
         page.on("response", lambda response: errors["http_errors"].append({"status": response.status, "url": common.redact_url(response.url)}) if response.status >= 400 else None)
         # The page shares the signed-in profile, so nothing it loads may reach another host. Its DevTools Fetch domain

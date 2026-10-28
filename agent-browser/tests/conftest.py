@@ -21,7 +21,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import agent_browser as ab
-from agent_browser_core import common as core_common, daemon as core_daemon, snapshots as core_snapshots
+from agent_browser_core import api as core_api, common as core_common, daemon as core_daemon, snapshots as core_snapshots
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "snapshots"
 REAL_SPAWN_DAEMON = core_common._spawn_daemon
@@ -381,6 +381,7 @@ class FakeFrame:
         self.detached = False
         # What INPUT_ROLES_JS reports: [role attribute, value] for this frame's valued inputs, or an Exception to raise.
         self.input_roles: Any = []
+        self.g_ck: Any = None  # what api's G_CK_JS reads: the frame's window.g_ck, or an Exception to raise
 
     def is_detached(self) -> bool:
         return self.detached
@@ -407,6 +408,10 @@ class FakeFrame:
             if isinstance(self.input_roles, Exception):
                 raise self.input_roles
             return self.input_roles
+        if js == core_api.G_CK_JS:
+            if isinstance(self.g_ck, Exception):
+                raise self.g_ck
+            return self.g_ck
         raise AssertionError(f"FakeFrame.evaluate: no fake for js={js[:80]!r}")
 
 
@@ -555,6 +560,15 @@ class FakeContext(_Emitter):
         self.default_timeout: float | None = None
         self.closed = False
         self.cdp_sessions: list[FakeCDPSession] = []
+        # What cookies() returns (Playwright cookie dicts), or an Exception to raise; urls holds each call's argument.
+        self.cookie_jar: Any = []
+        self.cookie_calls: list[Any] = []
+
+    def cookies(self, urls: Any = None) -> list[dict[str, Any]]:
+        self.cookie_calls.append(urls)
+        if isinstance(self.cookie_jar, Exception):
+            raise self.cookie_jar
+        return list(self.cookie_jar)
 
     def new_page(self) -> FakePage:
         page = FakePage(self)

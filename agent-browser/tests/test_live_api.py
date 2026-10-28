@@ -1,4 +1,6 @@
 """Real cookie-sharing request context, redirects and binary bridge against loopback only."""
+import gzip
+import hashlib
 import json
 import os
 
@@ -7,6 +9,10 @@ from agent_browser_core import client
 from test_live_expansion import cli, site, live_home, ensure_running
 
 pytestmark = [pytest.mark.live, pytest.mark.skipif(os.getenv("AGENT_BROWSER_LIVE") != "1", reason="opt-in local Edge")]
+
+# Built at run time (GitGuardian scans every commit): the page's g_ck and a session cookie the echo pages return.
+LIVE_G_CK = hashlib.sha256(b"live g_ck").hexdigest()
+LIVE_COOKIE = hashlib.sha256(b"live cookie").hexdigest()[:32].upper()
 
 
 @pytest.fixture
@@ -37,6 +43,23 @@ def api_site(site, monkeypatch):
             seen["redirect_target"] += 1
             request.send_response(200)
             request.end_headers()
+        elif request.path.startswith("/api-echo"):
+            # A classic page embeds the session's g_ck; this one also echoes the session cookie it was sent.
+            cookie = request.headers.get("Cookie", "").split("glide_session_store=")[-1].split(";")[0]
+            if request.path == "/api-echo-json":
+                kind, data = "application/json", json.dumps({"result": {"token": LIVE_G_CK, "seen": cookie}}).encode()
+            else:
+                kind, data = "text/html; charset=utf-8", f"<script>var g_ck = '{LIVE_G_CK}';</script><p>{cookie}</p>".encode()
+            request.send_response(200)
+            if request.path == "/api-echo-gzip":
+                data = gzip.compress(data)
+                request.send_header("Content-Encoding", "gzip")
+            elif request.path == "/api-echo-utf16":
+                kind, data = "text/html; charset=utf-16le", data.decode().encode("utf-16-le")
+            request.send_header("Content-Type", kind)
+            request.send_header("Content-Length", str(len(data)))
+            request.end_headers()
+            request.wfile.write(data)
         elif request.path == "/api-binary":
             request.send_response(200)
             request.send_header("Content-Type", "application/octet-stream")
@@ -96,3 +119,20 @@ def test_binary_bridge_uses_owned_artifact_without_exposing_browser_state(cli, a
     assert result["command_id"] and result["receipt"]
     state = cli.ok("state", "--command", result["command_id"], "--session", "binary")
     assert json.loads(state["commands"][0]["outcome"])["body_file"]
+
+
+def test_inline_body_never_returns_the_live_session_token(cli, api_site, monkeypatch):
+    site, _ = api_site
+    cli.ok("goto", f"{site.url}/home.html", "--session", "scrub")
+    cli.ok("eval", f"window.g_ck = '{LIVE_G_CK}'; document.cookie = 'glide_session_store={LIVE_COOKIE}; path=/'; 1", "--session", "scrub")
+    for path in ("/api-echo", "/api-echo-gzip", "/api-echo-utf16"):  # Playwright inflates gzip; UTF-16 keeps NULs until the strip
+        result = cli.ok("api", f"{site.url}{path}", "--session", "scrub")
+        assert result["body"] == "<script>var g_ck = '***';</script><p>***</p>", path
+        assert result["body_masked"] == 2 and LIVE_G_CK not in json.dumps(result) and LIVE_COOKIE not in json.dumps(result)
+    result = cli.ok("api", f"{site.url}/api-echo-json", "--session", "scrub")
+    assert result["body"] == {"result": {"token": "***", "seen": "***"}}
+    # The Python bridge saves the body byte-exact: the token stays in the file, never in the reply.
+    monkeypatch.setenv("AGENT_BROWSER_HOME", str(cli.home))
+    saved = client.browser_request(method="GET", url=f"{site.url}/api-echo", headers={}, body=None, timeout=5, max_bytes=4096,
+                                   profile="expansion_qa", session_id="scrub", servicenow=False)
+    assert saved["body"] == f"<script>var g_ck = '{LIVE_G_CK}';</script><p>{LIVE_COOKIE}</p>".encode()

@@ -68,8 +68,8 @@ Same-page network matches are evidence, not proof of a causal business operation
 API reads use GET/HEAD; other supported methods require `commit api`. The current
 tab and request must have identical scheme, host and effective port. No automatic
 redirects or request retries occur. Cookies and internal ServiceNow authentication
-headers stay in the daemon. Response bodies are returned raw and unredacted (a page's
-HTML can embed its session token), so read pages with `text` or `snapshot`. Response headers named like credentials (cookie, `auth`,
+headers stay in the daemon. Inline bodies are scrubbed of this session's tokens (below);
+read pages with `text` or `snapshot`. Response headers named like credentials (cookie, `auth`,
 token, session, `g_ck`, secret, CSRF/XSRF, password, credential, or ending in `key`) and
 `Location`/`Refresh` are omitted; the rest are single-line with URLs redacted, including
 `Content-Location` and `Link` targets.
@@ -78,6 +78,26 @@ returns `needs_human` and a `handoff_id`; repeats reuse the open handoff. Every 
 (3xx except 304) returns `redirect: true` and a placeholder body. Other redirects and a
 403 return a `note` and no handoff; a 403 keeps its real, untrusted body.
 Response byte limits are post-download limits: Playwright buffers the response.
+An inline body (every CLI and MCP reply) and its returned headers are not returned as
+received. Invisible characters are stripped, and this session's tokens become `***`: the
+page's `g_ck` and the cookie values for the request and page URLs wherever they occur (JSON
+numbers are read as digits), plus a token-shaped value (16+ characters with a digit or
+capital) after a credential-named key, in an `<input>` or `<meta>` named like one, after
+`Bearer`/`Basic`, or shaped like a JWT. `body_masked` counts them. A JSON value under a
+credential-named key that is not token-shaped (`"state": "1"`) is kept; a long one with a
+digit or capital is masked even when it is not a secret. A known token still visible once
+the body is decoded (HTML entities, JS escapes, percent-encoding; two layers), folded
+(a character whose NFKC form is one ASCII letter or digit reads as it) and read without
+separators or markup (encoded, split, case-changed, fullwidth), or a
+key-and-token pair only the decoding shows, withholds the whole body: `body` is a
+placeholder, `headers` is empty, `body_withheld` is `session_token`, and a `note` follows.
+So do unreadable cookies (`unverified`), a body over 8 MiB (`too_large`) and JSON nested too
+deeply (`too_deep`). Not detected: base64, hex or three-layer encodings, a token split by
+other text (per table cell or JSON member), ligature or other multi-letter forms, and
+unknown tokens in shapes the backstop does
+not list. An inline request may not send `Range`. A body the Python bridge saves
+(`save_response`, where `Range` is allowed) is byte-exact and unscrubbed. `eval` values lose
+invisible characters and are never masked.
 
 `table` without a ref reads the page's one visible table, or its one ARIA grid when it has
 no table; grid cells are included. `check URL` (MCP `browser_check_url`) accepts only

@@ -1,5 +1,8 @@
 """Authenticated transport boundaries, receipts, and retained artifact contracts."""
+import base64
+import hashlib
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 
@@ -503,3 +506,244 @@ def test_api_response_satisfies_its_own_response_expectation(make_daemon):
     request_context(ctx, Response())
     result = daemon.dispatch("api", {"url": "/api/items", "expect": ["response:GET **/api/items:2xx"]}, 5)
     assert result["pending"] is False and result["expectations"] == [{"kind": "response", "passed": True}]
+
+
+# -- inline body scrub (PR 19). Every token is built at run time: GitGuardian scans every commit. ----------------------
+
+SN_PAGE = "https://dev.service-now.com/incident.do"
+
+
+def _token(label, length=64, upper=False):
+    value = hashlib.sha256(label.encode()).hexdigest()[:length]
+    return value.upper() if upper else value
+
+
+def _jwt():
+    part = lambda obj: base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
+    return ".".join([part({"alg": "HS256", "typ": "JWT"}), part({"sub": _token("sub", 12)}), _token("sig", 43)])
+
+
+def _inline_api(make_daemon, body, *, g_ck=None, cookies=(), status=200, args=None):
+    daemon, ctx, page = make_daemon()
+    page.url = page.main_frame.url = SN_PAGE
+    page.main_frame.g_ck = g_ck
+    ctx.cookie_jar = [{"name": name, "value": value} for name, value in cookies]
+    request_context(ctx, Response(status, {"Content-Type": "text/html"}, body if isinstance(body, bytes) else body.encode()))
+    return daemon.dispatch("api", {"url": "/incident.do", **(args or {})}, 1), ctx
+
+
+def test_api_html_body_masks_the_pages_live_g_ck_and_session_cookie_values(make_daemon):
+    live, session = _token("g_ck"), _token("jsessionid", 32, upper=True)
+    # Neither value follows a credential-named key, so only the exact values the daemon read can mask them.
+    body = f"<table><tr><td>{live}</td><td>{session}</td><td>INC0010001</td></tr></table>"
+    result, ctx = _inline_api(make_daemon, body, g_ck=live, cookies=[("JSESSIONID", session), ("glide_user_route", "glide.1")])
+    assert result["body"] == "<table><tr><td>***</td><td>***</td><td>INC0010001</td></tr></table>"
+    assert result["body_masked"] == 2 and "body_withheld" not in result
+    assert live not in json.dumps(result) and session not in json.dumps(result)
+    assert ctx.cookie_calls == [[SN_PAGE, SN_PAGE]]  # read after the request, for the request and page URLs
+
+
+def test_api_html_body_masks_token_carriers_the_daemon_cannot_know(make_daemon):
+    rotated, form_ck, csrf, cookie = _token("rotated"), _token("form"), _token("csrf", 40), _token("store", 32)
+    sys_id = _token("sys_id", 32)
+    body = (f"<script>var g_ck = '{rotated}'; window.NOW = {{\"g_ck\": \"{rotated}\"}};</script>"
+            f'<input name="sysparm_ck" id="sysparm_ck" type="hidden" value="{form_ck}">'
+            f'<meta name="csrf-token" content="{csrf}"><a href="/incident.do?sys_id={sys_id}&amp;sysparm_ck={form_ck}">open</a>'
+            f"<pre>Cookie: glide_session_store={cookie}; glide_user_route=glide.1</pre>"
+            f"<pre>X-UserToken: {rotated}</pre><pre>Authorization: Bearer {_jwt()}</pre><p>{_jwt()}</p>")
+    result, _ = _inline_api(make_daemon, body)  # this page has no g_ck and no cookies: only the backstop applies
+    assert result["body"] == (
+        "<script>var g_ck = '***'; window.NOW = {\"g_ck\": \"***\"};</script>"
+        '<input name="sysparm_ck" id="sysparm_ck" type="hidden" value="***">'
+        f'<meta name="csrf-token" content="***"><a href="/incident.do?sys_id={sys_id}&amp;sysparm_ck=***">open</a>'
+        "<pre>Cookie: glide_session_store=***; glide_user_route=glide.1</pre>"
+        "<pre>X-UserToken: ***</pre><pre>Authorization: Bearer ***</pre><p>***</p>")
+    assert result["body_masked"] == 9
+    assert not any(value in json.dumps(result) for value in (rotated, form_ck, csrf, cookie, _jwt()))
+
+
+def test_api_json_body_masks_token_keys_and_keeps_ordinary_fields(make_daemon):
+    sys_id, user_token, session, short = _token("sys_id", 32), _token("user"), _token("session", 32, upper=True), _token("short", 12)
+    record = {"sys_id": sys_id, "number": "INC0010001", "state": "1", "code": "INC0010001", "short_description": "Reset my token",
+              "u_session_count": 3, "u_token_hint": "use the portal"}
+    body = json.dumps({"result": [record], "X-UserToken": user_token, "session_id": session, "csrf_token": short,
+                       "access_token": _jwt(), "note": f"g_ck={user_token} expires"})
+    result, _ = _inline_api(make_daemon, body)
+    assert result["body"] == {"result": [record], "X-UserToken": "***", "session_id": "***", "csrf_token": short,
+                              "access_token": "***", "note": "g_ck=*** expires"}
+    assert result["body_masked"] == 4  # a short value is not token-shaped, so csrf_token keeps it
+
+
+def test_api_body_echoing_the_servicenow_key_it_sent_is_masked(make_daemon):
+    live = _token("sent")
+    result, _ = _inline_api(make_daemon, json.dumps({"result": {"echo": live}}), g_ck=live, args={"servicenow": True})
+    assert result["body"] == {"result": {"echo": "***"}} and live not in json.dumps(result)
+
+
+def test_api_saved_body_file_stays_byte_exact(make_daemon):
+    live = _token("saved")
+    body = f"<script>var g_ck = '{live}';</script>{chr(0x200B)}{chr(0xE0041)}{_jwt()}".encode() + b"\x00\xff"
+    result, ctx = _inline_api(make_daemon, body, g_ck=live, cookies=[("JSESSIONID", _token("j", 32))], args={"save_response": True})
+    assert Path(result["body_file"]).read_bytes() == body
+    assert "body" not in result and "body_masked" not in result and ctx.cookie_calls == []
+
+
+def test_api_inline_body_drops_invisible_characters(make_daemon):
+    tag, joiner = chr(0xE0041), chr(0x2060)
+    result, _ = _inline_api(make_daemon, json.dumps({"k" + chr(0x200B): ["v" + tag + joiner, {"n" + tag: 1}]}))
+    assert result["body"] == {"k": ["v", {"n": 1}]} and "body_masked" not in result
+    result, _ = _inline_api(make_daemon, "ok" + tag + chr(0x2028) + "next" + chr(0x202E))
+    assert result["body"] == "ok\nnext"
+    # UTF-16 text decoded as UTF-8 keeps its NULs until the strip, so a token in it is still matched.
+    live = _token("utf16")
+    result, _ = _inline_api(make_daemon, f"<p>{live}</p>".encode("utf-16-le"), g_ck=live)
+    assert result["body"] == "<p>***</p>"
+
+
+def _escaped(value, form):
+    backslash = chr(92)
+    if form == "percent":
+        return "".join(f"%{ord(c):02X}" for c in value)
+    if form == "double_percent":
+        return "".join(f"%25{ord(c):02X}" for c in value)
+    if form == "html_entity":
+        return "".join(f"&#{ord(c)};" for c in value)
+    if form == "js_escape":
+        return "".join(f"{backslash}u{ord(c):04x}" for c in value)
+    if form == "concatenated":
+        return value[:32] + "' + '" + value[32:]
+    if form == "line_wrapped":
+        return value[:30] + "\n" + value[30:]
+    return value.upper()
+
+
+@pytest.mark.parametrize("form", ["percent", "double_percent", "html_entity", "js_escape", "concatenated", "line_wrapped", "upper"])
+def test_api_body_with_a_live_token_that_cannot_be_masked_in_place_is_withheld(make_daemon, form):
+    live = _token("g_ck")
+    result, _ = _inline_api(make_daemon, f"<script>var config = '{_escaped(live, form)}';</script>", g_ck=live)
+    assert result["body_withheld"] == "session_token" and result["body"] == api.WITHHELD["session_token"]
+    assert result["note"] == common._hint("api_body_withheld")
+    assert live not in json.dumps(result).lower() and _escaped(live, form) not in json.dumps(result)
+
+
+def test_api_json_body_split_across_strings_or_escaped_in_a_string_is_withheld(make_daemon):
+    live = _token("split")
+    result, _ = _inline_api(make_daemon, json.dumps({"parts": [live[:20], live[20:40], live[40:]]}), g_ck=live)
+    assert result["body_withheld"] == "session_token"
+    # Serialised, the newline would read as the letter n between the halves; the check reads the strings themselves.
+    result, _ = _inline_api(make_daemon, json.dumps({"note": live[:30] + "\n" + live[30:]}), g_ck=live)
+    assert result["body_withheld"] == "session_token"
+    unknown = _token("unknown")  # not a known value: the decoded view shows a credential-named key's token
+    result, _ = _inline_api(make_daemon, json.dumps({"html": f"token%3D{unknown}"}))
+    assert result["body_withheld"] == "session_token" and unknown not in json.dumps(result)
+
+
+def test_api_body_is_withheld_when_its_scrub_cannot_be_trusted(make_daemon, monkeypatch):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    ctx.cookie_jar = RuntimeError("context closed")
+    request_context(ctx, Response(body=b'{"result": []}'))
+    result = daemon.dispatch("api", {"url": "/api/items"}, 1)
+    assert result["body_withheld"] == "unverified" and result["body"] == api.WITHHELD["unverified"]
+    result, _ = _inline_api(make_daemon, "[" * 100_000 + "]" * 100_000)
+    assert result["body_withheld"] == "too_deep"
+    monkeypatch.setattr(api, "SCRUB_BODY_CAP", 10)
+    result, _ = _inline_api(make_daemon, "a" * 11)
+    assert result["body_withheld"] == "too_large"
+
+
+def test_api_403_with_a_withheld_body_keeps_both_notes(make_daemon):
+    live = _token("g_ck")
+    result, _ = _inline_api(make_daemon, _escaped(live, "percent"), g_ck=live, status=403)
+    assert result["body_withheld"] == "session_token"
+    assert result["note"] == common._hint("api_not_auth") + " " + common._hint("api_body_withheld")
+
+
+def test_api_scrub_keeps_frames_of_other_origins_out_and_survives_unreadable_frames(make_daemon):
+    from conftest import FakeFrame
+    live, foreign = _token("g_ck"), _token("foreign")
+    daemon, ctx, page = make_daemon()
+    page.url = page.main_frame.url = SN_PAGE
+    page.main_frame.g_ck = RuntimeError("Execution context was destroyed")
+    page.frames = [page.main_frame, FakeFrame(name="other", url="https://other.example/x"), FakeFrame(name="gsft_main", url=SN_PAGE + "?x=1")]
+    page.frames[1].g_ck, page.frames[2].g_ck = foreign, live
+    request_context(ctx, Response(200, {}, f"{live} {foreign}".encode()))
+    result = daemon.dispatch("api", {"url": "/incident.do"}, 1)
+    assert result["body"] == f"*** {foreign}"
+
+
+# -- security review follow-ups (PR 19) --------------------------------------------------------------------------------
+
+def test_api_inline_range_request_is_refused_before_it_is_sent(make_daemon):
+    # A slice can end inside a token, and no known value matches half of one.
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    calls = request_context(ctx, Response(206, {}, b"partial"))
+    with pytest.raises(ValueError) as err:
+        daemon.dispatch("api", {"url": "/doc", "headers": {"Range": "bytes=0-99"}}, 1)
+    assert err.value.error_class == common.ERR_GUARDED and calls == []
+    result = daemon.dispatch("api", {"url": "/doc", "headers": {"range": "bytes=0-99"}, "save_response": True}, 1)
+    assert Path(result["body_file"]).read_bytes() == b"partial" and len(calls) == 1
+
+
+def test_api_json_number_holding_a_known_value_is_masked(make_daemon):
+    digits = str(int(_token("digits", 20), 16))[:22]
+    result, _ = _inline_api(make_daemon, '{"a": ' + digits + ', "b": [1' + digits + '], "n": 7}', cookies=[("glide_user", digits)])
+    assert result["body"] == {"a": "***", "b": ["1***"], "n": 7} and result["body_masked"] == 2
+
+
+def test_api_header_values_are_scrubbed_and_a_withheld_body_drops_them(make_daemon):
+    live = _token("header")
+    daemon, ctx, page = make_daemon()
+    page.url = page.main_frame.url = SN_PAGE
+    page.main_frame.g_ck = live
+    request_context(ctx, Response(200, {"X-Debug": f"seen {live}", "ETag": f'"{live}"', "Content-Type": "text/plain", f"X-{live}": "1"}, b"ok"))
+    result = daemon.dispatch("api", {"url": "/x"}, 1)
+    assert result["headers"] == {"X-Debug": "seen ***", "ETag": '"***"', "Content-Type": "text/plain", "X-***": "1"} and result["body_masked"] == 3
+    request_context(ctx, Response(200, {"X-Debug": _escaped(live, "percent")}, b"ok"))
+    result = daemon.dispatch("api", {"url": "/x"}, 1)
+    assert result["body_withheld"] == "session_token" and result["headers"] == {}
+
+
+def test_api_json_body_with_an_unpaired_surrogate_still_has_a_sendable_reply(make_daemon):
+    result, _ = _inline_api(make_daemon, '{"a": "x' + chr(92) + 'ud800y"}')
+    assert result["body"] == {"a": "x" + chr(0xFFFD) + "y"}
+    json.dumps(result, ensure_ascii=False).encode("utf-8")  # the daemon's reply encoding
+
+
+@pytest.mark.parametrize("form", ["fullwidth", "markup", "comment"])
+def test_api_body_with_a_disguised_live_token_is_withheld(make_daemon, form):
+    live = _token("g_ck")
+    if form == "fullwidth":  # NFKC folds fullwidth letters and digits to ASCII
+        shown = "".join(chr(ord(c) + 0xFEE0) for c in live)
+    else:
+        joiner = "<wbr>" if form == "markup" else "<!-- -->"
+        shown = joiner.join(live[i:i + 8] for i in range(0, len(live), 8))
+    result, _ = _inline_api(make_daemon, f"<p>{shown}</p>", g_ck=live)
+    assert result["body_withheld"] == "session_token"
+
+
+@pytest.mark.parametrize("char", [0xFDFA, 0xFB03])  # NFKC makes 18 and 3 characters of one
+def test_api_scrub_of_expanding_compatibility_characters_stays_linear(char):
+    # NFKC over the whole text took about 73 s for 350k of U+FDFA (quadratic); the fold is per distinct character.
+    import time
+    started = time.perf_counter()
+    assert api.scrub_body((chr(char) * 400_000).encode(), [_token("g_ck")])["body"] == chr(char) * 400_000
+    assert time.perf_counter() - started < 10
+
+
+def test_api_backstop_covers_quoted_schemes_argument_lists_and_more_key_names(make_daemon):
+    unknown = _token("unknown")
+    body = (f"<script>xhr.setRequestHeader('X-UserToken', '{unknown}'); auth = 'Bearer \"{unknown}\"';</script>"
+            f'{{"sessionKey": "{unknown}", "secretKey": "{unknown}", "accesskey": "{unknown}"}}')
+    result, _ = _inline_api(make_daemon, body)
+    assert unknown not in json.dumps(result) and result["body_masked"] == 5
+
+
+def test_api_cookie_entry_that_cannot_be_read_withholds_the_body(make_daemon):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    ctx.cookie_jar = [None]
+    request_context(ctx, Response())
+    result = daemon.dispatch("api", {"url": "/api/items"}, 1)
+    assert result["body_withheld"] == "unverified"
