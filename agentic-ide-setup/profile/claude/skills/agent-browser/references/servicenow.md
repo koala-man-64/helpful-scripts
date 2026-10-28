@@ -20,8 +20,14 @@ Optional `SERVICENOW_AUTH=browser` in servicenow-client uses the same signed-in
 profile and daemon API. Install both packages, select the intended profile/session
 and navigate to the configured exact instance origin. Basic auth stays available;
 all existing client write/delete/dry-run/attachment guards still apply first.
-No cookies, authentication headers or session key values leave the daemon. Missing
-or expired browser auth requires human sign-in or unsupported-auth handling.
+No cookies, authentication headers or session key values leave the daemon. A page
+without a usable session key (not signed in, or not a classic page) fails as
+`unsupported_browser_auth` before any request and opens no handoff. If the user must
+sign in, run `agent-browser needs-human --signed-in <instance host>`; otherwise open a
+classic form page and retry. An expired session (401 or a redirect to the sign-in
+page or IdP) opens one handoff and focuses the window once; repeats reuse it. A 403
+is usually an ACL decision: its body is returned with a `note`, and no handoff is
+opened. If a gateway answers an expired session with 403, run `needs-human` yourself.
 
 Raw response artifacts contain application data and remain under the owning
 session's outputs until `agent-browser commit journal --clear`. They count toward

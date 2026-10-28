@@ -68,6 +68,109 @@ def test_redirect_auth_headers_and_body_do_not_escape(make_daemon):
     assert response.disposed
 
 
+@pytest.fixture
+def focus_calls(monkeypatch):
+    from agent_browser_core import session
+    calls = []
+    monkeypatch.setattr(session, "focus_window", lambda paths: calls.append(paths) or {"focused": False})
+    return calls
+
+
+@pytest.mark.parametrize("save_response", [False, True])
+@pytest.mark.parametrize("status,headers", [(302, {"Location": "/dashboard?code=private-code"}), (301, {"location": "http://x:80/app/next"}),
+                                            (307, {}), (303, {"Location": "   "})])
+def test_redirect_off_sign_in_keeps_placeholder_body_without_handoff(make_daemon, focus_calls, status, headers, save_response):
+    from pathlib import Path
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    request_context(ctx, Response(status, headers, b"private-redirect-page"))
+    result = daemon.dispatch("api", {"url": "/api/items", "save_response": save_response}, 1)
+    assert result["status"] == status and result["redirect"] is True
+    assert "needs_human" not in result and "handoff_id" not in result
+    assert result["note"] == common._hint("api_not_auth")
+    body = Path(result["body_file"]).read_bytes().decode() if save_response else result["body"]
+    assert "private-" not in body and "private-" not in json.dumps(result)
+    assert daemon.journal.handoffs("manual") == [] and focus_calls == []
+
+
+@pytest.mark.parametrize("location", ["/login?x=1", "/app/signin", "login.do", "https://login.microsoftonline.com/x",
+                                      "https://sso.corp.example/x", "//sso.corp.example/x", "http://x:8080/app", "https://x/app",
+                                      "mailto:help@x", "\\\\sso.corp.example/x"])
+def test_redirect_off_origin_or_to_sign_in_opens_handoff(make_daemon, focus_calls, location):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    request_context(ctx, Response(302, {"Location": location}, b"private-auth-page"))
+    result = daemon.dispatch("api", {"url": "/api/items"}, 1)
+    assert result["needs_human"] is True and result["redirect"] is True and "note" not in result
+    assert result["body"] == "Authentication requires human verification."
+    [row] = daemon.journal.handoffs("manual")
+    assert row["id"] == result["handoff_id"] and json.loads(row["condition"])["signed_in"] == "x"
+    assert len(focus_calls) == 1
+
+
+@pytest.mark.parametrize("name", ["Location", "location", "LOCATION", "LoCaTiOn"])
+def test_location_header_is_read_whatever_its_case(make_daemon, focus_calls, name):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    request_context(ctx, Response(302, {name: "/login?state=private-state"}))
+    result = daemon.dispatch("api", {"url": "/api/items"}, 1)
+    assert result["needs_human"] is True and result["redirect"] is True
+    request_context(ctx, Response(302, {name: "/app/next"}))
+    result = daemon.dispatch("api", {"url": "/api/items"}, 1)
+    assert "needs_human" not in result and result["redirect"] is True
+    assert "private-" not in json.dumps(result) and len(daemon.journal.handoffs("manual")) == 1
+
+
+def test_acl_403_returns_its_body_with_a_note_and_no_handoff(make_daemon, focus_calls):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    request_context(ctx, Response(403, {"Content-Type": "application/json"}, b'{"error":"acl"}'))
+    result = daemon.dispatch("api", {"url": "/api/items"}, 1)
+    assert result["status"] == 403 and result["body"] == {"error": "acl"} and "body" in result["untrusted"]
+    assert result["note"] == common._hint("api_not_auth") and "needs-human" in result["note"]
+    assert "needs_human" not in result and "redirect" not in result
+    assert daemon.journal.handoffs("manual") == [] and focus_calls == []
+
+
+def test_not_modified_is_an_ordinary_response(make_daemon, focus_calls):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    request_context(ctx, Response(304, {"ETag": '"v1"'}, b""))
+    result = daemon.dispatch("api", {"url": "/api/items", "headers": {"If-None-Match": '"v1"'}}, 1)
+    assert result["status"] == 304 and result["body"] == ""
+    assert not {"redirect", "needs_human", "note"} & set(result)
+
+
+def test_repeated_401_reuses_the_open_handoff_and_focuses_once(make_daemon, focus_calls):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    request_context(ctx, Response(401, {"WWW-Authenticate": "Negotiate private-challenge"}, b"private-401"))
+    first = daemon.dispatch("api", {"url": "/api/items"}, 1)
+    second = daemon.dispatch("api", {"url": "/api/other"}, 1)
+    assert first["handoff_id"] == second["handoff_id"] and "redirect" not in first
+    assert len(daemon.journal.handoffs("manual")) == 1 and len(focus_calls) == 1
+    assert "private-" not in json.dumps([first, second])
+    # A navigation since the first 401 is a new baseline, and a resolved handoff is never reused.
+    daemon.nav_counts[page.main_frame] = daemon.nav_counts.get(page.main_frame, 0) + 1
+    third = daemon.dispatch("api", {"url": "/api/items"}, 1)
+    daemon.journal.resolve_handoff("manual", third["handoff_id"])
+    fourth = daemon.dispatch("api", {"url": "/api/items"}, 1)
+    assert len({first["handoff_id"], third["handoff_id"], fourth["handoff_id"]}) == 3 and len(focus_calls) == 3
+    [row] = [h for h in daemon.journal.handoffs("manual") if h["id"] == fourth["handoff_id"]]
+    other, created = daemon.journal.open_handoff("other", row["reason"], json.loads(row["condition"]))
+    assert created and other != fourth["handoff_id"]
+
+
+def test_needs_human_and_api_share_one_handoff_path(make_daemon, focus_calls):
+    daemon, ctx, page = make_daemon()
+    first = daemon.dispatch("needs-human", {"reason": "Sign in", "condition": {"signed_in": "x"}}, 1)
+    again = daemon.dispatch("needs-human", {"reason": "Sign in", "condition": {"signed_in": "x"}}, 1)
+    other = daemon.dispatch("needs-human", {"reason": "Approve the MFA prompt", "condition": {"signed_in": "x"}}, 1)
+    assert first["handoff_id"] == again["handoff_id"] != other["handoff_id"]
+    assert again["status"] == "needs_human" and again["pending"] is True
+    assert len(daemon.journal.handoffs("manual")) == 2 and len(focus_calls) == 2
+
+
 def test_api_write_requires_commit_and_uncertain_write_is_never_replayed(make_daemon):
     daemon, ctx, page = make_daemon()
     page.url = "http://x/app"
@@ -104,6 +207,10 @@ def test_servicenow_auth_stays_inside_daemon_and_absent_token_stops_dispatch(mak
     with pytest.raises(RuntimeError) as err:
         daemon.dispatch("api", {"url": "/api/now/table/incident", "servicenow": True}, 1)
     assert err.value.error_class == "unsupported_browser_auth" and calls == []
+    # No handoff is opened, so the message must not claim one; the hint names the step that opens it.
+    assert "handoff" not in str(err.value) and "not signed in" in str(err.value)
+    assert err.value.hint == common._hint("api_auth_unavailable") and "needs-human --signed-in" in err.value.hint
+    assert daemon.journal.handoffs("manual") == []
     monkeypatch.setattr(page.main_frame, "evaluate", lambda js: "private-session-key")
     result = daemon.dispatch("api", {"url": "/api/now/table/incident", "servicenow": True}, 1)
     assert calls[0][1]["headers"]["X-UserToken"] == "private-session-key"

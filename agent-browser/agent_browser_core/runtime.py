@@ -366,18 +366,36 @@ class OperatingMixin:
         handoffs = self.journal.handoffs(self.session_id, args.get("handoff_id"))
         if args.get("handoff_id") and not handoffs:
             raise common._tag(ValueError("No handoff with that ID in this session."), common.ERR_NOT_FOUND, hint=common._hint("handoff_not_found", self.profile))
+        signed_in: dict[str, bool] = {}  # one page check per host, however many handoffs wait on it
         for item in handoffs:
+            if item["status"] != "needs_human":
+                continue
             condition = json.loads(item["condition"])
+            host = condition.get("signed_in")
             navigated = not condition.get("require_navigation") or self.current and self.nav_counts.get(self.current.main_frame, 0) > condition.get("navigation", 0)
-            observed = self.current and condition.get("signed_in") and navigated and self._signed_in(self.current, condition["signed_in"])
+            observed = False
+            if self.current and host and navigated:
+                if host not in signed_in:
+                    signed_in[host] = self._signed_in(self.current, host)
+                observed = signed_in[host]
             if args.get("resolve") and condition and not observed:
                 raise common._tag(ValueError("The handoff completion condition has not been observed. Complete the human action and poll its state."), common.ERR_GUARDED)
             if args.get("resolve") or observed:
                 self.journal.resolve_handoff(self.session_id, item["id"])
                 item["status"] = "resolved"
-        command_page = self.journal.page(self.session_id, args.get("command_id"), int(args.get("offset", 0)))
+        # Handoffs and the command page share the inspection budget; handoffs get at most half,
+        # open ones first, so retry loops cannot grow the reply.
+        shown, used = [], 0
+        for item in sorted(handoffs, key=lambda h: h["status"] != "needs_human"):
+            size = len(json.dumps(item, ensure_ascii=False).encode("utf-8"))
+            if shown and used + size > evidence.INSPECTION_BUDGET // 2:
+                break
+            shown.append(item)
+            used += size
+        command_page = self.journal.page(self.session_id, args.get("command_id"), int(args.get("offset", 0)), evidence.INSPECTION_BUDGET - used)
         return {"profile": self.profile, "session_id": self.session_id, "tabs": self._tabs(),
-                "commands": command_page["commands"], "command_next_offset": command_page["next_offset"], "handoffs": handoffs,
+                "commands": command_page["commands"], "command_next_offset": command_page["next_offset"],
+                "handoffs": shown, "handoffs_omitted": len(handoffs) - len(shown),
                 "evidence_bytes": self.journal.usage(), "evidence_max_bytes": self.journal.quota,
                 "background_dialogs": self.sessions[self.session_id].get("dialogs", []),
                 "permission": self.config.get("permission", "commit"), "eval": self.config.get("eval", True) and self.config.get("permission", "commit") == "commit"}
@@ -405,7 +423,14 @@ class OperatingMixin:
         condition = args.get("condition") or {}
         if not isinstance(condition, dict) or set(condition) - {"signed_in"} or any(not isinstance(v, str) or not v or len(v) > 253 for v in condition.values()):
             raise common._tag(ValueError("Human handoff supports an optional signed_in host condition."), common.ERR_VALIDATION)
-        handoff_id = self.journal.handoff(self.session_id, str(args.get("reason") or "Human action required"), condition)
-        from .session import focus_window
-        focus_window(self.paths)
+        handoff_id = self.open_handoff(str(args.get("reason") or "Human action required"), condition)
         return {"status": "needs_human", "handoff_id": handoff_id, "pending": True}
+
+    def open_handoff(self, reason: str, condition: dict[str, Any]) -> str:
+        """The one way to ask the human. An identical open handoff is reused, and only a new one takes focus,
+        so a retry loop neither adds rows nor keeps stealing the window."""
+        handoff_id, created = self.journal.open_handoff(self.session_id, reason, condition)
+        if created:
+            from .session import focus_window
+            focus_window(self.paths)
+        return handoff_id

@@ -50,7 +50,8 @@ credential-looking, unverifiable or over-budget field values as `***`; `--find` 
 use `agent-browser needs-human --signed-in example.com` and let the user sign in.
 Its receipt is final (`needs_human`); the handoff ID carries the open human action.
 Poll with `agent-browser state --handoff ID` (another session's or a cleared ID is `not_found`), or use
-`agent-browser wait --signed-in example.com`. Only handoffs focus/flash the window.
+`agent-browser wait --signed-in example.com`. Only new handoffs focus/flash the window;
+repeating an open one (same reason and condition) returns its ID.
 After explicit human confirmation, `agent-browser commit state --handoff ID --resolve`
 records completion when the handoff has no automatic condition.
 Conditional handoffs resolve only after their completion condition is observed.
@@ -92,6 +93,8 @@ The diagnostics page closes without replacing the working tab.
 
 `agent-browser api https://example.com/api/items` uses the current tab's exact origin
 and signed-in cookies. Redirects/retries are disabled. Writes require `commit api`.
+A 401 or a sign-in/off-origin redirect opens a handoff (`needs_human`). Other redirects
+(`redirect: true`, body withheld) and a 403 (real body) add a `note` instead.
 The optional MCP server uses the same dispatcher, policy and options (`tab`, `ref`, `timeout`);
 commit/eval tools stay separately identifiable. Read [interfaces](references/interfaces.md).
 
