@@ -179,10 +179,12 @@ that ran, an interrupted non-read), the screenshots and saved responses named fo
 and open handoffs, and reports `cleared_commands`, `retained_commands`, `cleared_handoffs`
 and `retained_handoffs`. `commit journal --clear --include-unknown` (MCP `browser_commit`
 with `include_unknown`) deletes those too.
-Overflow JSON saved under a random ID names no receipt and is always deleted. The quota
-is per profile: a `journal_full` error's details give `evidence_bytes`, `session_bytes`,
-`other_sessions_bytes`, the shared `journal_bytes` and `quota`, and other sessions'
-evidence is beyond this session's clear.
+Overflow JSON saved under a random ID names no receipt and is always deleted. A file that
+cannot be removed (held open) is counted in `files_not_removed` and removed by a later clear.
+Links in an evidence folder are removed, never followed; a linked evidence folder is
+`guarded`. The quota is per profile: when it refuses a command, the `journal_full` details
+give `evidence_bytes`, `session_bytes`, `other_sessions_bytes`, the shared `journal_bytes`
+and `quota`, and other sessions' evidence is beyond this session's clear.
 Journal pages return `next_offset`; state returns `command_next_offset`. Pass that
 value with `--offset`. A large receipt returns `r` plus its command ID as `output_id`;
 use `output --id ID --offset 0` to read the terminal receipt directly from SQLite.

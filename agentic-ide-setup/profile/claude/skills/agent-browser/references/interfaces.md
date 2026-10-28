@@ -96,10 +96,12 @@ becomes `unknown`). It then deletes completed, failed and needs_human receipts, 
 receipts of reads, and resolved handoffs. It keeps unknown receipts of commit verbs,
 upload, eval, commands that ran and interrupted non-reads, their `<id>` screenshots
 and saved responses, and open handoffs. The reply counts `cleared_commands`,
-`retained_commands`, `cleared_handoffs` and `retained_handoffs`. `--include-unknown`
-(MCP `include_unknown`) deletes the kept ones too. A `journal_full` error's details
-split `evidence_bytes` into `session_bytes`, `other_sessions_bytes` and the shared
-`journal_bytes`, against `quota`; other sessions' evidence is beyond this session's clear.
+`retained_commands`, `cleared_handoffs` and `retained_handoffs`, plus `files_not_removed`
+when a file was held open (a later clear removes it). `--include-unknown` (MCP
+`include_unknown`) deletes the kept ones too. When the quota refuses a command, its
+`journal_full` details split `evidence_bytes` into `session_bytes`, `other_sessions_bytes`
+and the shared `journal_bytes`, against `quota`; other sessions' evidence is beyond this
+session's clear.
 
 The canonical Claude settings template asks for commit/eval and evidence clear calls,
 including tools from any MCP server using these browser tool names. A template edit

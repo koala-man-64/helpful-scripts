@@ -115,8 +115,11 @@ def _restore_needs_human(db: sqlite3.Connection) -> None:
 def _risky(verb: str, outcome: str | None) -> bool:
     """Whether an unknown receipt may record a write: a commit verb, upload, eval, a command that ran, or an
     interrupted non-read verb whose outcome was never written. The restart sweep also marks interrupted reads
-    unknown; those have nothing to protect."""
+    unknown; those have nothing to protect. A clear or handoff resolution changes only this journal, and
+    repeating it is harmless, so its receipt is not kept either, even when that clear failed partway."""
     name = verb.rsplit(" ", 1)[-1]
+    if name in {"journal", "state"}:
+        return False
     if verb.startswith("commit ") or name in {"upload", "eval"}:
         return True
     try:
@@ -172,7 +175,8 @@ class Journal:
 
     def finish(self, command_id: str, status: str, outcome: dict[str, Any]) -> None:
         keys = {"effect", "observed", "error_class", "executed", "screenshots", "completed_fields", "pending", "handoff_id", "body_file", "expectations",
-                "cleared_commands", "retained_commands", "cleared_handoffs", "retained_handoffs", "status", "write_outcome", "persisted", "number"}
+                "cleared_commands", "retained_commands", "cleared_handoffs", "retained_handoffs", "files_not_removed",
+                "status", "write_outcome", "persisted", "number"}
         safe = {k: outcome[k] for k in keys if k in outcome}
         with self.connect() as db:
             previous = db.execute("SELECT outcome FROM commands WHERE id=?", (command_id,)).fetchone()
