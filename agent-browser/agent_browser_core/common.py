@@ -275,7 +275,8 @@ REDACT_QUERY_KEYS = frozenset({
 
 REDACT_KEY_SUFFIXES = (
     "token", "secret", "password", "passwd", "passphrase", "signature", "credential", "credentials", "session",
-    "sessionid", "session_id", "apikey", "api_key", "access_key", "secret_key", "private_key", "signing_key", "auth_key",
+    "sessionid", "session_id", "session_key", "sessionkey", "apikey", "api_key", "access_key", "accesskey", "secret_key",
+    "secretkey", "private_key", "privatekey", "signing_key", "auth_key",
     "subscription_key", "auth_code", "authorization_code", "otp_code", "mfa_code", "verification_code", "security_code",
     "reset_code", "device_code", "csrf", "xsrf", "assertion", "jwt",
 )
@@ -941,19 +942,23 @@ def redact_text(text: Any) -> str:
     return URL_IN_TEXT_RE.sub(one, strip_invisible(text))
 
 
-def scrub_json(value: Any, text: Callable[[str], str] = strip_invisible, item: Callable[[str, Any], Any] | None = None) -> Any:
-    """A decoded JSON value with `text` (strip_invisible by default) applied to every string, object keys included.
-    `item(key, value)`, when given, sees each scrubbed object member and returns the value to keep."""
+def scrub_json(value: Any, text: Callable[[str], str] = strip_invisible, item: Callable[[str, Any], Any] | None = None,
+               number: Callable[[Any], Any] | None = None) -> Any:
+    """A decoded JSON value with `text` (strip_invisible by default) applied to every string, object keys included,
+    and `number`, when given, to every int and float. `item(key, value)`, when given, sees each scrubbed object member
+    and returns the value to keep."""
     if isinstance(value, str):
         return text(value)
     if isinstance(value, list):
-        return [scrub_json(v, text, item) for v in value]
+        return [scrub_json(v, text, item, number) for v in value]
     if isinstance(value, dict):
         out = {}
         for key, member in value.items():
-            key, member = text(str(key)), scrub_json(member, text, item)
+            key, member = text(str(key)), scrub_json(member, text, item, number)
             out[key] = item(key, member) if item else member
         return out
+    if number is not None and isinstance(value, (int, float)) and not isinstance(value, bool):
+        return number(value)
     return value
 
 

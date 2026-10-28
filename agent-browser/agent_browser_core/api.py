@@ -4,6 +4,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import unicodedata
 import urllib.parse
 from pathlib import Path
 from typing import Any, Iterable
@@ -94,20 +95,26 @@ def needs_sign_in(status: int, target: str, request_url: str) -> bool:
 # 3. Check: the result is decoded (HTML entities, JS/JSON escapes, percent-encoding, twice) and read with everything
 #    but letters and digits removed. A known value still found there (encoded, split or case-changed), or a backstop
 #    match that only the decoding shows, withholds the whole body.
-SCRUB_BODY_CAP = 8 * 1024 * 1024  # a larger inline body is withheld; the scrub of 8 MiB takes about 1.5 s
+# Header values and JSON numbers (as digits) go through the same scrub. A Range request is refused inline: a slice
+# can end inside a token, and no known value matches half of one.
+SCRUB_BODY_CAP = 8 * 1024 * 1024  # a larger inline body is withheld; 8 MiB takes 1-2 s to scrub, a hostile one up to ~4 s
 KNOWN_VALUE_MIN = 16
 KNOWN_LETTERS_MIN = 12  # a known value's letters-and-digits form shorter than this is not looked for in step 3
 G_CK_JS = "() => typeof window.g_ck === 'string' ? window.g_ck : null"
 TOKEN_VALUE = r"(?=[A-Za-z0-9_.~%+/=-]*[0-9A-Z])[A-Za-z0-9_.~%+/=-]{16,}"  # 16+ token characters with a digit or a capital
 TOKEN_VALUE_RE = re.compile(TOKEN_VALUE)
 QUOTE = r"(?:[\"']|\\[\"']|&quot;|&#3[49];|&#[xX]2[27];)"  # a quote: raw, backslash-escaped or an HTML entity
-SEPARATOR = r"(?:" + QUOTE + r"|\]){0,2}\s*[:=]"
+SEPARATOR = r"(?:(?:" + QUOTE + r"|\]){0,2}\s*[:=]|" + QUOTE + r"\s*,)"  # key: v, key = v, or 'key', 'v' (an argument list)
 # Only the key is matched, so a key that is not credential-named never consumes a pair inside its value
 # (Cookie: glide_session_store=...); the value is read from where the key ends.
 KEY_RE = re.compile(r"(?<![\w$-])[A-Za-z_$][\w$-]*(?=" + SEPARATOR + ")")
 VALUE_AFTER_KEY_RE = re.compile(SEPARATOR + r"\s*" + QUOTE + r"?(?P<value>" + TOKEN_VALUE + ")")
-AUTH_SCHEME_RE = re.compile(r"(?<![\w-])(?i:bearer|basic)\s+(?P<value>" + TOKEN_VALUE + ")")
+AUTH_SCHEME_RE = re.compile(r"(?<![\w-])(?i:bearer|basic)\s+" + QUOTE + r"?(?P<value>" + TOKEN_VALUE + ")")
+# A tag ends at its first >, even inside a quoted attribute: a quote-aware pattern backtracks for tens of seconds on
+# 8 MiB of unclosed <input ", so such a tag is left to the known values and step 3.
 TAG_RE = re.compile(r"<(?:input|meta)\b[^>]{0,2000}>", re.I)
+MARKUP_RE = re.compile(r"<[^<>]*>")
+LONE_SURROGATE_RE = re.compile("[" + chr(0xD800) + "-" + chr(0xDFFF) + "]")  # json.loads keeps an unpaired \ud800
 ATTR_RE = re.compile(r"""(?P<name>[\w:-]+)\s*=\s*(?:"(?P<dq>[^"]*)"|'(?P<sq>[^']*)'|(?P<bare>[^\s"'>]+))""")
 JS_ESCAPE_RE = re.compile(r"\\(?:u\{([0-9A-Fa-f]{1,6})\}|u([0-9A-Fa-f]{4})|x([0-9A-Fa-f]{2}))")
 NOT_LETTER_RE = re.compile(r"[^0-9A-Za-z]+")
@@ -187,11 +194,13 @@ def _decoded(text: str) -> str:
 
 
 def _letters(text: str) -> str:
-    return NOT_LETTER_RE.sub("", text).lower()
+    """Letters and digits only, lowercased, after NFKC (fullwidth and other compatibility forms read as ASCII)."""
+    return NOT_LETTER_RE.sub("", unicodedata.normalize("NFKC", text)).lower()
 
 
 class BodyScrub:
-    """One inline body's scrub (see SCRUB_BODY_CAP): text() for every string, item() for every JSON object member."""
+    """One inline body's scrub (see SCRUB_BODY_CAP): text() for every string and header value, number() for every
+    JSON number, item() for every JSON object member."""
 
     def __init__(self, known: Iterable[str]) -> None:
         self.known = sorted({v for v in known if _known_value(v)}, key=len, reverse=True)  # a longer value may hold a shorter
@@ -199,7 +208,8 @@ class BodyScrub:
         self.strings: list[str] = []  # every scrubbed string in document order, JSON keys included
 
     def text(self, value: str) -> str:
-        value = common.strip_invisible(value)
+        # An unpaired surrogate cannot be encoded as UTF-8, so the reply carrying it would never be sent.
+        value = common.strip_invisible(LONE_SURROGATE_RE.sub(chr(0xFFFD), value))
         for known in self.known:
             if known in value:
                 self.masked += value.count(known)
@@ -208,6 +218,12 @@ class BodyScrub:
         self.masked += count
         self.strings.append(value)
         return value
+
+    def number(self, value: int | float) -> Any:
+        """A JSON number read as its digits: one that holds a known value comes back as a string with *** in it."""
+        digits = str(value)
+        scrubbed = self.text(digits)
+        return value if scrubbed == digits else scrubbed
 
     def item(self, key: str, value: Any) -> Any:
         """A credential-named member's token-shaped string or number is masked, as step 2 masks key: value in text."""
@@ -226,7 +242,8 @@ class BodyScrub:
         reads `shown`, the body as returned (serialised JSON keeps each key next to its value)."""
         strings = " ".join(self.strings)
         decoded = _decoded(strings)
-        views = (_letters(strings), _letters(decoded)) if decoded != strings else (_letters(strings),)
+        # Also without markup, so pieces split by <b>, <wbr> or a comment meet again.
+        views = {_letters(strings), _letters(decoded), _letters(MARKUP_RE.sub("", decoded))}
         for known in self.known:
             for form in {_letters(known), _letters(_decoded(known))}:
                 if len(form) >= KNOWN_LETTERS_MIN and any(form in view for view in views):
@@ -235,28 +252,32 @@ class BodyScrub:
         return decoded != shown and mask_token_carriers(decoded)[1] > 0
 
 
-def scrub_body(data: bytes, known: Iterable[str] | None) -> dict[str, Any]:
-    """The reply fields for an inline body: `body` (JSON, else UTF-8 text with undecodable bytes replaced) after the
-    scrub, with `body_masked` (how many values became ***), or a placeholder `body` and `body_withheld` (a WITHHELD key).
-    known=None means the session's values could not be read."""
+def scrub_body(data: bytes, known: Iterable[str] | None, headers: dict[str, str] | None = None) -> dict[str, Any]:
+    """The reply fields for an inline body and its (public) headers: `body` (JSON, else UTF-8 text with undecodable
+    bytes replaced) and `headers` after the scrub, with `body_masked` (how many values became ***). When the body is
+    withheld: a placeholder `body`, `body_withheld` (a WITHHELD key) and no headers. known=None means the session's
+    values could not be read."""
     reason = "unverified" if known is None else "too_large" if len(data) > SCRUB_BODY_CAP else None
     if reason is None:
         scrub = BodyScrub(known or ())
+        scrubbed_headers = {name: scrub.text(value) for name, value in (headers or {}).items()}
         try:
             try:
                 body = json.loads(data)
             except (ValueError, UnicodeError):
-                body = shown = scrub.text(data.decode("utf-8", errors="replace"))
+                body = scrub.text(data.decode("utf-8", errors="replace"))
+                shown = body
             else:
-                body = common.scrub_json(body, scrub.text, scrub.item)
+                body = common.scrub_json(body, scrub.text, scrub.item, scrub.number)
                 shown = json.dumps(body, ensure_ascii=False)
         except RecursionError:
             reason = "too_deep"
         else:
-            if not scrub.leftover(shown):
-                return {"body": body, "body_masked": scrub.masked} if scrub.masked else {"body": body}
+            if not scrub.leftover(shown + " " + json.dumps(scrubbed_headers, ensure_ascii=False)):
+                out = {"body": body, "headers": scrubbed_headers}
+                return {**out, "body_masked": scrub.masked} if scrub.masked else out
             reason = "session_token"
-    return {"body": WITHHELD[reason], "body_withheld": reason}
+    return {"body": WITHHELD[reason], "body_withheld": reason, "headers": {}}
 
 
 class ApiMixin:
@@ -278,6 +299,9 @@ class ApiMixin:
             raise common._tag(ValueError("API headers may only contain Accept, Content-Type, conditional headers and Range."), common.ERR_GUARDED)
         headers = dict(headers)
         inline = not args.get("save_response")
+        if inline and any(k.lower() == "range" for k in headers):
+            raise common._tag(ValueError("Range needs a saved response (the Python bridge): an inline body is scrubbed whole, and a slice could end inside a token."),
+                              common.ERR_GUARDED)
         session_keys = self._session_keys(page) if inline or args.get("servicenow") else []
         if args.get("servicenow"):
             if not session_keys:
@@ -340,7 +364,7 @@ class ApiMixin:
             result["body_file"] = str(target)
         else:
             # Read after the request, so a cookie the response rotated is known too.
-            result.update(scrub_body(data, self._known_values(session_keys, [url, page.url])))
+            result.update(scrub_body(data, self._known_values(session_keys, [url, page.url]), response_headers))
             if "body_withheld" in result:
                 notes.append(common._hint("api_body_withheld", self.profile))
         if notes:
@@ -365,10 +389,10 @@ class ApiMixin:
         """What an inline body must not echo: the page's g_ck values and the cookie values for these URLs. None when
         the cookies cannot be read, so the body is withheld."""
         try:
-            cookies = self.ctx.cookies(urls)
+            values = [str(c.get("value") or "") for c in self.ctx.cookies(urls)]
         except Exception:  # noqa: BLE001 - a closed or crashed context; nothing is known, so nothing is returned
             return None
-        return [*session_keys, *(str(c.get("value") or "") for c in cookies)]
+        return [*session_keys, *values]
 
     def _api_path(self, candidate: str, args: dict[str, Any], must_exist: bool = True) -> Path:
         # File paths are checked against the caller's working directory, never the daemon's own cwd (the profile folder).

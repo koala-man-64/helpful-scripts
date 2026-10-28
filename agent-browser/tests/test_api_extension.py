@@ -670,3 +670,71 @@ def test_api_scrub_keeps_frames_of_other_origins_out_and_survives_unreadable_fra
     request_context(ctx, Response(200, {}, f"{live} {foreign}".encode()))
     result = daemon.dispatch("api", {"url": "/incident.do"}, 1)
     assert result["body"] == f"*** {foreign}"
+
+
+# -- security review follow-ups (PR 19) --------------------------------------------------------------------------------
+
+def test_api_inline_range_request_is_refused_before_it_is_sent(make_daemon):
+    # A slice can end inside a token, and no known value matches half of one.
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    calls = request_context(ctx, Response(206, {}, b"partial"))
+    with pytest.raises(ValueError) as err:
+        daemon.dispatch("api", {"url": "/doc", "headers": {"Range": "bytes=0-99"}}, 1)
+    assert err.value.error_class == common.ERR_GUARDED and calls == []
+    result = daemon.dispatch("api", {"url": "/doc", "headers": {"range": "bytes=0-99"}, "save_response": True}, 1)
+    assert Path(result["body_file"]).read_bytes() == b"partial" and len(calls) == 1
+
+
+def test_api_json_number_holding_a_known_value_is_masked(make_daemon):
+    digits = str(int(_token("digits", 20), 16))[:22]
+    result, _ = _inline_api(make_daemon, '{"a": ' + digits + ', "b": [1' + digits + '], "n": 7}', cookies=[("glide_user", digits)])
+    assert result["body"] == {"a": "***", "b": ["1***"], "n": 7} and result["body_masked"] == 2
+
+
+def test_api_header_values_are_scrubbed_and_a_withheld_body_drops_them(make_daemon):
+    live = _token("header")
+    daemon, ctx, page = make_daemon()
+    page.url = page.main_frame.url = SN_PAGE
+    page.main_frame.g_ck = live
+    request_context(ctx, Response(200, {"X-Debug": f"seen {live}", "ETag": f'"{live}"', "Content-Type": "text/plain"}, b"ok"))
+    result = daemon.dispatch("api", {"url": "/x"}, 1)
+    assert result["headers"] == {"X-Debug": "seen ***", "ETag": '"***"', "Content-Type": "text/plain"} and result["body_masked"] == 2
+    request_context(ctx, Response(200, {"X-Debug": _escaped(live, "percent")}, b"ok"))
+    result = daemon.dispatch("api", {"url": "/x"}, 1)
+    assert result["body_withheld"] == "session_token" and result["headers"] == {}
+
+
+def test_api_json_body_with_an_unpaired_surrogate_still_has_a_sendable_reply(make_daemon):
+    result, _ = _inline_api(make_daemon, '{"a": "x' + chr(92) + 'ud800y"}')
+    assert result["body"] == {"a": "x" + chr(0xFFFD) + "y"}
+    json.dumps(result, ensure_ascii=False).encode("utf-8")  # the daemon's reply encoding
+
+
+@pytest.mark.parametrize("form", ["fullwidth", "markup", "comment"])
+def test_api_body_with_a_disguised_live_token_is_withheld(make_daemon, form):
+    live = _token("g_ck")
+    if form == "fullwidth":  # NFKC folds fullwidth letters and digits to ASCII
+        shown = "".join(chr(ord(c) + 0xFEE0) for c in live)
+    else:
+        joiner = "<wbr>" if form == "markup" else "<!-- -->"
+        shown = joiner.join(live[i:i + 8] for i in range(0, len(live), 8))
+    result, _ = _inline_api(make_daemon, f"<p>{shown}</p>", g_ck=live)
+    assert result["body_withheld"] == "session_token"
+
+
+def test_api_backstop_covers_quoted_schemes_argument_lists_and_more_key_names(make_daemon):
+    unknown = _token("unknown")
+    body = (f"<script>xhr.setRequestHeader('X-UserToken', '{unknown}'); auth = 'Bearer \"{unknown}\"';</script>"
+            f'{{"sessionKey": "{unknown}", "secretKey": "{unknown}", "accesskey": "{unknown}"}}')
+    result, _ = _inline_api(make_daemon, body)
+    assert unknown not in json.dumps(result) and result["body_masked"] == 5
+
+
+def test_api_cookie_entry_that_cannot_be_read_withholds_the_body(make_daemon):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    ctx.cookie_jar = [None]
+    request_context(ctx, Response())
+    result = daemon.dispatch("api", {"url": "/api/items"}, 1)
+    assert result["body_withheld"] == "unverified"
