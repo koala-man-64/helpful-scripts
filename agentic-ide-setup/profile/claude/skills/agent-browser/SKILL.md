@@ -52,7 +52,8 @@ credential-looking, unverifiable or over-budget field values as `***`; `--find` 
 use `agent-browser needs-human --signed-in example.com` and let the user sign in.
 Its receipt is final (`needs_human`); the handoff ID carries the open human action.
 Poll with `agent-browser state --handoff ID` (another session's or a cleared ID is `not_found`), or use
-`agent-browser wait --signed-in example.com`. Only new handoffs focus/flash the window;
+`agent-browser wait --signed-in example.com`; on a sign-in page outside `allowed_hosts`, wait is
+refused, so poll the handoff. Only new handoffs focus/flash the window;
 repeating an open one (same reason and condition) returns its ID.
 After explicit human confirmation, `agent-browser commit state --handoff ID --resolve`
 records completion when the handoff has no automatic condition.
@@ -94,9 +95,11 @@ removes those too.
 ## Reach
 
 Use `agent-browser screenshot --annotate` for temporary ref labels,
-`agent-browser table e12` for rendered rows/cells with refs (no automatic pagination),
+`agent-browser table e12` for rendered rows/cells with refs (no automatic pagination;
+without a ref, the one table, else the one grid),
 or `agent-browser check http://localhost:3000` for a temporary 390x844 diagnostics page.
-The diagnostics page closes without replacing the working tab.
+The diagnostics page closes without replacing the working tab. Its requests to non-loopback
+hosts, redirects included, are blocked and listed in `blocked_external`; popups are closed.
 
 `agent-browser api https://example.com/api/items` uses the current tab's exact origin
 and signed-in cookies. Redirects/retries are disabled. Writes require `commit api`.

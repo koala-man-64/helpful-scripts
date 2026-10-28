@@ -8,6 +8,7 @@ import re
 import secrets
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import time
@@ -19,7 +20,7 @@ from . import common as core_common, daemon as core_daemon, policy as core_polic
 
 
 def _write_json_atomic(path: Path, data: dict[str, Any], *, compact: bool = False) -> None:
-    """Atomic, owner-only write: the session file carries the daemon token."""
+    """Atomic write, owner-only on POSIX (the session file carries the daemon token); on Windows it inherits the folder's ACL."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if not core_common._is_windows():
         try:
@@ -399,6 +400,7 @@ def status_session(paths: core_common.ProfilePaths) -> dict[str, Any]:
 def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = False) -> dict[str, Any]:
     root = core_common._home() / "profiles"
     out: dict[str, Any] = {"home": str(core_common._home()), "stale_sessions_removed": [], "killed_pids": [], "artifacts_removed": 0, "profiles_purged": [], "dry_run": dry_run}
+    purge_failed: list[str] = []
     if not root.is_dir():
         return out
     cutoff = time.time() - core_common.ARTIFACT_RETENTION_DAYS * 86400
@@ -432,13 +434,21 @@ def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = 
         if purge == entry.name:
             if state in ("running", "busy", "incompatible", "starting", "unresponsive"):
                 raise core_common._tag(ValueError(f"Profile {entry.name!r} is running; refusing to purge."), core_common.ERR_VALIDATION, hint=core_common._hint("purge_running", entry.name))
-            out["profiles_purged"].append(entry.name)
             if not dry_run:
                 resolved = paths.dir.resolve()
                 intended = (core_common._home() / "profiles").resolve()
                 if resolved.parent != intended or resolved.name != entry.name:
                     raise core_common._tag(ValueError("Unsafe profile purge path."), core_common.ERR_GUARDED)
-                core_common._rmtree_retry(paths.dir)
+                if not core_common._rmtree_retry(paths.dir):
+                    # Keep cleaning the later profiles; the failure is raised once, after the loop.
+                    purge_failed.append(entry.name)
+                    continue
+            out["profiles_purged"].append(entry.name)
+    if purge_failed:
+        names = ", ".join(repr(name) for name in purge_failed)
+        raise core_common._tag(RuntimeError(f"Could not remove every file of profile {names}; another program still holds some of them."),
+                               core_common.ERR_PROFILE_IN_USE, hint=core_common._hint("purge_failed", purge_failed[0]),
+                               details={**out, "profiles_purge_failed": purge_failed})
     if purge and purge not in out["profiles_purged"]:
         raise core_common._tag(ValueError(f"No profile named {purge!r}."), core_common.ERR_NOT_FOUND, hint=core_common._hint("no_such_profile"))
     return out
@@ -446,6 +456,40 @@ def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = 
 
 def _check(checks: list[dict[str, Any]], cid: str, status: str, detail: str, hint: str | None = None) -> None:
     checks.append({"id": cid, "status": status, "detail": detail, "hint": hint})
+
+
+def _real(path: Path) -> Path:
+    try:
+        return path.resolve()
+    except OSError:
+        return path
+
+
+def _check_home_private(checks: list[dict[str, Any]], home: Path) -> None:
+    """Warn (never fail) when other local accounts may read a profile folder: session.json there holds the daemon token."""
+    if core_common._is_windows():
+        # Files there are not owner-only on Windows (see _write_json_atomic); they inherit the folder's ACL,
+        # which is per-user only inside the user's own folders.
+        local = os.getenv("LOCALAPPDATA")
+        roots = [Path.home()] + ([Path(local)] if local else [])
+        if any(core_common._is_under(_real(home), _real(root), fold=True) for root in roots):
+            _check(checks, "home_private", "ok", f"{home} is inside your user folders")
+        else:
+            _check(checks, "home_private", "warn", f"{home} is outside your user profile and %LOCALAPPDATA%; files there inherit that folder's permissions, "
+                   "so other local accounts may be able to read session.json (the daemon token).", core_common._hint("home_private"))
+        return
+    profiles = home / "profiles"
+    try:
+        entries = sorted(profiles.iterdir()) if profiles.is_dir() else []
+        open_dirs = [e.name for e in entries if core_common._is_profile_name(e.name) and e.is_dir() and stat.S_IMODE(e.stat().st_mode) & 0o077]
+    except OSError as exc:
+        _check(checks, "home_private", "warn", f"Could not read the profile folders' permissions: {exc}", core_common._hint("profile_dir_mode"))
+        return
+    if open_dirs:
+        _check(checks, "home_private", "warn", f"Other accounts can open these profile folders under {profiles}: {', '.join(open_dirs)}",
+               core_common._hint("profile_dir_mode"))
+    else:
+        _check(checks, "home_private", "ok", f"profile folders under {profiles} are owner-only")
 
 
 def doctor(browser: str | None = None, exe: str | None = None, live: bool = False) -> dict[str, Any]:
@@ -494,6 +538,7 @@ def doctor(browser: str | None = None, exe: str | None = None, live: bool = Fals
         _check(checks, "home_writable", "ok", str(home))
     except OSError as exc:
         _check(checks, "home_writable", "fail", str(exc), core_common._hint("profile_path"))
+    _check_home_private(checks, core_common._home())
     length = len(str(core_common._home() / "profiles" / "default" / "user-data"))
     _check(checks, "profile_path_length", "ok" if length <= core_common.MAX_PROFILE_PATH_CHARS else "fail", f"{length} chars", None if length <= core_common.MAX_PROFILE_PATH_CHARS else core_common._hint("profile_path"))
     if core_common._is_windows():

@@ -5,6 +5,7 @@ or filesystem outside the isolated AGENT_BROWSER_HOME / tmp_path.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +46,7 @@ def test_doctor_happy_path_ok_true_and_check_ids_in_order(monkeypatch: pytest.Mo
     ids = [c["id"] for c in result["checks"]]
     expected = [
         "python", "playwright_import", "playwright_version", "console_script",
-        "browser_found", "browser_version", "policies", "home_writable", "profile_path_length",
+        "browser_found", "browser_version", "policies", "home_writable", "home_private", "profile_path_length",
         "long_paths_enabled", "port_bind", "job_object", "config_json", "skill_installed", "sessions",
     ]
     assert ids == expected
@@ -61,6 +62,61 @@ def test_doctor_sessions_row_lists_running_profiles(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(core_session, "_running_profiles", lambda: [])
     row_none = next(c for c in core_session.doctor()["checks"] if c["id"] == "sessions")
     assert row_none["detail"] == "none running"
+
+
+# ---------------------------------------------------------------------------
+# home_private: session.json (the daemon token) must not be readable by other local accounts. Warn only.
+
+
+def _home_private(monkeypatch: pytest.MonkeyPatch, home: Path) -> dict[str, Any]:
+    monkeypatch.setenv("AGENT_BROWSER_HOME", str(home))
+    result = core_session.doctor()
+    assert "home_private" not in result["failed"]  # a warning never fails doctor
+    return next(c for c in result["checks"] if c["id"] == "home_private")
+
+
+def test_doctor_home_private_warns_for_a_windows_home_outside_the_user_folders(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # pytest's tmp_path is itself under the real %LOCALAPPDATA% on Windows, so both roots are faked.
+    user, local = tmp_path / "user", tmp_path / "local"
+    user.mkdir()
+    local.mkdir()
+    _install_happy_path_seams(monkeypatch, tmp_path, skill_home=user)
+    monkeypatch.setattr(core_common, "_is_windows", lambda: True)
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+
+    for outside in (tmp_path / "ab", tmp_path / "local-other" / "ab"):  # a sibling sharing the name prefix is outside too
+        row = _home_private(monkeypatch, outside)
+        assert row["status"] == "warn", outside
+        assert "session.json" in row["detail"]
+        assert row["hint"] == core_common._hint("home_private")
+    for inside in (local / "ab", local / core_common.TOOL_NAME, user / "ab", tmp_path / "LOCAL" / "ab"):  # Windows paths ignore case
+        row = _home_private(monkeypatch, inside)
+        assert row["status"] == "ok", inside
+        assert row["hint"] is None
+
+    monkeypatch.delenv("LOCALAPPDATA")
+    assert _home_private(monkeypatch, local / "ab")["status"] == "warn"  # only the user profile is left
+    assert _home_private(monkeypatch, user / "ab")["status"] == "ok"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
+def test_doctor_home_private_warns_for_a_posix_profile_folder_other_accounts_can_open(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _install_happy_path_seams(monkeypatch, tmp_path)
+    home = tmp_path / "home"
+    profile = home / "profiles" / "default"
+    profile.mkdir(parents=True)
+    os.chmod(home / "profiles", 0o755)  # the profiles folder itself is normally umask-default; only each profile folder counts
+
+    os.chmod(profile, 0o755)
+    row = _home_private(monkeypatch, home)
+    assert row["status"] == "warn"
+    assert row["detail"].endswith(": default")
+    assert row["hint"] == core_common._hint("profile_dir_mode")
+
+    os.chmod(profile, 0o700)
+    row = _home_private(monkeypatch, home)
+    assert row["status"] == "ok"
+    assert row["hint"] is None
 
 
 # ---------------------------------------------------------------------------

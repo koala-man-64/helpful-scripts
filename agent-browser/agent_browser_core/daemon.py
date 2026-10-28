@@ -943,14 +943,21 @@ class BrowserEngine:
 
     # -- request dispatch ----------------------------------------------------------------
 
+    def _enforce_allowlist(self, cmd: str, args: dict[str, Any]) -> None:
+        """Refuse a command on a page outside allowed_hosts unless it is one OFF_ALLOWLIST_OK or a control verb names.
+        Every dispatch path runs it, the cooperative wait included."""
+        target = self.target_page(args) if args.get("tab") is not None else self.current
+        if cmd in core_common.OFF_ALLOWLIST_OK or cmd in policy.CONTROL or target is None or not self._off_allowlist(target):
+            return
+        allowed = ", ".join(sorted(core_common.OFF_ALLOWLIST_OK - {"ping"}))
+        raise core_common._tag(ValueError(f"The page is outside allowed_hosts; only {allowed} are allowed."), core_common.ERR_GUARDED,
+                               hint=core_common._hint("off_allowlist_wait" if cmd == "wait" else "off_allowlist", self.profile))
+
     def dispatch(self, cmd: str, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         handler = getattr(self, "h_" + cmd.replace("-", "_"), None)
         if handler is None:
             raise core_common._tag(ValueError(f"Unknown daemon command {cmd!r}."), core_common.ERR_USAGE)
-        target_for_guard = self.target_page(args) if args.get("tab") is not None else self.current
-        if cmd not in core_common.OFF_ALLOWLIST_OK and cmd not in policy.CONTROL and target_for_guard is not None and self._off_allowlist(target_for_guard):
-            raise core_common._tag(ValueError("The page is outside allowed_hosts; only back, goto, snapshot, text, tabs, and stop are allowed."),
-                       core_common.ERR_GUARDED, hint=core_common._hint("off_allowlist", self.profile))
+        self._enforce_allowlist(cmd, args)
         observed_before = dict(self.telemetry)
         self._begin(cmd, args)
         try:
