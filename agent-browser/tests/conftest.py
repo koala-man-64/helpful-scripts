@@ -313,6 +313,8 @@ class FakeFrame:
         # a SECRET_JS-shaped dict, or an Exception to raise.
         self.active_info: Any = None
         self.detached = False
+        # What INPUT_ROLES_JS reports: [role attribute, value] for this frame's valued inputs, or an Exception to raise.
+        self.input_roles: Any = []
 
     def is_detached(self) -> bool:
         return self.detached
@@ -335,6 +337,10 @@ class FakeFrame:
             if isinstance(self.active_info, Exception):
                 raise self.active_info
             return self.active_info
+        if js == core_daemon.INPUT_ROLES_JS:
+            if isinstance(self.input_roles, Exception):
+                raise self.input_roles
+            return self.input_roles
         raise AssertionError(f"FakeFrame.evaluate: no fake for js={js[:80]!r}")
 
 

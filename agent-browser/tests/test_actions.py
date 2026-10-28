@@ -8,7 +8,9 @@ is covered separately in test_daemon.py.
 
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 
 import pytest
 
@@ -349,6 +351,139 @@ def test_fill_form_reports_an_unverifiable_field_as_retryable(make_daemon, outer
     assert exc.value.hint == core_common._hint("secret_unverified", daemon.profile)
     assert exc.value.details["executed"] is False
     assert el.calls == [] and el.value == ""
+
+
+# ---------------------------------------------------------------------------
+# typed values and link targets in snapshots
+
+PASSWORD_PAGE = (
+    "- generic [active] [ref=e1]:\n"
+    '  - textbox "Field A" [ref=e2]: hunter2\n'
+    '  - textbox "Name" [ref=e3]: Abel\n'
+    '  - button "Show" [ref=e4]\n'
+)
+PASSWORD_INFO = {"tag": "INPUT", "type": "password", "autocomplete": "", "inputmode": "", "maxlength": -1, "text": "Field A", "contenteditable": False}
+
+
+def test_snapshot_masks_password_value_everywhere_it_is_emitted(make_daemon, monkeypatch) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=PASSWORD_PAGE)
+    page.elements["e2"].secret_info = PASSWORD_INFO  # a neutral name: the type is what makes it a credential
+    monkeypatch.setattr(FakeLocator, "aria_snapshot", lambda locator, mode="ai": page.snapshot_text, raising=False)
+    for args in ({}, {"full": True}, {"find": "Field"}, {"ref": "e1"}):
+        env = daemon.dispatch("snapshot", args, 5.0)
+        assert "hunter2" not in json.dumps(env), args
+        assert "hunter2" not in daemon.paths.last_snapshot.read_text(encoding="utf-8"), args
+        assert '- textbox "Field A" [ref=e2]: ***' in [line.strip() for line in env["snapshot"]], args
+    assert '- textbox "Name" [ref=e3]: Abel' in daemon.dispatch("snapshot", {}, 5.0)["snapshot"]
+    assert daemon.dispatch("snapshot", {"find": "hunter2"}, 5.0)["snapshot"] == []
+    # A person types more while the agent clicks elsewhere: the change list stays clean.
+    page.elements["e4"].click_side_effect = lambda: setattr(page, "snapshot_text", PASSWORD_PAGE.replace("hunter2", "hunter2-more"))
+    daemon.dispatch("snapshot", {}, 5.0)
+    result = daemon.dispatch("click", {"target": "e4"}, 5.0)
+    assert result["changes"] == {"added": [], "removed": []} and "hunter2" not in json.dumps(result)
+    # Clicking the field itself is not guarded; its target line is masked too.
+    clicked = daemon.dispatch("click", {"target": "e2"}, 5.0)
+    assert clicked["target_line"] == '- textbox "Field A" [ref=e2]: ***' and "hunter2" not in json.dumps(clicked)
+
+
+def test_snapshot_removes_a_password_from_the_table_row_around_it(make_daemon) -> None:
+    layout = ("- table [ref=e1]:\n  - rowgroup [ref=e2]:\n    - row \"PIN hunter2\" [ref=e3]:\n      - cell \"PIN\" [ref=e4]\n"
+              "      - cell \"hunter2\" [ref=e5]:\n        - textbox [ref=e6]: hunter2\n- textbox \"Repeat hunter2\" [ref=e7]: x\n")
+    daemon, ctx, page = make_daemon(snapshot_text=layout)
+    page.elements["e6"].secret_info = PASSWORD_INFO
+    env = daemon.dispatch("snapshot", {"full": True}, 5.0)
+    assert "hunter2" not in json.dumps(env) and "hunter2" not in daemon.paths.last_snapshot.read_text(encoding="utf-8")
+    assert '    - row "PIN ***" [ref=e3]:' in env["snapshot"] and '- textbox "Repeat ***" [ref=e7]: x' in env["snapshot"]
+
+
+def test_snapshot_overflow_output_carries_the_masked_text(make_daemon, monkeypatch) -> None:
+    from agent_browser_core import cli
+    padding = "".join(f'  - button "Padding button {i}" [ref=e{100 + i}]\n' for i in range(900))
+    daemon, ctx, page = make_daemon(snapshot_text=PASSWORD_PAGE + padding)
+    page.elements["e2"].secret_info = PASSWORD_INFO
+    monkeypatch.setenv("AGENT_BROWSER_HOME", str(daemon.paths.root))
+    env = daemon.dispatch("snapshot", {"full": True, "max_bytes": 200000}, 5.0)
+    bounded = json.loads(cli._json_line(env))
+    assert bounded["truncated"] is True and bounded["output_id"]
+    saved = Path(bounded["output_file"]).read_text(encoding="utf-8")
+    assert "Padding button 899" in saved and '[ref=e2]: ***' in saved and "hunter2" not in saved
+
+
+def test_snapshot_masks_values_it_cannot_clear(make_daemon, monkeypatch) -> None:
+    fields = '- textbox "First" [ref=e2]: one\n- textbox "Second" [ref=e3]: two\n- textbox "Third" [ref=e4]: three\n'
+    daemon, ctx, page = make_daemon(snapshot_text=fields)
+    del page.elements["e4"]  # a ref that no longer resolves cannot be checked
+    timeouts: list[int] = []
+    original = daemon._secret_info
+    monkeypatch.setattr(daemon, "_secret_info", lambda locator, timeout_ms=3000: timeouts.append(timeout_ms) or original(locator, timeout_ms))
+    assert daemon.dispatch("snapshot", {}, 5.0)["snapshot"] == [
+        '- textbox "First" [ref=e2]: one', '- textbox "Second" [ref=e3]: two', '- textbox "Third" [ref=e4]: ***']
+    assert timeouts and all(0 < t <= core_common.SECRET_SCAN_TIMEOUT_MS for t in timeouts)
+    monkeypatch.setattr(core_common, "SECRET_SCAN_CAP", 1)  # past the cap, values are masked
+    assert daemon.dispatch("snapshot", {}, 5.0)["snapshot"][:2] == ['- textbox "First" [ref=e2]: one', '- textbox "Second" [ref=e3]: ***']
+    monkeypatch.setattr(core_common, "SECRET_SCAN_CAP", 200)
+    monkeypatch.setattr(core_common, "SECRET_SCAN_BUDGET", 0.0)  # and past the time budget
+    assert all(line.endswith(": ***") for line in daemon.dispatch("snapshot", {}, 5.0)["snapshot"])
+    monkeypatch.setattr(core_common, "SECRET_SCAN_BUDGET", 2.0)
+    monkeypatch.setattr(daemon, "_secret_info", lambda locator, timeout_ms=3000: {"unknown": True})
+    assert all(line.endswith(": ***") for line in daemon.dispatch("snapshot", {}, 5.0)["snapshot"])
+
+
+def test_snapshot_checks_inputs_the_page_gives_another_role(make_daemon) -> None:
+    # Playwright prints an input's value whatever its role: <input type=password role=button> is a valued button line.
+    daemon, ctx, page = make_daemon(snapshot_text='- button "Key" [ref=e2]: rolesecret\n- button "Caption" [ref=e3]: shown\n')
+    page.elements["e2"].secret_info = PASSWORD_INFO
+    assert daemon.dispatch("snapshot", {"full": True}, 5.0)["snapshot"][0].endswith(": rolesecret")  # a plain button caption
+    page.main_frame.input_roles = [["button link", "rolesecret"]]
+    assert daemon.dispatch("snapshot", {"full": True}, 5.0)["snapshot"] == ['- button "Key" [ref=e2]: ***', '- button "Caption" [ref=e3]: shown']
+    page.main_frame.input_roles = FakePlaywrightError("Execution context was destroyed")  # a frame mid-navigation
+    assert daemon.dispatch("snapshot", {"full": True}, 5.0)["snapshot"][0].endswith(": rolesecret")
+
+
+def test_a_page_given_role_only_makes_lines_that_show_an_inputs_value_fields(make_daemon, monkeypatch) -> None:
+    # One hidden <input role=listitem value=x> must not turn 400 list items into fields to check and mask.
+    items = "".join(f'- listitem [ref=e{10 + i}]:\n  - link "Item {i}" [ref=e{1000 + i}]\n' for i in range(400))
+    daemon, ctx, page = make_daemon(snapshot_text=items + '- listitem [ref=e5]: x\n')
+    page.main_frame.input_roles = [["listitem", "x"], ["text", "Item 1"], [7, "y"], "junk"]
+    calls: list[int] = []
+    original = daemon._secret_info
+    monkeypatch.setattr(daemon, "_secret_info", lambda locator, timeout_ms=3000: calls.append(timeout_ms) or original(locator, timeout_ms))
+    env = daemon.dispatch("snapshot", {"full": True, "max_bytes": 200000}, 5.0)
+    assert len(calls) == 1 and '- link "Item 399" [ref=e1399]' in [line.strip() for line in env["snapshot"]]
+    assert not any("***" in line for line in env["snapshot"])
+
+
+def test_a_decoy_input_cannot_spend_the_budget_on_page_text(make_daemon, monkeypatch) -> None:
+    # A visible <input role=listitem value=Buy> placed after 400 <div role=listitem>Buy</div>.
+    items = "".join(f"- listitem [ref=e{10 + i}]: Buy\n" for i in range(400))
+    daemon, ctx, page = make_daemon(snapshot_text=items)
+    page.main_frame.input_roles = [["listitem", "Buy"]]
+    calls: list[int] = []
+    original = daemon._secret_info
+    monkeypatch.setattr(daemon, "_secret_info", lambda locator, timeout_ms=3000: calls.append(timeout_ms) or original(locator, timeout_ms))
+    lines = daemon.dispatch("snapshot", {"full": True, "max_bytes": 200000}, 5.0)["snapshot"]
+    assert len(calls) == core_common.REMAP_SCAN_CAP  # page text found by its tag costs a check, but only this many
+    assert lines[:core_common.REMAP_SCAN_CAP] == [f"- listitem [ref=e{10 + i}]: Buy" for i in range(core_common.REMAP_SCAN_CAP)]
+    assert lines[-1] == "- listitem [ref=e409]: ***"  # past the cap, a line that may still be the input is masked
+    # Once every such input is found, the remaining lines with its text are page text and are not checked.
+    calls.clear()
+    page.elements["e11"].secret_info = {**PASSWORD_INFO, "type": "text", "text": "Basket"}  # the input, and not a credential
+    lines = daemon.dispatch("snapshot", {"full": True, "max_bytes": 200000}, 5.0)["snapshot"]
+    assert len(calls) == 2 and not any(line.endswith("***") for line in lines)
+
+
+def test_a_role_attribute_cannot_hide_playwright_text_lines(make_daemon) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text='- paragraph [ref=e2]:\n  - text: visible\n- iframe [ref=e3]\n')
+    page.main_frame.input_roles = [["text /url iframe", "visible"]]
+    assert daemon.dispatch("snapshot", {"full": True}, 5.0)["snapshot"] == ["- paragraph [ref=e2]:", "  - text: visible", '- iframe "gsft_main" [ref=e3]']
+
+
+def test_snapshot_full_never_writes_href_secrets_to_last_snapshot(make_daemon) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text='- link "Go" [ref=e1]:\n  - /url: https://x.com/cb?code=SECRET&keep=1\n')
+    for args in ({"full": True}, {"find": "cb"}):
+        env = daemon.dispatch("snapshot", args, 5.0)
+        assert "SECRET" not in json.dumps(env) and "SECRET" not in daemon.paths.last_snapshot.read_text(encoding="utf-8")
+        assert "  - /url: https://x.com/cb?code=***&keep=1" in env["snapshot"]
 
 
 # ---------------------------------------------------------------------------

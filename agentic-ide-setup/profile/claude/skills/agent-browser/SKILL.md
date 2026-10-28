@@ -45,7 +45,8 @@ controls; configuration and session files are not a hostile-process sandbox.
 ## Sign-in
 
 Never type passwords, one-time codes, or other credentials, and never read or set them
-with eval: only its `--ref` element is checked, not what the script touches. For `sign_in_suspected`,
+with eval: only its `--ref` element is checked, not what the script touches. Snapshots show
+credential-looking, unverifiable or over-budget field values as `***`; `--find` cannot match them. For `sign_in_suspected`,
 use `agent-browser needs-human --signed-in example.com` and let the user sign in.
 Poll with `agent-browser state --handoff ID`, or use
 `agent-browser wait --signed-in example.com`. Only handoffs focus/flash the window.
