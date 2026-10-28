@@ -34,8 +34,9 @@ Open additional tabs with `goto URL --new-tab` and drive tabs in parallel by pas
 `--tab t2` (stable tab ID from `tabs`/`tab_id`) or `--tab 2` on any command without
 switching the active tab.
 Popups follow their opener. `agent-browser stop` releases only the current session.
+It keeps tabs with unsaved edits open (`unsaved_changes`); add `--discard-changes` only if the user agreed to lose them.
 An explicit profile stop closes every session of that profile (other profiles are untouched); preserve others' work first.
-Caller permission templates ask before `stop --all`, `stop --force`, commit and eval.
+Caller permission templates ask before `stop --all`, `stop --force`, commit, eval, `--accept-dialog` and `--discard-changes`.
 
 Unconfigured profiles keep full access and eval enabled. Configured `read`, `act`,
 and `commit` levels narrow access. Arbitrary eval and declared commits require `commit`.
@@ -102,7 +103,8 @@ and signed-in cookies. Redirects/retries are disabled. Writes require `commit ap
 A 401 or a sign-in/off-origin redirect opens a handoff (`needs_human`). Other redirects
 (`redirect: true`, body withheld) and a 403 (real body) add a `note` instead.
 The optional MCP server uses the same dispatcher, policy and options (`tab`, `ref`, `timeout`);
-commit/eval tools stay separately identifiable. Read [interfaces](references/interfaces.md).
+commit/eval tools stay separately identifiable, and only `browser_commit` and `browser_stop` accept dialogs or
+discard edits. Read [interfaces](references/interfaces.md).
 
 ## Error handling
 
@@ -114,8 +116,8 @@ commit/eval tools stay separately identifiable. Read [interfaces](references/int
 | `action_timeout` | Inspect state before retrying a potentially completed action. |
 | `action_failed` | Read the error and verify the control state. |
 | `guarded` | Respect the guard; use the human-owned route. |
-| `dialog` | Inspect the dialog and resolve only within user authorization. |
-| `unsaved_changes` | Preserve edits; do not discard without authorization. |
+| `dialog` | The command already ran and the page saw Cancel. Repeat it with `--accept-dialog` only if the user authorized that. |
+| `unsaved_changes` | Edits were kept. Save them, or repeat with `--discard-changes` only if the user agreed to lose them. |
 | `ambiguous_profile` | Select the intended profile explicitly. |
 | `not_running` | Open the authorized URL to start a session. |
 | `timeout` | The command may have run: inspect its receipt or `state` first; only a wait is safe to repeat. |

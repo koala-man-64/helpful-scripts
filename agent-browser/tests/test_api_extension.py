@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from agent_browser_core import api, cli, common, evidence, mcp_server
+from conftest import FakeDialog
 
 
 class Response:
@@ -206,6 +207,21 @@ def test_api_write_requires_commit_and_uncertain_write_is_never_replayed(make_da
     receipt = err.value.details["command_id"]
     row = daemon.journal.rows("manual", receipt)[0]
     assert row["status"] == "unknown" and json.loads(row["outcome"])["executed"]
+
+
+def test_page_dialog_during_an_api_write_never_replaces_its_reply(make_daemon):
+    daemon, ctx, page = make_daemon()
+    page.url = "http://x/app"
+    expiring = FakeDialog("confirm", "Your session is about to expire")
+
+    def fetch(url, **kwargs):
+        ctx.emit("dialog", expiring)
+        return Response(201, {"Content-Type": "application/json"}, b'{"result":{"sys_id":"1"}}')
+    ctx.request = SimpleNamespace(fetch=fetch)
+    result = daemon.dispatch("commit", {"operation": "api", "url": "/api/items", "method": "POST"}, 1)
+    assert result["status"] == 201 and result["executed"] is True and "dialogs" not in result and expiring.dismissed
+    # The reply describes the HTTP exchange; the next page command reports the dialog.
+    assert daemon.dispatch("tabs", {}, 1)["dialogs"][0]["message"] == "Your session is about to expire"
 
 
 def test_api_non_successful_write_receipt_preserves_http_status(make_daemon):

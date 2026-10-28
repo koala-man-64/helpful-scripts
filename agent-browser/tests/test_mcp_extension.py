@@ -1,5 +1,6 @@
 """Optional SDK validation, including a real stdio JSON-RPC handshake (no browser)."""
 import asyncio
+import inspect
 import json
 import os
 import sys
@@ -206,9 +207,10 @@ def _cli_sent(monkeypatch, argv):
 
 
 # Keys the CLI sends that MCP leaves out on purpose: the client adds the first two, MCP has its own snapshot
-# budget, the dialog and unsaved-changes guards are a later change, enter is commit-only, and MCP picks its own
-# screenshot path.
-CLI_ONLY_KEYS = {"_session_id", "_cwd", "max_bytes", "discard_changes", "accept_dialog", "dialog_text", "double", "right", "enter", "path"}
+# budget, enter submits and stays off MCP, and MCP picks its own screenshot path.
+CLI_ONLY_KEYS = {"_session_id", "_cwd", "max_bytes", "double", "right", "enter", "path"}
+# Accepting a dialog or discarding unsaved edits: on MCP only browser_commit and browser_stop take them.
+DIALOG_KEYS = {"accept_dialog", "dialog_text", "discard_changes"}
 
 
 @pytest.mark.parametrize("argv, tool, kwargs", [
@@ -232,9 +234,43 @@ def test_mcp_payload_carries_every_cli_key_with_the_cli_value(argv, tool, kwargs
     assert "error" not in getattr(mcp_server, tool)(session_id="s", **kwargs)
     sent_command, payload, _ = calls[0]
     assert sent_command == command
-    expected = {k: v for k, v in cli_payload.items() if k not in CLI_ONLY_KEYS}
+    expected = {k: v for k, v in cli_payload.items() if k not in CLI_ONLY_KEYS | DIALOG_KEYS}
     assert {k: payload[k] for k in expected if k in payload} == expected
     assert payload["max_bytes"] == mcp_server.MAX_BYTES
+    assert not DIALOG_KEYS & set(payload)
+
+
+@pytest.mark.parametrize("argv, tool, kwargs", [
+    (["commit", "click", "e1", "--accept-dialog", "--dialog-text", "ok", "--tab", "2"], "browser_commit",
+     {"operation": "click", "target": "e1", "accept_dialog": True, "dialog_text": "ok", "tab": 2}),
+    (["commit", "fill", "e1", "draft", "--discard-changes"], "browser_commit", {"operation": "fill", "target": "e1", "text": "draft", "discard_changes": True}),
+    (["stop", "--discard-changes"], "browser_stop", {"discard_changes": True}),
+    (["stop"], "browser_stop", {}),
+])
+def test_mcp_commit_and_stop_carry_the_cli_dialog_keys(argv, tool, kwargs, monkeypatch):
+    from agent_browser_core import cli
+    monkeypatch.setattr(cli.core_session, "_liveness", lambda paths: ("running", {"pid": 1}))
+    command, cli_payload, _ = _cli_sent(monkeypatch, argv)
+    calls = _recorder(monkeypatch)
+    assert "error" not in getattr(mcp_server, tool)(session_id="s", **kwargs)
+    sent_command, payload, sent_kwargs = calls[0]
+    if command == "commit":
+        command = cli_payload.pop("operation")
+        assert sent_kwargs["committing"] is True
+    assert sent_command == command
+    expected = {k: v for k, v in cli_payload.items() if k not in CLI_ONLY_KEYS}
+    assert DIALOG_KEYS & set(expected) and {k: payload.get(k) for k in expected} == expected
+
+
+def test_mcp_dialog_answers_are_validated_like_the_cli(monkeypatch):
+    calls = _recorder(monkeypatch)
+    assert mcp_server.browser_commit("click", "s", target="e1", dialog_text="ok")["error"]["class"] == "usage"
+    # The CLI's api, run, journal and state verbs have no dialog flags, so MCP refuses them there too.
+    for operation, kwargs in (("api", {"url": "/items", "method": "POST"}), ("run", {"recipe": "sn/add-work-note", "number": "INC0010001", "text": "n"}),
+                              ("journal", {"clear": True}), ("state", {"handoff_id": "h", "resolve": True})):
+        assert mcp_server.browser_commit(operation, "s", accept_dialog=True, **kwargs)["error"]["class"] == "usage", operation
+        assert mcp_server.browser_commit(operation, "s", discard_changes=True, **kwargs)["error"]["class"] == "usage", operation
+    assert not calls
 
 
 def test_mcp_tab_and_index_are_sent_only_when_given(monkeypatch):
@@ -285,6 +321,11 @@ def test_mcp_schema_exposes_the_cli_parameters(monkeypatch):
     assert tools["browser_goto"]["wait"]["enum"] == ["load", "domcontentloaded"] and tools["browser_goto"]["new_tab"]["default"] is False
     # enter submits, so it stays commit-only; the snapshot budget is MCP's own.
     assert all("enter" not in props and "max_bytes" not in props for props in tools.values())
+    # Accepting a dialog or discarding unsaved edits happens only through browser_commit and browser_stop.
+    assert DIALOG_KEYS <= set(tools["browser_commit"]) and DIALOG_KEYS & set(tools["browser_stop"]) == {"discard_changes"}
+    assert all(not DIALOG_KEYS & set(props) for name, props in tools.items() if name not in {"browser_commit", "browser_stop"})
+    params = list(inspect.signature(mcp_server.browser_commit).parameters)
+    assert params[-3:] == ["accept_dialog", "dialog_text", "discard_changes"] and params.index("tab") < params.index("accept_dialog")
     # A JSON integer tab stays an integer and a tab id stays a string through the SDK's argument validation.
     calls = _recorder(monkeypatch)
 
