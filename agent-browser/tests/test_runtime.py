@@ -117,6 +117,22 @@ def test_stop_keeps_every_open_tab_when_a_dismissed_beforeunload_names_no_tab(ma
     assert waits == []  # the unmatched dismissal already decides, so stop does not wait out its deadline
 
 
+def test_a_dismissal_naming_no_tab_does_not_cut_short_the_next_tabs_close(make_daemon):
+    daemon, ctx, original = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
+    dirty = daemon.page()
+    daemon.dispatch("goto", {"url": "http://x/c", "new_tab": True, "_session_id": "a"}, 5)
+    slow = daemon.page()
+    dirty.close = lambda run_before_unload=False: ctx.emit("dialog", FakeDialog("beforeunload"))
+    waits = []
+    slow.close = lambda run_before_unload=False: None
+    slow.wait_for_timeout = lambda ms: waits.append(ms) if len(waits) < 2 else FakePage.close(slow)
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("stop", {"_session_id": "a"}, 5)
+    # The clean tab closed while stop waited for it, so only the dirty tab is reported as kept.
+    assert exc.value.details["tabs"] == [daemon.tab_ids[dirty]] and exc.value.details["closed"] == 1 and slow.closed
+
+
 def test_stop_waits_past_two_seconds_for_a_busy_tab_to_answer_its_beforeunload(make_daemon, fake_clock):
     # A prompt after stop returns would be answered between commands, where beforeunload is accepted: edits lost.
     daemon, ctx, page = make_daemon()

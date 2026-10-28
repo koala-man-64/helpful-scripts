@@ -404,6 +404,7 @@ class OperatingMixin:
         # so a slow tab may use the whole stop deadline.
         deadline = common._now() + max(STOP_TAB_WAIT, timeout - 1.0)
         for page in pages:
+            answered = len(self.unsaved_pages)
             try:
                 page.close(run_before_unload=True)
             except Exception as exc:  # noqa: BLE001
@@ -412,8 +413,10 @@ class OperatingMixin:
                     failure.executed = any(p not in self.pages for p in pages)  # type: ignore[attr-defined]
                     raise failure from exc
             # close() returns before the tab is gone: wait for this tab's own answer, closed or its beforeunload dismissed.
+            # A dismissal naming no tab ends only the wait it arrived in, so later tabs still get time to close.
             self._drain_events(page, max(STOP_TAB_WAIT, deadline - common._now()),
-                               until=lambda page=page: self._closed(page) or page in self.unsaved_pages or None in self.unsaved_pages)
+                               until=lambda page=page, answered=answered: self._closed(page) or page in self.unsaved_pages
+                               or None in self.unsaved_pages[answered:])
         # A dismissal without a page cannot be matched to its tab, so every tab still open is kept.
         kept = [p for p in pages if not self._closed(p) and (p in self.unsaved_pages or None in self.unsaved_pages)]
         if kept:
