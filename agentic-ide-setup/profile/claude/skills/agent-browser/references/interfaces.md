@@ -22,6 +22,7 @@ agent-browser check http://localhost:3000
 agent-browser state --command 0123456789abcdef0123456789abcdef
 agent-browser output --id 0123456789abcdef0123456789abcdef --offset 0
 agent-browser commit journal --clear
+agent-browser commit journal --clear --include-unknown
 ```
 
 `fields.json` is a list, or an object containing that list as `fields`:
@@ -95,6 +96,18 @@ an `output_id` prefixed with `r`; `output --id ID --offset 0` reads an immutable
 terminal receipt (completed, failed, unknown or needs_human) directly from SQLite,
 including when quota is full.
 Pending receipts are unavailable through this fallback until they finish.
+
+`commit journal --clear` first finishes this session's pending operations (one that ran
+becomes `unknown`). It then deletes completed, failed and needs_human receipts, unknown
+receipts of reads, and resolved handoffs. It keeps unknown receipts of commit verbs,
+upload, eval, commands that ran and interrupted non-reads, their `<id>` screenshots
+and saved responses, and open handoffs. The reply counts `cleared_commands`,
+`retained_commands`, `cleared_handoffs` and `retained_handoffs`, plus `files_not_removed`
+when a file was held open (a later clear removes it). `--include-unknown` (MCP
+`include_unknown`) deletes the kept ones too. When the quota refuses a command, its
+`journal_full` details split `evidence_bytes` into `session_bytes`, `other_sessions_bytes`
+and the shared `journal_bytes`, against `quota`; other sessions' evidence is beyond this
+session's clear.
 
 The canonical Claude settings template asks for commit/eval and evidence clear calls,
 including tools from any MCP server using these browser tool names. A template edit

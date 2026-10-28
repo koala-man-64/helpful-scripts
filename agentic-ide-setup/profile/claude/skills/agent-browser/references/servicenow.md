@@ -30,7 +30,8 @@ is usually an ACL decision: its body is returned with a `note`, and no handoff i
 opened. If a gateway answers an expired session with 403, run `needs-human` yourself.
 
 Raw response artifacts contain application data and remain under the owning
-session's outputs until `agent-browser commit journal --clear`. They count toward
+session's outputs until `agent-browser commit journal --clear`, which keeps those of
+unknown write receipts unless `--include-unknown` is added. They count toward
 the default 1 GiB profile quota; request staging files are transient. Response-size
 checks occur after Playwright downloads/buffers data and are not hard memory bounds.
 Browser write errors with `write_outcome: unknown` retain safe receipt metadata and

@@ -143,13 +143,15 @@ def browser_commit(operation: Literal["click", "fill", "type", "press", "select"
                    body_file: str | None = None, servicenow: bool = False, recipe: Literal["sn/add-work-note"] | None = None,
                    number: str | None = None, clear: bool = False, handoff_id: str | None = None,
                    resolve: bool = False, expect: list[str] | None = None, content_type: str | None = None,
-                   tab: int | str | None = None) -> dict[str, Any]:
+                   tab: int | str | None = None, include_unknown: bool = False) -> dict[str, Any]:
     """Explicit committing operation. Require caller approval when the workflow requires human approval.
-    An api body_file is sent as application/json unless content_type names another type."""
+    An api body_file is sent as application/json unless content_type names another type.
+    journal with clear keeps unknown write receipts and open handoffs; include_unknown removes them too."""
     return _call(operation, {"target": target, "text": text, "key": key, "values": values or [], "files": files or [],
                              "fields": fields or [], "url": url, "method": method, "body_file": body_file, "servicenow": servicenow,
                              "recipe": recipe, "number": number, "clear": clear, "handoff_id": handoff_id,
-                             "resolve": resolve, "expect": expect or [], "content_type": content_type, "tab": tab},
+                             "resolve": resolve, "expect": expect or [], "content_type": content_type, "tab": tab,
+                             "include_unknown": include_unknown},
                  session_id, profile, committing=True)
 
 

@@ -112,6 +112,17 @@ def test_module_docstring_lists_every_env_var_the_code_reads() -> None:
     assert not missing, f"document these in the module docstring: {missing}"
 
 
+def test_every_pending_job_records_whether_it_executed() -> None:
+    """stop and commit journal --clear finish an abandoned job as unknown when it ran; a job without the key would be finished failed and deleted."""
+    jobs = [node for node in ast.walk(TREE) if isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Subscript) and ast.unparse(t.value) == "self.jobs" for t in node.targets)]
+    assert len(jobs) >= 3, "expected the wait, expectation and recipe job creators"
+    for node in jobs:
+        assert isinstance(node.value, ast.Dict), f"line {node.lineno}: build the job as a dict literal so its keys can be checked"
+        keys = {key.value for key in node.value.keys if isinstance(key, ast.Constant)}
+        assert "executed" in keys, f"line {node.lineno}: job dict lacks 'executed'"
+
+
 def test_source_is_python_310_syntax() -> None:
     compile(SOURCE, ab.__file__, "exec", flags=0, dont_inherit=True, optimize=0)
     # Ask the parser to enforce the floor without referring to AST node classes
