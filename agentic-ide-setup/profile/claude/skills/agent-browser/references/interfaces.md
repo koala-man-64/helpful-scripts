@@ -76,10 +76,18 @@ Use the optional MCP extra (`pip install -e "agent-browser[mcp]"`) and register 
 through every tool in one task. The 18 typed tools share the daemon dispatcher;
 `browser_commit` and `browser_eval` are distinct approval targets. Tool text is compact
 JSON and matches structuredContent; complete serialized tool replies are bounded.
-Use `browser_output` and its `next_offset` for smaller MCP pages. A tool error has the
-same `error` object as CLI stderr (`class`, `http_status`, `message`, `hint`, optional
-`details`); its hint names the equivalent CLI command. Bad arguments and unknown tools
-are `validation`. A reply that cannot be stored keeps `details.receipt`.
+Tools send the CLI's daemon payload: page tools take `tab` (`t2` or `2`), the `tab`
+operation of `browser_action` takes `index` the same way, `browser_wait` takes `ref` and
+`selector`, `browser_snapshot` `ref`, `browser_eval` `ref` and `frame`, `browser_read`
+`max_chars`, `browser_goto` `wait` and `new_tab`. `timeout` is 0-86400 seconds and at most
+100 for `browser_wait`, as on the CLI. Snapshots default to 4,500 bytes so a page read fits
+one reply; use `find` or `ref` to narrow it. `browser_commit` api with `body_file` sends
+`Content-Type: application/json` unless `content_type` (only with `body_file`) is given.
+Use `browser_output` and its `next_offset` for smaller MCP pages; an overflow reply keeps
+`url`, `title` and `untrusted`. A tool error has the same `error` object as CLI stderr
+(`class`, `http_status`, `message`, `hint`, optional `details`); its hint names the
+equivalent CLI command. Bad arguments and unknown tools are `validation`. A reply that
+cannot be stored keeps `details.receipt`.
 
 Journal inspection returns `next_offset`; state command history returns
 `command_next_offset`. Use `--offset` for the next page. Oversized receipts return
