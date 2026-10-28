@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -17,9 +18,31 @@ def body_headers(content_type: str | None = None) -> dict[str, str]:
     return {"Accept": "application/json", "Content-Type": content_type or "application/json"}
 
 
+# Response headers never returned: a name holding any of these words or ending in "key" (x-api-key,
+# ocp-apim-subscription-key), and the redirect pair (Location is read separately, only to classify a redirect).
+CREDENTIAL_HEADER_WORDS = ("cookie", "auth", "token", "session", "g_ck", "g-ck", "secret", "csrf", "xsrf", "password", "credential")
+REDIRECT_HEADERS = frozenset({"location", "refresh"})
+LINK_TARGET_RE = re.compile(r"<([^>]*)>")
+
+
 def public_headers(headers: dict[str, str]) -> dict[str, str]:
-    blocked = ("cookie", "authorization", "token", "session", "g_ck", "location", "refresh", "authentication", "authenticate")
-    return {str(k): str(v) for k, v in headers.items() if not any(s in k.lower() for s in blocked)}
+    """The response headers a caller sees: credential-named and redirect headers dropped, the rest single-line and
+    without invisible characters, with their URLs redacted (Content-Location and Link targets, relative ones too)."""
+    out = {}
+    for key, value in headers.items():
+        lower = common.strip_invisible(key).lower()
+        if lower in REDIRECT_HEADERS or lower.endswith("key") or any(word in lower for word in CREDENTIAL_HEADER_WORDS):
+            continue
+        text = str(value)
+        if lower == "content-location":
+            text = common.redact_url(text)
+        elif lower == "link":
+            text = LINK_TARGET_RE.sub(lambda m: "<" + common.redact_url(m.group(1)) + ">", text)
+        else:
+            text = common.redact_text(text)
+        # Link lists every pagination target, so it gets a larger cap than other values.
+        out[common.sanitize_text(key, 100, single_line=True)] = common.sanitize_text(text, 4000 if lower == "link" else 1000, single_line=True)
+    return out
 
 
 def origin(url: str) -> tuple[str, str, int]:

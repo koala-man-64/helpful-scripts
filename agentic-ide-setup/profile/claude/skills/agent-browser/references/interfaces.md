@@ -44,7 +44,10 @@ budget of 200 checks and 2 s per snapshot. A credential-looking field, one that 
 be checked, one with no ref, and any past the budget show `***` for the value and the
 field's contents; rows, cells, buttons and links that repeat the value in their name show
 `***` in its place. `/url` lines in `--full` and `--find` are redacted like other URLs:
-query secrets become `***`, the fragment is dropped, and a bare `#anchor` shows `#`.
+query and `;` path-parameter secrets, JWT-shaped values and a token segment after a route
+such as `reset-password/` become `***`, the fragment is dropped, and a bare `#anchor`
+shows `#`; ids such as `sys_id` stay. Names, values and frame labels render on one line
+without invisible or tag characters.
 `--find` never matches a masked value or a redacted link. Semantic-target candidates are
 described from the masked page snapshot, without their values.
 
@@ -58,7 +61,10 @@ Same-page network matches are evidence, not proof of a causal business operation
 API reads use GET/HEAD; other supported methods require `commit api`. The current
 tab and request must have identical scheme, host and effective port. No automatic
 redirects or request retries occur. Cookies and internal ServiceNow authentication
-headers stay in the daemon. Response authentication and redirect headers are omitted.
+headers stay in the daemon. Response headers named like credentials (cookie, `auth`,
+token, session, `g_ck`, secret, CSRF/XSRF, password, credential, or ending in `key`) and
+`Location`/`Refresh` are omitted; the rest are single-line with URLs redacted, including
+`Content-Location` and `Link` targets.
 A 401, or a redirect whose Location leaves the origin or names a sign-in path or IdP,
 returns `needs_human` and a `handoff_id`; repeats reuse the open handoff. Every redirect
 (3xx except 304) returns `redirect: true` and a placeholder body. Other redirects and a

@@ -74,9 +74,13 @@ diagnostics page and preserves the working tab; `check REF` retains its behavior
 `commit api URL --method POST --json-file payload.json`, which sends `Accept` and
 `Content-Type: application/json`. MCP `browser_commit` with `body_file` sends the same
 headers; `content_type` (only with `body_file`) replaces the type. No redirects or retries;
-profile host policy is checked before dispatch. Authentication and redirect response
-headers are omitted. A 401, or a redirect to another origin, a sign-in path or an
-identity provider, opens a human handoff (`needs_human`, `handoff_id`) and focuses the
+profile host policy is checked before dispatch. Response headers named like credentials
+(cookie, `auth`, token, session, `g_ck`, secret, CSRF/XSRF, password, credential, or
+ending in `key`, such as `X-API-Key`) and the redirect pair `Location`/`Refresh` are
+omitted. The rest come back single-line, without invisible characters, and with their
+URLs redacted, including `Content-Location` and `Link` targets. A 401, or a redirect
+to another origin, a sign-in path or an identity provider, opens a human handoff
+(`needs_human`, `handoff_id`) and focuses the
 window once: a repeat while that handoff is open, with no navigation since, returns the
 same ID. Every redirect (3xx other than 304) returns `redirect: true` and a placeholder
 instead of its body, which can echo sign-in codes. Other redirects and a 403 open no
@@ -178,8 +182,8 @@ use `output --id ID --offset 0` to read the terminal receipt directly from SQLit
 This read creates no evidence files and works at quota. The distinct receipt ID
 cannot be confused with an earlier pending-result overflow artifact.
 Entered text, JS, bodies and credentials are omitted from SQLite receipt arguments.
-Receipts keep an API call's path as sent (never its query string) and a valid recipe
-name and record number. `ping`, which every `status` sends, writes no receipt.
+Receipts keep an API call's path (never its query string), with credentials in it masked
+as in any redacted URL, and a valid recipe name and record number. `ping`, which every `status` sends, writes no receipt.
 Commit UI operations capture before/after screenshots. API response artifacts contain
 application data and count toward quota; transient request staging files are removed.
 
@@ -192,7 +196,8 @@ the recorded protocol and send one actual request under their own deadline, with
 preliminary health requests or automatic action retries. Reusing a running profile
 with start gives its health response the requested start deadline.
 
-- **Success**: JSON on stdout, exit `0`. Page-derived keys are listed in `untrusted`; hints never contain page text.
+- **Success**: JSON on stdout, exit `0`. Every reply that carries page-derived keys (`state`, `ping` and `journal`
+  included) lists them in `untrusted`; hints never contain page text.
   Metadata keys come before `snapshot`, so a truncated read still carries `url`, `title`, `truncated`, `note`.
 - **Failure**: `{"error": {"class", "http_status": null, "message", "hint", "details"?, "note"?}}` on stderr, stdout empty.
   Never a traceback: an unexpected internal error is class `daemon` with `details.exception` naming its type,
@@ -261,7 +266,8 @@ effective list is a configuration error.
   session.json      pid, port, token, browser, heartbeat, busy (request in flight: cmd, since, until), code hash (written by the daemon)
   session.lock      held by the daemon for its lifetime; the OS releases it on death (liveness truth)
   launch.json       the settings the client handed the daemon
-  daemon.log        command/status/timing diagnostics; no argument values or exception bodies
+  daemon.log        command/status/timing diagnostics and truncated launch/shutdown error text, one sanitised,
+                    URL-redacted line per entry; no command arguments, page content or request values
   journal.sqlite3   redacted receipts, evidence references and durable human handoffs
   last_snapshot.txt the manual session's last filtered snapshot
   downloads\  shots\  outputs\
@@ -340,13 +346,20 @@ raised by a human navigation is accepted.
   the agent-browser home (so `~/.ssh`, `~/.aws` and `~/.config` stay out). A dot-folder above your working folder,
   such as the `.claude\worktrees\` of a Claude Code worktree, is fine. These are best-effort guards, not a sandbox:
   a hard link, or a file swapped after the check, is not detected.
-- Page-derived strings are sanitized (control and bidi characters stripped, lines capped) and only ever appear
-  under keys named in `untrusted`; hints are static templates. URLs are redacted (`code`, `token`, `id_token`,
-  `SAMLResponse`, ... masked, fragment dropped) in output and logs. That includes `/url` link targets in `snapshot
-  --full` and `--find`. A same-page `#anchor` shows as `#`, a URL is cut at 500 characters, and a URL whose host
-  cannot be parsed shows as `***`. Visible page text, including a URL printed as link text, is not rewritten.
-  Snapshot lines are split only at real line breaks, so a name or link that holds U+2028 or U+0085 cannot pose as
-  an extra line with its own ref.
+- Page-derived strings are sanitized (control, bidi, zero-width, Unicode tag and other invisible formatting
+  characters stripped, lines capped) and only ever appear under keys named in `untrusted`; hints are static
+  templates. `text` keeps line breaks (U+2028 and U+2029 become newlines). Snapshot names, values and frame labels
+  render on one line. URLs are redacted in output and logs: the fragment and `user:pass@` are dropped; credential
+  query and `;` path-parameter values are masked (`code`, `state`, `sig`, `SAMLResponse`, and names ending in
+  `token`, `secret`, `password`, `session`, `signature`, `api_key`, ... such as `accessToken` or `jsessionid`);
+  JWT-shaped values and path segments are masked; a token-shaped segment (16+ characters with a digit or capital)
+  after a route word such as `reset-password`, `verify`, `invite` or `unsubscribe` is masked; a URL inside a query
+  value is redacted the same way. Identifiers keep their values (`sys_id`, `status_code`, `country_code`, record
+  ids in paths). That includes `/url` link targets in `snapshot --full` and `--find`, and URLs inside error
+  messages, the Playwright call log in `details.log`, and daemon log tails. A same-page `#anchor` shows as `#`, a
+  URL is cut at 500 characters, and a URL whose host cannot be parsed shows as `***`. Visible page text, including
+  a URL printed as link text, is not rewritten. Snapshot lines are split only at real line breaks, so a name or
+  link that holds U+2028 or U+0085 cannot pose as an extra line with its own ref.
 - Environment variables, profile policy, caller allowlists and the socket credential
   are cooperative controls. A hostile local process can rewrite config or call the
   socket directly. Only the `commit` verb declares a commit: the daemon drops a `_commit`
@@ -403,7 +416,7 @@ Small modules behind a thin entry point; every OS edge is a module-level seam th
 |---|---|
 | Constants | Timeouts, byte budgets, role sets for the snapshot filter, secret-field and sign-in heuristics, error classes, the static hint table. |
 | Config helpers | `_tag()` rides `error_class`/`hint`/`details` on builtin exceptions; lazy env reads; `ProfilePaths`; the human-written `config.json`. |
-| Text hygiene | `sanitize_text`, `redact_url`, `redact_href` (with `yaml_unquote`), `safe_name`. |
+| Text hygiene | `strip_invisible`, `sanitize_text` (`single_line`), `redact_url` (with `redact_path`), `redact_text` for URLs in free text, `redact_href` (with `yaml_unquote`), `safe_name`. |
 | Browser discovery | `find_browser` (explicit > env > PATH > known folders > App Paths), version from the install folder, Edge and Chrome policy decoding. |
 | Process seams | detached spawn with the breakaway retry and the WMI fallback, lock files, Job Object facts, CIM process listing by full profile path. |
 | Session store | atomic `session.json`, lock liveness, explicit profile/session selection and protocol compatibility. |
