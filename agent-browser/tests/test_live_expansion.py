@@ -315,6 +315,21 @@ def test_popup_tabs_and_stop_are_scoped_to_their_session(cli: Cli, site: _Site) 
     assert "Home" in cli.ok("text", "--session", other)["text"]
 
 
+def test_status_lists_tabs_owned_by_other_sessions(cli: Cli, site: _Site) -> None:
+    owners = ("status-owner-a", "status-owner-b")
+    urls = {owner: f"{site.url}/home.html?owner={owner}" for owner in owners}
+    try:
+        for owner, url in urls.items():
+            cli.ok("goto", url, "--session", owner)
+        tabs = {tab["url"]: tab for tab in cli.ok("status")["tabs"]}
+        for owner, url in urls.items():
+            assert tabs[url]["session"] == owner
+            assert [tab["url"] for tab in cli.ok("tabs", "--session", owner)["tabs"]] == [url]
+    finally:
+        for owner in owners:
+            cli.ok("stop", "--session", owner)
+
+
 def test_table_returns_clickable_iframe_row_refs(cli: Cli, site: _Site) -> None:
     session = "table"
     cli.ok("goto", f"{site.url}/expansion_table.html", "--session", session)

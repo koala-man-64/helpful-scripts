@@ -541,9 +541,10 @@ def test_budget_lines_keeps_a_single_oversized_unicode_line() -> None:
 def test_diff_lines() -> None:
     assert core_snapshots.diff_lines(None, ["a", "b"]) == {"added": ["a", "b"], "removed": []}
     assert core_snapshots.diff_lines(["a", "b", "c"], ["b", "c", "d"]) == {"added": ["d"], "removed": ["a"]}
-    capped_after = [f"line{i}" for i in range(core_common.CHANGES_CAP + 10)]
-    result = core_snapshots.diff_lines([], capped_after)
-    assert result["added"] == capped_after[: core_common.CHANGES_CAP]
+    after = [f"line{i}" for i in range(core_common.CHANGES_CAP + 10)]
+    assert core_snapshots.diff_lines([], after)["added"] == after
+    assert core_snapshots.diff_lines(after, [])["removed"] == after
+    assert core_snapshots.diff_lines(None, after)["added"] == after
 
 def test_find_line(data_page_text: str) -> None:
     out = core_snapshots.filter_snapshot(data_page_text)

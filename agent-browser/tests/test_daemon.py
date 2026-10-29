@@ -283,6 +283,19 @@ def test_complete_wire_reply_is_bounded_with_recoverable_output(daemon_server):
     assert len(saved["large"]) == 3 * 14000
 
 
+def test_health_ping_lists_other_sessions_but_explicit_ping_stays_scoped(daemon_server: _ServerHarness,
+                                                                      monkeypatch: pytest.MonkeyPatch) -> None:
+    for sid in ("a", "b"):
+        core_session._request(daemon_server.session, "goto", {"url": f"http://x/session-{sid}", "_session_id": sid}, 5)
+    monkeypatch.setenv("CODEX_THREAD_ID", "health-reader")
+
+    health = core_session._ping(daemon_server.session)
+    assert health is not None
+    assert {row["url"] for row in health["tabs"]} >= {"http://x/session-a", "http://x/session-b"}
+    scoped = core_session._request(daemon_server.session, "ping", {"_session_id": "a"}, 2)
+    assert [row["url"] for row in scoped["tabs"]] == ["http://x/session-a"]
+
+
 def test_unknown_command_is_a_usage_error(daemon_server: _ServerHarness) -> None:
     with pytest.raises(ValueError) as exc:
         core_session._request(daemon_server.session, "no-such-command", {}, timeout=2.0)
@@ -538,6 +551,30 @@ def test_serve_consumes_launch_json_once_it_holds_the_lock(serve_seams: list[boo
     assert serve_seams == [False]  # gone before the browser starts, not left for the daemon's lifetime
     assert not paths.session.exists() and not core_common._lock_held(paths.lock)
     assert "exited" in paths.log.read_text(encoding="utf-8")
+
+
+def test_serve_cleans_orphans_only_while_holding_the_profile_lock(serve_seams: list[bool],
+                                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    paths = core_common._paths("default")
+    core_session._write_json_atomic(paths.session, {"port": 4444, "token": "stale", "pid": 0})
+    launch_file = _write_launch(paths, "replacement", idle_seconds=0.01)
+    killed = []
+    original_start = core_daemon.Daemon.start_browser
+
+    def kill_orphans(user_data):
+        assert core_common._lock_held(paths.lock)
+        killed.append(user_data)
+        return [777]
+
+    def start_after_cleanup(daemon):
+        assert killed == [paths.user_data]
+        assert not paths.session.exists()
+        original_start(daemon)
+
+    monkeypatch.setattr(core_common, "_kill_browsers_using", kill_orphans)
+    monkeypatch.setattr(core_daemon.Daemon, "start_browser", start_after_cleanup)
+    assert core_daemon.serve(launch_file) == 0
+    assert killed == [paths.user_data] and serve_seams == [False]
 
 
 def test_serve_writes_startup_error_for_a_config_the_client_did_not_catch(serve_seams: list[bool]) -> None:

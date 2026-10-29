@@ -88,7 +88,8 @@ def needs_sign_in(status: int, target: str, request_url: str) -> bool:
 # An inline body (every CLI and MCP reply) never returns this browser session's tokens; a saved body file
 # (save_response, the Python bridge) stays byte-exact. After strip_invisible, in this order:
 # 1. Known values: the page's g_ck (same-origin frames, read like --servicenow) and the cookie values for the request
-#    and page URLs, each at least KNOWN_VALUE_MIN characters with 8 distinct ones, become *** wherever they occur.
+#    and page URLs before and after the request, each at least KNOWN_VALUE_MIN characters with 8 distinct ones,
+#    become *** wherever they occur.
 # 2. Backstop for tokens the daemon cannot know: a token-shaped value (TOKEN_VALUE) after a credential-named key
 #    (common._sensitive_key: g_ck, sysparm_ck, X-UserToken, JSESSIONID, glide_session_store, ...) in script, JSON, a
 #    query or a cookie line, or in an <input>/<meta> named like one; Bearer and Basic credentials; JWTs.
@@ -327,6 +328,7 @@ class ApiMixin:
             body = body_path.read_bytes()
         if method in {"GET", "HEAD"} and body is not None:
             raise common._tag(ValueError("GET and HEAD requests cannot carry a body."), common.ERR_USAGE)
+        known_before = self._known_values(session_keys, [url, page.url]) if inline else None
         self.action_attempted = method not in {"GET", "HEAD"}
         response = None
         try:
@@ -371,8 +373,10 @@ class ApiMixin:
             target.write_bytes(data)  # byte-exact: a saved body is not scrubbed
             result["body_file"] = str(target)
         else:
-            # Read after the request, so a cookie the response rotated is known too.
-            result.update(scrub_body(data, self._known_values(session_keys, [url, page.url]), response_headers))
+            # A response may replace or delete an outgoing cookie. Keep both snapshots, and withhold if either failed.
+            known_after = self._known_values(session_keys, [url, page.url])
+            known = None if known_before is None or known_after is None else [*known_before, *known_after]
+            result.update(scrub_body(data, known, response_headers))
             if "body_withheld" in result:
                 notes.append(common._hint("api_body_withheld", self.profile))
         if notes:

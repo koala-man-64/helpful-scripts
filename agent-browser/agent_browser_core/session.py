@@ -170,8 +170,10 @@ def _request(session: dict[str, Any], cmd: str, args: dict[str, Any], timeout: f
              queue_wait: float = core_common.QUEUE_WAIT) -> dict[str, Any]:
     """One request; the daemon may start it up to `queue_wait` after sending, then it keeps its full timeout and grace."""
     patience = queue_wait + timeout + grace
+    # Health probes describe the whole profile, even when the caller has an ambient agent session.
+    session_id = None if cmd == "ping" and not args.get("_session_id") else core_common.session_identity(args.get("_session_id"))
     payload = json.dumps({"token": session["token"], "cmd": cmd, "args": args, "timeout": timeout, "start_by": core_common._wall() + queue_wait,
-                          "protocol_version": core_common.PROTOCOL_VERSION, "session_id": core_common.session_identity(args.get("_session_id"))}) + "\n"
+                          "protocol_version": core_common.PROTOCOL_VERSION, "session_id": session_id}) + "\n"
     try:
         with socket.create_connection(("127.0.0.1", int(session["port"])), timeout=3.0) as sock:
             sock.settimeout(patience)
@@ -273,11 +275,7 @@ def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, tim
         return start_session(paths, args, timeout)
     token = secrets.token_hex(32)
     launch = _launch_record(paths, args, token)  # validates browser, exe and profile policy before any cleanup or spawn
-    if state == "stale":
-        paths.session.unlink(missing_ok=True)
-        killed = core_common._kill_browsers_using(paths.user_data)
-        if killed:
-            core_common._log(f"killed stale processes {killed}")
+    # A concurrent start may now own the profile. Only the daemon holding session.lock can clean up orphans.
     paths.dir.mkdir(parents=True, exist_ok=True)
     (paths.dir / "startup_error.json").unlink(missing_ok=True)
     _write_json_atomic(paths.launch, launch)

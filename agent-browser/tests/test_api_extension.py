@@ -540,7 +540,56 @@ def test_api_html_body_masks_the_pages_live_g_ck_and_session_cookie_values(make_
     assert result["body"] == "<table><tr><td>***</td><td>***</td><td>INC0010001</td></tr></table>"
     assert result["body_masked"] == 2 and "body_withheld" not in result
     assert live not in json.dumps(result) and session not in json.dumps(result)
-    assert ctx.cookie_calls == [[SN_PAGE, SN_PAGE]]  # read after the request, for the request and page URLs
+    assert ctx.cookie_calls == [[SN_PAGE, SN_PAGE]] * 2  # request/page cookies before and after the response
+
+
+@pytest.mark.parametrize("replacement", [True, False], ids=["rotated", "deleted"])
+@pytest.mark.parametrize("carrier", ["body", "header"])
+def test_api_inline_masks_outgoing_and_replacement_cookies(make_daemon, replacement, carrier):
+    daemon, ctx, page = make_daemon()
+    old, new = _token("outgoing-cookie"), _token("replacement-cookie")
+    ctx.cookie_jar = [{"name": "JSESSIONID", "value": old}]
+    echoed = old + " " + new if replacement else old
+    response = Response(headers={"X-Diagnostic": echoed} if carrier == "header" else {},
+                        body=json.dumps({"result": echoed}).encode() if carrier == "body" else b"{}")
+
+    def fetch(*args, **kwargs):
+        ctx.cookie_jar = [{"name": "JSESSIONID", "value": new}] if replacement else []
+        return response
+
+    ctx.request = SimpleNamespace(fetch=fetch)
+    result = daemon.dispatch("api", {"url": "/api/items"}, 1)
+    assert old not in json.dumps(result) and new not in json.dumps(result)
+    shown = result["body"]["result"] if carrier == "body" else result["headers"]["X-Diagnostic"]
+    assert shown == ("*** ***" if replacement else "***")
+    assert result["body_masked"] == (2 if replacement else 1)
+
+
+@pytest.mark.parametrize("failed_read", [1, 2], ids=["outgoing-unavailable", "replacement-unavailable"])
+def test_api_inline_withholds_body_and_headers_if_either_cookie_snapshot_fails(make_daemon, failed_read):
+    daemon, ctx, page = make_daemon()
+    token = _token("unverified-cookie")
+    requested = False
+
+    def cookies(urls):
+        if requested == (failed_read == 2):
+            raise RuntimeError("cookie observation unavailable")
+        return [{"name": "JSESSIONID", "value": token}]
+
+    ctx.cookies = cookies
+    calls = request_context(ctx, Response(headers={"X-Diagnostic": token}, body=json.dumps({"result": token}).encode()))
+    original_fetch = ctx.request.fetch
+
+    def fetch(*args, **kwargs):
+        nonlocal requested
+        requested = True
+        return original_fetch(*args, **kwargs)
+
+    ctx.request.fetch = fetch
+    result = daemon.dispatch("api", {"url": "/api/items"}, 1)
+    assert len(calls) == 1
+    assert result["body_withheld"] == "unverified" and result["body"] == api.WITHHELD["unverified"]
+    assert result["headers"] == {} and token not in json.dumps(result)
 
 
 def test_api_html_body_masks_token_carriers_the_daemon_cannot_know(make_daemon):
