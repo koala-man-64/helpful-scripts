@@ -144,7 +144,10 @@ class VerifiedActionsMixin:
                 if not wanted or not info.get("multiple") and len(wanted) > 1:
                     raise common._tag(ValueError("Select values do not match the control's multiplicity."), common.ERR_VALIDATION)
                 for item in wanted:
-                    match = next((o for o in options if str(o["label"]).strip().lower() == item.strip().lower()), None) or next((o for o in options if str(o["value"]).strip().lower() == item.strip().lower()), None)
+                    if not item.strip():
+                        match = next((o for o in options if str(o["value"]) == item), None)
+                    else:
+                        match = next((o for o in options if str(o["label"]).strip().lower() == item.strip().lower()), None) or next((o for o in options if str(o["value"]).strip().lower() == item.strip().lower()), None)
                     if not match or match.get("disabled"):
                         raise common._tag(ValueError("A select value is missing or disabled; nothing was filled."), common.ERR_VALIDATION)
             if operation in {"check", "uncheck"} and "value" in field and field["value"] is not (operation == "check"):

@@ -813,8 +813,9 @@ class BrowserEngine:
             return env
         served = self._serve_snapshot(page)
         changes = core_snapshots.diff_lines(before, served.lines)
-        added, cut_a = core_snapshots.budget_lines(changes["added"], max_bytes // 2)
-        removed, cut_r = core_snapshots.budget_lines(changes["removed"], max_bytes // 2)
+        count_cut = any(len(lines) > core_common.CHANGES_CAP for lines in changes.values())
+        added, cut_a = core_snapshots.budget_lines(changes["added"][:core_common.CHANGES_CAP], max_bytes // 2)
+        removed, cut_r = core_snapshots.budget_lines(changes["removed"][:core_common.CHANGES_CAP], max_bytes // 2)
         env: dict[str, Any] = {"ok": True, "action": action, "target_line": target_line}
         env.update(self._base_fields(page))
         if value_after is not None:
@@ -825,7 +826,7 @@ class BrowserEngine:
         env["new_tab"] = self._new_tab_info()
         env["dialogs"] = []
         env["downloads"] = self._downloads_seen()
-        env["truncated"] = cut_a or cut_r
+        env["truncated"] = count_cut or cut_a or cut_r
         env["changes"] = {"added": added, "removed": removed}
         env["refs_valid"] = refs_valid
         if loading:
@@ -1177,7 +1178,7 @@ class BrowserEngine:
 
     def h_select(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         ms = self._timeout_ms(timeout)
-        wanted = [str(v) for v in (args.get("values") or []) if str(v).strip()]
+        wanted = [str(v) for v in (args.get("values") or [])]
         if not wanted:
             raise core_common._tag(ValueError("select needs at least one value."), core_common.ERR_USAGE)
         chosen_holder: dict[str, Any] = {}
@@ -1192,8 +1193,11 @@ class BrowserEngine:
             values = []
             labels = []
             for want in wanted:
-                match = next((o for o in options if str(o[0]).strip().lower() == want.strip().lower()), None) or \
-                    next((o for o in options if str(o[1]).strip().lower() == want.strip().lower()), None)
+                if not want.strip():
+                    match = next((o for o in options if str(o[1]) == want), None)
+                else:
+                    match = next((o for o in options if str(o[0]).strip().lower() == want.strip().lower()), None) or \
+                        next((o for o in options if str(o[1]).strip().lower() == want.strip().lower()), None)
                 if match is None:
                     raise core_common._tag(ValueError(f"No option matches {want!r}."), core_common.ERR_NOT_FOUND, hint=core_common._hint("select_not_found", self.profile),
                                details={"options": [core_common.sanitize_text(o[0], 120) for o in options][:100]})
@@ -1604,7 +1608,8 @@ class _Handler(socketserver.StreamRequestHandler):
         if not isinstance(args, dict):
             self._reply({"ok": False, "error": {"class": "validation", "message": "Command arguments must be an object."}})
             return
-        args["_session_id"] = message.get("session_id") or "manual"
+        # Preserve profile-wide health probes; all other commands still default to the manual session.
+        args["_session_id"] = message.get("session_id") or (None if cmd == "ping" else "manual")
         args["_cooperative"] = True
         import math
         raw_timeout = message.get("timeout", core_common.DEFAULT_TIMEOUT)
@@ -1750,6 +1755,12 @@ def _serve_locked(launch_file: Path, launch: dict[str, Any], paths: core_common.
         daemon = Daemon(launch)
         daemon.log_handle = log
         daemon.started_at = core_common._utc_now()
+        if paths.session.exists():
+            # session.lock is held here: a leftover endpoint/browser cannot belong to a live daemon.
+            killed = core_common._kill_browsers_using(paths.user_data)
+            paths.session.unlink(missing_ok=True)
+            if killed:
+                daemon.dlog(f"killed stale processes {killed}")
         daemon.start_browser()
         server = _Server(("127.0.0.1", 0), _Handler)
         server.daemon = daemon

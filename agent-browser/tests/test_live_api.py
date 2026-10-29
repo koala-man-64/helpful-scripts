@@ -13,6 +13,7 @@ pytestmark = [pytest.mark.live, pytest.mark.skipif(os.getenv("AGENT_BROWSER_LIVE
 # Built at run time (GitGuardian scans every commit): the page's g_ck and a session cookie the echo pages return.
 LIVE_G_CK = hashlib.sha256(b"live g_ck").hexdigest()
 LIVE_COOKIE = hashlib.sha256(b"live cookie").hexdigest()[:32].upper()
+ROTATED_COOKIE = hashlib.sha256(b"live replacement cookie").hexdigest()[:32].upper()
 
 
 @pytest.fixture
@@ -28,6 +29,17 @@ def api_site(site, monkeypatch):
             request.send_header("Content-Type", "application/json")
             request.end_headers()
             request.wfile.write(json.dumps({"authenticated": seen["cookie"], "csrf_present": seen["csrf"]}).encode())
+        elif request.path in {"/api-rotation-start", "/api-rotate"}:
+            rotating = request.path == "/api-rotate"
+            cookie = ROTATED_COOKIE if rotating else LIVE_COOKIE
+            request.send_response(200)
+            request.send_header("Set-Cookie", f"rotation_session={cookie}; Path=/; HttpOnly")
+            request.send_header("Content-Type", "application/json")
+            if rotating:
+                seen["rotation_outgoing"] = f"rotation_session={LIVE_COOKIE}" in request.headers.get("Cookie", "")
+                request.send_header("X-Diagnostic", f"{LIVE_COOKIE} {ROTATED_COOKIE}")
+            request.end_headers()
+            request.wfile.write(json.dumps({"previous": LIVE_COOKIE, "replacement": ROTATED_COOKIE} if rotating else {"ready": True}).encode())
         elif request.path in {"/api-redirect", "/api-login-redirect"}:
             target = "/login-target" if request.path == "/api-login-redirect" else "/redirect-target"
             request.send_response(302)
@@ -119,6 +131,18 @@ def test_binary_bridge_uses_owned_artifact_without_exposing_browser_state(cli, a
     assert result["command_id"] and result["receipt"]
     state = cli.ok("state", "--command", result["command_id"], "--session", "binary")
     assert json.loads(state["commands"][0]["outcome"])["body_file"]
+
+
+def test_inline_api_masks_outgoing_and_rotated_http_only_cookies(cli, api_site):
+    site, seen = api_site
+    cli.ok("goto", f"{site.url}/home.html", "--session", "rotation")
+    cli.ok("api", f"{site.url}/api-rotation-start", "--session", "rotation")
+    result = cli.ok("api", f"{site.url}/api-rotate", "--session", "rotation")
+    assert seen["rotation_outgoing"] is True
+    assert result["body"] == {"previous": "***", "replacement": "***"}
+    assert result["headers"]["x-diagnostic"] == "*** ***"
+    assert result["body_masked"] == 4
+    assert LIVE_COOKIE not in json.dumps(result) and ROTATED_COOKIE not in json.dumps(result)
 
 
 def test_inline_body_never_returns_the_live_session_token(cli, api_site, monkeypatch):

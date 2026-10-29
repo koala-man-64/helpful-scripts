@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Selection and change count audit</title></head>
+<body>
+  <label for="display-name">Display name</label><input id="display-name" value="Before">
+  <label for="category">Category</label>
+  <select id="category">
+    <option value="">Clear selection</option>
+    <option value="   ">Whitespace selection</option>
+    <option value="active" selected>Active</option>
+  </select>
+  <button id="add-controls" type="button">Add controls</button>
+  <div id="controls"></div>
+  <script>
+    document.querySelector('#add-controls').addEventListener('click', () => {
+      const controls = document.querySelector('#controls');
+      for (let i = 0; i < 41; i++) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = `Added ${i}`;
+        controls.append(button);
+      }
+    });
+  </script>
+</body>
+</html>

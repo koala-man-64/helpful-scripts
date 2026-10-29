@@ -216,6 +216,89 @@ def test_type_clears_first_unless_append(make_daemon, outer_text: str) -> None:
 # select
 
 
+@pytest.mark.parametrize("option_value", ["", "   "])
+def test_select_accepts_empty_and_whitespace_option_values(make_daemon, outer_text, option_value):
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    element = page.elements["f1e3"]
+    element.options = [("Empty", "", False), ("Whitespace", "   ", False), ("Choice A", "a", True)]
+
+    result = daemon.dispatch("select", {"target": "f1e3", "values": [option_value]}, 5.0)
+
+    assert result["selected"] == ["Empty" if option_value == "" else "Whitespace"]
+    assert element.calls[-1] == ("select_option", [option_value])
+
+
+@pytest.mark.parametrize("option_value", ["", "   "])
+def test_form_completes_empty_option_after_filling_text(make_daemon, outer_text, monkeypatch, option_value):
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    text_field = page.elements["f1e3"]
+    select_field = page.elements["f1e4"]
+    select_field.options = [("Empty", "", False), ("Whitespace", "   ", False), ("Choice A", "a", True)]
+    original_evaluate = FakeLocator.evaluate
+
+    def evaluate(locator, js, timeout=None):
+        if "options:el.options" in js:
+            if locator.element is text_field:
+                return {"tag": "input", "type": "text"}
+            return {"tag": "select", "type": "select-one", "options": [
+                {"label": label, "value": value, "disabled": False}
+                for label, value, selected in select_field.options
+            ]}
+        return original_evaluate(locator, js, timeout)
+
+    monkeypatch.setattr(FakeLocator, "evaluate", evaluate)
+    result = daemon.dispatch("fill-form", {"fields": [
+        {"target": "f1e3", "value": "Updated name"},
+        {"target": "f1e4", "operation": "select", "value": option_value},
+    ]}, 5.0)
+
+    assert result["completed_fields"] == [0, 1]
+    assert text_field.value == "Updated name"
+    assert select_field.calls[-1] == ("select_option", [option_value])
+
+
+def test_form_rejects_missing_exact_whitespace_option_before_writes(make_daemon, monkeypatch):
+    daemon, ctx, page = make_daemon()
+    from types import SimpleNamespace
+    fields = {
+        "first": SimpleNamespace(evaluate=lambda js: {"tag": "input", "type": "text"}),
+        "category": SimpleNamespace(evaluate=lambda js: {"tag": "select", "type": "select-one", "options": [
+            {"label": "Empty", "value": "", "disabled": False},
+        ]}),
+    }
+    monkeypatch.setattr(daemon, "resolve", lambda p, target: fields[target])
+    monkeypatch.setattr(daemon, "_secret_check", lambda *a: "clear")
+    writes = []
+    monkeypatch.setattr(daemon, "h_fill", lambda *a: writes.append(a))
+    def unexpected_select(*a):
+        pytest.fail("Form preflight allowed a missing exact whitespace option")
+    monkeypatch.setattr(daemon, "h_select", unexpected_select)
+
+    with pytest.raises(ValueError, match="missing or disabled"):
+        daemon.dispatch("fill-form", {"fields": [
+            {"target": "first", "value": "Changed"},
+            {"target": "category", "operation": "select", "value": "   "},
+        ]}, 5.0)
+
+    assert writes == []
+
+
+@pytest.mark.parametrize("side", ["added", "removed"])
+@pytest.mark.parametrize("count", [core_common.CHANGES_CAP, core_common.CHANGES_CAP + 1])
+def test_action_diff_reports_change_count_truncation(make_daemon, monkeypatch, side, count):
+    daemon, ctx, page = make_daemon()
+    lines = [f'- button "Changed {i}" [ref=e{i}]' for i in range(count)]
+    before, after = ([], lines) if side == "added" else (lines, [])
+    from types import SimpleNamespace
+    monkeypatch.setattr(daemon, "_serve_snapshot", lambda p: SimpleNamespace(lines=after))
+    monkeypatch.setattr(daemon, "_refs_current", lambda *a: True)
+
+    result = daemon.act_envelope(page, "click", None, before, navigated=False, loading=[], max_bytes=24000)
+
+    assert result["changes"][side] == lines[:core_common.CHANGES_CAP]
+    assert result["truncated"] is (count > core_common.CHANGES_CAP)
+
+
 def test_select_matches_label_case_insensitively_then_value(make_daemon, outer_text: str) -> None:
     daemon, ctx, page = make_daemon(snapshot_text=outer_text)
     el = page.elements["f1e3"]

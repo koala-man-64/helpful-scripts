@@ -345,11 +345,12 @@ def budget_lines(lines: Sequence[str], max_bytes: int) -> tuple[list[str], bool]
 
 
 def diff_lines(before: Sequence[str] | None, after: Sequence[str]) -> dict[str, list[str]]:
+    """Return all changed lines; the envelope applies output limits and reports truncation."""
     if before is None:
-        return {"added": list(after)[:core_common.CHANGES_CAP], "removed": []}
+        return {"added": list(after), "removed": []}
     before_set, after_set = set(before), set(after)
-    added = [l for l in after if l not in before_set][:core_common.CHANGES_CAP]
-    removed = [l for l in before if l not in after_set][:core_common.CHANGES_CAP]
+    added = [l for l in after if l not in before_set]
+    removed = [l for l in before if l not in after_set]
     return {"added": added, "removed": removed}
 
 

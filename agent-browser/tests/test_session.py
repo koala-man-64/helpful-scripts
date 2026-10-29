@@ -420,7 +420,7 @@ def test_start_session_refuses_overlong_profile_path_before_spawning(monkeypatch
     assert not paths.launch.exists()
 
 
-def test_start_session_on_a_stale_session_removes_it_and_kills_leftovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
+def test_stale_start_leaves_orphan_cleanup_to_the_lock_owning_daemon(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
     paths = core_common._paths("default")
     core_session._write_json_atomic(paths.session, _valid_session(paths))  # stale: no lock held
     killed = []
@@ -430,7 +430,36 @@ def test_start_session_on_a_stale_session_removes_it_and_kills_leftovers(monkeyp
     result = core_session.start_session(paths, _start_args())
 
     assert result["status"] == "started"
-    assert killed == [paths.user_data]
+    assert killed == []
+
+
+def test_stale_start_preserves_a_concurrent_winners_browser_and_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    paths = core_common._paths("default")
+    core_session._write_json_atomic(paths.session, _valid_session(paths, pid=0))
+    winner = _valid_session(paths, pid=os.getpid(), token="winner-token")
+    locks = []
+    killed = []
+    original_launch = core_session._launch_record
+
+    def winner_starts_during_validation(paths, args, token):
+        launch = original_launch(paths, args, token)
+        lock = core_common._try_lock(paths.lock)
+        assert lock is not None
+        locks.append(lock)
+        core_session._write_json_atomic(paths.session, winner)
+        return launch
+
+    monkeypatch.setattr(core_session, "_launch_record", winner_starts_during_validation)
+    monkeypatch.setattr(core_common, "_kill_browsers_using", lambda path: killed.append(path) or [])
+    monkeypatch.setattr(core_session, "_await_daemon", lambda *args: {"status": "already_running"})
+    try:
+        assert core_session.start_session(paths, _start_args())["status"] == "already_running"
+        assert core_common._lock_held(paths.lock)
+        assert core_session._read_session(paths) == winner
+        assert killed == []
+    finally:
+        for lock in locks:
+            core_common._release_lock(lock)
 
 
 @pytest.mark.parametrize(
