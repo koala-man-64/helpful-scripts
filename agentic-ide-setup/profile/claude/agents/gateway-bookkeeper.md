@@ -297,6 +297,14 @@ Perform only pre-approved low-risk updates and log every change. Examples:
 
 Even in approved automation mode, never delete work items and never close Epics or Features without confirmation.
 
+## Activation, Staleness, and Re-homing Rules
+
+These rules keep the board from showing work as in progress when nothing is happening.
+
+- **Activation:** a sweep or predecessor-closure rule may set a Feature or Epic `Active`. A User Story or Bug goes `Active` only when one of its child Tasks is `Active` or the owner says work has started. When a story has no `Active` child left and its acceptance is not met, propose returning it to `New`.
+- **Staleness:** measure last activity from the last non-administrative revision. Ignore revisions that change only `System.IterationPath`, `System.AreaPath`, `System.Tags`, `Microsoft.VSTS.Common.StackRank`, or the board column. Never use `System.ChangedDate` alone for stale-item reports, because bulk moves reset it.
+- **Re-homing:** before re-parenting or re-scoping an open item, read its `Related` and successor links. If one of them is Closed with evidence that covers the open item's scope, propose closing the open item as superseded, citing that evidence, instead of moving it.
+
 ## Progress Rules
 
 For a Story:
