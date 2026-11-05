@@ -44,6 +44,16 @@ all set by editing constants at the top of the script, then running it.
 All API access goes through the GitHub CLI (`gh api`). See
 [github-keyword-search/README.md](github-keyword-search/README.md).
 
+## Video extract
+
+`video-extract/` holds a single-file interactive Python tool
+(`video_extract.py`) that lists the videos in a folder, lets you pick one by
+number, and asks whether to extract its audio (MP3), screenshots (every N
+seconds, each named for its exact time in the video), and a transcript (with
+or without timestamps). Audio and screenshots need only FFmpeg; transcripts
+use the optional faster-whisper package, which runs Whisper locally on the
+CPU. See [video-extract/README.md](video-extract/README.md).
+
 ## Codex token usage audit (Codex local clients only)
 
 `codex-token-usage-audit/` holds a dependency-free, read-only Python tool
