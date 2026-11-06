@@ -330,7 +330,8 @@ UNTRUSTED_KEYS = ["snapshot", "text", "title", "url", "details", "changes", "fra
 # error.details keys only the tool writes: receipt pointers, byte counts, field indexes, condition names. A non-empty
 # value under any other key (ambiguous candidates, select options, dialog messages, a call log) can hold page text.
 TOOL_DETAIL_KEYS = frozenset({"command_id", "executed", "receipt", "output_id", "next_offset", "exception", "pending", "completed_fields",
-                              "expectations", "evidence_bytes", "quota", "session_bytes", "other_sessions_bytes", "journal_bytes"})
+                              "expectations", "evidence_bytes", "quota", "session_bytes", "other_sessions_bytes", "journal_bytes",
+                              "previous_tab", "previous_tab_open", "current_tab"})
 
 
 OFF_ALLOWLIST_OK = frozenset({"ping", "stop", "back", "goto", "snapshot", "text", "tabs", "tab"})
@@ -513,6 +514,7 @@ HINTS = {
     "starting": "The browser is still starting. Run: {tool} status --profile {profile}",
     "stale_ref": "The page changed since the last snapshot. Run: {tool} snapshot --profile {profile}",
     "refs_moved": "A frame navigated while this reply's snapshot was taken, so its refs are stale. Run: {tool} snapshot --profile {profile}",
+    "tab_changed": "Refs, keys and navigation meant for the old tab would land on this one. Run: {tool} snapshot --profile {profile} to see the current tab, or {tool} tab <id> --profile {profile} to pick one, then repeat the command with refs from that reply.",
     "expect_text_baseline": "The page text could not be read before the action, so text: had nothing to compare with and nothing was done. Run: {tool} snapshot --profile {profile} and repeat the command, or expect response:, gone: or url:changed instead.",
     "ref_not_found": "That ref is not on the current page. Run: {tool} snapshot --profile {profile}",
     "bad_ref": "Refs look like e12 or f2e5 and come from: {tool} snapshot --profile {profile}",

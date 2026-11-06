@@ -33,7 +33,9 @@ Tabs, refs, receipts, outputs and downloads belong to that ID; cookies/storage a
 Open additional tabs with `goto URL --new-tab` and drive tabs in parallel by passing
 `--tab t2` (stable tab ID from `tabs`/`tab_id`) or `--tab 2` on any command without
 switching the active tab.
-Popups follow their opener. `agent-browser stop` releases only the current session.
+Popups follow their opener. If your current tab closes, or a page opens a new tab between commands, the next
+command without `--tab` answers `stale_ref` and nothing runs: take a snapshot first. Closing the current tab
+returns to the tab you used before it. `agent-browser stop` releases only the current session.
 It keeps tabs with unsaved edits open (`unsaved_changes`); add `--discard-changes` only if the user agreed to lose them.
 An explicit profile stop closes every session of that profile (other profiles are untouched); preserve others' work first.
 Caller permission templates ask before `stop --all`, `stop --force`, commit, eval, `--accept-dialog` and `--discard-changes`.
@@ -118,7 +120,7 @@ discards edits (a discarding stop is its operation `stop`). Read [interfaces](re
 
 | Error | Next action |
 | --- | --- |
-| `stale_ref` | Take a fresh snapshot and select the new ref. |
+| `stale_ref` | Take a fresh snapshot and select the new ref. With `details.current_tab`, your current tab changed: check it is the tab you mean. |
 | `ref_not_found` | Read the newest snapshot; do not guess refs. |
 | `not_found` | Verify the target, current page or handoff ID. |
 | `action_timeout` | Inspect state before retrying a potentially completed action. |

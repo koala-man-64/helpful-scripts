@@ -361,6 +361,34 @@ def test_popup_switches_tabs_and_tab_close(cli: Cli, base_url: str) -> None:
     assert code == 2 and err["class"] == "validation"
 
 
+def test_a_ref_from_a_popup_that_closed_itself_is_refused_until_a_snapshot(cli: Cli, base_url: str) -> None:
+    # Both pages share one layout, so the popup's Approve ref also names the opener's Approve button. Only a popup
+    # may close itself: Chromium refuses window.close() in a tab opened by goto --new-tab.
+    session = ("--session", "closing-popup")
+    try:
+        opener = cli.ok("goto", f"{base_url}/closing_opener.html", *session)
+        popup = cli.ok("click", ref(opener, r'button "Open popup"'), *session)
+        assert popup["url"].endswith("closing_popup.html") and popup["tab_id"] != opener["tab_id"]
+        approve = ref(popup, r'button "Approve"')
+        cli.ok("click", ref(popup, r'button "Close this tab soon"'), *session)
+        deadline = time.monotonic() + 20
+        while len(cli.ok("tabs", *session)["tabs"]) > 1:  # tabs never acts on the current tab, so it is not refused
+            assert time.monotonic() < deadline, "the popup did not close itself"
+            time.sleep(0.25)
+
+        code, _out, err = cli("click", approve, *session)
+        assert code == 2 and err["class"] == "stale_ref", err
+        assert (err["details"]["previous_tab"], err["details"]["current_tab"]) == (popup["tab_id"], opener["tab_id"])
+        assert "idle on the opener" in cli.ok("text", "--tab", opener["tab_id"], *session)["text"]
+
+        snap = cli.ok("snapshot", *session)
+        assert snap["tab_id"] == opener["tab_id"] and f"Tab {popup['tab_id']} closed" in snap["note"]
+        cli.ok("click", ref(snap, r'button "Approve"'), *session)
+        assert "approved on the opener" in cli.ok("text", *session)["text"]
+    finally:
+        cli("stop", *session)
+
+
 def test_downloads_land_under_the_profile(cli: Cli, base_url: str, live_home: Path) -> None:
     env = cli.ok("goto", f"{base_url}/download.html")
     clicked = cli.ok("click", ref(env, r'link "Download small"'))

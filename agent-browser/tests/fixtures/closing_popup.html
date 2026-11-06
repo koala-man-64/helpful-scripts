@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Closing popup</title>
+</head>
+<body>
+  <h1>Closing popup</h1>
+  <button type="button" onclick="document.getElementById('status').textContent = 'approved on the popup'">Approve</button>
+  <button type="button" onclick="setTimeout(function () { window.close(); }, 2000)">Close this tab soon</button>
+  <p id="status">idle on the popup</p>
+</body>
+</html>

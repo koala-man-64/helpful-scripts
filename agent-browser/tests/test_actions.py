@@ -16,7 +16,8 @@ import pytest
 
 import agent_browser as ab
 from agent_browser_core import common as core_common, daemon as core_daemon
-from conftest import FakeDialog, FakeDownload, FakeElement, FakeLocator, FakePage, FakePlaywrightError, FakePlaywrightTimeoutError
+from conftest import (FakeDialog, FakeDownload, FakeElement, FakeLocator, FakePage, FakePlaywrightError, FakePlaywrightTimeoutError,
+                      build_elements_from_snapshot)
 
 # ---------------------------------------------------------------------------
 # goto / snapshot envelope shape
@@ -917,6 +918,220 @@ def test_popup_from_background_tab_does_not_steal_current_tab(make_daemon, outer
     assert res["tab_id"] == "t2"
     assert res["new_tab"] == {"id": "t3", "index": 3, "url": "http://x/popup"}
     assert daemon.current is page1
+
+
+# ---------------------------------------------------------------------------
+# the current tab changing without the session choosing it
+
+
+def _outer_tab(ctx, outer_text: str, url: str) -> FakePage:
+    """A second tab with the same layout as the first, so every ref (button e4 included) exists on both."""
+    page = FakePage(ctx, url=url, title=url.rsplit("/", 1)[-1], snapshot_text=outer_text)
+    page.elements, _frame = build_elements_from_snapshot(outer_text)
+    return page
+
+
+def _working_on_t2_which_then_closes(make_daemon, outer_text: str):
+    daemon, ctx, page1 = make_daemon(snapshot_text=outer_text, page_url="http://x/1")
+    page2 = _outer_tab(ctx, outer_text, "http://x/2")
+    daemon._track_page(page2)
+    daemon.dispatch("tab", {"index": "t2"}, 5.0)  # the session now holds t2's refs
+    page2.close()  # between commands, as when a person closes the tab or the page closes itself
+    return daemon, ctx, page1, page2
+
+
+def test_closing_the_current_tab_returns_to_the_tab_used_before_it(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page1 = make_daemon(snapshot_text=outer_text, page_url="http://x/1")
+    for url in ("http://x/2", "http://x/3"):
+        daemon._track_page(_outer_tab(ctx, outer_text, url))
+    daemon.dispatch("tab", {"index": "t1"}, 5.0)
+    daemon.dispatch("tab", {"index": "t2"}, 5.0)
+
+    closed = daemon.dispatch("tab", {"index": "t2", "close": True}, 5.0)
+
+    # t1 was in use before t2; t3 is only the newest tab.
+    assert closed["tab_id"] == "t1" and closed["url"] == "http://x/1" and daemon.current is page1
+    assert closed["note"].endswith("Tab t2 closed, so t1 is the current tab now. Use refs from this reply, not from t2.")
+    assert daemon.dispatch("click", {"target": "e4"}, 5.0)["tab_id"] == "t1"  # its reply showed t1, so nothing is refused
+    other = daemon.dispatch("tab", {"index": "t3", "close": True}, 5.0)  # a tab that is not the current one
+    assert other["tab_id"] == "t1" and "note" not in other
+
+
+def test_a_ref_kept_from_a_tab_that_closed_between_commands_is_refused_until_a_snapshot(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page1, page2 = _working_on_t2_which_then_closes(make_daemon, outer_text)
+    assert daemon.current is page1
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("click", {"target": "e4"}, 5.0)  # t2's button; t1 has an e4 of its own
+    assert exc.value.error_class == core_common.ERR_STALE_REF and exc.value.hint == core_common._hint("tab_changed")
+    assert str(exc.value) == "Tab t2 closed, so t1 is the current tab now. This session has not seen it, so nothing ran."
+    details = exc.value.details
+    assert (details["previous_tab"], details["previous_tab_open"], details["current_tab"], details["executed"]) == ("t2", False, "t1", False)
+    assert page1.elements["e4"].calls == []
+    assert daemon.journal.rows("manual", details["command_id"])[0]["status"] == "failed"
+    assert core_common._error_untrusted({"class": "stale_ref", "details": details}).get("untrusted") is None  # tool-written only
+
+    snap = daemon.dispatch("snapshot", {}, 5.0)
+    assert snap["tab_id"] == "t1" and snap["note"].endswith("Tab t2 closed, so t1 is the current tab now. Use refs from this reply, not from t2.")
+    clicked = daemon.dispatch("click", {"target": "e4"}, 5.0)
+    assert clicked["tab_id"] == "t1" and page1.elements["e4"].calls == [("click", "left")] and "note" not in clicked
+
+
+def test_a_close_event_still_queued_when_the_next_command_arrives_is_delivered_before_the_check(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page1 = make_daemon(snapshot_text=outer_text, page_url="http://x/1")
+    page2 = _outer_tab(ctx, outer_text, "http://x/2")
+    daemon._track_page(page2)
+    daemon.dispatch("tab", {"index": "t2"}, 5.0)
+    page2.closed = True  # the tab is gone, but Playwright delivers its close event only on the next call into it
+    page2.wait_for_timeout = lambda ms: page2.emit("close", page2)
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("click", {"target": "e4"}, 5.0)
+    assert exc.value.error_class == core_common.ERR_STALE_REF and exc.value.details["current_tab"] == "t1"
+    assert page1.elements["e4"].calls == [] and page2.elements["e4"].calls == []
+
+
+def test_a_tab_change_during_the_commit_screenshot_is_caught_before_the_action(make_daemon, outer_text: str, monkeypatch) -> None:
+    daemon, ctx, page1 = make_daemon(snapshot_text=outer_text, page_url="http://x/1")
+    page2 = _outer_tab(ctx, outer_text, "http://x/2")
+    daemon._track_page(page2)
+    daemon.dispatch("tab", {"index": "t2"}, 5.0)
+    capture = daemon._capture
+
+    def close_while_capturing(command_id, when, page=None):
+        path = capture(command_id, when, page)
+        if when == "before":
+            page2.close()  # its close event arrives while the before-screenshot is taken
+        return path
+    monkeypatch.setattr(daemon, "_capture", close_while_capturing)
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("commit", {"operation": "click", "target": "e4"}, 5.0)
+    assert exc.value.error_class == core_common.ERR_STALE_REF and exc.value.details["executed"] is False
+    assert page1.elements["e4"].calls == [] and page2.elements["e4"].calls == []
+
+
+def test_a_popup_that_closes_itself_during_a_click_says_so_and_leaves_its_opener_current(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page1 = make_daemon(snapshot_text=outer_text, page_url="http://x/1")
+    page2 = _outer_tab(ctx, outer_text, "http://x/2")
+    daemon._track_page(page2)
+    daemon.dispatch("tab", {"index": "t2"}, 5.0)
+    page2.elements["e4"].click_side_effect = page2.close  # an Approve button that closes its popup
+
+    clicked = daemon.dispatch("click", {"target": "e4"}, 5.0)
+
+    assert clicked["tab_id"] == "t1" and daemon.current is page1 and page2.elements["e4"].calls == [("click", "left")]
+    assert clicked["note"].endswith("Tab t2 closed, so t1 is the current tab now. Use refs from this reply, not from t2.")
+    assert daemon.dispatch("reload", {}, 5.0)["tab_id"] == "t1"  # the reply showed t1, so nothing is refused
+
+
+@pytest.mark.parametrize(("cmd", "args"), [
+    ("click", {"target": {"role": "button", "name": "Outer button"}}), ("press", {"key": "Enter"}), ("goto", {"url": "http://x/next"}),
+    ("back", {}), ("reload", {}), ("text", {}), ("value", {"target": "e4"}), ("eval", {"js": "1+1"}), ("snapshot", {"ref": "e1"}),
+    ("wait", {"seconds": 1}), ("commit", {"operation": "click", "target": "e4"}),
+])
+def test_commands_on_a_current_tab_the_session_has_not_seen_are_refused(make_daemon, outer_text: str, cmd: str, args: dict) -> None:
+    daemon, ctx, page1, page2 = _working_on_t2_which_then_closes(make_daemon, outer_text)
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch(cmd, args, 5.0)
+    assert exc.value.error_class == core_common.ERR_STALE_REF and exc.value.details["current_tab"] == "t1"
+    assert page1.goto_calls == [] and page1.keyboard.presses == [] and page1.elements["e4"].calls == []
+
+
+def test_listing_naming_or_opening_a_tab_still_works_after_an_unseen_tab_change(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page1, page2 = _working_on_t2_which_then_closes(make_daemon, outer_text)
+    assert daemon.dispatch("tabs", {}, 5.0)["current_id"] == "t1"
+    assert daemon.dispatch("text", {"tab": "t1"}, 5.0)["tab_id"] == "t1"
+    assert daemon.dispatch("downloads", {}, 5.0)["downloads"] == []
+    assert daemon.dispatch("state", {}, 5.0)["session_id"] == "manual"
+    with pytest.raises(ValueError):  # none of those showed the session its current tab
+        daemon.dispatch("reload", {}, 5.0)
+    opened = daemon.dispatch("goto", {"url": "http://x/new", "new_tab": True}, 5.0)
+    assert opened["tab_id"] == "t3" and daemon.dispatch("reload", {}, 5.0)["tab_id"] == "t3"
+
+
+def test_a_tab_opened_between_commands_does_not_take_the_next_untargeted_action(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    daemon.dispatch("snapshot", {}, 5.0)
+    popup = _outer_tab(ctx, outer_text, "http://x/home.html")
+    ctx.emit("page", popup)  # a page timer or a person opened it after the last reply; popups become the current tab
+    assert daemon.current is popup
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("press", {"key": "Enter"}, 5.0)
+    assert str(exc.value) == "Tab t2 became the current tab; t1 is still open. This session has not seen it, so nothing ran."
+    assert exc.value.details["previous_tab_open"] is True and popup.keyboard.presses == []
+    assert daemon.dispatch("click", {"target": "e4", "tab": "t1"}, 5.0)["tab_id"] == "t1"
+    assert popup.elements["e4"].calls == []
+
+    # Choosing a tab shows it, which clears the refusal. This is the CLI's shape for `tab --tab t2`, where --tab
+    # names the tab to pick rather than a tab to act on without switching.
+    picked = daemon.dispatch("tab", {"index": "t2", "tab": "t2"}, 5.0)
+    assert picked["tab_id"] == "t2" and "note" not in picked
+    assert daemon.dispatch("press", {"key": "Enter"}, 5.0)["tab_id"] == "t2" and popup.keyboard.presses == ["Enter"]
+
+
+def test_a_snapshot_names_a_tab_that_became_current_unseen(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    daemon.dispatch("snapshot", {}, 5.0)
+    ctx.emit("page", _outer_tab(ctx, outer_text, "http://x/home.html"))
+
+    snap = daemon.dispatch("snapshot", {}, 5.0)
+
+    assert snap["tab_id"] == "t2" and snap["note"].endswith("Tab t2 became the current tab; t1 is still open.")
+    assert "note" not in daemon.dispatch("snapshot", {}, 5.0)
+
+
+def test_a_popup_that_opens_and_closes_within_a_click_leaves_its_opener_current(make_daemon, outer_text: str) -> None:
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    daemon._track_page(_outer_tab(ctx, outer_text, "http://x/newer"))  # the newest tab, never used
+    popup = FakePage(ctx, url="http://x/home.html", title="Home page")
+
+    def open_and_close() -> None:
+        ctx.emit("page", popup)
+        popup.close()
+    page.elements["e4"].click_side_effect = open_and_close
+
+    assert daemon.dispatch("click", {"target": "e4"}, 5.0)["tab_id"] == "t1" and daemon.current is page
+    page.elements["e4"].click_side_effect = None
+    assert daemon.dispatch("click", {"target": "e4"}, 5.0)["tab_id"] == "t1"  # the reply showed t1: not refused
+
+
+def test_a_tab_change_refuses_only_the_session_that_owns_the_tab(make_daemon) -> None:
+    daemon, ctx, original = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a1", "_session_id": "a"}, 5)
+    daemon.dispatch("goto", {"url": "http://x/a2", "new_tab": True, "_session_id": "a"}, 5)
+    a2 = daemon.page()
+    daemon.dispatch("goto", {"url": "http://x/b", "_session_id": "b"}, 5)
+    a2.close()  # while session b is the active one
+
+    assert daemon.dispatch("reload", {"_session_id": "b"}, 5)["url"] == "http://x/b"
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("reload", {"_session_id": "a"}, 5)
+    assert exc.value.error_class == core_common.ERR_STALE_REF
+    assert (exc.value.details["previous_tab"], exc.value.details["current_tab"]) == ("t2", "t1")
+
+
+def test_a_session_whose_only_tab_closed_is_told_before_it_acts_in_the_new_blank_tab(make_daemon) -> None:
+    daemon, ctx, original = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
+    only = daemon.page()
+    daemon.dispatch("goto", {"url": "http://x/b", "_session_id": "b"}, 5)
+    only.close()
+
+    with pytest.raises(ValueError) as exc:
+        daemon.dispatch("back", {"_session_id": "a"}, 5)  # would otherwise succeed on the blank tab opened for it
+    assert (exc.value.details["previous_tab"], exc.value.details["previous_tab_open"], exc.value.details["current_tab"]) == ("t1", False, "t2")
+    assert "Tab t1 closed, so t2 is the current tab now." in daemon.dispatch("snapshot", {"_session_id": "a"}, 5)["note"]
+    assert daemon.dispatch("goto", {"url": "http://x/c", "_session_id": "a"}, 5)["url"] == "http://x/c"
+
+
+def test_a_released_session_starts_again_without_a_tab_change_refusal(make_daemon) -> None:
+    daemon, ctx, original = make_daemon()
+    daemon.dispatch("goto", {"url": "http://x/b", "_session_id": "b"}, 5)  # keeps the daemon up after a's stop
+    daemon.dispatch("goto", {"url": "http://x/a", "_session_id": "a"}, 5)
+    daemon.dispatch("stop", {"_session_id": "a"}, 5)
+    assert daemon.dispatch("goto", {"url": "http://x/again", "_session_id": "a"}, 5)["url"] == "http://x/again"
 
 
 def test_goto_on_background_tab_and_allowlist_per_tab(make_daemon, outer_text: str) -> None:
