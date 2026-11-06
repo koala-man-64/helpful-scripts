@@ -23,6 +23,11 @@ def test_form_popup_keeps_later_semantic_field_in_original_iframe(cli, site):
         assert result["tab_id"] == original["tab_id"]
         assert cli.ok("eval", "document.querySelector('iframe').contentDocument.querySelector('#second').value",
                       "--tab", original["tab_id"], "--session", session)["value"] == "original only"
+        # The popup the form opened is the current tab, but the fill-form reply showed the form's tab: an untargeted
+        # command is refused until a snapshot shows the popup.
+        code, _out, error = cli("eval", "document.querySelector('#second').value", "--session", session)
+        assert code == 2 and error["class"] == "stale_ref" and error["details"]["previous_tab"] == original["tab_id"], error
+        assert cli.ok("snapshot", "--session", session)["tab_id"] == error["details"]["current_tab"]
         assert cli.ok("eval", "document.querySelector('#second').value", "--session", session)["value"] == ""
     finally:
         form.unlink(missing_ok=True)

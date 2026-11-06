@@ -13,6 +13,10 @@ from typing import Any
 from . import common, evidence, policy
 
 STOP_TAB_WAIT = 2.0  # seconds stop waits at least, per tab, for it to close or to answer its beforeunload
+# Verbs that still run when the current tab changed unseen (OperatingMixin._check_tab_change): snapshot shows the new
+# tab, tab picks one, tabs and downloads list, and check works in a page of its own. `goto --new-tab` and control verbs
+# run too.
+TAB_CHANGE_EXEMPT = frozenset({"snapshot", "tab", "tabs", "downloads", "diagnose"})
 
 
 def _purge_evidence_dir(path: Path, keep: set[str]) -> int:
@@ -88,6 +92,14 @@ class OperatingMixin:
         self.pages = previous
         if state["current"] is None:
             state["current"] = page
+            self._remember_current(owner, page)
+
+    def _remember_current(self, owner: str, page: Any) -> None:
+        """Move page to the end of the session's recently used tabs; closing its current tab falls back along this list."""
+        recent = self.sessions[owner].setdefault("recent", [])
+        if page in recent:
+            recent.remove(page)
+        recent.append(page)
 
     def _on_page(self, page: Any) -> None:
         self._track_page(page)
@@ -95,6 +107,7 @@ class OperatingMixin:
         explicit_tab = owner == self.session_id and self.current_cmd is not None and self.cmd_opts.get("tab") is not None
         if not explicit_tab:
             self.sessions[owner]["current"] = page
+            self._remember_current(owner, page)
         if owner == self.session_id:
             if not explicit_tab:
                 self.current = page
@@ -109,8 +122,17 @@ class OperatingMixin:
         state = self.sessions[owner]
         if page in state["pages"]:
             state["pages"].remove(page)
+        recent = state.setdefault("recent", [])
+        if page in recent:
+            recent.remove(page)
         if state["current"] is page:
-            state["current"] = state["pages"][-1] if state["pages"] else None
+            # The tab this session used before this one, not its newest tab: for a popup, usually the page that opened it.
+            fallback = next((p for p in reversed(recent) if p in state["pages"]), None)
+            if fallback is None and state["pages"]:
+                fallback = state["pages"][-1]
+            state["current"] = fallback
+            if state["current"] is not None:
+                self._remember_current(owner, state["current"])
         if owner == self.session_id:
             self.current = state["current"]
         self.served.pop(page, None)
@@ -130,6 +152,11 @@ class OperatingMixin:
         self.downloads = state["downloads"]
         self.dialog_log = state["dialog_log"]
         self.new_pages = state["new_pages"]
+        if create_page and self.current is not None:
+            # A close or popup event from between commands can still be queued: deliver it, so this command (and its
+            # tab-change check) sees the session's real current tab.
+            self._pump_events(self.current)
+            self._closed(self.current)
         if create_page and self.current is None:
             self.creating_session = True
             try:
@@ -138,6 +165,51 @@ class OperatingMixin:
                 self.current = state["current"] = page
             finally:
                 self.creating_session = False
+
+    def _check_tab_change(self, cmd: str, args: dict[str, Any]) -> None:
+        """Refuse a command bound to a current tab this session has not seen since it changed: the old tab closed, or a
+        page opened a new tab. Its refs, keys or navigation were meant for the tab the session last saw, and refs are
+        numbered per tab, so an old ref can match an element here. Commands with --tab, TAB_CHANGE_EXEMPT and control
+        verbs and `goto --new-tab` are never refused; a plain snapshot shows the new tab, which clears the refusal."""
+        previous = self.sessions[self.session_id].get("seen_id", "")
+        current = self._tab_id(self.current) if self.current is not None else ""
+        if not previous or not current or current == previous or args.get("tab") is not None:
+            return
+        scoped_snapshot = cmd == "snapshot" and bool(args.get("ref"))  # its scope ref came from the old tab
+        if cmd in policy.CONTROL or (cmd in TAB_CHANGE_EXEMPT and not scoped_snapshot) or (cmd == "goto" and args.get("new_tab")):
+            return
+        raise common._tag(ValueError(self._tab_change_text(previous) + " This session has not seen it, so nothing ran."), common.ERR_STALE_REF,
+                          hint=common._hint("tab_changed", self.profile),
+                          details={"previous_tab": previous, "previous_tab_open": self._tab_open(previous), "current_tab": current})
+
+    def _tab_open(self, tab_id: str) -> bool:
+        """Whether this session still has the tab: ids are never reused within a session."""
+        return any(self._tab_id(p) == tab_id for p in self.pages)
+
+    def _tab_change_text(self, previous: str) -> str:
+        current = self._tab_id(self.current)
+        if self._tab_open(previous):
+            return f"Tab {current} became the current tab; {previous} is still open."
+        return f"Tab {previous} closed, so {current} is the current tab now."
+
+    def _note_seen(self, cmd: str, args: dict[str, Any], result: dict[str, Any]) -> None:
+        """Record the current tab as seen once a reply shows it: no --tab (for the tab verb, --tab names the tab it picks),
+        and the reply's tab_id is the current tab. The reply's note says what changed when the tab seen before closed
+        (tab --close, a popup that closed itself during a click) or when a snapshot shows a tab that became current
+        unseen; a tab the command opened or picked needs none."""
+        current = self._tab_id(self.current) if self.current is not None else ""
+        if (args.get("tab") is not None and cmd != "tab") or not current or result.get("tab_id") != current:
+            return
+        state = self.sessions[self.session_id]
+        previous, note = state.get("seen_id", ""), None
+        if previous and previous != current:
+            if not self._tab_open(previous):
+                note = f"{self._tab_change_text(previous)} Use refs from this reply, not from {previous}."
+            elif cmd == "snapshot":
+                note = self._tab_change_text(previous)
+        state["seen_id"] = current
+        if note:
+            result["note"] = f"{result['note']} {note}" if result.get("note") else note
 
     def _observe(self, kind: str, page: Any = None) -> None:
         super()._observe(kind, page)
@@ -238,6 +310,7 @@ class OperatingMixin:
             mutating = policy.authorize(self.config, cmd, args)
             if args.get("expect") and cmd in {"run", "wait"}:
                 raise common._tag(ValueError("Recipes and wait have their own verification conditions; --expect applies to ordinary actions and API calls."), common.ERR_USAGE)
+            self._check_tab_change(cmd, args)
             # journal and state write only SQLite rows (a clear, a handoff resolution), so they work at quota.
             if mutating and cmd not in {"journal", "state"}:
                 self.journal.require_space(workspace=self.paths.workspace)
@@ -255,6 +328,9 @@ class OperatingMixin:
             specs = self._expect_specs(args.get("expect") or [], target_page or self.page()) if args.get("expect") else []
             expected_page = target_page
             expected_url = expected_page.url if expected_page else ""
+            # The commit screenshot and the expectation baselines talk to the browser, which can deliver a close or
+            # popup event that moves the current tab after the check above: check again before the command acts.
+            self._check_tab_change(cmd, args)
             if cmd == "wait" and args.get("_cooperative"):
                 # Not BrowserEngine.dispatch, so its guard and busy marker are applied here. The polls that
                 # follow are control requests: a pending wait is not busy.
@@ -270,6 +346,7 @@ class OperatingMixin:
             result["executed"] = executed
             if specs:
                 result = self._verify_result(command_id, result, specs, expected_page, expected_url, expectation_deadline)
+            self._note_seen(cmd, args, result)
             if result.get("pending") and command_id in self.jobs:
                 self.jobs[command_id]["before_counts"] = before
             result.update(command_id=command_id, session_id=sid, contract_version=common.CONTRACT_VERSION)
@@ -310,6 +387,10 @@ class OperatingMixin:
             self.last_activity = common._now()  # a long command must not end with the idle timer already expired
             self._cmd_target_page = None
             self.watching = []  # a pending job keeps its own response matchers
+            if self.current is not None and self.current in self.pages:
+                # Handlers move self.current; the saved state and the recently-used order follow it.
+                self.sessions[sid]["current"] = self.current
+                self._remember_current(sid, self.current)
 
     def _wait_job(self, command_id: str, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         conditions = args.get("conditions") or {k: args[k] for k in ("seconds", "url_contains", "signed_in", "text", "ref", "selector") if args.get(k) not in (None, "", 0)}
@@ -434,6 +515,7 @@ class OperatingMixin:
             exc.executed = closed > 0  # type: ignore[attr-defined]  # the clean tabs are already closed
             raise exc
         self.used_sessions.discard(self.session_id)
+        self.sessions[self.session_id]["seen_id"] = ""  # released: its next tab is a fresh start, not a change
         for command_id, job in list(self.jobs.items()):
             if job["session"] == self.session_id:
                 self.journal.finish(command_id, "unknown" if job.get("executed") else "failed", {"error_class": "session_released", "executed": bool(job.get("executed"))})

@@ -163,7 +163,7 @@ qualification requires a separately authorized test record.
 | `value REF` | Current value of a field (masked on secret fields). |
 | `screenshot [REF] [--path F.png] [--full-page] [--annotate]` | PNG under the profile's `shots/` (or a path under the cwd); `--annotate` draws temporary ref labels. |
 | `wait [--url-contains S] [--text S] [--ref R] [--selector S] [--signed-in HOST] [--seconds N] [--timeout S]` | Conditions AND-ed; cooperative polling; default 60 s, at most 100 s per call; inspect the receipt after timeout before deciding what to do next. Refused on a page outside `allowed_hosts`. |
-| `back` / `reload` / `tabs` / `tab TAB [--close]` | Navigation and tabs (`TAB` is a stable id `t1`, `t2` or 1-based index). Pass `--tab TAB` on any command to drive tabs in parallel without switching focus. Closing the last tab is refused. |
+| `back` / `reload` / `tabs` / `tab TAB [--close]` | Navigation and tabs (`TAB` is a stable id `t1`, `t2` or 1-based index). Pass `--tab TAB` on any command to drive tabs in parallel without switching focus. Closing the last tab is refused. Closing the current tab makes the tab used before it current (for a popup, usually the page that opened it), and the reply's `note` says so. |
 | `upload REF FILE...` / `downloads` | Attach local files; save and list files the page downloaded. |
 | `eval JS [--ref REF] [--frame NAME]` | Run JavaScript. Off when `config.json` says `"eval": false`. Refuses a credential field as `--ref`; the script itself, like page and `--frame` eval, can still reach any field. |
 | `needs-human [--signed-in HOST] [--reason TEXT]` | Focus/flash for human input; returns a durable handoff ID. The same reason and condition while that handoff is open return its ID without refocusing. Its receipt is final with status `needs_human`. |
@@ -398,6 +398,18 @@ popups inherit their opener. Cookies/storage remain shared. IDs route work
 cooperatively and do not authenticate callers. Normal stop releases one session;
 select another ID explicitly to stop it. All/force stops affect the shared profile.
 
+If a session's current tab changes without the session choosing it (the tab closed, or a page opened a new tab
+between commands), the next command that would use the current tab without `--tab` answers `stale_ref` and nothing
+runs; `details` holds `previous_tab`, `current_tab` and `previous_tab_open`. Refs are numbered per tab, so an old ref
+would otherwise name an element of the new tab. A plain `snapshot` (its `note` names the change), `tab TAB` or
+`goto URL --new-tab` clears it; `tabs`, `downloads`, `check URL`, control verbs and commands with `--tab` still run
+without clearing it. The session has seen its current tab once a reply without `--tab` carries that tab's `tab_id`: a
+click whose reply shows the popup it opened is fine, but a popup opened during `fill-form`, whose reply shows the
+form's tab, is not seen yet. A reply that shows a new current tab because the tab the session last saw closed (after
+`tab TAB --close`, or a popup that closed itself during a click) says so in its `note`: use that reply's refs, since a
+ref kept from the closed tab can name an element of the new one. When the closed tab was the session's last, the next
+command opens a new blank tab for the session, and the same refusal applies there.
+
 The daemon runs one request at a time; `wait` is polled, so it does not hold the
 browser. A request may wait up to 30 s behind other sessions' commands and then keeps
 its full timeout. One picked up later is refused as `busy`, unrun; one whose caller
@@ -554,7 +566,7 @@ Small modules behind a thin entry point; every OS edge is a module-level seam th
 | Session store | atomic `session.json`, lock liveness, explicit profile/session selection and protocol compatibility. |
 | Client protocol | one JSON line over a loopback socket; remote errors re-raised through `_tag()` so `main()` maps exit codes the same way for local and remote failures. |
 | Snapshot pure layer | `parse_ai_snapshot`, `frame_prefixes`, `filter_snapshot`, `budget_lines`, `diff_lines`: pure functions over Playwright's ai-mode text, tested against captured real output. |
-| Daemon | `Daemon` owns one persistent context; context-level dialog and page listeners, per-page download, navigation and error listeners; per-frame navigation counters, read before each snapshot, that turn a ref from a navigated frame into `stale_ref`; heal-once re-snapshot when a scoped snapshot reset Playwright's ref map; settle across frames. `OperatingMixin.dispatch` (`runtime.py`) runs first for every request: it routes it to the caller's session, resolves `commit` and `poll`, keeps receipts and expectations, and runs `wait` as a cooperative poll; the rest reach an `h_<verb>` handler (`reach.py` wraps `click` and owns `screenshot`). |
+| Daemon | `Daemon` owns one persistent context; context-level dialog and page listeners, per-page download, navigation and error listeners; per-frame navigation counters, read before each snapshot, that turn a ref from a navigated frame into `stale_ref`; heal-once re-snapshot when a scoped snapshot reset Playwright's ref map; settle across frames. `OperatingMixin.dispatch` (`runtime.py`) runs first for every request: it routes it to the caller's session, resolves `commit` and `poll`, keeps receipts and expectations, refuses a command bound to a current tab the session has not seen since it changed, and runs `wait` as a cooperative poll; the rest reach an `h_<verb>` handler (`reach.py` wraps `click` and owns `screenshot`). |
 | Client verbs | `start`, session-scoped `stop`, `status`, `clean`, `doctor`, human handoff and typed optional MCP. |
 | CLI | argparse with a shared parent parser, MSYS argument de-mangling, UTF-8 stdout on pipes, `_emit_error`, exit mapping. |
 
@@ -578,7 +590,7 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 |---|---|
 | `not_running` on every command | No daemon for that profile. `agent-browser start --profile <p>`; `goto` starts one by itself unless `AGENT_BROWSER_AUTOSTART=false`. |
 | `protocol_mismatch` | Explicitly restart the shared profile after preserving every session's work. |
-| `stale_ref` / `ref_not_found` / `refs_valid: false` | The page or its frame navigated, also while the snapshot was taken, or a scoped snapshot was taken. `agent-browser snapshot` and pick again. |
+| `stale_ref` / `ref_not_found` / `refs_valid: false` | The page or its frame navigated, also while the snapshot was taken, or a scoped snapshot was taken. `agent-browser snapshot` and pick again. A `stale_ref` with `details.current_tab` means the current tab changed without this session choosing it (see Session model): nothing ran, and the snapshot shows the tab that is current now. |
 | `action_failed` "Could not read the page text before the action…" | A `text:` check needs each frame's text before the action, and a frame was navigating or detached; nothing was done. Take a fresh `snapshot` and repeat, or expect `response:`, `gone:` or `url:changed` instead. |
 | `guarded` on `fill` / `type` / `press` | The field, or the focused field the keys would land in, looks like a password or code field. The human types it in the window; then `wait --signed-in <host>`, or on a sign-in page outside `allowed_hosts`, `needs-human --signed-in <host>` and `state --handoff ID`. |
 | `guarded` from `check URL` | The page, or one of its redirects, went to a host outside loopback and was blocked; `details.blocked_external` names it. |
