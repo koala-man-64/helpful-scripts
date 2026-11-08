@@ -22,7 +22,7 @@ Environment (real env vars, read lazily - no .env loading):
   AGENT_BROWSER_HEADLESS         "true" = headless by default (tests; a human cannot sign in headless)
   AGENT_BROWSER_TIMEOUT_SECONDS  default --timeout for actions
   AGENT_BROWSER_MAX_BYTES        snapshot byte budget per response (default 16000)
-  AGENT_BROWSER_MAX_CHARS        default --max-chars for `text` (default 20000)
+  AGENT_BROWSER_MAX_CHARS        default --max-chars for `text` on launch/per-call (default 20000; 0 = unlimited)
   AGENT_BROWSER_AUTOSTART        "false" = `goto` and `check URL` no longer start a browser by themselves
   AGENT_BROWSER_LAUNCHER         popen (default) | wmi   - how the daemon is detached on Windows
   AGENT_BROWSER_IDLE_SECONDS     daemon stops after this much inactivity (default 0 = never)
@@ -831,7 +831,7 @@ def _load_config() -> dict[str, Any]:
             raise _tag(RuntimeError("config.json upload_roots must be a list of strings."), ERR_CONFIG)
         if value is not None:
             out["upload_roots"] = [v for v in value if v.strip()]
-    for key in ("profiles", "permission", "evidence_max_bytes", "uploads"):
+    for key in ("profiles", "permission", "evidence_max_bytes", "uploads", "max_chars"):
         if key in data:
             out[key] = data[key]
     return out

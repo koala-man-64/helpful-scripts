@@ -59,6 +59,8 @@ class OperatingMixin:
     def __init__(self, launch: dict[str, Any]):
         super().__init__(launch)
         self.config = policy.profile_config(self.config, self.profile)
+        if launch.get("max_chars") is None and "max_chars" in self.config:
+            self.max_chars = int(self.config["max_chars"])
         self.session_id = "manual"
         self.sessions = {"manual": {"pages": self.pages, "current": None, "downloads": self.downloads, "next_tab_seq": 0, "dialog_log": self.dialog_log, "new_pages": self.new_pages}}
         self.page_owners: dict[Any, str] = {}

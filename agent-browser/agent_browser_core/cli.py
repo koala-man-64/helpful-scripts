@@ -93,7 +93,7 @@ def _session_for(args: argparse.Namespace, verb: str, autostart: bool = False) -
     paths = core_common._paths(profile)
     state, session = core_session._transport_state(paths)
     if state != "running" and autostart and core_common._env_flag("AGENT_BROWSER_AUTOSTART", True) and state in ("none", "stale"):
-        core_session.start_session(paths, argparse.Namespace(browser=None, exe=None, headless=False, window_size=None))
+        core_session.start_session(paths, argparse.Namespace(browser=None, exe=None, headless=False, window_size=None, max_chars=getattr(args, "max_chars", None)))
     session = core_session._require_running(paths, verb)
     return paths, session
 
@@ -254,7 +254,14 @@ def _cmd_scroll(args: argparse.Namespace) -> Any:
 
 
 def _cmd_text(args: argparse.Namespace) -> Any:
-    max_chars = args.max_chars if args.max_chars is not None else int(core_common._env_float("AGENT_BROWSER_MAX_CHARS", core_common.DEFAULT_TEXT_CHARS))
+    if args.max_chars is not None:
+        if args.max_chars < 0:
+            raise core_common._tag(ValueError("--max-chars must be >= 0"), core_common.ERR_VALIDATION)
+        max_chars: int | None = args.max_chars
+    elif os.getenv("AGENT_BROWSER_MAX_CHARS"):
+        max_chars = int(core_common._env_float("AGENT_BROWSER_MAX_CHARS", core_common.DEFAULT_TEXT_CHARS))
+    else:
+        max_chars = None
     return _remote(args, "text", "text", {"target": args.target, "max_chars": max_chars})
 
 
@@ -374,7 +381,8 @@ def _json_line(payload: Any, profile: str | None = None, session_id: str | None 
     result = dict(payload) if isinstance(payload, dict) else {"result": payload}
     result["contract_version"] = core_common.CONTRACT_VERSION
     encoded = json.dumps(result, ensure_ascii=False, default=str, separators=(",", ":"))
-    if len(encoded.encode("utf-8")) + 1 <= byte_budget:
+    is_text_reply = isinstance(result, dict) and "text" in result and "chars" in result and "error" not in result
+    if is_text_reply or len(encoded.encode("utf-8")) + 1 <= byte_budget:
         return encoded
     paths = core_common._paths(profile or result.get("profile") or core_session._resolve_profile(None))
     paths = core_common.ProfilePaths(paths.profile, paths.root, result.get("session_id") or core_common.session_identity(session_id))
@@ -490,6 +498,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--exe", help="explicit browser executable")
     p.add_argument("--headless", action="store_true", help="no window (tests; a human cannot sign in)")
     p.add_argument("--window-size", metavar="W,H")
+    p.add_argument("--max-chars", type=int, default=None, metavar="N", help="default character cap for text in this session (default 20000; 0 = unlimited)")
     p = add("stop", _cmd_stop, "close the browser (cookies and sign-in stay on disk)")
     p.add_argument("--all", action="store_true", help="stop the whole profile: every session and the browser (this profile only; other profiles keep running)")
     p.add_argument("--force", action="store_true", help="kill without asking the daemon")

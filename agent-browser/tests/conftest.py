@@ -665,17 +665,20 @@ def make_daemon(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock: Fak
         page_url: str = "http://x/outer.html",
         page_title: str = "Outer page",
         eval_enabled: bool | None = None,
+        max_chars: int | None = None,
     ) -> tuple[Any, FakeContext, FakePage]:
         home = tmp_path / "home"
         paths = core_common.ProfilePaths(profile, home)
         cfg = dict(config or {})
         if eval_enabled is not None:
             cfg["eval"] = eval_enabled
-        launch = {
+        launch: dict[str, Any] = {
             "profile": profile, "home": str(home), "log": str(paths.log), "token": "test-token",
             "browser": "msedge", "exe": None, "headless": headless, "window_size": None,
             "code_hash": "deadbeef", "config": cfg, "idle_seconds": 0.0, "tool_version": core_common.TOOL_VERSION,
         }
+        if max_chars is not None:
+            launch["max_chars"] = max_chars
         holder: dict[str, Any] = {}
 
         def ctx_factory(user_data_dir: str, options: dict[str, Any]) -> FakeContext:

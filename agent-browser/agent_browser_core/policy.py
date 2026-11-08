@@ -27,6 +27,8 @@ def profile_config(config: dict[str, Any], profile: str) -> dict[str, Any]:
     quota = result.get("evidence_max_bytes", 1024 ** 3)
     if type(quota) is not int or quota < 65536:
         raise common._tag(RuntimeError("evidence_max_bytes must be an integer >= 65536."), common.ERR_CONFIG)
+    if "max_chars" in result and (type(result["max_chars"]) is not int or result["max_chars"] < 0):
+        raise common._tag(RuntimeError("max_chars must be an integer >= 0."), common.ERR_CONFIG)
     return result
 
 

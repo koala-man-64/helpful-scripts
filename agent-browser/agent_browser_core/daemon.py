@@ -169,6 +169,10 @@ class BrowserEngine:
         self.paths = core_common.ProfilePaths(self.profile, Path(launch["home"]))
         self.token = launch["token"]
         self.config = launch.get("config") or {}
+        raw_mc = launch.get("max_chars")
+        if raw_mc is None:
+            raw_mc = self.config.get("max_chars")
+        self.max_chars: int = int(raw_mc) if raw_mc is not None else core_common.DEFAULT_TEXT_CHARS
         self.pw: Any = None
         self.ctx: Any = None
         self.pages: list[Any] = []
@@ -1253,7 +1257,12 @@ class BrowserEngine:
 
     def h_text(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         page = self.target_page(args)
-        max_chars = int(args.get("max_chars") or core_common.DEFAULT_TEXT_CHARS)
+        raw_max = args.get("max_chars")
+        if raw_max is None:
+            raw_max = self.max_chars
+        max_chars = int(raw_max) if raw_max is not None else core_common.DEFAULT_TEXT_CHARS
+        if max_chars <= 0:
+            max_chars = None  # type: ignore[assignment]
         ms = self._timeout_ms(timeout)
         chunks: list[str] = []
         try:
@@ -1272,9 +1281,9 @@ class BrowserEngine:
         except Exception as exc:  # noqa: BLE001
             raise self._classify(exc, "text") from exc
         text = core_common.strip_invisible("\n\n".join(chunks))
-        truncated = len(text) > max_chars
+        truncated = max_chars is not None and len(text) > max_chars
         env = self._base_fields(page)
-        env.update({"chars": len(text), "truncated": truncated, "untrusted": core_common.UNTRUSTED_KEYS, "text": text[:max_chars]})
+        env.update({"chars": len(text), "truncated": truncated, "untrusted": core_common.UNTRUSTED_KEYS, "text": text[:max_chars] if max_chars is not None else text})
         return env
 
     def h_value(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
@@ -1484,6 +1493,7 @@ class BrowserEngine:
             "schema": core_common.SESSION_SCHEMA, "protocol_version": core_common.PROTOCOL_VERSION, "profile": self.profile, "pid": os.getpid(), "port": port, "token": self.token,
             "launcher": existing.get("launcher"),
             "browser": self.launch.get("browser"), "browser_version": self.browser_version, "headless": bool(self.launch.get("headless")),
+            "max_chars": self.max_chars,
             "user_data_dir": str(self.paths.user_data), "log": str(self.paths.log), "started": self.started_at,
             "heartbeat": core_common._utc_now(), "busy": self.request_busy,
             "code_hash": self.launch.get("code_hash"), "tool_version": core_common.TOOL_VERSION, "python": sys.executable,
@@ -1689,7 +1699,8 @@ class _Handler(socketserver.StreamRequestHandler):
         reply["contract_version"] = core_common.CONTRACT_VERSION
         try:
             encoded = json.dumps(reply, ensure_ascii=False, default=str, separators=(",", ":"))
-            if len(encoded.encode("utf-8")) + 1 > core_common.STDOUT_BUDGET:
+            is_text_reply = reply.get("ok") and isinstance(reply.get("result"), dict) and "text" in reply["result"] and "chars" in reply["result"]
+            if not is_text_reply and len(encoded.encode("utf-8")) + 1 > core_common.STDOUT_BUDGET:
                 from .cli import _json_line
                 daemon = self.server.daemon
                 try:
