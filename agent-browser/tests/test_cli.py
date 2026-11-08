@@ -705,3 +705,53 @@ def test_unsafe_dialog_and_stop_flag_forms_are_usage_errors(argv: list[str], mon
     assert core_cli.main(argv) == 2
     assert json.loads(capsys.readouterr().err)["error"]["class"] == core_common.ERR_USAGE
     assert captured == [] and stopped == []
+
+
+def test_start_and_text_max_chars_configuration(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("AGENT_BROWSER_HOME", str(tmp_path / "home"))
+    paths = core_common._paths("default")
+
+    # _launch_record defaults to 20,000 and honours --max-chars / AGENT_BROWSER_MAX_CHARS / config
+    rec_default = core_session._launch_record(paths, SimpleNamespace(), "tok")
+    assert rec_default["max_chars"] == 20000
+
+    rec_flag = core_session._launch_record(paths, SimpleNamespace(max_chars=50000), "tok")
+    assert rec_flag["max_chars"] == 50000
+
+    rec_zero = core_session._launch_record(paths, SimpleNamespace(max_chars=0), "tok")
+    assert rec_zero["max_chars"] == 0
+
+    monkeypatch.setenv("AGENT_BROWSER_MAX_CHARS", "40000")
+    rec_env = core_session._launch_record(paths, SimpleNamespace(max_chars=None), "tok")
+    assert rec_env["max_chars"] == 40000
+    monkeypatch.delenv("AGENT_BROWSER_MAX_CHARS")
+
+    captured: list[tuple[str, dict[str, Any]]] = []
+    long_text = "x" * 35000
+
+    def fake_session_for(args: Any, verb: str, autostart: bool = False) -> tuple[Any, dict[str, Any]]:
+        return core_common._paths("default"), {"port": 1, "token": "t", "profile": "default"}
+
+    def fake_request(session: dict[str, Any], cmd: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+        captured.append((cmd, dict(payload)))
+        return {"chars": len(long_text), "truncated": False, "text": long_text}
+
+    monkeypatch.setattr(core_cli, "_session_for", fake_session_for)
+    monkeypatch.setattr(core_session, "_request", fake_request)
+
+    assert core_cli.main(["text"]) == 0
+    assert captured[-1][0] == "text" and captured[-1][1]["max_chars"] is None
+    out = json.loads(capsys.readouterr().out)
+    assert out["truncated"] is False and out["text"] == long_text and "output_id" not in out
+
+    monkeypatch.setenv("AGENT_BROWSER_MAX_CHARS", "500")
+    assert core_cli.main(["text"]) == 0
+    assert captured[-1][1]["max_chars"] == 500
+    capsys.readouterr()
+
+    assert core_cli.main(["text", "--max-chars", "1200"]) == 0
+    assert captured[-1][1]["max_chars"] == 1200
+    capsys.readouterr()
+

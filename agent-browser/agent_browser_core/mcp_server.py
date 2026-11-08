@@ -192,11 +192,11 @@ def browser_output(session_id: str, profile: str | None = None, output_id: str |
     return json.loads(_json_line(_cmd_output(argparse.Namespace(session=session_id, profile=profile, id=output_id, offset=offset, page_size=900)), profile, session_id))
 
 
-def browser_start(session_id: str, profile: str | None = None) -> dict[str, Any]:
+def browser_start(session_id: str, profile: str | None = None, max_chars: int | None = None) -> dict[str, Any]:
     import argparse
     from . import session
     session_id = common.session_identity(session_id)
-    result = session.start_session(common._paths(session._resolve_profile(profile)), argparse.Namespace(browser=None, exe=None, headless=False, window_size=None))
+    result = session.start_session(common._paths(session._resolve_profile(profile)), argparse.Namespace(browser=None, exe=None, headless=False, window_size=None, max_chars=max_chars))
     return {**result, "contract_version": common.CONTRACT_VERSION, "session_id": session_id}
 
 

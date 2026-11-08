@@ -1282,3 +1282,62 @@ def test_navigation_timeout_does_not_use_the_wait_hint(make_daemon, verb: str) -
         daemon.dispatch(verb, args, 1.0)
     assert exc.value.error_class == core_common.ERR_TIMEOUT
     assert exc.value.hint == core_common._hint("nav_timeout", daemon.profile) != core_common._hint("wait_timeout", daemon.profile)
+
+
+def test_text_default_20k_cap_is_configurable_on_launch(make_daemon, outer_text: str) -> None:
+    import json
+    from io import BytesIO
+    from types import SimpleNamespace
+    from agent_browser_core import cli as core_cli, daemon as core_daemon
+
+    # 1. Default launch caps text at 20,000 characters
+    daemon, ctx, page = make_daemon(snapshot_text=outer_text)
+    long_body = "A" * 35000
+    page.main_frame.body_text = long_body
+    page.frames[1].body_text = ""
+
+    default_result = daemon.dispatch("text", {}, 5.0)
+    assert default_result["truncated"] is True
+    assert default_result["chars"] >= 35000
+    assert len(default_result["text"]) == 20000
+
+    # 2. Launch with custom max_chars (e.g. 50000) raises the default cap
+    daemon_50k, _, page_50k = make_daemon(snapshot_text=outer_text, max_chars=50000)
+    page_50k.main_frame.body_text = long_body
+    page_50k.frames[1].body_text = ""
+
+    result = daemon_50k.dispatch("text", {}, 5.0)
+    assert result["truncated"] is False
+    assert result["chars"] >= 35000
+    assert long_body in result["text"]
+
+    # CLI _json_line and daemon _Handler._reply emit the full text without truncating to output_id
+    encoded_cli = json.loads(core_cli._json_line(result))
+    assert encoded_cli["truncated"] is False
+    assert "output_id" not in encoded_cli
+    assert long_body in encoded_cli["text"]
+
+    handler = SimpleNamespace(
+        server=SimpleNamespace(daemon=SimpleNamespace(profile="default", session_id="manual")),
+        wfile=BytesIO(),
+    )
+    core_daemon._Handler._reply(handler, {"ok": True, "result": result})
+    wire_reply = json.loads(handler.wfile.getvalue().decode("utf-8"))
+    assert wire_reply["ok"] is True
+    assert wire_reply["result"]["truncated"] is False
+    assert "output_id" not in wire_reply["result"]
+    assert long_body in wire_reply["result"]["text"]
+
+    # 3. Per-command max_chars still overrides launch max_chars
+    capped = daemon_50k.dispatch("text", {"max_chars": 100}, 5.0)
+    assert capped["truncated"] is True
+    assert len(capped["text"]) == 100
+
+    # 4. Launch with max_chars=0 disables the cap (unlimited)
+    daemon_unlim, _, page_unlim = make_daemon(snapshot_text=outer_text, max_chars=0)
+    page_unlim.main_frame.body_text = long_body
+    page_unlim.frames[1].body_text = ""
+    unlim_result = daemon_unlim.dispatch("text", {}, 5.0)
+    assert unlim_result["truncated"] is False
+    assert long_body in unlim_result["text"]
+

@@ -148,7 +148,7 @@ qualification requires a separately authorized test record.
 
 | Verb | What it does |
 |---|---|
-| `start [--url U] [--browser msedge\|chrome] [--exe P] [--headless] [--window-size W,H]` | Open the window for a profile. Idempotent: never a second window. |
+| `start [--url U] [--browser msedge\|chrome] [--exe P] [--headless] [--window-size W,H] [--max-chars N]` | Open the window for a profile. Idempotent: never a second window. |
 | `stop [--all] [--force] [--discard-changes]` | Release only this session. A tab with unsaved edits stays open and keeps the session (`unsaved_changes`; the other tabs still close) unless `--discard-changes`. When every other session that used the browser has stopped too (tabs a human opened by hand don't count), this stop also closes the window and ends the daemon (`stopping: true`). all/force explicitly affect the shared profile and close every tab without asking, so `--discard-changes` with them is a usage error. This profile only: other profiles keep running. Cookies stay. |
 | `status [--all]` | Running, pid, tabs, uptime, `stale_code`; `--all` lists every profile, and so does a plain `status` (no `--profile`, no `AGENT_BROWSER_PROFILE`) while more than one profile runs. Exit 0 whether or not a browser runs; 2 for an invalid or reserved (`_doctor`) `--profile`; 1 when the profile path is too long for Chromium. |
 | `goto URL [--wait load\|domcontentloaded] [--new-tab] [--discard-changes]` | Navigate (starts the browser if needed) and return the page. |
@@ -346,7 +346,7 @@ Real environment variables, read lazily; no `.env` loading (the tool must run ba
 | `AGENT_BROWSER_BROWSER` / `AGENT_BROWSER_EXE` | `msedge` (default) or `chrome`; an explicit executable. |
 | `AGENT_BROWSER_HEADLESS` | `true` = no window (tests). A human cannot sign in headless. |
 | `AGENT_BROWSER_TIMEOUT_SECONDS` | Default action timeout (15). |
-| `AGENT_BROWSER_MAX_BYTES` / `AGENT_BROWSER_MAX_CHARS` | Snapshot byte budget (16000, at least 500); `text` character cap (20000). |
+| `AGENT_BROWSER_MAX_BYTES` / `AGENT_BROWSER_MAX_CHARS` | Snapshot byte budget (16000, at least 500); `text` character cap on launch/per-call (default 20000; 0 = unlimited). |
 | `AGENT_BROWSER_AUTOSTART` | `false` stops `goto` and `check URL` from starting a browser on their own (they start one only when none runs or the last one died, and never for a call that fails its argument checks, such as a bad `--timeout`). |
 | `AGENT_BROWSER_LAUNCHER` | `popen` (default) or `wmi`: how the daemon is detached from the shell. `start` and `status` report `popen-breakaway` when the daemon left the shell's Job. Any other value, and `wmi` outside Windows, uses `popen`. |
 | `AGENT_BROWSER_IDLE_SECONDS` | Daemon stops after this much inactivity (default 0 = never). Any request counts, `poll`, `wait` and `state` included; an open handoff nobody polls does not. |

@@ -243,11 +243,23 @@ def _launch_record(paths: core_common.ProfilePaths, args: argparse.Namespace, to
     exe = core_common._check_browser_exe(getattr(args, "exe", None) or os.getenv("AGENT_BROWSER_EXE") or None)
     headless = bool(getattr(args, "headless", False)) or core_common._env_flag("AGENT_BROWSER_HEADLESS")
     config = core_common._load_config()
-    core_policy.profile_config(config, paths.profile)  # a bad policy fails here, as config, not later as a daemon launch failure
+    prof_cfg = core_policy.profile_config(config, paths.profile)  # a bad policy fails here, as config, not later as a daemon launch failure
+    raw_max_chars = getattr(args, "max_chars", None)
+    if raw_max_chars is None:
+        if os.getenv("AGENT_BROWSER_MAX_CHARS"):
+            raw_max_chars = int(core_common._env_float("AGENT_BROWSER_MAX_CHARS", core_common.DEFAULT_TEXT_CHARS))
+        elif "max_chars" in prof_cfg:
+            raw_max_chars = int(prof_cfg["max_chars"])
+        else:
+            raw_max_chars = core_common.DEFAULT_TEXT_CHARS
+    max_chars = int(raw_max_chars)
+    if max_chars < 0:
+        raise core_common._tag(ValueError("--max-chars must be >= 0"), core_common.ERR_VALIDATION)
     return {
         "profile": paths.profile, "home": str(core_common._absolute(paths.root)), "log": str(paths.log), "token": token,
         "browser": browser, "exe": exe, "headless": headless,
         "window_size": getattr(args, "window_size", None) or core_common.DEFAULT_WINDOW_SIZE,
+        "max_chars": max_chars,
         "code_hash": core_common._code_hash(), "config": config,
         "idle_seconds": core_common._env_float("AGENT_BROWSER_IDLE_SECONDS", 0.0),
         "tool_version": core_common.TOOL_VERSION,
