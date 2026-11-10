@@ -7,7 +7,8 @@ reads a statement's program and arguments, never quoted data or heredoc bodies.
   included), pushes to a protected branch, recursive deletes or moves outside
   the repository, printing secrets into the transcript, approving production
   gates, voting on or completing an Azure DevOps pull request through the REST
-  API, and bypassing branch policy by any route.
+  API, bypassing branch policy by any route, and changing a container app's
+  ingress (AB#4264).
 - Tier 2 asks: force-deleting an unmerged branch, deletes whose targets are
   unresolved or many, Azure resource writes outside boards/repos/pipelines/
   devops, `checkout <rev> -- <paths>`, and destructive-looking commands that
@@ -1318,6 +1319,141 @@ def gate_change(statement: shell_parse.Statement, ctx: Context) -> str | None:
     return None
 
 
+# --- container app ingress ------------------------------------------------------
+# Ingress is management plane. The IP allowlist in front of the control-plane API belongs to
+# Infra and changes only through asset-allocation-infra IaC. An agent wrapper opened it for a
+# workstation IP several times without approval (AB#4264), so every route here that changes a
+# container app's ingress is denied: the `az containerapp ingress` writes; ingress options, an
+# opaque `--yaml` and `--set` paths into ingress on app create/update/up; `az resource` writes
+# to a container app; PowerShell Az writes that carry ingress; and REST PUT/PATCH to a container
+# app. Reads stay allowed. Script files are read below; code an interpreter runs is not seen.
+
+INGRESS_REASON = (
+    "Container app ingress is Infra-owned (AB#4264): agents must not change a container app's "
+    "ingress, IP restrictions, CORS, traffic or exposure. Change it through asset-allocation-infra "
+    "IaC, or ask Rudy to make the change himself."
+)
+INGRESS_READ_VERBS = frozenset({"show", "list"})
+INGRESS_APP_COMMANDS = frozenset({"create", "update", "up"})
+# Options of `az containerapp create|update|up` that set ingress; `--yaml` may carry any of it.
+INGRESS_APP_OPTIONS = ("--ingress", "--exposed-port", "--allow-insecure", "--target-port", "--transport", "--yaml")
+INGRESS_TEXT = re.compile(r"ipsecurityrestriction|configuration\.ingress")
+CONTAINER_APP_PATH = re.compile(r"/providers/microsoft\.app/containerapps(?:/|$|\?)")
+GENERIC_RESOURCE_WRITES = frozenset({"update", "patch", "create"})
+PS_CONTAINER_APP_WRITES = frozenset({"update-azcontainerapp", "new-azcontainerapp"})
+
+
+def ingress_option(arg: str) -> bool:
+    """An ingress option of `az containerapp create|update|up`, or a prefix az would read as one."""
+    name = arg.partition("=")[0].lower()
+    return name.startswith("--") and len(name) >= 4 and any(option.startswith(name) for option in INGRESS_APP_OPTIONS)
+
+
+def rest_targets(statement: shell_parse.Statement, argv: list[str], req: HttpRequest) -> list[str]:
+    """Where a request goes: the URLs the client reads, plus `az rest`'s relative ARM URIs."""
+    targets = list(req.urls)
+    if statement.program == "az":
+        words, start = az_command(argv)
+        args = argv[start:]
+        for index, arg in enumerate(args):
+            name, sep, value = arg.partition("=")
+            canonical = resolve_option(name.lower(), AZ_REST) if name.startswith("--") else name
+            role = AZ_REST.get(canonical or "") or AZ_REST_SHORT.get(canonical or "")
+            if role == "url":
+                targets.append(value if sep else (args[index + 1] if index + 1 < len(args) else ""))
+    return targets
+
+
+def ingress_change(statement: shell_parse.Statement, ctx: Context) -> str | None:
+    """A change to a container app's ingress, by any route the guard reads."""
+    argv = [ctx.expand(a) for a in statement.argv]
+    program = statement.program
+    if program == "az":
+        if any(a in {"-h", "--help"} for a in argv[1:]):
+            return None
+        words, start = az_command(argv)
+        args = [normalized(a) for a in argv[start:]]
+        if words[:2] == ["containerapp", "ingress"] and words[-1] not in INGRESS_READ_VERBS:
+            return INGRESS_REASON
+        if len(words) == 2 and words[0] == "containerapp" and words[1] in INGRESS_APP_COMMANDS:
+            if any(ingress_option(a) or INGRESS_TEXT.search(a) for a in args):
+                return INGRESS_REASON
+        if len(words) >= 2 and words[0] == "resource" and words[1] in GENERIC_RESOURCE_WRITES:
+            named = "microsoft.app/containerapps" in args or {"microsoft.app", "containerapps"} <= set(args)
+            if named or any(CONTAINER_APP_PATH.search(a) for a in args):
+                return INGRESS_REASON
+    if program in PS_CONTAINER_APP_WRITES:
+        options = [a.lower().partition(":")[0] for a in argv[1:] if a.startswith("-")]
+        if any(o.startswith("-ingress") or (len(o) >= 5 and "-configuration".startswith(o)) for o in options):
+            return INGRESS_REASON
+        if any(INGRESS_TEXT.search(normalized(a)) for a in argv[1:]):
+            return INGRESS_REASON
+    req = http_request(statement, argv, ctx)
+    if req is None:
+        return None
+    verb = "?" if req.config else req.verb
+    if verb not in {"put", "patch", "?"}:
+        return None
+    if any(CONTAINER_APP_PATH.search(normalized(t)) for t in rest_targets(statement, argv, req)):
+        return INGRESS_REASON
+    return None
+
+
+# AB#4264 came from a wrapper script (`bash run_replay.sh`) whose commands never reach the command
+# line. So a script file a shell is told to run, sourced, or run directly is read, and its
+# statements are judged by the ingress rule alone. No other rule reads script files.
+SCRIPT_SHELLS = frozenset({"bash", "sh", "zsh", "dash", "ksh", "source", "."})
+SCRIPT_PS_HOSTS = frozenset({"pwsh", "powershell"})
+SCRIPT_SUFFIXES = (".sh", ".bash", ".ps1")
+SCRIPT_MAX_BYTES = 262144
+
+
+def script_file(statement: shell_parse.Statement) -> str | None:
+    """The script file a statement runs, as written, or None."""
+    argv = statement.argv
+    if statement.program in SCRIPT_SHELLS:
+        if any(a.startswith("-") and not a.startswith("--") and "c" in a[1:] for a in argv[1:]):
+            return None  # inline code (`-c`, `-lc`): the parser already reads it
+        files = [a for a in argv[1:] if not a.startswith("-")]
+        return files[0] if files else None
+    if statement.program in SCRIPT_PS_HOSTS:
+        for index, arg in enumerate(argv[1:-1], start=1):
+            if len(arg) >= 2 and "-file".startswith(arg.lower()):
+                return argv[index + 1]
+        files = [a for a in argv[1:] if not a.startswith("-")]
+        return files[0] if files and files[0].lower().endswith(".ps1") else None
+    if argv[0].lower().endswith(SCRIPT_SUFFIXES) or argv[0].startswith(("./", ".\\")):
+        return argv[0]
+    return None
+
+
+def script_ingress_change(statement: shell_parse.Statement, cwd: Path | None, ctx: Context) -> str | None:
+    """A script file the statement runs whose own statements change a container app's ingress."""
+    written = script_file(statement)
+    if not written:
+        return None
+    path = resolve_path(ctx.expand(written), cwd)
+    try:
+        if path is None or not path.is_file() or path.stat().st_size > SCRIPT_MAX_BYTES:
+            return None
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    parsed = shell_parse.parse(text, "powershell" if path.suffix.lower() == ".ps1" else "bash")
+    inner = Context(session_cwd=path.parent, offline=True, _root=ctx._root)
+    for inner_statement in parsed.statements:
+        inner.scope, inner.dialect = inner_statement.scope, inner_statement.dialect
+        for name, value in inner_statement.literals.items():
+            inner.assign(name, inner.expand(value))
+        if not inner_statement.argv:
+            continue
+        if re.search(r"[$%]", inner_statement.argv[0]):
+            inner_statement.argv[:1] = shell_parse.split_words(inner.expand(inner_statement.argv[0]), inner.dialect)
+        if ingress_change(inner_statement, inner):
+            return f"This runs `{written}`, which changes a container app's ingress. {INGRESS_REASON}"
+    return None
+
+
 # --- pull request votes, completion and policy bypass ---------------------------
 # Votes and completion go through `az repos pr set-vote` and `az repos pr update`, where the
 # finish notes and the repository's branch policies apply. The REST routes that do the same
@@ -2014,10 +2150,13 @@ def assess(command: str, tool: str, ctx: Context, depth: int = 0) -> tuple[str, 
                 return verdict
             if verdict:
                 asks.append(verdict[1])
-        for check in (secret_print, prod_approval):
+        for check in (secret_print, prod_approval, ingress_change):
             reason = check(statement, ctx)
             if reason:
                 return "deny", reason
+        reason = script_ingress_change(statement, cwd, ctx)
+        if reason:
+            return "deny", reason
         verdict = pull_request_write(statement, ctx)
         if verdict and verdict[0] == "deny":
             return verdict

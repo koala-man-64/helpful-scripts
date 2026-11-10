@@ -1361,6 +1361,129 @@ class PullRequestRestReviewTests(GuardTestCase):
         ])
 
 
+class ContainerAppIngressTests(GuardTestCase):
+    """AB#4264: container app ingress is Infra-owned. Every route the guard reads that changes it
+    is denied; reads, and app writes that leave ingress alone, keep their existing decisions."""
+
+    APP = "/subscriptions/s/resourceGroups/rg/providers/Microsoft.App/containerApps/asset-allocation-api-private"
+    ARM = f"https://management.azure.com{APP}?api-version=2024-03-01"
+    RULE = json.dumps({"properties": {"configuration": {"ingress": {"ipSecurityRestrictions": [
+        {"name": "dev", "ipAddressRange": "135.135.140.185/32", "action": "Allow"}]}}}})
+
+    def test_cli_ingress_writes_are_denied(self) -> None:
+        self.assertDecisions([
+            ("Bash", "az containerapp ingress access-restriction set -n app -g rg --rule-name dev "
+                     "--ip-address 135.135.140.185/32 --action Allow", "deny"),
+            ("Bash", "az containerapp ingress access-restriction remove -n app -g rg --rule-name dev", "deny"),
+            ("Bash", "az containerapp ingress enable -n app -g rg --type external --target-port 8000", "deny"),
+            ("Bash", "az containerapp ingress disable -n app -g rg", "deny"),
+            ("Bash", "az containerapp ingress update -n app -g rg --type external", "deny"),
+            ("Bash", "az containerapp ingress cors enable -n app -g rg --allowed-origins https://x", "deny"),
+            ("Bash", "az containerapp ingress traffic set -n app -g rg --revision-weight latest=100", "deny"),
+            ("PowerShell", "az containerapp ingress access-restriction set -n app -g rg --rule-name dev "
+                           "--ip-address 1.2.3.4/32 --action Allow", "deny"),
+            # Global options before the command, a variable program and a shell runner hide nothing.
+            ("Bash", "az --subscription s --only-show-errors containerapp ingress access-restriction set "
+                     "-n app -g rg --rule-name d --ip-address 1.2.3.4/32 --action Allow", "deny"),
+            ("Bash", "A=az; $A containerapp ingress access-restriction remove -n app -g rg --rule-name d", "deny"),
+            ("Bash", "bash -c 'az containerapp ingress access-restriction remove -n app -g rg --rule-name d'", "deny"),
+        ])
+
+    def test_app_writes_that_carry_ingress_are_denied(self) -> None:
+        self.assertDecisions([
+            ("Bash", "az containerapp create -n app -g rg --environment env --image img "
+                     "--ingress external --target-port 80", "deny"),
+            ("Bash", "az containerapp up -n app -g rg --image img --ingress external", "deny"),
+            # An opaque YAML can carry any ingress setting.
+            ("Bash", "az containerapp update -n app -g rg --yaml app.yaml", "deny"),
+            # az reads an unambiguous option prefix as the option.
+            ("Bash", "az containerapp update -n app -g rg --ingr external", "deny"),
+            ("Bash", "az containerapp update -n app -g rg --set "
+                     "properties.configuration.ingress.ipSecurityRestrictions=[]", "deny"),
+            ("Bash", f"az resource update --ids {self.APP} --set properties.configuration.ingress.external=true", "deny"),
+            ("Bash", "az resource update -g rg -n app --resource-type Microsoft.App/containerApps "
+                     "--set properties.configuration.ingress.external=true", "deny"),
+            ("PowerShell", "Update-AzContainerApp -Name app -ResourceGroupName rg -IngressExternal:$true", "deny"),
+            ("PowerShell", "Update-AzContainerApp -Name app -ResourceGroupName rg -Configuration $cfg", "deny"),
+        ])
+
+    def test_rest_writes_to_a_container_app_are_denied(self) -> None:
+        self.assertDecisions([
+            ("Bash", f"az rest --method patch --uri '{self.ARM}' --body '{self.RULE}'", "deny"),
+            ("Bash", f"az rest -m put -u '{self.ARM}' -b @app.json", "deny"),
+            ("Bash", f"az rest --method=PATCH --url={self.ARM} --body @patch.json", "deny"),
+            # az rest takes a URI relative to Azure Resource Manager.
+            ("Bash", f"az rest --method patch --uri '{self.APP}?api-version=2024-03-01' --body @patch.json", "deny"),
+            ("Bash", f"curl -s -X PATCH -H 'Content-Type: application/json' -d '{self.RULE}' '{self.ARM}'", "deny"),
+            ("PowerShell", f"Invoke-RestMethod -Method Patch -Uri '{self.ARM}' -Body $body", "deny"),
+            ("Bash", f"U='{self.ARM}'; az rest --method put --uri \"$U\" --body @app.json", "deny"),
+        ])
+
+    def test_reads_and_other_writes_keep_their_decisions(self) -> None:
+        self.assertDecisions([
+            ("Bash", "az containerapp ingress show -n app -g rg", "allow"),
+            ("Bash", "az containerapp ingress access-restriction list -n app -g rg", "allow"),
+            ("Bash", "az containerapp ingress cors show -n app -g rg", "allow"),
+            ("Bash", "az containerapp ingress access-restriction set --help", "allow"),
+            ("Bash", "az containerapp show -n app -g rg --query "
+                     "properties.configuration.ingress.ipSecurityRestrictions", "allow"),
+            ("Bash", f"az rest --method get --uri '{self.ARM}'", "allow"),
+            ("Bash", f"az rest --uri '{self.ARM}'", "allow"),
+            # App writes that leave ingress alone keep the Azure-write confirmation.
+            ("Bash", "az containerapp update -n app -g rg --set-env-vars FEATURE_X=true", "ask"),
+            ("Bash", "az containerapp update -n app -g rg --set-env-vars INGRESS_MODE=strict", "ask"),
+            ("Bash", "az containerapp update -n app -g rg --image reg/app@sha256:abc", "ask"),
+            ("Bash", "az containerapp job update -n job -g rg --yaml job.yaml", "ask"),
+            # A REST write to another resource type is not this rule's.
+            ("Bash", "az rest --method patch --uri 'https://management.azure.com/subscriptions/s/resourceGroups/rg"
+                     "/providers/Microsoft.App/jobs/backtests-job?api-version=2024-03-01' --body @job.json", "allow"),
+            # Text another program is given is confirmed with a human, as for every deny rule.
+            ("Bash", "ssh host 'az containerapp ingress disable -n app -g rg'", "ask"),
+        ])
+
+    def test_reason_names_the_owner_and_the_route(self) -> None:
+        decision, reason = guard.assess(
+            "az containerapp ingress disable -n app -g rg", "Bash", guard.Context(session_cwd=self.repo)
+        )
+        self.assertEqual(decision, "deny")
+        self.assertIn("AB#4264", reason)
+        self.assertIn("asset-allocation-infra", reason)
+
+    def test_a_script_that_changes_ingress_is_denied(self) -> None:
+        # The AB#4264 wrapper form: the ingress commands live in the script, not the command line.
+        folder = self.base / "scripts"
+        folder.mkdir(exist_ok=True)
+        wrapper = folder / "run_replay.sh"
+        wrapper.write_text(
+            "#!/usr/bin/env bash\nset -euo pipefail\nAPP=asset-allocation-api-private\n"
+            "open_ingress() {\n"
+            "  az containerapp ingress access-restriction set -n \"$APP\" -g rg --rule-name dev "
+            "--ip-address 135.135.140.185/32 --action Allow\n"
+            "}\nopen_ingress\npython -m tasks.backtesting.approval_grade_replay_runner --context c.json\n",
+            encoding="utf-8",
+        )
+        indirect = folder / "indirect.sh"
+        indirect.write_text("AZ=az\n$AZ containerapp ingress disable -n app -g rg\n", encoding="utf-8")
+        rest = folder / "open.ps1"
+        rest.write_text(f"$u = '{self.ARM}'\nInvoke-RestMethod -Method Patch -Uri $u -Body $b\n", encoding="utf-8")
+        plain = folder / "plain.sh"
+        plain.write_text("az containerapp ingress show -n app -g rg\necho done\n", encoding="utf-8")
+        self.assertDecisions([
+            ("Bash", f"bash {git_bash(wrapper)}", "deny"),
+            ("Bash", f"bash -x {git_bash(wrapper)} --window full", "deny"),
+            ("Bash", f"sh {git_bash(indirect)}", "deny"),
+            ("Bash", f"source {git_bash(wrapper)}", "deny"),
+            ("Bash", f"cd {git_bash(folder)} && ./run_replay.sh", "deny"),
+            ("PowerShell", f"pwsh -File '{rest}'", "deny"),
+            ("PowerShell", f"& '{rest}'", "deny"),
+            # A script that only reads, and a script that does not exist, change nothing.
+            ("Bash", f"bash {git_bash(plain)}", "allow"),
+            ("Bash", f"bash {git_bash(folder / 'missing.sh')}", "allow"),
+        ])
+        decision, reason = guard.assess(f"bash {git_bash(wrapper)}", "Bash", guard.Context(session_cwd=self.repo))
+        self.assertIn("run_replay.sh", reason)
+
+
 class ScopeParserTests(unittest.TestCase):
     def test_statements_record_the_processes_and_blocks_they_run_in(self) -> None:
         parsed = shell_parse.parse("S=1; eval 'S=5'; sh -c 'S=2'; ( S=3 ); f() { S=4; }")
