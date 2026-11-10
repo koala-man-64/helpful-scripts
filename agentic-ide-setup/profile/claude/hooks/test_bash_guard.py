@@ -1479,6 +1479,8 @@ class ContainerAppIngressTests(GuardTestCase):
             # A script that only reads, and a script that does not exist, change nothing.
             ("Bash", f"bash {git_bash(plain)}", "allow"),
             ("Bash", f"bash {git_bash(folder / 'missing.sh')}", "allow"),
+            # A path the filesystem rejects is not a crash, which would make every command ask.
+            ("Bash", "bash 'bad\x00name.sh'", "allow"),
         ])
         decision, reason = guard.assess(f"bash {git_bash(wrapper)}", "Bash", guard.Context(session_cwd=self.repo))
         self.assertIn("run_replay.sh", reason)

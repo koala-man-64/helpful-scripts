@@ -1432,13 +1432,13 @@ def script_ingress_change(statement: shell_parse.Statement, cwd: Path | None, ct
     written = script_file(statement)
     if not written:
         return None
-    path = resolve_path(ctx.expand(written), cwd)
     try:
+        path = resolve_path(ctx.expand(written), cwd)
         if path is None or not path.is_file() or path.stat().st_size > SCRIPT_MAX_BYTES:
             return None
         text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
+    except (OSError, ValueError):
+        return None  # an unreadable or malformed path is not a script the rule can judge
     parsed = shell_parse.parse(text, "powershell" if path.suffix.lower() == ".ps1" else "bash")
     inner = Context(session_cwd=path.parent, offline=True, _root=ctx._root)
     for inner_statement in parsed.statements:
