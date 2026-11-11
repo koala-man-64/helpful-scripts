@@ -85,17 +85,6 @@ format correctly. **Specific to Anthropic's Claude Code** — it does not apply
 to Codex, Copilot, Cursor, the claude.ai web app, or direct API usage. See
 [claude-code-token-audit/README.md](claude-code-token-audit/README.md).
 
-## Move a Claude Code setup to another machine
-
-`agentic-ide-setup/scripts/claude_setup.py` is a dependency-free Python tool
-that captures this machine's Claude Code setup and recreates it elsewhere:
-`CLAUDE.md`, agents, skills, the hook release clone and its `settings.json`
-wiring, permissions, the status line, plugins, user-scope MCP servers and
-Docker MCP Toolkit servers. Auto-memory travels in a private zip that never
-enters this repository; credentials are never exported. Restore previews by
-default and is idempotent. See
-[agentic-ide-setup/README.md](agentic-ide-setup/README.md#move-claude-code-to-another-machine).
-
 ## Meeting Booking Agent design
 
 `power-app-meeting-booking/` holds a single self-contained HTML design and
@@ -131,8 +120,8 @@ with a structured error and exit code the model can branch on. A per-profile
 background daemon keeps the window, its cookies, and the refs alive between
 commands, so a human signs in once (SSO/MFA in the window) and the agent
 continues. Password fields are refused in code, only `http(s)` opens, page text
-never reaches a hint. The Claude Code skill ships in the `agentic-ide-setup`
-profile. See [agent-browser/README.md](agent-browser/README.md).
+never reaches a hint. The Claude Code skill ships in `agent-browser/skill/`.
+See [agent-browser/README.md](agent-browser/README.md).
 
 ## Retrieval architecture
 

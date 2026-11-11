@@ -2,8 +2,7 @@
 
 Apply the global Codex working agreements for interaction, operating lanes,
 delegation, implementation, validation, and delivery. This file adds project facts
-and the timed-browser procedure. On an installation without global guidance, read
-`agentic-ide-setup/profile/codex/AGENTS.md` before substantive work.
+and the timed-browser procedure.
 
 ## Timed Browser Workflows
 
@@ -75,9 +74,9 @@ ownership (`--session`), and durable SQLite command receipts (`state`, `journal`
   `table`, `api URL`, `commit <op> ...`, `state`, `journal`, `wait --signed-in HOST`,
   `text`, `screenshot`, `stop`; config via `AGENT_BROWSER_*` env vars read lazily (no .env
   loading), policy via the human-written `%LOCALAPPDATA%\agent-browser\config.json`.
-- Skill: the Claude Code skill lives in `agentic-ide-setup/profile/claude/skills/agent-browser/`
-  and reaches `~/.claude/skills` through `Install-AgenticIdeSetup.ps1 -Components Claude`;
-  `tests/test_skill.py` keeps it consistent with the parser. Do not add a copy under `.claude/skills`.
+- Skill: the Claude Code skill lives in `agent-browser/skill/` and its caller ask rules in
+  `agent-browser/claude-permissions.json`; install both as `agent-browser/README.md` describes.
+  `tests/test_skill.py` keeps them consistent with the parser. Do not add a copy under `.claude/skills`.
 - Agent rules: one `agent-browser` command per Bash call (the shell guard denies chained
   print commands with secret words), never type credentials (the tool refuses those
   fields), refs only from the newest output.

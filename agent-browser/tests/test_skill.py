@@ -1,7 +1,7 @@
 """Docs-code consistency: the Claude Code skill must only teach commands and flags the parser really has.
 
-The skill lives in the repo's machine profile (agentic-ide-setup/profile/claude/skills/agent-browser); these tests
-are skipped when the module is used outside the repository.
+The skill lives in agent-browser/skill and its caller ask rules in agent-browser/claude-permissions.json. Both ship
+next to these tests, so a missing file fails the suite instead of skipping it.
 """
 
 from __future__ import annotations
@@ -17,11 +17,10 @@ import agent_browser as ab
 from agent_browser_core import cli as core_cli, common as core_common
 
 REPO = Path(__file__).resolve().parents[2]
-SKILL_DIR = REPO / "agentic-ide-setup" / "profile" / "claude" / "skills" / core_common.TOOL_NAME
+SKILL_DIR = REPO / "agent-browser" / "skill"
 SKILL = SKILL_DIR / "SKILL.md"
 REFERENCE = SKILL_DIR / "references" / "servicenow.md"
-
-pytestmark = pytest.mark.skipif(not SKILL.is_file(), reason="skill not present (module used outside the repo)")
+TEMPLATE = REPO / "agent-browser" / "claude-permissions.json"
 
 PRINT_COMMANDS = ("echo", "cat", "type", "set", "printenv", "env")
 
@@ -65,7 +64,7 @@ def test_skill_is_short_enough_for_a_small_model() -> None:
 
 def test_shared_shutdown_and_commit_operations_require_caller_approval() -> None:
     import json
-    settings = json.loads((SKILL_DIR.parents[1] / "settings.template.json").read_text(encoding="utf-8"))
+    settings = json.loads(TEMPLATE.read_text(encoding="utf-8"))
     rules = settings["permissions"]["ask"]
     for shell in ("Bash", "PowerShell"):
         for verb in ("stop *--all*", "stop *--force*", "commit *", "* commit *", "journal *--clear*", "* journal *--clear*",
@@ -120,9 +119,6 @@ def test_the_never_raised_ambiguous_profile_class_is_gone() -> None:
         assert "ambiguous_profile" not in text
     assert "ambiguous_profile" not in core_common.EXIT_2_CLASSES and "ambiguous_profile" not in core_common.HINTS
     assert not hasattr(core_common, "ERR_AMBIGUOUS_PROFILE")
-
-
-TEMPLATE = SKILL_DIR.parents[1] / "settings.template.json"
 
 
 def _rule_matches(pattern: str, command: str) -> bool:

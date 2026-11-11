@@ -14,7 +14,7 @@ import pytest
 import agent_browser as ab
 from agent_browser_core import common as core_common, daemon as core_daemon, session as core_session
 
-REPO_SKILL = Path(ab.__file__).resolve().parents[1] / "agentic-ide-setup" / "profile" / "claude" / "skills" / core_common.TOOL_NAME / "SKILL.md"
+REPO_SKILL = Path(ab.__file__).resolve().parent / "skill" / "SKILL.md"
 
 
 def _install_happy_path_seams(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, skill_home: Path | None = None) -> None:
@@ -196,7 +196,6 @@ def test_doctor_skill_installed_missing(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert "missing" in row["detail"]
 
 
-@pytest.mark.skipif(not REPO_SKILL.is_file(), reason="repo does not carry the installable SKILL.md copy")
 def test_doctor_skill_installed_matches_repo_copy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     home = tmp_path / "matching-skill-home"
     skill_path = home / ".claude" / "skills" / core_common.TOOL_NAME / "SKILL.md"
@@ -208,7 +207,6 @@ def test_doctor_skill_installed_matches_repo_copy(monkeypatch: pytest.MonkeyPatc
     assert row["status"] == "ok"
 
 
-@pytest.mark.skipif(not REPO_SKILL.is_file(), reason="repo does not carry the installable SKILL.md copy")
 def test_doctor_skill_installed_differs_from_repo_copy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     home = tmp_path / "stale-skill-home"
     skill_path = home / ".claude" / "skills" / core_common.TOOL_NAME / "SKILL.md"

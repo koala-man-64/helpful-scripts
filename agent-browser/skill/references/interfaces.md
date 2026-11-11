@@ -154,7 +154,7 @@ when a file was held open (a later clear removes it). `--include-unknown` (MCP
 and the shared `journal_bytes`, against `quota`; other sessions' evidence is beyond this
 session's clear.
 
-The canonical Claude settings template asks for commit/eval and evidence clear calls, and for
+The repo's `agent-browser/claude-permissions.json` asks for commit/eval and evidence clear calls, and for
 any command with `--accept-dialog` or `--discard-changes` (flags must be spelled out, never
 abbreviated), including tools from any MCP server using these browser tool names. MCP rules see
 tool names only, so a stop that discards edits is `browser_commit` operation `stop`, which is

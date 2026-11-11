@@ -580,17 +580,17 @@ def doctor(browser: str | None = None, exe: str | None = None, live: bool = Fals
     else:
         _check(checks, "config_json", "ok", "absent (eval on, no host allowlist, uploads from cwd/downloads/shots)")
     skill = Path.home() / ".claude" / "skills" / core_common.TOOL_NAME / "SKILL.md"
-    repo_skill = core_common.ENTRY_PATH.resolve().parents[1] / "agentic-ide-setup" / "profile" / "claude" / "skills" / core_common.TOOL_NAME / "SKILL.md"
+    repo_skill = core_common.ENTRY_PATH.resolve().parent / "skill" / "SKILL.md"
     if skill.is_file():
         installed = hashlib.sha256(skill.read_bytes()).hexdigest()[:12]
         if repo_skill.is_file():
             source = hashlib.sha256(repo_skill.read_bytes()).hexdigest()[:12]
             _check(checks, "skill_installed", "ok" if installed == source else "warn", f"{skill} sha {installed}",
-                   None if installed == source else "Installed skill differs from the repo copy; rerun agentic-ide-setup\\scripts\\Install-AgenticIdeSetup.ps1 -Components Claude -Apply -Overwrite.")
+                   None if installed == source else "Installed skill differs from the repo copy; recopy agent-browser\\skill into ~\\.claude\\skills\\agent-browser.")
         else:
             _check(checks, "skill_installed", "ok", f"{skill} sha {installed}")
     else:
-        _check(checks, "skill_installed", "warn", f"{skill} missing", "Install the profile: agentic-ide-setup\\scripts\\Install-AgenticIdeSetup.ps1 -Components Claude -Apply")
+        _check(checks, "skill_installed", "warn", f"{skill} missing", "Install the skill: copy agent-browser\\skill into ~\\.claude\\skills\\agent-browser and merge agent-browser\\claude-permissions.json into ~\\.claude\\settings.json.")
     running = _running_profiles()
     _check(checks, "sessions", "ok", ", ".join(running) if running else "none running")
     if live:
