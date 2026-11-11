@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 import agent_browser as ab
-from agent_browser_core import common as core_common, daemon as core_daemon
+from agent_browser_core import actions as core_actions, common as core_common, daemon as core_daemon
 from conftest import (FakeDialog, FakeDownload, FakeElement, FakeLocator, FakePage, FakePlaywrightError, FakePlaywrightTimeoutError,
                       build_elements_from_snapshot)
 
@@ -237,7 +237,9 @@ def test_form_completes_empty_option_after_filling_text(make_daemon, outer_text,
     select_field.options = [("Empty", "", False), ("Whitespace", "   ", False), ("Choice A", "a", True)]
     original_evaluate = FakeLocator.evaluate
 
-    def evaluate(locator, js, timeout=None):
+    def evaluate(locator, js, arg=None, timeout=None):
+        if js == core_actions.FORM_ELEMENT_IDENTITY_JS:
+            return original_evaluate(locator, js, arg=arg, timeout=timeout)
         if "options:el.options" in js:
             if locator.element is text_field:
                 return {"tag": "input", "type": "text"}
@@ -245,7 +247,7 @@ def test_form_completes_empty_option_after_filling_text(make_daemon, outer_text,
                 {"label": label, "value": value, "disabled": False}
                 for label, value, selected in select_field.options
             ]}
-        return original_evaluate(locator, js, timeout)
+        return original_evaluate(locator, js, arg=arg, timeout=timeout)
 
     monkeypatch.setattr(FakeLocator, "evaluate", evaluate)
     result = daemon.dispatch("fill-form", {"fields": [
@@ -260,10 +262,20 @@ def test_form_completes_empty_option_after_filling_text(make_daemon, outer_text,
 
 def test_form_rejects_missing_exact_whitespace_option_before_writes(make_daemon, monkeypatch):
     daemon, ctx, page = make_daemon()
-    from types import SimpleNamespace
+
+    class FormLocator(FakeLocator):
+        def __init__(self, name, info):
+            super().__init__(page, FakeElement(ref=name))
+            self.info = info
+
+        def evaluate(self, js, arg=None, timeout=None):
+            if js == core_actions.FORM_ELEMENT_IDENTITY_JS:
+                return super().evaluate(js, arg=arg, timeout=timeout)
+            return self.info
+
     fields = {
-        "first": SimpleNamespace(evaluate=lambda js: {"tag": "input", "type": "text"}),
-        "category": SimpleNamespace(evaluate=lambda js: {"tag": "select", "type": "select-one", "options": [
+        "first": FormLocator("first", {"tag": "input", "type": "text"}),
+        "category": FormLocator("category", {"tag": "select", "type": "select-one", "options": [
             {"label": "Empty", "value": "", "disabled": False},
         ]}),
     }
@@ -1284,7 +1296,7 @@ def test_navigation_timeout_does_not_use_the_wait_hint(make_daemon, verb: str) -
     assert exc.value.hint == core_common._hint("nav_timeout", daemon.profile) != core_common._hint("wait_timeout", daemon.profile)
 
 
-def test_text_default_20k_cap_is_configurable_on_launch(make_daemon, outer_text: str) -> None:
+def test_text_default_20k_cap_is_configurable_on_launch(make_daemon, outer_text: str, capsys) -> None:
     import json
     from io import BytesIO
     from types import SimpleNamespace
@@ -1311,8 +1323,9 @@ def test_text_default_20k_cap_is_configurable_on_launch(make_daemon, outer_text:
     assert result["chars"] >= 35000
     assert long_body in result["text"]
 
-    # CLI _json_line and daemon _Handler._reply emit the full text without truncating to output_id
-    encoded_cli = json.loads(core_cli._json_line(result))
+    # CLI printing and the daemon socket keep the configured text cap; MCP uses bounded serialization.
+    assert core_cli._print_result(result, "default", "manual") == 0
+    encoded_cli = json.loads(capsys.readouterr().out)
     assert encoded_cli["truncated"] is False
     assert "output_id" not in encoded_cli
     assert long_body in encoded_cli["text"]

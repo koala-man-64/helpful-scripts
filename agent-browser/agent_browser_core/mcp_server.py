@@ -1,6 +1,7 @@
 """Optional typed stdio tools over the same daemon; no Playwright access in this process."""
 from __future__ import annotations
 
+import asyncio
 import json
 from functools import wraps
 from typing import Any, Literal
@@ -235,14 +236,19 @@ def make_server():
                                            "hint": common._hint("tool_arguments")}})
 
     def bounded(function):
-        @wraps(function)
-        def invoke(*args, **kwargs):
+        def call(*args, **kwargs):
             from .cli import _error_payload, _normalize_exception
             try:
                 result = function(*args, **kwargs)
             except Exception as exc:  # noqa: BLE001 - one envelope for every failure, never the SDK's
                 result = _error_payload(_normalize_exception(exc, kwargs.get("profile")))
             return envelope(result, kwargs.get("session_id"), kwargs.get("profile"))
+
+        @wraps(function)
+        async def invoke(*args, **kwargs):
+            # Socket polling and evidence I/O must not hold the MCP event loop. Cancelling
+            # the caller leaves this one operation running; its daemon receipt remains readable.
+            return await asyncio.to_thread(call, *args, **kwargs)
         return invoke
 
     server = BoundedServer("agent-browser")

@@ -377,12 +377,13 @@ def _cmd_output(args: argparse.Namespace) -> dict[str, Any]:
             "total_chars": len(data), "chunk": chunk, "untrusted": ["chunk"]}
 
 
-def _json_line(payload: Any, profile: str | None = None, session_id: str | None = None, *, byte_budget: int = core_common.STDOUT_BUDGET) -> str:
+def _json_line(payload: Any, profile: str | None = None, session_id: str | None = None, *, byte_budget: int = core_common.STDOUT_BUDGET,
+               allow_oversized_text: bool = False) -> str:
     result = dict(payload) if isinstance(payload, dict) else {"result": payload}
     result["contract_version"] = core_common.CONTRACT_VERSION
     encoded = json.dumps(result, ensure_ascii=False, default=str, separators=(",", ":"))
     is_text_reply = isinstance(result, dict) and "text" in result and "chars" in result and "error" not in result
-    if is_text_reply or len(encoded.encode("utf-8")) + 1 <= byte_budget:
+    if (allow_oversized_text and is_text_reply) or len(encoded.encode("utf-8")) + 1 <= byte_budget:
         return encoded
     paths = core_common._paths(profile or result.get("profile") or core_session._resolve_profile(None))
     paths = core_common.ProfilePaths(paths.profile, paths.root, result.get("session_id") or core_common.session_identity(session_id))
@@ -663,7 +664,8 @@ def _print_result(result: Any, profile: str | None, session_id: str | None) -> i
     """Print a success reply. Not preserving it and not writing it are different errors; both keep the receipt."""
     result = _merge_notes(result if isinstance(result, dict) else {"result": result}, core_common._ARGV_NOTES)
     try:
-        line = _json_line(result, profile, session_id)
+        # CLI text follows its configured character cap; MCP always enforces its byte budget.
+        line = _json_line(result, profile, session_id, allow_oversized_text=True)
     except Exception as exc:  # noqa: BLE001 - the command already ran
         _emit_payload(core_common._storage_error(result, exc, profile), profile)
         return 1

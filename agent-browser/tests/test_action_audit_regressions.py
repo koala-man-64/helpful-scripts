@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_browser_core import common
+from agent_browser_core import actions as core_actions, common
 from conftest import FakeElement, FakeFrame, FakeLocator, FakePage, FakePlaywrightError
 
 
@@ -14,9 +14,9 @@ def _form_controls(daemon, ctx, page, monkeypatch, *, close_original=False):
     inner = FakeFrame(name="form", url="http://x/form")
     page.frames.append(inner)
     controls = {
-        (page.main_frame, "First"): FakeLocator(page, FakeElement("e1", tag="INPUT")),
-        (inner, "Second"): FakeLocator(page, FakeElement("e2", tag="INPUT")),
-        (popup.main_frame, "Second"): FakeLocator(popup, FakeElement("e3", tag="INPUT")),
+        (page.main_frame, "First"): FakeLocator(page, FakeElement("e1", tag="INPUT"), owner_frame=page.main_frame),
+        (inner, "Second"): FakeLocator(page, FakeElement("e2", tag="INPUT"), owner_frame=inner),
+        (popup.main_frame, "Second"): FakeLocator(popup, FakeElement("e3", tag="INPUT"), owner_frame=popup.main_frame),
     }
 
     def get_by_label(frame, label, *, exact):
@@ -27,10 +27,12 @@ def _form_controls(daemon, ctx, page, monkeypatch, *, close_original=False):
     monkeypatch.setattr(FakeFrame, "get_by_label", get_by_label, raising=False)
     original_evaluate, original_fill = FakeLocator.evaluate, FakeLocator.fill
 
-    def evaluate(locator, js, timeout=None):
+    def evaluate(locator, js, arg=None, timeout=None):
+        if js == core_actions.FORM_ELEMENT_IDENTITY_JS:
+            return original_evaluate(locator, js, arg=arg, timeout=timeout)
         if "readOnly:el.readOnly" in js:
             return {"tag": "input", "type": "text"}
-        return original_evaluate(locator, js, timeout)
+        return original_evaluate(locator, js, arg=arg, timeout=timeout)
 
     def fill(locator, text, timeout=None):
         original_fill(locator, text, timeout)
