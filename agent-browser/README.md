@@ -29,9 +29,16 @@ agent-browser click e5
 agent-browser stop                                      # releases this session; sign-in stays on disk
 ```
 
-Install the Claude Code skill with the machine profile:
-`.\agentic-ide-setup\scripts\Install-AgenticIdeSetup.ps1 -Components Claude -Apply` places
-`~/.claude/skills/agent-browser/SKILL.md`. Every Claude Code session on the machine then knows the tool.
+Install the Claude Code skill by copying [`skill/`](skill/) to `~/.claude/skills/agent-browser/`, then merge the
+`permissions.ask` rules of the caller permission template [`claude-permissions.json`](claude-permissions.json) into
+`~/.claude/settings.json`. The skill's `allowed-tools` preapproves most of its verbs, so those ask rules are what keep
+commit, eval, evidence clearing, dialog acceptance, discarding edits and shared stops behind an approval prompt. Every
+Claude Code session on the machine then knows the tool.
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.claude\skills\agent-browser" | Out-Null
+Copy-Item -Recurse -Force .\agent-browser\skill\* "$HOME\.claude\skills\agent-browser"
+```
 
 `python agent_browser.py <verb>` works identically without the console script.
 
@@ -47,7 +54,7 @@ and `selector`, `browser_snapshot` `ref`, `browser_eval` `ref` and `frame`, `bro
 `max_chars`, and `browser_goto` `wait` and `new_tab`. `timeout` follows the CLI rule (0-86400
 seconds; `browser_wait` at most 100). Only `browser_commit` (`accept_dialog`, `dialog_text`, `discard_changes`)
 accepts a dialog or discards unsaved edits; a stop that discards them is its operation `stop`, which takes only
-`discard_changes`. MCP rules match tool names only, so the template asks before every `browser_commit` but not
+`discard_changes`. MCP rules match tool names only, so `claude-permissions.json` asks before every `browser_commit` but not
 before `browser_stop`, which keeps tabs with unsaved edits (`unsaved_changes`). Snapshots default to a 4,500-byte budget so a page read
 fits one 7,000-byte tool reply; narrow with `find` or `ref` instead of paging.
 Use one explicit MCP `session_id` throughout the task. Installing repository templates
@@ -62,7 +69,7 @@ applies, in command-line order. `--timeout` takes 0-86400 seconds. Defaults: 15 
 (`AGENT_BROWSER_TIMEOUT_SECONDS`), 30 for goto/back/reload, 45 for start (browser boot only; the
 `start --url` navigation keeps 30), 10 for stop, 60 for downloads and 60 for wait. Only wait is capped, at 100.
 
-The detailed [agent interface reference](../agentic-ide-setup/profile/claude/skills/agent-browser/references/interfaces.md)
+The detailed [agent interface reference](skill/references/interfaces.md)
 covers exact role/name or label targets, UTF-8 text/JS file inputs, form JSON and MCP.
 `fill-form --file fields.json` preflights every field, applies credential guards,
 supports fill/select/check/uncheck, never submits, and reports partial completion.
