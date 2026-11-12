@@ -16,10 +16,13 @@ def commit(args: argparse.Namespace):
             setattr(inner, key, getattr(args, key, None))
     if getattr(args, "snapshot", False) and not getattr(inner, "snapshot", False):
         inner.snapshot = True
+    if getattr(args, "trace", False):
+        inner.trace = True
     outer_expect = list(getattr(args, "expect", None) or [])
     if outer_expect:
         inner.expect = outer_expect + list(getattr(inner, "expect", None) or [])
     inner.committing = True
+    cli._check_trace(inner)
     return inner.func(inner)
 
 
@@ -41,7 +44,9 @@ def extended(args: argparse.Namespace):
         except (ValueError, OSError) as exc:
             raise common._tag(ValueError("Form file must be valid UTF-8 JSON."), common.ERR_VALIDATION) from exc
         payload.update(cli._dialog_payload(args))
-    elif cmd == "table": payload = {"target": args.target}
+    elif cmd == "table":
+        payload = {"target": args.target, "next": args.next, "max_pages": args.max_pages, "max_rows": args.max_rows,
+                   "columns": args.columns, "keys": args.keys, "export_format": args.export_format}
     elif cmd == "api":
         payload = {"url": args.url, "method": args.method, "servicenow": args.servicenow}
         if args.json_file:
@@ -53,18 +58,21 @@ def extended(args: argparse.Namespace):
 
 
 EXPECT_HELP = ("post-action check, repeatable before and after the verb; every check must hold "
-               "(text:S, gone:REF, url:changed, response:METHOD GLOB:2xx)")
+               "(text:S, gone:REF, url:changed, response:METHOD GLOB:2xx, value:REF=VALUE, "
+               "checked:REF, unchecked:REF, count:SELECTOR=N, download:GLOB, persisted:#id=VALUE)")
 
 
 def _shared_flags(sp):
     """A verb's own --expect group lands in expect_tail; JsonArgumentParser.parse_args appends it to the group before the verb."""
     sp.add_argument("--session", default=argparse.SUPPRESS)
     sp.add_argument("--expect", action="append", dest="expect_tail", metavar="CHECK", default=argparse.SUPPRESS, help=EXPECT_HELP)
+    sp.add_argument("--trace", action="store_true", default=argparse.SUPPRESS, help="save a redacted trace with this command receipt")
 
 
 def configure(parser, sub, add):
     parser.add_argument("--session", default=None)
     parser.add_argument("--expect", action="append", metavar="CHECK", default=[], help=EXPECT_HELP)
+    parser.add_argument("--trace", action="store_true", help="save a redacted trace with this command receipt")
     for sp in sub.choices.values():
         _shared_flags(sp)
     p = add("commit", commit, "explicit commit operation under caller approval policy")
@@ -85,8 +93,14 @@ def configure(parser, sub, add):
     p.add_argument("--file", required=True)
     from .cli import _add_dialog_flags
     _add_dialog_flags(p)
-    p = add("table", extended, "read one rendered table with row refs")
+    p = add("table", extended, "read a table; optionally traverse bounded pages and export rows")
     p.add_argument("target", nargs="?")
+    p.add_argument("--next", help="stable selector for the next-page control; enables pagination")
+    p.add_argument("--max-pages", type=int, help="pagination page limit, 1-100 (default 10)")
+    p.add_argument("--max-rows", type=int, help="row limit, 1-10000 (default 1000 for pagination)")
+    p.add_argument("--column", action="append", dest="columns", help="exact column header to include; repeatable")
+    p.add_argument("--key", action="append", dest="keys", help="exact header used for row identity; repeat for composite keys")
+    p.add_argument("--export", choices=("json", "csv"), dest="export_format", help="save an export in this session's evidence directory")
     p = add("api", extended, "same-origin authenticated request")
     p.add_argument("url")
     p.add_argument("--method", default="GET", choices=("GET", "HEAD", "POST", "PATCH", "PUT", "DELETE"))

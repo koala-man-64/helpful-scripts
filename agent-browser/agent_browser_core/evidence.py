@@ -177,7 +177,9 @@ class Journal:
     def finish(self, command_id: str, status: str, outcome: dict[str, Any]) -> None:
         keys = {"effect", "observed", "error_class", "executed", "screenshots", "completed_fields", "pending", "handoff_id", "body_file", "expectations",
                 "cleared_commands", "retained_commands", "cleared_handoffs", "retained_handoffs", "files_not_removed",
-                "status", "write_outcome", "persisted", "number"}
+                "status", "write_outcome", "persisted", "number", "diagnostics", "trace_file", "trace_error",
+                "export_file", "pages", "row_count", "duplicate_rows", "loop_count", "key_conflict_count",
+                "complete", "truncated", "stop_reason"}
         safe = {k: outcome[k] for k in keys if k in outcome}
         with self.connect() as db:
             previous = db.execute("SELECT outcome FROM commands WHERE id=?", (command_id,)).fetchone()

@@ -6,11 +6,10 @@ import struct
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable
-from . import common, api
+from . import common, api, tables
+from .tables import CELL_SELECTOR
 
 OVERLAY = "__agent_browser_refs__"
-# A row's own cells, in an HTML table or an ARIA grid.
-CELL_SELECTOR = ":scope > td, :scope > th, :scope > [role=cell], :scope > [role=gridcell], :scope > [role=rowheader]"
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 BLOCKED_HOSTS_CAP = 20
 DIAGNOSE_LAYOUT_JS = r"""() => ({
@@ -200,31 +199,7 @@ class ReachMixin:
         return {"path": path.as_posix(), "file": path.as_posix(), "bytes": len(data), "width": width, "height": height, "annotated": annotated, "tab": self._tab_index(page), "tab_id": self._tab_id(page)}
 
     def h_table(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        page = self.target_page(args)
-        table = self.resolve(page, args["target"]) if args.get("target") else self._only_table(page)
-        if table.evaluate("el => el.tagName.toLowerCase() !== 'table' && !['table','grid'].includes(el.getAttribute('role'))"):
-            raise common._tag(ValueError("Target is not a table or grid."), common.ERR_VALIDATION)
-        columns = [common.sanitize_text(loc.inner_text(), 500) for loc in table.get_by_role("columnheader").all() if loc.is_visible()]
-        frame = table.element_handle().owner_frame()
-        if page not in self.served:
-            self._serve_snapshot(page)
-        served = self.served[page]
-        prefix = next((p for p, f in served.frame_by_prefix.items() if f is frame), "")
-        rows = []
-        for row in table.get_by_role("row").all():
-            if not row.is_visible() or row.get_by_role("columnheader").count(): continue
-            cells = row.locator(CELL_SELECTOR)
-            snapshot = row.aria_snapshot(mode="ai")
-            match = re.search(r"\[ref=([^\]]+)\]", snapshot)
-            ref = match[1] if match else None
-            if ref and prefix and not ref.startswith("f"): ref = prefix + ref
-            rows.append({"ref": ref, "cells": [common.sanitize_text(loc.inner_text(), 2000) for loc in cells.all()]})
-        self._serve_snapshot(page)
-        if not hasattr(self, "table_rows"):
-            self.table_rows, self.table_row_epochs = {}, {}
-        self.table_rows[page] = {row["ref"] for row in rows if row["ref"]}
-        self.table_row_epochs[page] = self._nav_signature(page)
-        return {"columns": columns, "rows": rows, "tab": self._tab_index(page), "tab_id": self._tab_id(page), "untrusted": ["columns", "rows"]}
+        return tables.extract_table(self, args, timeout)
 
     def _only_table(self, page: Any) -> Any:
         """The page's one visible table. An ARIA grid counts only when there is no table, so a date picker or

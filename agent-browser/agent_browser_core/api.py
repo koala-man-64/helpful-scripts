@@ -331,6 +331,11 @@ class ApiMixin:
         known_before = self._known_values(session_keys, [url, page.url]) if inline else None
         self.action_attempted = method not in {"GET", "HEAD"}
         response = None
+        status = None
+        active = self._active_diagnostics
+        recorder = active[2] if active is not None else None
+        diagnostic_index = recorder.request(url, method) if recorder is not None else None
+        request_started = common._now()
         try:
             response = self.ctx.request.fetch(url, method=method, headers=headers, data=body,
                                               timeout=max(timeout, .5) * 1000, max_redirects=0, max_retries=0)
@@ -349,6 +354,9 @@ class ApiMixin:
             self._observe("failed_requests", page)
             raise common._tag(RuntimeError("Browser API transport failed; inspect the receipt before repeating a write."), "unavailable") from None
         finally:
+            if recorder is not None:
+                recorder.finish_request(diagnostic_index, status=status, duration_ms=(common._now() - request_started) * 1000,
+                                        failure="request_failed" if response is None else None)
             if response is not None: response.dispose()
         result = {"status": status, "headers": response_headers, "url": common.redact_url(url), "effect": "request_completed"}
         notes = []

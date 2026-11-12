@@ -63,7 +63,7 @@ is a separate step; editing them does not update an already-installed caller pol
 ## Commands
 
 Global flags, before or after the verb: `--profile NAME`, `--tab TAB` (target a specific tab by stable id `t1`, `t2` or 1-based index without switching the active tab), `--timeout SECONDS`, `--snapshot` (full snapshot after an
-action), `--max-bytes N`, `--session ID`, repeatable `--expect CHECK`, and `--version`.
+action), `--max-bytes N`, `--session ID`, repeatable `--expect CHECK`, `--trace`, and `--version`.
 `--expect` may appear before and after the verb (and around `commit`); every check from every place
 applies, in command-line order. `--timeout` takes 0-86400 seconds. Defaults: 15 for actions
 (`AGENT_BROWSER_TIMEOUT_SECONDS`), 30 for goto/back/reload, 45 for start (browser boot only; the
@@ -77,8 +77,35 @@ All fields stay on the original tab even if an earlier field opens a popup;
 closing that tab stops the remaining field operations.
 `screenshot --annotate` uses temporary noninteractive ref labels removed in `finally`.
 `table [REF]` requires a unique table/grid and returns ordered columns/rendered rows
-with refs/cells (grid cells included), without pagination. Without a REF it takes the
-page's one visible table; an ARIA grid only when there is no table. `check URL` uses a
+with refs/cells (grid cells included). Without a REF it takes the page's one visible
+table; an ARIA grid only when there is no table. To traverse pages, use stable selectors:
+
+```text
+agent-browser table "#results" --next "#next" --max-pages 10 --max-rows 1000 --key ID --column ID --column Name --export csv
+```
+
+`--next` requires an `act` or `commit` profile. It follows only the supplied next-page
+control and stops when it is missing/disabled. Extraction is bound to the original tab
+and stops if it closes or leaves its original origin; a scripted redirect may already
+have navigated before it is detected.
+Limits are 1-100 pages (default 10) and 1-10000 rows (default 1000). Repeat `--key`
+for a composite row identity; without it, identical cell rows are deduplicated.
+Repeat `--column` for exact column headers in the requested output order.
+Tables without headers use stable `column_1`, `column_2`, … names for bounded
+extraction and exports, based on the first nonempty page's width.
+Paginated results include `pages`, `complete`, `truncated` and `stop_reason`;
+limits, repeated pages and schema changes are reported rather than treated as a
+complete extraction. Paginated rows do not carry actionable refs. The table and next
+targets must survive navigation: refs are only for single-page reads.
+`--export json` or `--export csv` saves an artifact under the session's evidence
+directory, returns `export_file`, and uses the profile evidence quota and journal cleanup.
+CSV prefixes formula-like cells and headers with an apostrophe for spreadsheet safety;
+JSON preserves the extracted strings.
+MCP exposes these as `browser_read(operation="table", next=..., max_pages=...,
+max_rows=..., columns=[...], keys=[...], export_format="csv")`; `next` also accepts
+a semantic target such as `{"role":"button","name":"Next"}`.
+
+`check URL` uses a
 temporary 390x844 loopback diagnostics page and preserves the working tab; `check REF`
 retains its behavior. That page shares the signed-in profile, so every request it makes
 to a host other than `localhost`, `127.0.0.1` or `::1` is blocked, each redirect hop and
@@ -240,6 +267,31 @@ Later commands cannot replace that artifact; `last_output.json` remains availabl
 not business success. Repeat `--expect` for AND checks under one action deadline:
 `text:Saved`, `gone:e12`, `url:changed`, `response:POST **/api/items:2xx`.
 Checks are installed before the action. Recipes and wait use their own conditions.
+Additional checks inspect the resulting state without repeating the action:
+
+| Check | Success condition |
+|---|---|
+| `value:e5=High` | A non-secret input, textarea or single-value select has the exact, case-sensitive value. |
+| `checked:e8` / `unchecked:e8` | A native checkbox or radio has the requested checked state. |
+| `count:#results tbody tr=12` | The selector matches exactly 12 elements across the target page's frames. |
+| `download:*.csv` | A new matching download from the target page completes; starting it alone does not pass. |
+| `persisted:#priority=High` | The value still matches after one explicit reload and a fresh selector lookup. |
+
+Use a simple stable `#id` selector for `persisted`, never a ref. A paired successful
+2xx response check or new success message is required before the verification reload, for example:
+`agent-browser click e12 --expect "response:POST **/api/items:2xx" --expect "persisted:#priority=High"`.
+Reload verification does not submit or replay the original action. Expected values
+are omitted from receipts, and credential controls cannot be inspected this way.
+For `value:TARGET=VALUE`, TARGET cannot contain `=`; the expected value may contain it.
+Download verification uses Chromium's page-scoped completion events; popup downloads
+need a separate check on that tab. Filename globs are case-sensitive. It never blocks
+on saving a pending download. Persistence verification keeps the pre-reload success
+signals and waits for the freshly loaded value under the same deadline.
+Persistence verification reloads only a main document confirmed to have loaded by
+GET or HEAD. A POST document, or an unknown document method, returns
+`verification_unavailable` after the original action; inspect its receipt. It never
+resubmits a native form merely to verify persistence. A POST followed by a redirect
+to a GET document can be verified normally.
 `text:` needs a new occurrence: before the action each frame's body text is read, and the check passes when a frame
 shows the text (a case-insensitive substring) more times than it did then. Text already on the page does not count,
 including after its frame reloads; a frame or tab the action opened counts from zero. When a frame's text cannot be
@@ -290,9 +342,31 @@ as in any redacted URL, and a valid recipe name and record number. `ping`, which
 Commit UI operations capture before/after screenshots. API response artifacts contain
 application data and count toward quota; transient request staging files are removed.
 
+Command receipts also include bounded `diagnostics`: redacted console/page errors and
+request method, URL path, status, duration and failure information observed during the
+command. Query strings, fragments, URL credentials, request/response headers and bodies
+are omitted. Events are scoped to the owning session and command; `truncated` and
+`dropped` report when the capture limit was reached. Diagnostic messages are untrusted
+page data, and the existing `observed` counts remain separate from business success.
+Ordinary replies contain only `diagnostics.event_count`, `truncated` and `dropped`;
+inspect `state --command ID` or `journal --command ID` for the retained events.
+Free-form message redaction uses credential-key and token heuristics; unrelated
+application text is still application data.
+
+Add `--trace` to a browser command (MCP `trace=true`) to retain a sanitized Playwright
+trace ZIP linked as `trace_file` in its receipt. It covers the synchronous action,
+including an action that subsequently waits for expectations. Only action names and
+timings are retained: DOM snapshots, screenshots, source, action parameters and network
+bodies are excluded. Use the receipt's redacted diagnostics for request details.
+Traces are off by default and use the same quota and explicit journal cleanup as other
+evidence. `trace_error` reports capture failures without changing the action's outcome.
+
 Incompatible wire protocols require an explicit shared-profile restart. Implementation
 hashes include every package module. A restart may affect other sessions; it never
 replays a command. Explicit help/version remain human-readable.
+These capabilities use daemon protocol 3. A protocol-2 daemon is refused before a
+command is sent, including through MCP, so it cannot silently ignore pagination or
+trace options. Preserve each session's work before explicitly restarting a shared profile.
 
 Status/doctor health probes use a short diagnostic deadline. Normal commands validate
 the recorded protocol and send one actual request under their own deadline, without
@@ -337,7 +411,7 @@ overrides live under `profiles` in config, for example
 `{"profiles":{"snow-read":{"permission":"read","eval":false}}}`.
 `read` permits observation/navigation, `act` adds ordinary interaction, and `commit`
 adds declared submissions, write APIs, mutating recipes and arbitrary eval.
-Observation also covers `goto`, `back`, `reload`, `screenshot`, `wait`, `table`, `check URL`, `api` GET/HEAD and `run`
+Observation also covers `goto`, `back`, `reload`, `screenshot`, `wait`, single-page `table`, `check URL`, `api` GET/HEAD and `run`
 previews. `fill`/`type --enter` needs a `commit` profile but not the `commit` verb, and `press Enter` or a click
 on a Submit button needs only `act`: ordinary interaction can submit a form, and no caller ask rule covers it.
 `uploads: false` blocks file uploads and file-backed API bodies. `upload_roots` adds
@@ -623,7 +697,7 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 ## Follow-ups
 
 - Measure the host matrix for Claude Desktop and the VS Code extension, and after the host quits.
-- Console capture (`console` verb) and network summaries.
+- An interactive console stream beyond the command-scoped receipt diagnostics.
 - A Windows named pipe with an owner-only DACL instead of the token-gated loopback socket.
 - An owner-only ACL (`icacls`) on a custom Windows home, after a live check; today `doctor` only warns (`home_private`).
 - Cross-origin (OOPIF) iframe prefix stability across snapshots is not asserted by the live suite yet.

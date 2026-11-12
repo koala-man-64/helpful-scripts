@@ -3,10 +3,67 @@ from __future__ import annotations
 
 import fnmatch
 import re
+import weakref
 from typing import Any, Callable
 from . import common, snapshots
 
 FORM_ELEMENT_IDENTITY_JS = "(element, candidates) => candidates.some(candidate => candidate === element)"
+CHECKED_STATE_JS = "el => Boolean(el.checked)"
+
+
+def _detach_cdp(session: Any) -> None:
+    try:
+        session.detach()
+    except Exception:  # noqa: BLE001 - cleanup must not change a completed action result
+        pass
+
+
+class _DownloadExpectationWatch:
+    """Non-blocking, target-page download completion watcher backed by public Playwright CDP APIs."""
+
+    def __init__(self, page: Any, pattern: str):
+        self.pattern = pattern
+        self.states: dict[str, str] = {}
+        self.closed = False
+        session = page.context.new_cdp_session(page)
+        self._session = session
+        self._finalizer = weakref.finalize(self, _detach_cdp, session)
+        watch_ref = weakref.ref(self)
+
+        def download_started(event: dict[str, Any]) -> None:
+            watch = watch_ref()
+            if watch is None or watch.closed:
+                return
+            guid, filename = event.get("guid"), event.get("suggestedFilename", "")
+            if isinstance(guid, str) and isinstance(filename, str) and fnmatch.fnmatchcase(filename, watch.pattern):
+                watch.states[guid] = "inProgress"
+
+        def download_progress(event: dict[str, Any]) -> None:
+            watch = watch_ref()
+            if watch is None or watch.closed:
+                return
+            guid, state = event.get("guid"), event.get("state")
+            if isinstance(guid, str) and guid in watch.states and state in {"inProgress", "completed", "canceled"}:
+                watch.states[guid] = state
+
+        try:
+            session.on("Page.downloadWillBegin", download_started)
+            session.on("Page.downloadProgress", download_progress)
+            session.send("Page.enable")
+        except Exception:
+            self.close()
+            raise
+
+    @property
+    def passed(self) -> bool:
+        return any(state == "completed" for state in self.states.values())
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        if self._finalizer.alive:
+            self._finalizer()
 
 
 class VerifiedActionsMixin:
@@ -206,86 +263,261 @@ class VerifiedActionsMixin:
             raise
         return {"ok": True, "action": "fill-form", "effect": "value_set", "completed_fields": completed, "tab": self._tab_index(page), "tab_id": self._tab_id(page)}
 
+    def _cleanup_expectation_watches(self, specs: list[dict[str, Any]]) -> None:
+        """Release external watchers; safe for explicit completion and runtime abort cleanup alike."""
+        response_watches = {id(spec["watch"]) for spec in specs if "watch" in spec}
+        self.watching = [watch for watch in self.watching if id(watch) not in response_watches]
+        for spec in specs:
+            watcher = spec.get("download_watch")
+            if watcher is not None:
+                try:
+                    watcher.close()
+                except Exception:  # noqa: BLE001 - cleanup must never replace an action/verification result
+                    pass
+
+    def _expectation_target(self, page: Any, target: str, timeout_ms: int = 1000) -> tuple[Any, dict[str, Any]]:
+        locator = self.resolve(page, target)
+        info = self._secret_info(locator, timeout_ms=timeout_ms)
+        verdict = self._verdict(page, info, page.url)
+        if verdict == "secret":
+            raise common._tag(ValueError("An expectation cannot inspect a password or one-time-code field; nothing was done."), common.ERR_GUARDED)
+        if verdict != "clear":
+            raise common._tag(ValueError("Could not confirm an expectation target is not a credential field; nothing was done."),
+                              common.ERR_ACTION_FAILED, hint=common._hint("secret_unverified", self.profile))
+        return locator, info
+
+    @staticmethod
+    def _value_control(info: dict[str, Any]) -> bool:
+        return info.get("tag") in {"INPUT", "TEXTAREA", "SELECT"} and not (
+            info.get("tag") == "INPUT" and info.get("type") == "file")
+
+    def _count_selector(self, page: Any, selector: str) -> int | None:
+        try:
+            frames = list(page.frames)
+            if not frames:
+                return None
+            total = 0
+            for frame in frames:
+                total += frame.locator(selector).count()
+            return total
+        except Exception:  # noqa: BLE001 - a detached frame or invalidated selector is not evidence of a count
+            return None
+
     def _expect_specs(self, specs: list[Any], page: Any) -> list[dict[str, Any]]:
-        parsed = []
-        for raw in specs:
-            if not isinstance(raw, str): raise common._tag(ValueError("Expectations must be strings."), common.ERR_VALIDATION)
-            kind, sep, value = raw.partition(":")
-            if not sep or kind not in {"text", "gone", "url", "response"} or not value:
-                raise common._tag(ValueError("Use text:TEXT, gone:REF, url:changed, or response:METHOD URL_GLOB:STATUS."), common.ERR_USAGE)
-            spec = {"kind": kind, "value": value}
-            if kind == "url" and value != "changed": raise common._tag(ValueError("URL expectation must be url:changed."), common.ERR_USAGE)
-            if kind == "text":
-                # Text already shown does not count. A frame that cannot be read has no baseline, and 0 would let
-                # its existing text pass, so the action does not run.
-                spec["baseline"] = self._text_counts(page, value)
-                if None in spec["baseline"].values():
-                    raise common._tag(ValueError("Could not read the page text before the action, so a text: check has no baseline; nothing was done."),
-                                      common.ERR_ACTION_FAILED, hint=common._hint("expect_text_baseline", self.profile))
-            if kind == "gone":
-                spec["element"] = self.resolve(page, value).element_handle()
-                if spec["element"] is None or not spec["element"].is_visible():
-                    raise common._tag(ValueError("Disappearance expectation requires an initially visible element."), common.ERR_NOT_FOUND)
-            if kind == "response":
-                match = re.fullmatch(r"([A-Z]+) (.+):([1-5][0-9x]{2})", value)
-                if not match: raise common._tag(ValueError("Response expectation needs METHOD URL_GLOB:STATUS, e.g. POST **/table/**:2xx."), common.ERR_USAGE)
-                spec.update(method=match[1], glob=match[2], status=match[3].replace("x", "?"))
-                spec["watch"] = self._watch(lambda method, url, status, s=spec: method == s["method"] and fnmatch.fnmatchcase(url, s["glob"])
-                                            and fnmatch.fnmatchcase(str(status), s["status"]))
-            parsed.append(spec)
-        return parsed
+        parsed: list[dict[str, Any]] = []
+        allowed = {"text", "gone", "url", "response", "value", "checked", "unchecked", "count", "download", "persisted"}
+        grammar = ("Use text:TEXT, gone:REF, url:changed, response:METHOD URL_GLOB:STATUS, "
+                   "value:TARGET=VALUE, checked:TARGET, unchecked:TARGET, count:CSS_SELECTOR=N, "
+                   "download:GLOB, or persisted:#id=VALUE.")
+        try:
+            for raw in specs:
+                if not isinstance(raw, str):
+                    raise common._tag(ValueError("Expectations must be strings."), common.ERR_VALIDATION)
+                kind, sep, value = raw.partition(":")
+                if not sep or kind not in allowed or not value:
+                    raise common._tag(ValueError(grammar), common.ERR_USAGE)
+                spec: dict[str, Any] = {"kind": kind, "value": value}
+                if kind == "url" and value != "changed":
+                    raise common._tag(ValueError("URL expectation must be url:changed."), common.ERR_USAGE)
+                if kind == "text":
+                    # Text already shown does not count. A frame that cannot be read has no baseline, and 0 would let
+                    # its existing text pass, so the action does not run.
+                    spec["baseline"] = self._text_counts(page, value)
+                    if None in spec["baseline"].values():
+                        raise common._tag(ValueError("Could not read the page text before the action, so a text: check has no baseline; nothing was done."),
+                                          common.ERR_ACTION_FAILED, hint=common._hint("expect_text_baseline", self.profile))
+                elif kind == "gone":
+                    spec["element"] = self.resolve(page, value).element_handle()
+                    if spec["element"] is None or not spec["element"].is_visible():
+                        raise common._tag(ValueError("Disappearance expectation requires an initially visible element."), common.ERR_NOT_FOUND)
+                elif kind in {"value", "persisted"}:
+                    target, delimiter, expected = value.partition("=")
+                    if not delimiter or not target:
+                        raise common._tag(ValueError(f"{kind}: needs TARGET=VALUE."), common.ERR_USAGE)
+                    if kind == "persisted" and not re.fullmatch(r"#[A-Za-z_][A-Za-z0-9_-]*", target):
+                        raise common._tag(ValueError("persisted: requires a simple stable CSS #id target."), common.ERR_USAGE)
+                    locator, info = self._expectation_target(page, target)
+                    if not self._value_control(info):
+                        raise common._tag(ValueError("Value expectations require a scalar input, textarea or select field."), common.ERR_VALIDATION)
+                    try:
+                        locator.input_value(timeout=1000)
+                    except Exception:
+                        raise common._tag(ValueError("Value expectation target cannot be read as a scalar form control; nothing was done."),
+                                          common.ERR_VALIDATION) from None
+                    spec.update(target=target, expected=expected, locator=locator)
+                elif kind in {"checked", "unchecked"}:
+                    locator, info = self._expectation_target(page, value)
+                    if info.get("tag") != "INPUT" or info.get("type") not in {"checkbox", "radio"}:
+                        raise common._tag(ValueError("Checked expectations require a native checkbox or radio input."), common.ERR_VALIDATION)
+                    try:
+                        locator.evaluate(CHECKED_STATE_JS, timeout=1000)
+                    except Exception:
+                        raise common._tag(ValueError("Checked expectation target cannot be inspected; nothing was done."), common.ERR_ACTION_FAILED) from None
+                    spec.update(target=value, locator=locator)
+                elif kind == "count":
+                    selector, delimiter, expected = value.rpartition("=")
+                    if not delimiter or not selector or not re.fullmatch(r"\d{1,9}", expected):
+                        raise common._tag(ValueError("count: needs CSS_SELECTOR=NONNEGATIVE_INTEGER."), common.ERR_USAGE)
+                    if self._count_selector(page, selector) is None:
+                        raise common._tag(ValueError("Count selector cannot be evaluated before the action; nothing was done."), common.ERR_VALIDATION)
+                    spec.update(selector=selector, expected_count=int(expected))
+                elif kind == "download":
+                    if not value.strip() or len(value) > 255:
+                        raise common._tag(ValueError("download: needs a nonempty filename glob of at most 255 characters."), common.ERR_USAGE)
+                    try:
+                        spec["download_watch"] = _DownloadExpectationWatch(page, value)
+                    except Exception:
+                        raise common._tag(ValueError("Could not watch downloads on the target page; nothing was done."), common.ERR_ACTION_FAILED) from None
+                elif kind == "response":
+                    match = re.fullmatch(r"([A-Z]+) (.+):([1-5][0-9x]{2})", value)
+                    if not match:
+                        raise common._tag(ValueError("Response expectation needs METHOD URL_GLOB:STATUS, e.g. POST **/table/**:2xx."), common.ERR_USAGE)
+                    spec.update(method=match[1], glob=match[2], status=match[3].replace("x", "?"))
+                    spec["watch"] = self._watch(lambda method, url, status, s=spec: method == s["method"] and fnmatch.fnmatchcase(url, s["glob"])
+                                                and fnmatch.fnmatchcase(str(status), s["status"]))
+                parsed.append(spec)
+
+            if any(spec["kind"] == "persisted" for spec in parsed):
+                has_success_response = any(spec["kind"] == "response" and spec["status"].startswith("2") for spec in parsed)
+                has_success_text = any(spec["kind"] == "text" for spec in parsed)
+                if not has_success_response and not has_success_text:
+                    raise common._tag(ValueError("persisted: requires a paired 2xx response or new text success expectation."), common.ERR_USAGE)
+            return parsed
+        except Exception:
+            self._cleanup_expectation_watches(parsed)
+            raise
 
     def _do_action(self, args, timeout, action, run, **kwargs):
         return super()._do_action(args, timeout, action, run, **kwargs)
 
     def _verify_result(self, command_id, result, specs, page, url, deadline):
+        persisted = [spec for spec in specs if spec["kind"] == "persisted"]
+        reload_state = {"attempted": False, "completed": False, "latched_outcomes": None}
+
         def expired(satisfied):
             self.jobs.pop(command_id, None)
+            self._cleanup_expectation_watches(specs)
             self.journal.finish(command_id, "failed", {"error_class": "expectation_failed", "executed": bool(result.get("executed"))})
             raise common._tag(RuntimeError("Post-action expectations were not observed before the deadline; inspect the receipt before another action."), common.ERR_TIMEOUT,
                               details={"command_id": command_id, "executed": bool(result.get("executed")), "expectations": satisfied})
 
-        def check():
-            if common._now() >= deadline:
+        def reload_for_persistence() -> None:
+            remaining = deadline - common._now()
+            if remaining <= 0:
                 expired([{"kind": spec["kind"], "passed": False} for spec in specs])
-            satisfied = []
-            check_page = self.current if self.current is not None and result.get("new_tab") else page
-            for spec in specs:
-                kind = spec["kind"]
-                if kind == "text":
-                    ok = self._text_appeared(spec, page, check_page)
-                elif kind == "url":
-                    ok = page.url != url or (check_page is not page and check_page.url != url)
-                elif kind == "gone":
-                    try:
-                        ok = not spec["element"].is_visible()
-                    except Exception as exc:
-                        msg = str(exc).lower()
-                        if any(token in msg for token in (
-                            "execution context was destroyed",
-                            "element is not attached",
-                            "frame was detached",
-                            "cannot find context",
-                            "object doesn't exist",
-                            "disposed",
-                        )):
-                            ok = True
-                        else:
-                            raise common._tag(RuntimeError("The disappearance check became unavailable; inspect the receipt before repeating an action."), "verification_unavailable") from None
+            method = self._main_document_method(page)
+            if method not in {"GET", "HEAD"}:
+                raise common._tag(RuntimeError(
+                    "Persistence verification cannot reload because the current main document request is not confirmed as GET or HEAD; inspect the receipt before repeating the action."
+                ), "verification_unavailable", details={"executed": bool(result.get("executed"))})
+            reload_state["attempted"] = True
+            # Treat the verification reload as a normal guarded navigation. In particular, a beforeunload dialog
+            # is dismissed so unsaved form state is not discarded just to make an expectation pass.
+            new_pages = self.new_pages
+            self._begin("reload", {"tab": self._tab_id(page), "discard_changes": False})
+            try:
+                ms = self._timeout_ms(remaining)
+                self._navigate(page, "reload", lambda: page.reload(timeout=ms, wait_until="load"), remaining)
+                reload_state["completed"] = True
+                # The original action envelope has refs from before this reload. Replace its page state so callers
+                # receive only refs minted from the current DOM while retaining the original command/receipt fields.
+                for key in ("target_line", "changes", "value_after", "new_tab", "frames_loading", "note"):
+                    result.pop(key, None)
+                result.update(self.snap_envelope(page, navigated=True))
+            finally:
+                self._end()
+                self.new_pages = new_pages
+
+        def checked(spec: dict[str, Any], check_page: Any, remaining: float) -> bool:
+            kind = spec["kind"]
+            if kind == "text":
+                return self._text_appeared(spec, page, check_page)
+            if kind == "url":
+                return page.url != url or (check_page is not page and check_page.url != url)
+            if kind == "gone":
+                try:
+                    return not spec["element"].is_visible()
+                except Exception as exc:
+                    msg = str(exc).lower()
+                    if any(token in msg for token in (
+                        "execution context was destroyed", "element is not attached", "frame was detached",
+                        "cannot find context", "object doesn't exist", "disposed",
+                    )):
+                        return True
+                    raise common._tag(RuntimeError("The disappearance check became unavailable; inspect the receipt before repeating an action."),
+                                      "verification_unavailable") from None
+            if kind == "response":
+                return page in spec["watch"]["pages"] or check_page in spec["watch"]["pages"]
+            if kind == "count":
+                return self._count_selector(page, spec["selector"]) == spec["expected_count"]
+            if kind == "download":
+                return spec["download_watch"].passed
+            timeout_ms = max(1, min(1000, int(remaining * 1000)))
+            try:
+                locator = spec["locator"]
+                if kind == "persisted":
+                    # A reload replaces documents and iframe objects. Re-resolve the stable CSS id each poll so a
+                    # newly attached frame/control can satisfy this check after asynchronous hydration.
+                    locator, info = self._expectation_target(page, spec["target"], timeout_ms=timeout_ms)
+                    if not self._value_control(info):
+                        return False
+                elif self._secret_check(page, locator, timeout_ms=timeout_ms) != "clear":
+                    return False
+                if kind in {"value", "persisted"}:
+                    actual = locator.input_value(timeout=timeout_ms)
+                    return actual == spec["expected"]
+                actual_checked = locator.evaluate(CHECKED_STATE_JS, timeout=timeout_ms)
+                return bool(actual_checked) is (kind == "checked")
+            except Exception:  # noqa: BLE001 - a transient detached target remains pending until the deadline
+                return False
+
+        def check():
+            try:
+                if common._now() >= deadline:
+                    expired([{"kind": spec["kind"], "passed": False} for spec in specs])
+                check_page = self.current if self.current is not None and result.get("new_tab") else page
+                latched = reload_state["latched_outcomes"]
+                if persisted and latched is not None:
+                    outcomes = dict(latched)
                 else:
-                    ok = page in spec["watch"]["pages"] or check_page in spec["watch"]["pages"]
-                satisfied.append({"kind": kind, "passed": ok})
-            reply = {**result, "command_id": command_id, "session_id": self.session_id,
-                     "contract_version": common.CONTRACT_VERSION, "executed": bool(result.get("executed")), "expectations": satisfied}
-            if common._now() >= deadline:
-                expired(satisfied)
-            if all(item["passed"] for item in satisfied):
-                self.jobs.pop(command_id, None)
-                reply["pending"] = False
-                self.journal.finish(command_id, "completed", reply)
+                    outcomes = {}
+                    for index, spec in enumerate(specs):
+                        if spec["kind"] == "persisted":
+                            continue
+                        outcomes[index] = {"kind": spec["kind"], "passed": checked(spec, check_page, deadline - common._now())}
+                other_passed = all(item["passed"] for item in outcomes.values())
+                if persisted and other_passed and not reload_state["attempted"]:
+                    # These success signals belong to the original action. Keep them latched after reload, when
+                    # their message/refs may disappear as a natural result of navigation.
+                    reload_state["latched_outcomes"] = dict(outcomes)
+                    reload_for_persistence()
+                for index, spec in enumerate(specs):
+                    if spec["kind"] == "persisted":
+                        outcomes[index] = {"kind": spec["kind"],
+                                           "passed": reload_state["completed"] and checked(spec, page, deadline - common._now())}
+                satisfied = [outcomes[index] for index in range(len(specs))]
+                reply = {**result, "command_id": command_id, "session_id": self.session_id,
+                         "contract_version": common.CONTRACT_VERSION, "executed": bool(result.get("executed")), "expectations": satisfied}
+                if common._now() >= deadline:
+                    expired(satisfied)
+                if all(item["passed"] for item in satisfied):
+                    self.jobs.pop(command_id, None)
+                    self._cleanup_expectation_watches(specs)
+                    reply["pending"] = False
+                    self.journal.finish(command_id, "completed", reply)
+                    return reply
+
+                def cleanup() -> None:
+                    try:
+                        self._cleanup_expectation_watches(specs)
+                    except Exception:  # noqa: BLE001 - runtime cancellation must remain authoritative
+                        pass
+
+                self.jobs[command_id] = {"session": self.session_id, "checker": check, "executed": bool(result.get("executed", self.action_attempted)),
+                                         "watches": [spec["watch"] for spec in specs if "watch" in spec], "cleanup": cleanup}
+                reply["pending"] = True
                 return reply
-            self.jobs[command_id] = {"session": self.session_id, "checker": check, "executed": bool(result.get("executed", self.action_attempted)),
-                                     "watches": [spec["watch"] for spec in specs if "watch" in spec]}
-            reply["pending"] = True
-            return reply
+            except Exception:
+                self._cleanup_expectation_watches(specs)
+                raise
         return check()

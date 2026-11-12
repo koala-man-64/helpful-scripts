@@ -435,8 +435,9 @@ def test_table_with_css_selector_before_snapshot(make_daemon, monkeypatch):
     header = SimpleNamespace(inner_text=lambda: "Owner", is_visible=lambda: True)
     fake_table = SimpleNamespace(
         evaluate=lambda js: False,
-        get_by_role=lambda role: SimpleNamespace(all=lambda: [header] if role == "columnheader" else [row]),
-        element_handle=lambda: SimpleNamespace(owner_frame=lambda: page.main_frame),
+        get_by_role=lambda role: SimpleNamespace(all=lambda: [header] if role == "columnheader" else [row], count=lambda: 1,
+                                                 nth=lambda index: ([header] if role == "columnheader" else [row])[index]),
+        element_handle=lambda: SimpleNamespace(owner_frame=lambda: page.main_frame, dispose=lambda: None),
     )
     monkeypatch.setattr(daemon, "resolve", lambda p, t: fake_table)
 

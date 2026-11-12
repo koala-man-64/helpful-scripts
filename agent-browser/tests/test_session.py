@@ -270,7 +270,7 @@ def test_command_connection_does_not_depend_on_a_short_health_probe(monkeypatch)
     assert core_session._require_running(paths, "click") is record
 
 
-@pytest.mark.parametrize("protocol", [None, 1, core_common.PROTOCOL_VERSION + 1])
+@pytest.mark.parametrize("protocol", [None, 1, 2, core_common.PROTOCOL_VERSION + 1])
 def test_incompatible_record_is_rejected_before_action_dispatch(monkeypatch, protocol):
     paths = core_common._paths("default")
     _touch_lock(paths)

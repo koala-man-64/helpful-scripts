@@ -7,10 +7,11 @@ import re
 import shutil
 import stat
 import secrets
+import tempfile
 import urllib.parse
 from pathlib import Path
 from typing import Any
-from . import common, evidence, policy
+from . import common, diagnostics, evidence, policy
 
 STOP_TAB_WAIT = 2.0  # seconds stop waits at least, per tab, for it to close or to answer its beforeunload
 # Verbs that still run when the current tab changed unseen (OperatingMixin._check_tab_change): snapshot shows the new
@@ -70,6 +71,8 @@ class OperatingMixin:
         self.jobs: dict[str, dict[str, Any]] = {}
         self.creating_session = False
         self._cmd_target_page: Any = None
+        self._active_diagnostics: tuple[str, str, diagnostics.CommandDiagnostics] | None = None
+        self._diagnostic_requests: dict[int, dict[str, Any]] = {}
         self.journal = evidence.Journal(self.paths.dir, self.config.get("evidence_max_bytes", evidence.DEFAULT_QUOTA))
 
     def start_browser(self) -> None:
@@ -219,6 +222,157 @@ class OperatingMixin:
         counts = self.session_counts.setdefault(owner, dict.fromkeys(self.telemetry, 0))
         counts[kind] += 1
 
+    def _record_diagnostic(self, page: Any, kind: str, **fields: Any) -> None:
+        active = self._active_diagnostics
+        if active is None or self.page_owners.get(page) != active[0]:
+            return
+        recorder = active[2]
+        if kind in {"console_error", "page_error"}:
+            recorder.error(kind, fields.get("message", ""))
+
+    def _diagnostic_request_started(self, page: Any, request: Any) -> None:
+        active = self._active_diagnostics
+        if active is None or self.page_owners.get(page) != active[0]:
+            return
+        recorder = active[2]
+        index = recorder.request(getattr(request, "url", ""), getattr(request, "method", ""))
+        if index is None:
+            return
+        # Keep a small request-object map only while the command or its own pending job is active.
+        if len(self._diagnostic_requests) >= diagnostics.MAX_EVENTS * 2:
+            self._diagnostic_requests.pop(next(iter(self._diagnostic_requests)))
+        self._diagnostic_requests[id(request)] = {
+            "session": active[0], "recorder": recorder, "index": index, "started": common._now(), "status": None,
+        }
+
+    def _diagnostic_response(self, page: Any, response: Any) -> None:
+        active = self._active_diagnostics
+        if active is None or self.page_owners.get(page) != active[0]:
+            return
+        request = getattr(response, "request", None)
+        if callable(request):
+            request = request()
+        entry = self._diagnostic_requests.get(id(request)) if request is not None else None
+        if entry is not None and entry["recorder"] is active[2]:
+            try:
+                entry["status"] = int(response.status)
+                elapsed = max(0.0, common._now() - entry["started"])
+                active[2].finish_request(entry["index"], status=entry["status"], duration_ms=elapsed * 1000)
+            except (AttributeError, TypeError, ValueError):
+                pass
+
+    def _diagnostic_request_finished(self, page: Any, request: Any, failure: Any = None) -> None:
+        entry = self._diagnostic_requests.pop(id(request), None)
+        active = self._active_diagnostics
+        if (entry is None or active is None or entry["recorder"] is not active[2]
+                or entry["session"] != active[0] or self.page_owners.get(page) != active[0]):
+            return
+        elapsed = max(0.0, common._now() - entry["started"])
+        active[2].finish_request(entry["index"], status=entry["status"], duration_ms=elapsed * 1000, failure=failure)
+
+    def _release_diagnostic_requests(self, recorder: diagnostics.CommandDiagnostics) -> None:
+        for key, entry in list(self._diagnostic_requests.items()):
+            if entry["recorder"] is recorder:
+                self._diagnostic_requests.pop(key, None)
+
+    def _cleanup_pending_job(self, job: dict[str, Any]) -> None:
+        cleanup = job.get("cleanup")
+        if callable(cleanup):
+            try:
+                cleanup()
+            except Exception:
+                pass
+        recorder = job.get("diagnostics_recorder")
+        if isinstance(recorder, diagnostics.CommandDiagnostics):
+            self._release_diagnostic_requests(recorder)
+
+    def _cleanup_expectation_specs(self, specs: list[dict[str, Any]]) -> None:
+        cleanup = getattr(self, "_cleanup_expectation_watches", None)
+        if callable(cleanup):
+            try:
+                cleanup(specs)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _mark_diagnostics_untrusted(reply: dict[str, Any]) -> None:
+        untrusted = reply.get("untrusted")
+        if not isinstance(untrusted, list):
+            untrusted = []
+            reply["untrusted"] = untrusted
+        if "diagnostics" not in untrusted:
+            untrusted.append("diagnostics")
+
+    def _start_trace(self, command: str) -> tuple[Any | None, str | None]:
+        tracing = None
+        try:
+            tracing = self.ctx.tracing
+            tracing.start(name="agent-browser", title=command, snapshots=False, screenshots=False,
+                          sources=False, live=False)
+            return tracing, None
+        except Exception:  # noqa: BLE001 - tracing must never change the command outcome
+            try:
+                tracing.stop()
+            except Exception:
+                pass
+            return None, "trace_unavailable"
+
+    def _trace_output_dir(self) -> tuple[Path, Path]:
+        workspace = self.paths.workspace.resolve()
+        root = self.paths.dir.resolve()
+        if not (workspace == root or workspace.parent == root / "sessions"):
+            raise ValueError("trace_workspace")
+        output_dir = self.paths.outputs
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if output_dir.resolve() != workspace / "outputs":
+            raise ValueError("trace_path")
+        return output_dir, workspace
+
+    def _finish_trace(self, tracing: Any, command_id: str) -> tuple[str | None, str | None]:
+        stopped = False
+        try:
+            output_dir, workspace = self._trace_output_dir()
+            with tempfile.TemporaryDirectory(prefix=f".{command_id}-trace-", dir=output_dir) as temporary:
+                raw_path = Path(temporary) / "raw.zip"
+                try:
+                    tracing.stop(path=str(raw_path))
+                    stopped = True
+                    payload = diagnostics.sanitize_trace_archive(raw_path)
+                finally:
+                    # The unsanitized trace can contain page data. Remove it before quota checks or receipt return.
+                    raw_path.unlink(missing_ok=True)
+            # Remove the raw archive before accounting quota or leaving the evidence folder.
+            self.journal.require_space(len(payload), workspace=self.paths.workspace)
+            target = output_dir / f"{command_id}.trace.zip"
+            temporary_path = None
+            try:
+                with tempfile.NamedTemporaryFile(prefix=f".{command_id}.", suffix=".trace.tmp", dir=output_dir,
+                                                 delete=False) as handle:
+                    temporary_path = Path(handle.name)
+                    handle.write(payload)
+                    handle.flush()
+                if target.exists():
+                    raise FileExistsError("trace artifact already exists")
+                os.replace(temporary_path, target)
+                temporary_path = None
+            finally:
+                if temporary_path is not None:
+                    temporary_path.unlink(missing_ok=True)
+            return str(target), None
+        except ValueError as exc:
+            code = str(exc)
+            return None, code if code in {"trace_too_large", "trace_invalid", "trace_empty"} else "trace_unavailable"
+        except Exception:  # noqa: BLE001 - trace failures are metadata, not command failures
+            return None, "trace_unavailable"
+        finally:
+            if not stopped:
+                # Path setup or temporary-file creation can fail before stop(path=...) is attempted.
+                # Stop without exporting so this trace cannot bleed into a later command or session.
+                try:
+                    tracing.stop()
+                except Exception:
+                    pass
+
     def _on_download(self, download: Any, page: Any = None) -> None:
         owner = self.page_owners.get(page, self.session_id)
         previous, self.downloads = self.downloads, self.sessions[owner]["downloads"]
@@ -303,9 +457,19 @@ class OperatingMixin:
             if cmd not in {"click", "fill", "type", "press", "select", "check", "uncheck", "upload", "fill-form", "api", "run", "journal", "state"}:
                 raise common._tag(ValueError("Unsupported commit operation."), common.ERR_USAGE)
             args["_commit"] = True
+        trace_requested = args.get("trace", False)
+        if type(trace_requested) is not bool:
+            raise common._tag(ValueError("trace must be a boolean."), common.ERR_USAGE)
+        if trace_requested and cmd not in diagnostics.TRACE_COMMANDS:
+            raise common._tag(ValueError("Tracing is supported only for synchronous browser commands."), common.ERR_USAGE)
         command_id = secrets.token_hex(16)
         before = dict(self.session_counts.get(sid, dict.fromkeys(self.telemetry, 0)))
         record_receipt = not (cmd in {"ping", "state", "journal"} and not args.get("resolve") and not args.get("clear"))
+        recorder = diagnostics.CommandDiagnostics() if record_receipt else None
+        previous_diagnostics = self._active_diagnostics
+        trace_context = None
+        trace_file = trace_error = None
+        specs: list[dict[str, Any]] = []
         if record_receipt:
             self.journal.start(command_id, sid, ("commit " if args.get("_commit") else "") + cmd, args, self.current.url if self.current else "")
         executed, screenshots = False, []
@@ -336,24 +500,35 @@ class OperatingMixin:
             # The commit screenshot and the expectation baselines talk to the browser, which can deliver a close or
             # popup event that moves the current tab after the check above: check again before the command acts.
             self._check_tab_change(cmd, args)
-            if cmd == "wait" and args.get("_cooperative"):
-                # Not BrowserEngine.dispatch, so its guard and busy marker are applied here. The polls that
-                # follow are control requests: a pending wait is not busy.
-                self._enforce_allowlist(cmd, args)
-                self._begin(cmd, args)
-                try:
-                    result = self._wait_job(command_id, args, timeout)
-                finally:
-                    self._end()
-            else:
-                result = super().dispatch(cmd, args, timeout)
-                executed = self.action_attempted
+            if recorder is not None:
+                self._active_diagnostics = (sid, command_id, recorder)
+            if trace_requested:
+                trace_context, trace_error = self._start_trace(cmd)
+            try:
+                if cmd == "wait" and args.get("_cooperative"):
+                    # Not BrowserEngine.dispatch, so its guard and busy marker are applied here. The polls that
+                    # follow are control requests: a pending wait is not busy.
+                    self._enforce_allowlist(cmd, args)
+                    self._begin(cmd, args)
+                    try:
+                        result = self._wait_job(command_id, args, timeout)
+                    finally:
+                        self._end()
+                else:
+                    result = super().dispatch(cmd, args, timeout)
+                    executed = self.action_attempted
+            finally:
+                # Stop before _verify_result so the trace covers only the synchronous handler dispatch.
+                if trace_context is not None:
+                    trace_file, trace_error = self._finish_trace(trace_context, command_id)
             result["executed"] = executed
             if specs:
                 result = self._verify_result(command_id, result, specs, expected_page, expected_url, expectation_deadline)
             self._note_seen(cmd, args, result)
             if result.get("pending") and command_id in self.jobs:
                 self.jobs[command_id]["before_counts"] = before
+                if recorder is not None:
+                    self.jobs[command_id]["diagnostics_recorder"] = recorder
             result.update(command_id=command_id, session_id=sid, contract_version=common.CONTRACT_VERSION)
             result["observed"] = {k: self.session_counts.get(sid, {}).get(k, 0) - v for k, v in before.items()}
             after_page = self.target_page(args) if args.get("tab") is not None and self.pages else self.current
@@ -367,23 +542,52 @@ class OperatingMixin:
             if (host == "service-now.com" or host.endswith(".service-now.com")) and host not in noted:
                 result["site_notes"] = ["ServiceNow: use the classic record form for sn/add-work-note; verify Number before committing. Preview with run, submit with commit run, and inspect its receipt before any retry. Never enter sign-in credentials."]
                 noted.add(host)
+            if recorder is not None:
+                result["diagnostics"] = recorder.as_dict()
+            if trace_file:
+                result["trace_file"] = trace_file
+            if trace_error:
+                result["trace_error"] = trace_error
             # A handoff finishes this command; its handoff row, not the receipt, carries the open human action.
             # The reply stays pending: true with status needs_human, which tells callers to stop polling.
             needs_human = result.get("status") == "needs_human"
             status = "unknown" if result.get("write_outcome") == "unknown" else "needs_human" if needs_human else "pending" if result.get("pending") else "completed"
             if record_receipt:
                 self.journal.finish(command_id, status, {**result, "pending": False} if needs_human else result)
+            if recorder is not None:
+                result["diagnostics"] = recorder.summary()
+                self._mark_diagnostics_untrusted(result)
             if "snapshot" in result:
                 result["snapshot"] = result.pop("snapshot")
             return result
         except Exception as exc:
             executed = executed or self.action_attempted or bool(getattr(exc, "executed", False))
+            job = self.jobs.pop(command_id, None)
+            if job is not None:
+                self._cleanup_pending_job(job)
+            elif specs:
+                self._cleanup_expectation_specs(specs)
+            if recorder is not None:
+                self._release_diagnostic_requests(recorder)
             if record_receipt:
-                self.journal.finish(command_id, "unknown" if executed else "failed", {
+                outcome = {
                     "error_class": getattr(exc, "error_class", "daemon"), "executed": executed, "screenshots": screenshots,
-                    "completed_fields": (getattr(exc, "details", None) or {}).get("completed_fields", [])})
+                    "completed_fields": (getattr(exc, "details", None) or {}).get("completed_fields", [])}
+                if recorder is not None:
+                    outcome["diagnostics"] = recorder.as_dict()
+                if trace_file:
+                    outcome["trace_file"] = trace_file
+                if trace_error:
+                    outcome["trace_error"] = trace_error
+                self.journal.finish(command_id, "unknown" if executed else "failed", outcome)
             details = dict(getattr(exc, "details", None) or {})
             details["executed"] = executed
+            if recorder is not None:
+                details["diagnostics"] = recorder.summary()
+            if trace_file:
+                details["trace_file"] = trace_file
+            if trace_error:
+                details["trace_error"] = trace_error
             if record_receipt:  # ping and plain state/journal reads write no receipt to point at
                 details.update(command_id=command_id, receipt="state --command " + command_id)
             exc.details = details
@@ -392,6 +596,9 @@ class OperatingMixin:
             self.last_activity = common._now()  # a long command must not end with the idle timer already expired
             self._cmd_target_page = None
             self.watching = []  # a pending job keeps its own response matchers
+            self._active_diagnostics = previous_diagnostics
+            if recorder is not None and command_id not in self.jobs:
+                self._release_diagnostic_requests(recorder)
             if self.current is not None and self.current in self.pages:
                 # Handlers move self.current; the saved state and the recently-used order follow it.
                 self.sessions[sid]["current"] = self.current
@@ -402,8 +609,10 @@ class OperatingMixin:
         if not conditions:
             raise common._tag(ValueError("wait needs a condition."), common.ERR_USAGE)
         started = common._now()
+        active = self._active_diagnostics
         self.jobs[command_id] = {"session": self.session_id, "page": self.target_page(args), "conditions": conditions, "executed": False,
-                                "started": started, "deadline": args.get("_deadline", started + timeout), "max_bytes": args.get("max_bytes")}
+                                "started": started, "deadline": args.get("_deadline", started + timeout), "max_bytes": args.get("max_bytes"),
+                                "diagnostics_recorder": active[2] if active and active[0] == self.session_id else None}
         return self._poll({"command_id": command_id})
 
     def _poll(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -411,30 +620,52 @@ class OperatingMixin:
         job = self.jobs.get(command_id)
         if job is None or job["session"] != self.session_id:
             raise common._tag(ValueError("Pending operation not found for this session; inspect its journal receipt."), common.ERR_NOT_FOUND)
+        previous_diagnostics = self._active_diagnostics
+        recorder = job.get("diagnostics_recorder")
+        if isinstance(recorder, diagnostics.CommandDiagnostics):
+            self._active_diagnostics = (job["session"], command_id, recorder)
         try:
             if "checker" in job:
                 reply = job["checker"]()
             else:
                 reply = self._poll_wait(command_id, job)
+            if isinstance(recorder, diagnostics.CommandDiagnostics):
+                reply["diagnostics"] = recorder.as_dict()
             if "before_counts" in job:
                 reply["observed"] = {k: self.session_counts.get(self.session_id, {}).get(k, 0) - v for k, v in job["before_counts"].items()}
                 if command_id in self.jobs:
                     self.jobs[command_id]["before_counts"] = job["before_counts"]
+                    if isinstance(recorder, diagnostics.CommandDiagnostics):
+                        self.journal.finish(command_id, "pending", reply)
                 else:
                     self.journal.finish(command_id, "unknown" if reply.get("write_outcome") == "unknown" else "completed", reply)
+            if isinstance(recorder, diagnostics.CommandDiagnostics):
+                reply["diagnostics"] = recorder.summary()
+                self._mark_diagnostics_untrusted(reply)
             return reply
         except Exception as exc:
-            self.jobs.pop(command_id, None)
+            removed = self.jobs.pop(command_id, None)
+            if removed is not None:
+                self._cleanup_pending_job(removed)
             # A poll observes the original job. A different command may have set
             # action_attempted since it started; that is not this job's execution.
             executed = bool(job.get("executed"))
-            self.journal.finish(command_id, "unknown" if executed else "failed", {
+            outcome = {
                 "error_class": getattr(exc, "error_class", "verification_unavailable"),
-                "executed": executed, "pending": False})
+                "executed": executed, "pending": False}
+            if isinstance(recorder, diagnostics.CommandDiagnostics):
+                outcome["diagnostics"] = recorder.as_dict()
+            self.journal.finish(command_id, "unknown" if executed else "failed", outcome)
             details = dict(getattr(exc, "details", None) or {})
             details.update(command_id=command_id, executed=executed, receipt="state --command " + command_id)
+            if isinstance(recorder, diagnostics.CommandDiagnostics):
+                details["diagnostics"] = recorder.summary()
             exc.details = details
             raise
+        finally:
+            self._active_diagnostics = previous_diagnostics
+            if command_id not in self.jobs and isinstance(recorder, diagnostics.CommandDiagnostics):
+                self._release_diagnostic_requests(recorder)
 
     def _poll_wait(self, command_id: str, job: dict[str, Any]) -> dict[str, Any]:
         def require_time() -> None:
@@ -523,7 +754,12 @@ class OperatingMixin:
         self.sessions[self.session_id]["seen_id"] = ""  # released: its next tab is a fresh start, not a change
         for command_id, job in list(self.jobs.items()):
             if job["session"] == self.session_id:
-                self.journal.finish(command_id, "unknown" if job.get("executed") else "failed", {"error_class": "session_released", "executed": bool(job.get("executed"))})
+                outcome = {"error_class": "session_released", "executed": bool(job.get("executed")), "pending": False}
+                recorder = job.get("diagnostics_recorder")
+                if isinstance(recorder, diagnostics.CommandDiagnostics):
+                    outcome["diagnostics"] = recorder.as_dict()
+                self.journal.finish(command_id, "unknown" if job.get("executed") else "failed", outcome)
+                self._cleanup_pending_job(job)
                 self.jobs.pop(command_id)
         if not self.used_sessions:
             self._mark_stop("stop")
@@ -586,8 +822,12 @@ class OperatingMixin:
         # An abandoned job's receipt is finished, not dropped: a job that ran leaves an unknown receipt the clear keeps.
         for command_id, job in list(self.jobs.items()):
             if job["session"] == self.session_id:
-                self.journal.finish(command_id, "unknown" if job["executed"] else "failed",
-                                    {"error_class": "cleared", "executed": job["executed"], "pending": False})
+                outcome = {"error_class": "cleared", "executed": bool(job.get("executed")), "pending": False}
+                recorder = job.get("diagnostics_recorder")
+                if isinstance(recorder, diagnostics.CommandDiagnostics):
+                    outcome["diagnostics"] = recorder.as_dict()
+                self.journal.finish(command_id, "unknown" if job.get("executed") else "failed", outcome)
+                self._cleanup_pending_job(job)
                 self.jobs.pop(command_id)
         result, retained = self.journal.clear(self.session_id, args.get("_command_id", ""), bool(args.get("include_unknown")))
         # The rows are gone now, so a file that cannot be removed is reported, not raised; a later clear retries it.
