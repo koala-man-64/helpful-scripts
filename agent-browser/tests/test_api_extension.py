@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from agent_browser_core import api, cli, common, evidence, mcp_server
-from conftest import FakeDialog
+from conftest import FakeDialog, FakeElement, FakeLocator
 
 
 class Response:
@@ -441,13 +441,22 @@ def test_page_and_element_screenshot_pass_credential_masks(make_daemon, monkeypa
 
 def test_form_invalid_select_preflights_before_filling_any_field(make_daemon, monkeypatch):
     daemon, ctx, page = make_daemon()
-    class Field:
-        def __init__(self, tag): self.tag = tag
-        def evaluate(self, js):
-            return {"tag": self.tag, "type": "text", "options": [{"label": "Yes", "value": "yes", "disabled": False}]}
-    controls = {"name": Field("input"), "answer": Field("select")}
+    name, answer = FakeElement("name", tag="INPUT"), FakeElement("answer", tag="SELECT", options=[("Yes", "yes", False)])
+    controls = {"name": FakeLocator(page, name), "answer": FakeLocator(page, answer)}
     monkeypatch.setattr(daemon, "resolve", lambda p, target: controls[target])
     monkeypatch.setattr(daemon, "_secret_check", lambda *a, **k: "clear")
+    original_evaluate = FakeLocator.evaluate
+
+    def evaluate(locator, js, arg=None, timeout=None):
+        if "readOnly:el.readOnly" in js:
+            element = locator.element
+            return {"tag": element.tag.lower(), "type": "text" if element.tag == "INPUT" else "select-one",
+                    "disabled": False, "readOnly": False, "multiple": False,
+                    "options": [{"label": label, "value": value, "disabled": disabled}
+                                for label, value, disabled in (element.options or [])]}
+        return original_evaluate(locator, js, arg=arg, timeout=timeout)
+
+    monkeypatch.setattr(FakeLocator, "evaluate", evaluate)
     calls = []
     monkeypatch.setattr(daemon, "h_fill", lambda *a: calls.append(a))
     fields = [{"target": "name", "value": "Rudy"}, {"target": "answer", "operation": "select", "value": "Missing"}]
@@ -458,9 +467,18 @@ def test_form_invalid_select_preflights_before_filling_any_field(make_daemon, mo
 
 def test_partial_form_failure_reports_receipt_without_rollback_or_remaining_edits(make_daemon, monkeypatch):
     daemon, ctx, page = make_daemon()
-    field = SimpleNamespace(evaluate=lambda js: {"tag": "input", "type": "text"})
-    monkeypatch.setattr(daemon, "resolve", lambda *a: field)
+    fields_by_target = {target: FakeLocator(page, FakeElement(target, tag="INPUT")) for target in ("first", "second", "third")}
+    monkeypatch.setattr(daemon, "resolve", lambda _page, target: fields_by_target[target])
     monkeypatch.setattr(daemon, "_secret_check", lambda *a, **k: "clear")
+    original_evaluate = FakeLocator.evaluate
+
+    def evaluate(locator, js, arg=None, timeout=None):
+        if "readOnly:el.readOnly" in js:
+            return {"tag": "input", "type": "text", "disabled": False, "readOnly": False,
+                    "multiple": False, "options": []}
+        return original_evaluate(locator, js, arg=arg, timeout=timeout)
+
+    monkeypatch.setattr(FakeLocator, "evaluate", evaluate)
     attempts = []
     def fill(options, timeout):
         attempts.append(options["target"])

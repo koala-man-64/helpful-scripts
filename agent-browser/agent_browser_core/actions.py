@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import fnmatch
-import json
 import re
 from typing import Any, Callable
 from . import common, snapshots
+
+FORM_ELEMENT_IDENTITY_JS = "(element, candidates) => candidates.some(candidate => candidate === element)"
 
 
 class VerifiedActionsMixin:
@@ -108,50 +109,82 @@ class VerifiedActionsMixin:
         if isinstance(fields, dict) and set(fields) == {"fields"}: fields = fields["fields"]
         if not isinstance(fields, list) or not 1 <= len(fields) <= 100:
             raise common._tag(ValueError("Form must be a list of 1 to 100 fields."), common.ERR_VALIDATION)
-        seen = set()
-        for field in fields:
-            if not isinstance(field, dict) or set(field) - {"target", "operation", "value"}:
-                raise common._tag(ValueError("Each field needs target, operation and value."), common.ERR_VALIDATION)
-            operation = field.get("operation", "fill")
-            if operation not in {"fill", "select", "check", "uncheck"}:
-                raise common._tag(ValueError("Unsupported form operation."), common.ERR_USAGE)
-            key = json.dumps(field.get("target"), sort_keys=True)
-            if key in seen:
-                raise common._tag(ValueError("Duplicate form target."), common.ERR_VALIDATION)
-            seen.add(key)
-            locator = self.resolve(page, field.get("target"))
-            verdict = self._secret_check(page, locator)
-            if verdict == "unknown":
-                raise common._tag(ValueError("Could not confirm a form field is not a password or one-time-code field; nothing was filled."),
-                                  common.ERR_ACTION_FAILED, hint=common._hint("secret_unverified", self.profile))
-            if verdict == "secret":
-                raise common._tag(ValueError("Form contains a credential field; nothing was filled."), common.ERR_GUARDED)
-            info = locator.evaluate("""el => ({tag:el.tagName.toLowerCase(),type:el.type,disabled:el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true',readOnly:el.readOnly,
-                multiple:el.multiple,options:el.options ? Array.from(el.options).map(o=>({label:o.label,value:o.value,disabled:o.disabled || (o.parentElement.tagName==='OPTGROUP' && o.parentElement.disabled)})) : []})""")
-            tag, kind = info.get("tag"), info.get("type")
-            valid = ((operation == "fill" and tag in {"input", "textarea"} and kind not in {"checkbox", "radio", "file", "submit", "button", "hidden", "range", "color", "image", "reset"}) or
-                     operation == "select" and tag == "select" or operation == "check" and kind in {"checkbox", "radio"} or operation == "uncheck" and kind == "checkbox")
-            if not valid or info.get("disabled") or info.get("readOnly"):
-                raise common._tag(ValueError("A form field is incompatible, disabled or read-only."), common.ERR_VALIDATION)
-            value = field.get("value")
-            if operation == "fill" and not isinstance(value, str):
-                raise common._tag(ValueError("Fill values must be strings."), common.ERR_VALIDATION)
-            if operation == "select" and not (isinstance(value, str) or isinstance(value, list) and all(isinstance(v, str) for v in value)):
-                raise common._tag(ValueError("Select values must be strings or string lists."), common.ERR_VALIDATION)
-            if operation == "select":
-                wanted = value if isinstance(value, list) else [value]
-                options = info.get("options", [])
-                if not wanted or not info.get("multiple") and len(wanted) > 1:
-                    raise common._tag(ValueError("Select values do not match the control's multiplicity."), common.ERR_VALIDATION)
-                for item in wanted:
-                    if not item.strip():
-                        match = next((o for o in options if str(o["value"]) == item), None)
-                    else:
-                        match = next((o for o in options if str(o["label"]).strip().lower() == item.strip().lower()), None) or next((o for o in options if str(o["value"]).strip().lower() == item.strip().lower()), None)
-                    if not match or match.get("disabled"):
-                        raise common._tag(ValueError("A select value is missing or disabled; nothing was filled."), common.ERR_VALIDATION)
-            if operation in {"check", "uncheck"} and "value" in field and field["value"] is not (operation == "check"):
-                raise common._tag(ValueError("Checkbox values must agree with the check/uncheck operation."), common.ERR_VALIDATION)
+        seen_refs: set[str] = set()
+        handles_by_frame: list[tuple[Any, list[Any]]] = []
+        handles: list[Any] = []
+        try:
+            for field in fields:
+                if not isinstance(field, dict) or set(field) - {"target", "operation", "value"}:
+                    raise common._tag(ValueError("Each field needs target, operation and value."), common.ERR_VALIDATION)
+                operation = field.get("operation", "fill")
+                if operation not in {"fill", "select", "check", "uncheck"}:
+                    raise common._tag(ValueError("Unsupported form operation."), common.ERR_USAGE)
+                target = field.get("target")
+                raw_ref = target if isinstance(target, str) else target.get("ref") if isinstance(target, dict) and set(target) == {"ref"} else None
+                ref_key = snapshots.normalize_target(raw_ref) if isinstance(raw_ref, str) and snapshots.is_ref(raw_ref) else None
+                if ref_key is not None:
+                    if ref_key in seen_refs:
+                        raise common._tag(ValueError("Duplicate form target."), common.ERR_VALIDATION)
+                    seen_refs.add(ref_key)
+
+                locator = self.resolve(page, target)
+                # Canonical refs catch string/{ref: ...} aliases without browser work. For
+                # semantic targets, compare element handles within their owner frame so a
+                # label/role target and a ref to the same control also count as duplicates.
+                handle = locator.element_handle(timeout=1000)
+                if handle is None:
+                    raise common._tag(ValueError("A form target disappeared during preflight; nothing was filled."), common.ERR_ACTION_FAILED)
+                handles.append(handle)
+                frame = handle.owner_frame()
+                if frame is None:
+                    raise common._tag(ValueError("Could not confirm a form target's frame; nothing was filled."), common.ERR_ACTION_FAILED)
+                prior = next((items for prior_frame, items in handles_by_frame if prior_frame is frame), None)
+                if prior is not None:
+                    duplicate = locator.evaluate(FORM_ELEMENT_IDENTITY_JS, prior, timeout=1000)
+                    if duplicate:
+                        raise common._tag(ValueError("Duplicate form target."), common.ERR_VALIDATION)
+                    prior.append(handle)
+                else:
+                    handles_by_frame.append((frame, [handle]))
+
+                verdict = self._secret_check(page, locator)
+                if verdict == "unknown":
+                    raise common._tag(ValueError("Could not confirm a form field is not a password or one-time-code field; nothing was filled."),
+                                      common.ERR_ACTION_FAILED, hint=common._hint("secret_unverified", self.profile))
+                if verdict == "secret":
+                    raise common._tag(ValueError("Form contains a credential field; nothing was filled."), common.ERR_GUARDED)
+                info = locator.evaluate("""el => ({tag:el.tagName.toLowerCase(),type:el.type,disabled:el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true',readOnly:el.readOnly,
+                    multiple:el.multiple,options:el.options ? Array.from(el.options).map(o=>({label:o.label,value:o.value,disabled:o.disabled || (o.parentElement.tagName==='OPTGROUP' && o.parentElement.disabled)})) : []})""")
+                tag, kind = info.get("tag"), info.get("type")
+                valid = ((operation == "fill" and tag in {"input", "textarea"} and kind not in {"checkbox", "radio", "file", "submit", "button", "hidden", "range", "color", "image", "reset"}) or
+                         operation == "select" and tag == "select" or operation == "check" and kind in {"checkbox", "radio"} or operation == "uncheck" and kind == "checkbox")
+                if not valid or info.get("disabled") or info.get("readOnly"):
+                    raise common._tag(ValueError("A form field is incompatible, disabled or read-only."), common.ERR_VALIDATION)
+                value = field.get("value")
+                if operation == "fill" and not isinstance(value, str):
+                    raise common._tag(ValueError("Fill values must be strings."), common.ERR_VALIDATION)
+                if operation == "select" and not (isinstance(value, str) or isinstance(value, list) and all(isinstance(v, str) for v in value)):
+                    raise common._tag(ValueError("Select values must be strings or string lists."), common.ERR_VALIDATION)
+                if operation == "select":
+                    wanted = value if isinstance(value, list) else [value]
+                    options = info.get("options", [])
+                    if not wanted or not info.get("multiple") and len(wanted) > 1:
+                        raise common._tag(ValueError("Select values do not match the control's multiplicity."), common.ERR_VALIDATION)
+                    for item in wanted:
+                        if not item.strip():
+                            match = next((o for o in options if str(o["value"]) == item), None)
+                        else:
+                            match = next((o for o in options if str(o["label"]).strip().lower() == item.strip().lower()), None) or next((o for o in options if str(o["value"]).strip().lower() == item.strip().lower()), None)
+                        if not match or match.get("disabled"):
+                            raise common._tag(ValueError("A select value is missing or disabled; nothing was filled."), common.ERR_VALIDATION)
+                if operation in {"check", "uncheck"} and "value" in field and field["value"] is not (operation == "check"):
+                    raise common._tag(ValueError("Checkbox values must agree with the check/uncheck operation."), common.ERR_VALIDATION)
+        finally:
+            for handle in handles:
+                try:
+                    handle.dispose()
+                except Exception:  # noqa: BLE001 - disposal is cleanup; preflight remains authoritative
+                    pass
         completed = []
         try:
             for index, field in enumerate(fields):

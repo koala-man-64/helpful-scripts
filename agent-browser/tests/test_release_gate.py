@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_browser_core import common as core_common
+from agent_browser_core import actions as core_actions, common as core_common
 from conftest import FakeElement, FakeFrame, FakeLocator, SemanticMatch, SemanticMatches
 
 
@@ -72,12 +72,14 @@ def test_fill_form_preflights_credentials_before_any_field_changes(make_daemon, 
     monkeypatch.setattr(daemon, "resolve", lambda _page, target: resolved[target["label"]])
     original_evaluate = FakeLocator.evaluate
 
-    def evaluate(locator, js: str, timeout=None):
+    def evaluate(locator, js: str, arg=None, timeout=None):
+        if js == core_actions.FORM_ELEMENT_IDENTITY_JS:
+            return original_evaluate(locator, js, arg=arg, timeout=timeout)
         if js.startswith("el => ({tag:el.tagName.toLowerCase()") and "readOnly:el.readOnly" in js:
             kind = "password" if locator.element is password else "text"
             return {"tag": "input", "type": kind, "disabled": False, "readOnly": False,
                     "multiple": False, "options": []}
-        return original_evaluate(locator, js, timeout)
+        return original_evaluate(locator, js, arg=arg, timeout=timeout)
 
     monkeypatch.setattr(FakeLocator, "evaluate", evaluate)
 

@@ -1,5 +1,7 @@
 """Real local browser coverage for form ownership, selection and action diffs."""
+import base64
 import json
+from pathlib import Path
 
 import pytest
 
@@ -64,3 +66,59 @@ def test_action_reports_truncation_when_41_controls_are_added(cli, site):
     assert len(result["changes"]["added"]) == common.CHANGES_CAP
     count = cli.ok("eval", "document.querySelectorAll('#controls button').length", "--session", session)["value"]
     assert count == 41
+
+
+def _sample_screenshot_pixels(cli, session, screenshot: Path, boxes: dict) -> dict[str, list[int]]:
+    png = base64.b64encode(screenshot.read_bytes()).decode("ascii")
+    script = """(async () => {
+      const image = new Image();
+      image.src = __PNG__;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext('2d', {willReadFrequently: true});
+      context.drawImage(image, 0, 0);
+      const boxes = __BOXES__;
+      return Object.fromEntries(Object.entries(boxes).filter(([name]) => name !== 'viewport').map(([name, box]) => {
+        const x = Math.floor((box.x + box.width / 2) * image.naturalWidth / boxes.viewport.width);
+        const y = Math.floor((box.y + box.height / 2) * image.naturalHeight / boxes.viewport.height);
+        return [name, Array.from(context.getImageData(x, y, 1, 1).data)];
+      }));
+    })()""".replace("__PNG__", json.dumps("data:image/png;base64," + png)).replace("__BOXES__", json.dumps(boxes))
+    return cli.ok("eval", script, "--session", session)["value"]
+
+
+def test_manual_and_commit_screenshots_mask_native_and_contenteditable_pixels(cli, site):
+    session = "secret-mask-pixels"
+    cli.ok("goto", f"{site.url}/audit_secret_editable.html", "--session", session)
+
+    boxes = cli.ok("eval", """(() => {
+      const rect = element => {
+        const box = element.getBoundingClientRect();
+        return {x: box.x, y: box.y, width: box.width, height: box.height};
+      };
+      const iframe = document.querySelector('#secret-frame');
+      const outer = rect(iframe);
+      const inner = rect(iframe.contentDocument.querySelector('#iframe-code'));
+      return {
+        viewport: {width: innerWidth, height: innerHeight},
+        native: rect(document.querySelector('#native-code')),
+        main: rect(document.querySelector('#main-code')),
+        iframe: {x: outer.x + inner.x, y: outer.y + inner.y, width: inner.width, height: inner.height}
+      };
+    })()""", "--session", session)["value"]
+
+    manual = cli.ok("screenshot", "--session", session)
+    committed = cli.ok("commit", "click", "--role", "button", "--name", "Capture only", "--session", session)
+    assert len(committed["screenshots"]) == 2
+    captures = {
+        "manual": Path(manual["path"]),
+        "commit-before": Path(committed["screenshots"][0]),
+        "commit-after": Path(committed["screenshots"][1]),
+    }
+
+    for name, screenshot in captures.items():
+        pixels = _sample_screenshot_pixels(cli, session, screenshot, boxes)
+        assert set(pixels) == {"native", "main", "iframe"}
+        assert all(color[:3] == [255, 0, 255] for color in pixels.values()), (name, pixels)

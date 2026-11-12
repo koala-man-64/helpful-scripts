@@ -255,9 +255,12 @@ class OperatingMixin:
         masks = []
         for frame in page.frames:
             masks.append(frame.locator('input[type="password"],input[autocomplete="one-time-code"],input[name*="password" i],input[name*="token" i]'))
-            inputs = frame.locator('input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]),textarea')
-            if hasattr(inputs, "all"):
-                masks.extend(loc for loc in inputs.all() if self._is_secret(page, loc))
+            candidates = frame.locator(
+                'input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):'
+                'not([type="checkbox"]):not([type="radio"]),textarea,[contenteditable]'
+            )
+            if hasattr(candidates, "all"):
+                masks.extend(loc for loc in candidates.all() if self._is_secret(page, loc))
         return masks
 
     def h_ping(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:

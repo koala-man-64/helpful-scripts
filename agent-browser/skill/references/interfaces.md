@@ -37,7 +37,9 @@ agent-browser commit journal --clear --include-unknown
 ```
 
 Preflight includes uniqueness, credentials, editable control type, disabled/read-only
-state, and select options. Execution can still fail if the page changes afterwards.
+state, and select options. Different refs, selectors or semantic targets that resolve to the
+same control are duplicates and are rejected before any field is changed.
+Execution can still fail if the page changes afterwards.
 `completed_fields` contains zero-based field indexes. No field submits the form.
 
 Snapshot values: each field line with a value is checked before it is shown, under a
@@ -117,7 +119,9 @@ Use the optional MCP extra (`pip install -e "agent-browser[mcp]"`) and register 
 through every tool in one task. The 18 typed tools share the daemon dispatcher;
 `browser_commit` and `browser_eval` are distinct approval targets. A tool reply carries the
 same compact JSON twice, as text and as structuredContent; each copy is bounded to 7,000
-UTF-8 bytes, and the whole serialized reply stays under 24,000.
+UTF-8 bytes, and the whole serialized reply stays under 24,000, even for unlimited text reads.
+Pending waits allow other sessions' MCP calls to run. Cancelling an MCP call does not undo
+an operation already sent to the daemon; inspect its receipt before deciding whether to retry.
 Tools send the CLI's daemon payload: page tools take `tab` (`t2` or `2`), the `tab`
 operation of `browser_action` takes `index` the same way, `browser_wait` takes `ref` and
 `selector`, `browser_snapshot` `ref`, `browser_eval` `ref` and `frame`, `browser_read`

@@ -78,7 +78,9 @@ Repeat `--expect` for AND checks under one deadline: `text:Saved`, `gone:e12`,
 `text:` needs a new occurrence: text already on the page does not count, even after a
 reload. Recipes and wait use their own verification conditions.
 
-Replies are compact JSON with `contract_version: 1`, bounded to 24,000 UTF-8 bytes.
+Replies are compact JSON with `contract_version: 1`, bounded to 24,000 UTF-8 bytes,
+except CLI `text`, which follows its configured character cap (`--max-chars`; 0 means unlimited).
+MCP text reads always retain their transport byte limits and expose oversized content through `browser_output`.
 For overflow, retain `output_id`: `agent-browser output --id ID --offset 0`.
 Follow `next_offset` until null. Later commands cannot replace that artifact.
 

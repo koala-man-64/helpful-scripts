@@ -227,9 +227,11 @@ popup counts), a dialog was handled, or `--snapshot` was passed, the full snapsh
 ## Output contract (for agent authors)
 
 Runtime replies are compact single-line JSON with `contract_version: 1`. The complete
-encoded CLI/socket reply, including escaping/newline, is bounded to 24,000 UTF-8 bytes.
+encoded CLI/socket reply, including escaping/newline, is bounded to 24,000 UTF-8 bytes,
+except CLI `text`: it returns up to the configured `max_chars` (0 means unlimited), which can exceed that byte budget.
 An MCP reply carries the same compact JSON twice, as text and as structuredContent; each copy is bounded to
-7,000 UTF-8 bytes, and the whole serialized tool reply stays under 24,000. Overflow is preserved under an
+7,000 UTF-8 bytes, and the whole serialized tool reply stays under 24,000, including text reads with an unlimited character cap.
+Overflow is preserved under an
 immutable `output_id`; read `output --id ID --offset 0` and follow `next_offset` until
 null. The overflow reply still carries the page's `url`, `title` and `untrusted`; every `output` page is
 `untrusted: ["chunk"]`, since a stored reply keeps its page text.
@@ -257,7 +259,9 @@ that was cleared is `not_found`. `state` lists open handoffs first, newest first
 of its reply budget; `handoffs_omitted` counts the rest, and `state --handoff ID` reads any one.
 
 Journal, masked screenshots, overflow JSON and raw API response files remain until
-explicitly cleared. The default quota is 1 GiB/profile (`evidence_max_bytes`, minimum
+explicitly cleared. Manual and commit screenshots mask recognized secret inputs, textareas and
+contenteditable controls in every frame, including controls that cannot be inspected.
+The default quota is 1 GiB/profile (`evidence_max_bytes`, minimum
 65536); reaching it blocks new audited mutations/captures while preserving inspection,
 explicit clear and handoff resolution (`commit state --handoff ID --resolve` takes no
 screenshots). `commit journal --clear` clears this session's evidence only; a bare
@@ -609,7 +613,7 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 | `profile_in_use` | A stray browser holds the profile folder. `agent-browser clean --profile <p>`. From `clean --purge-profile`: a program (a browser, an editor, a virus scan) still holds files of the profile named in `details.profiles_purge_failed`; close it and run the purge again. |
 | `doctor` shows `home_private` as `warn` | Windows: move `AGENT_BROWSER_HOME` inside your user profile (`%LOCALAPPDATA%\ab`) or make sure only your account can read that folder. POSIX: `chmod 700` each listed profile folder. |
 | The window is not visible | Check the taskbar; use `agent-browser needs-human` for an authorized human handoff. |
-| Output looks cut off | The Bash tool caps output at 30,000 chars; the tool keeps responses under 24 KB and writes the full snapshot to `last_snapshot.txt` (`snapshot_file`). |
+| Output looks cut off | The Bash tool caps output at 30,000 chars; replies stay under 24 KB except CLI `text`, whose `--max-chars` controls its size. Full snapshots are written to `last_snapshot.txt` (`snapshot_file`); MCP text overflow is readable with `browser_output`. |
 | Git Bash turned `/incident.do` into `C:/Program Files/Git/incident.do` | The tool de-mangles arguments when `MSYSTEM` is set and says so in `note` on success or `error.note` on failure (at most 300 characters per argument); prefer host names and never start an argument with `/`. |
 | A Bash call was denied by the shell guard | The user's PreToolUse guard denies statements starting with `echo`, `cat`, `type`, `set` when the command mentions a secret word. One `agent-browser` command per call, nothing before it. |
 | `stale_code: true` in `status` | Package implementation changed; explicitly stop/restart the shared profile. |

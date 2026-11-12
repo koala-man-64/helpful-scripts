@@ -21,7 +21,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import agent_browser as ab
-from agent_browser_core import api as core_api, common as core_common, daemon as core_daemon, snapshots as core_snapshots
+from agent_browser_core import actions as core_actions, api as core_api, common as core_common, daemon as core_daemon, snapshots as core_snapshots
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "snapshots"
 REAL_SPAWN_DAEMON = core_common._spawn_daemon
@@ -236,25 +236,37 @@ class FakeElement:
 
 
 class FakeElementHandle:
-    def __init__(self, element: FakeElement | None) -> None:
+    def __init__(self, element: FakeElement | None, owner_frame: "FakeFrame | None" = None) -> None:
         self.element = element
+        self._owner_frame = owner_frame
+        self.disposed = False
 
-    def evaluate(self, js: str) -> Any:
+    def evaluate(self, js: str, arg: Any = None) -> Any:
         if self.element is None:
             return ""
+        if js == core_actions.FORM_ELEMENT_IDENTITY_JS:
+            return any(candidate.element is self.element for candidate in arg or [])
         if js == core_daemon.FRAME_LABEL_JS:
             return self.element.frame_label
         raise AssertionError(f"FakeElementHandle.evaluate: no fake for js={js[:80]!r}")
+
+    def owner_frame(self) -> "FakeFrame | None":
+        return self._owner_frame
+
+    def dispose(self) -> None:
+        self.disposed = True
 
     def content_frame(self) -> "FakeFrame | None":
         return self.element.frame if self.element else None
 
 
 class FakeLocator:
-    def __init__(self, page: "FakePage", element: FakeElement | None, count_override: int | None = None) -> None:
+    def __init__(self, page: "FakePage | None", element: FakeElement | None, count_override: int | None = None,
+                 *, owner_frame: "FakeFrame | None" = None) -> None:
         self.page = page
         self.element = element
         self._count_override = count_override
+        self._owner_frame = owner_frame if owner_frame is not None else page.main_frame if page is not None else None
 
     def _raise_if_configured(self, action: str) -> None:
         if self.element and action in self.element.raise_on:
@@ -337,10 +349,12 @@ class FakeLocator:
     def input_value(self, timeout: float | None = None) -> str:
         return str(self.element.value) if self.element else ""
 
-    def evaluate(self, js: str, timeout: float | None = None) -> Any:
+    def evaluate(self, js: str, arg: Any = None, timeout: float | None = None) -> Any:
         el = self.element
         if el is None:
             raise AssertionError("FakeLocator.evaluate called with no element bound")
+        if js == core_actions.FORM_ELEMENT_IDENTITY_JS:
+            return any(candidate.element is el for candidate in arg or [])
         if js == core_daemon.SECRET_JS:
             self._raise_if_configured("secret_check")
             if el.secret_info is not None:
@@ -361,7 +375,7 @@ class FakeLocator:
         raise AssertionError(f"FakeLocator.evaluate: no fake for js={js[:80]!r}")
 
     def element_handle(self, timeout: float | None = None) -> FakeElementHandle:
-        return FakeElementHandle(self.element)
+        return FakeElementHandle(self.element, self._owner_frame)
 
     def screenshot(self, path: str | None = None, timeout: float | None = None, mask=None) -> None:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -388,9 +402,9 @@ class FakeFrame:
 
     def locator(self, selector: str) -> FakeLocator:
         if selector == "body":
-            return FakeLocator(None, FakeElement(ref="__body__", value=self.body_text))  # type: ignore[arg-type]
+            return FakeLocator(None, FakeElement(ref="__body__", value=self.body_text), owner_frame=self)  # type: ignore[arg-type]
         count = self.selector_matches.get(selector, 0)
-        return FakeLocator(None, FakeElement(ref="__match__") if count else None, count_override=count)  # type: ignore[arg-type]
+        return FakeLocator(None, FakeElement(ref="__match__") if count else None, count_override=count, owner_frame=self)  # type: ignore[arg-type]
 
     def wait_for_load_state(self, state: str = "load", timeout: float | None = None) -> None:
         pass
