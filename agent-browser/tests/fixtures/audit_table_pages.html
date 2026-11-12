@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Paginated table fixture</title>
+  <style>
+    body { font: 16px Arial, sans-serif; margin: 24px; }
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid #333; padding: 8px 12px; }
+    button { margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <table id="records" aria-label="Records">
+    <thead><tr id="headers"></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p id="page">Page 1</p>
+  <button id="next" type="button">Next</button>
+  <script>
+    const mode = new URLSearchParams(location.search).get("mode") || "normal";
+    const normal = [
+      { columns: ["ID", "Name", "Detail"], rows: [["1", "A", "first"], ["2", "B", "overlap"]] },
+      { columns: ["ID", "Name", "Detail"], rows: [["2", "B", "overlap"], ["3", "C", "middle"]] },
+      { columns: ["ID", "Name", "Detail"], rows: [["3", "C", "middle"], ["4", "D", "last"]] }
+    ];
+    const drift = [
+      { columns: ["ID", "Name"], rows: [["1", "A"]] },
+      { columns: ["ID", "Other"], rows: [["2", "changed schema"]] }
+    ];
+    const loop = [
+      { columns: ["ID", "Name"], rows: [["1", "A"]] },
+      { columns: ["ID", "Name"], rows: [["2", "B"]] },
+      { columns: ["ID", "Name"], rows: [["1", "A"]] }
+    ];
+    const pages = mode === "drift" ? drift : mode === "loop" ? loop : normal;
+    let pageIndex = 0;
+    const headers = document.querySelector("#headers");
+    const rows = document.querySelector("#rows");
+    const next = document.querySelector("#next");
+    function render() {
+      const page = pages[pageIndex];
+      headers.replaceChildren(...page.columns.map(name => {
+        const cell = document.createElement("th");
+        cell.scope = "col";
+        cell.textContent = name;
+        return cell;
+      }));
+      rows.replaceChildren(...page.rows.map(values => {
+        const row = document.createElement("tr");
+        row.append(...values.map(value => {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          return cell;
+        }));
+        return row;
+      }));
+      document.querySelector("#page").textContent = `Page ${pageIndex + 1}`;
+      next.disabled = mode !== "loop" && pageIndex === pages.length - 1;
+    }
+    next.addEventListener("click", () => {
+      if (next.disabled) return;
+      next.disabled = true;
+      next.setAttribute("aria-busy", "true");
+      setTimeout(() => {
+        pageIndex = Math.min(pageIndex + 1, pages.length - 1);
+        render();
+        next.removeAttribute("aria-busy");
+      }, 125);
+    });
+    render();
+  </script>
+</body>
+</html>

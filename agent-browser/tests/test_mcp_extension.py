@@ -420,7 +420,10 @@ def test_mcp_schema_exposes_the_cli_parameters(monkeypatch):
     assert all(not DIALOG_KEYS & set(props) for name, props in tools.items() if name != "browser_commit")
     assert set(tools["browser_stop"]) == {"session_id", "profile"}
     params = list(inspect.signature(mcp_server.browser_commit).parameters)
-    assert params[-3:] == ["accept_dialog", "dialog_text", "discard_changes"] and params.index("tab") < params.index("accept_dialog")
+    assert params[params.index("accept_dialog"):params.index("discard_changes") + 1] == ["accept_dialog", "dialog_text", "discard_changes"]
+    assert params.index("tab") < params.index("accept_dialog") < params.index("trace")
+    assert {"next", "max_pages", "max_rows", "columns", "keys", "export_format"} <= set(tools["browser_read"])
+    assert tools["browser_click"]["trace"]["type"] == "boolean" and tools["browser_click"]["trace"]["default"] is False
     # A JSON integer tab stays an integer and a tab id stays a string through the SDK's argument validation.
     calls = _recorder(monkeypatch)
 

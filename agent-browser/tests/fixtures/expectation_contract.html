@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Action expectation contract</title>
+</head>
+<body>
+  <label for="memo">Memo</label>
+  <input id="memo" type="text">
+  <button id="save" type="button">Save</button>
+  <div id="status" role="status"></div>
+
+  <label for="agree">Agree</label>
+  <input id="agree" type="checkbox">
+
+  <button id="add-row" type="button">Add row</button>
+  <table><tbody id="rows"><tr><td>First row</td></tr></tbody></table>
+
+  <a id="download" href="/expectation_contract.csv" download="expectation_contract.csv">Download report</a>
+
+  <script>
+    const memo = document.querySelector('#memo');
+    const status = document.querySelector('#status');
+    memo.value = localStorage.getItem('expectationMemo') || '';
+    document.querySelector('#save').addEventListener('click', async () => {
+      const response = await fetch('/save', {method: 'POST', body: memo.value});
+      if (response.ok) {
+        localStorage.setItem('expectationMemo', memo.value);
+        status.textContent = 'Saved';
+      }
+    });
+    document.querySelector('#add-row').addEventListener('click', () => {
+      const row = document.createElement('tr');
+      row.innerHTML = '<td>Added row</td>';
+      document.querySelector('#rows').append(row);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Local diagnostics fixture</title></head>
+<body>
+  <p>dom-secret-value</p>
+  <img src="/audit-diagnostic-request?token=short" alt="">
+  <script>
+    console.error("password=hunter2 otp=123456 Authorization: Bearer abc");
+    setTimeout(() => { throw new Error("page_token=short-error"); }, 0);
+  </script>
+</body></html>

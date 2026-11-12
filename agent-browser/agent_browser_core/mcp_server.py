@@ -41,6 +41,15 @@ def _payload(command: str, arguments: dict[str, Any], profile: str | None) -> di
     if command == "stop" and set(arguments) - {"discard_changes"}:
         raise common._tag(ValueError("stop releases the whole session and takes only discard_changes."), common.ERR_USAGE)
     payload = {k: v for k, v in arguments.items() if not (k in ("tab", "index") and v is None)}
+    if "trace" in payload and type(payload["trace"]) is not bool:
+        raise common._tag(ValueError("trace must be a boolean."), common.ERR_VALIDATION)
+    if payload.get("trace"):
+        from .diagnostics import TRACE_COMMANDS
+        if command not in TRACE_COMMANDS:
+            raise common._tag(ValueError("trace requires a synchronous browser command."), common.ERR_USAGE)
+    table_keys = {"next", "max_pages", "max_rows", "columns", "keys", "export_format"}
+    if command != "table" and any(payload.get(key) is not None for key in table_keys):
+        raise common._tag(ValueError("Pagination, columns, keys and exports apply only to table reads."), common.ERR_USAGE)
     for key in ("tab", "index"):
         if key in payload:
             payload[key] = common._parse_tab_spec(payload[key], profile or common.DEFAULT_PROFILE)
@@ -74,46 +83,57 @@ def _call(command: str, arguments: dict[str, Any], session_id: str, profile: str
 
 
 def browser_goto(url: str, session_id: str, profile: str | None = None, timeout: float = 30,
-                 wait: Literal["load", "domcontentloaded"] = "load", new_tab: bool = False, tab: int | str | None = None) -> dict[str, Any]:
+                 wait: Literal["load", "domcontentloaded"] = "load", new_tab: bool = False, tab: int | str | None = None,
+                 trace: bool = False) -> dict[str, Any]:
     """Navigate the caller's own tab. Sign in manually when requested."""
-    return _call("goto", {"url": url, "wait": wait, "new_tab": new_tab, "tab": tab}, session_id, profile, timeout)
+    return _call("goto", {"url": url, "wait": wait, "new_tab": new_tab, "tab": tab, "trace": trace}, session_id, profile, timeout)
 
 
 def browser_snapshot(session_id: str, profile: str | None = None, find: str | None = None, full: bool = False,
-                     ref: str | None = None, tab: int | str | None = None) -> dict[str, Any]:
-    return _call("snapshot", {"find": find, "full": full, "ref": ref, "tab": tab}, session_id, profile)
+                     ref: str | None = None, tab: int | str | None = None, trace: bool = False) -> dict[str, Any]:
+    return _call("snapshot", {"find": find, "full": full, "ref": ref, "tab": tab, "trace": trace}, session_id, profile)
 
 
 def browser_click(target: str | Target, session_id: str, profile: str | None = None, expect: list[str] | None = None,
-                  tab: int | str | None = None) -> dict[str, Any]:
-    return _call("click", {"target": target, "expect": expect or [], "tab": tab}, session_id, profile)
+                  tab: int | str | None = None, trace: bool = False) -> dict[str, Any]:
+    return _call("click", {"target": target, "expect": expect or [], "tab": tab, "trace": trace}, session_id, profile)
 
 
 def browser_fill(target: str | Target, text: str, session_id: str, profile: str | None = None, expect: list[str] | None = None,
-                 tab: int | str | None = None) -> dict[str, Any]:
-    return _call("fill", {"target": target, "text": text, "expect": expect or [], "tab": tab}, session_id, profile)
+                 tab: int | str | None = None, trace: bool = False) -> dict[str, Any]:
+    return _call("fill", {"target": target, "text": text, "expect": expect or [], "tab": tab, "trace": trace}, session_id, profile)
 
 
-def browser_fill_form(fields: list[Field], session_id: str, profile: str | None = None, tab: int | str | None = None) -> dict[str, Any]:
-    return _call("fill-form", {"fields": fields, "tab": tab}, session_id, profile)
+def browser_fill_form(fields: list[Field], session_id: str, profile: str | None = None, tab: int | str | None = None,
+                      expect: list[str] | None = None, trace: bool = False) -> dict[str, Any]:
+    return _call("fill-form", {"fields": fields, "tab": tab, "expect": expect or [], "trace": trace}, session_id, profile)
 
 
 def browser_action(operation: Literal["type", "press", "select", "check", "uncheck", "hover", "scroll", "upload", "back", "reload", "tab"],
                    session_id: str, profile: str | None = None, target: str | Target | None = None,
                    text: str | None = None, key: str | None = None, values: list[str] | None = None,
                    files: list[str] | None = None, down: int = 0, up: int = 0, index: int | str | None = None,
-                   close: bool = False, expect: list[str] | None = None, tab: int | str | None = None) -> dict[str, Any]:
+                   close: bool = False, expect: list[str] | None = None, tab: int | str | None = None,
+                   trace: bool = False) -> dict[str, Any]:
     """index picks the tab for operation tab: a 1-based index (1, 2) or a stable id (t1, t2)."""
     return _call(operation, {"target": target, "text": text, "key": key, "values": values or [], "files": files or [],
-                             "down": down, "up": up, "index": index, "close": close, "expect": expect or [], "tab": tab}, session_id, profile)
+                             "down": down, "up": up, "index": index, "close": close, "expect": expect or [], "tab": tab,
+                             "trace": trace}, session_id, profile)
 
 
 def browser_read(operation: Literal["text", "value", "table", "tabs", "downloads", "state", "journal"],
-                 session_id: str, profile: str | None = None, target: str | None = None,
+                 session_id: str, profile: str | None = None, target: str | Target | None = None,
                  command_id: str | None = None, offset: int = 0, max_chars: int | None = None,
-                 tab: int | str | None = None) -> dict[str, Any]:
-    return _call(operation, {"target": target, "command_id": command_id, "offset": offset, "max_chars": max_chars, "tab": tab},
-                 session_id, profile)
+                 tab: int | str | None = None, next: str | Target | None = None,
+                 max_pages: int | None = None, max_rows: int | None = None, columns: list[str] | None = None,
+                 keys: list[str] | None = None, export_format: Literal["json", "csv"] | None = None,
+                 trace: bool = False) -> dict[str, Any]:
+    """table accepts bounded pagination, exact column headers and an evidence export; refs are single-page only."""
+    table_args = {"next": next, "max_pages": max_pages, "max_rows": max_rows, "columns": columns,
+                  "keys": keys, "export_format": export_format}
+    arguments = {"target": target, "command_id": command_id, "offset": offset, "max_chars": max_chars, "tab": tab, "trace": trace}
+    arguments.update({key: value for key, value in table_args.items() if value is not None})
+    return _call(operation, arguments, session_id, profile)
 
 
 def browser_wait(session_id: str, profile: str | None = None, text: str | None = None,
@@ -126,24 +146,24 @@ def browser_wait(session_id: str, profile: str | None = None, text: str | None =
 
 
 def browser_screenshot(session_id: str, profile: str | None = None, target: str | None = None,
-                       annotate: bool = False, full_page: bool = False, tab: int | str | None = None) -> dict[str, Any]:
-    return _call("screenshot", {"target": target, "annotate": annotate, "full_page": full_page, "tab": tab}, session_id, profile)
+                       annotate: bool = False, full_page: bool = False, tab: int | str | None = None, trace: bool = False) -> dict[str, Any]:
+    return _call("screenshot", {"target": target, "annotate": annotate, "full_page": full_page, "tab": tab, "trace": trace}, session_id, profile)
 
 
-def browser_check_url(url: str, session_id: str, profile: str | None = None) -> dict[str, Any]:
-    return _call("diagnose", {"url": url}, session_id, profile)
+def browser_check_url(url: str, session_id: str, profile: str | None = None, trace: bool = False) -> dict[str, Any]:
+    return _call("diagnose", {"url": url, "trace": trace}, session_id, profile)
 
 
 def browser_api(url: str, session_id: str, profile: str | None = None, servicenow: bool = False,
-                tab: int | str | None = None) -> dict[str, Any]:
+                tab: int | str | None = None, trace: bool = False) -> dict[str, Any]:
     """Same-origin GET only. Writes use browser_commit."""
-    return _call("api", {"url": url, "method": "GET", "servicenow": servicenow, "tab": tab}, session_id, profile)
+    return _call("api", {"url": url, "method": "GET", "servicenow": servicenow, "tab": tab, "trace": trace}, session_id, profile)
 
 
 def browser_eval(js: str, session_id: str, profile: str | None = None, ref: str | None = None, frame: str | None = None,
-                 tab: int | str | None = None) -> dict[str, Any]:
+                 tab: int | str | None = None, trace: bool = False) -> dict[str, Any]:
     """Commit-capable arbitrary JavaScript; caller permission rules should treat it as such. ref runs it with the element as el."""
-    return _call("eval", {"js": js, "target": ref, "frame": frame, "tab": tab}, session_id, profile)
+    return _call("eval", {"js": js, "target": ref, "frame": frame, "tab": tab, "trace": trace}, session_id, profile)
 
 
 def browser_commit(operation: Literal["click", "fill", "type", "press", "select", "check", "uncheck", "upload", "fill-form", "api", "run", "journal", "state",
@@ -156,7 +176,7 @@ def browser_commit(operation: Literal["click", "fill", "type", "press", "select"
                    number: str | None = None, clear: bool = False, handoff_id: str | None = None,
                    resolve: bool = False, expect: list[str] | None = None, content_type: str | None = None,
                    tab: int | str | None = None, include_unknown: bool = False, accept_dialog: bool = False,
-                   dialog_text: str | None = None, discard_changes: bool = False) -> dict[str, Any]:
+                   dialog_text: str | None = None, discard_changes: bool = False, trace: bool = False) -> dict[str, Any]:
     """Explicit committing operation. Require caller approval when the workflow requires human approval.
     An api body_file is sent as application/json unless content_type names another type.
     journal with clear keeps unknown write receipts and open handoffs; include_unknown removes them too.
@@ -169,7 +189,7 @@ def browser_commit(operation: Literal["click", "fill", "type", "press", "select"
                  "recipe": recipe, "number": number, "clear": clear, "handoff_id": handoff_id,
                  "resolve": resolve, "expect": expect or [], "content_type": content_type, "tab": tab,
                  "include_unknown": include_unknown, "accept_dialog": accept_dialog, "dialog_text": dialog_text,
-                 "discard_changes": discard_changes}
+                 "discard_changes": discard_changes, "trace": trace}
     if operation == "stop":
         # MCP permission rules match tool names only, so the stop that can lose edits is a browser_commit operation.
         # It is the daemon's plain per-session stop; any other argument set here is refused rather than ignored.
@@ -178,9 +198,10 @@ def browser_commit(operation: Literal["click", "fill", "type", "press", "select"
     return _call(operation, arguments, session_id, profile, committing=True)
 
 
-def browser_recipe(number: str, text: str, session_id: str, profile: str | None = None, tab: int | str | None = None) -> dict[str, Any]:
+def browser_recipe(number: str, text: str, session_id: str, profile: str | None = None, tab: int | str | None = None,
+                   trace: bool = False) -> dict[str, Any]:
     """Preview the classic ServiceNow work-note recipe without editing."""
-    return _call("run", {"recipe": "sn/add-work-note", "number": number, "text": text, "tab": tab}, session_id, profile)
+    return _call("run", {"recipe": "sn/add-work-note", "number": number, "text": text, "tab": tab, "trace": trace}, session_id, profile)
 
 
 def browser_needs_human(reason: str, session_id: str, profile: str | None = None, signed_in: str | None = None) -> dict[str, Any]:

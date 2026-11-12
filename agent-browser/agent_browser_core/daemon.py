@@ -180,6 +180,8 @@ class BrowserEngine:
         self.next_tab_seq = 0
         self.current: Any = None
         self.nav_counts: dict[Any, int] = {}
+        # Last committed top-level document request. Persistence verification may reload only a known GET/HEAD page.
+        self.main_document_state: dict[Any, dict[str, Any]] = {}
         self.served: dict[Any, Served] = {}
         self.dialog_log: list[dict[str, Any]] = []
         self.downloads: list[DownloadRecord] = []
@@ -262,13 +264,74 @@ class BrowserEngine:
         if page not in self.tab_ids:
             self.next_tab_seq += 1
             self.tab_ids[page] = f"t{self.next_tab_seq}"
-        page.on("framenavigated", self._on_frame_navigated)
+        try:
+            initial_url = str(page.main_frame.url)
+        except Exception:  # noqa: BLE001 - fail closed until a later document navigation is observed
+            initial_url = ""
+        self.main_document_state[page] = {
+            "url": initial_url, "method": None, "candidate_key": None, "candidate_method": None,
+            "candidate_url": None, "candidate_response": None, "candidate_uncertain": False,
+        }
+        page.on("framenavigated", lambda frame, tracked_page=page: self._on_frame_navigated(frame, tracked_page))
         page.on("download", lambda download: self._on_download(download, page))
-        page.on("close", lambda p: self._on_page_closed(p))
-        page.on("console", lambda message: self._observe("console_errors", page) if message.type == "error" else None)
-        page.on("pageerror", lambda error: self._observe("page_errors", page))
-        page.on("requestfailed", lambda request: self._observe("failed_requests", page))
-        page.on("response", lambda response: self._observe("http_errors", page) if response.status >= 400 else None)
+        page.on("close", lambda p: self._on_tracked_page_closed(p))
+        page.on("console", lambda message: self._on_console(page, message))
+        page.on("pageerror", lambda error: self._on_page_error(page, error))
+        page.on("request", lambda request: self._on_request(page, request))
+        page.on("requestfinished", lambda request: self._on_request_finished(page, request))
+        page.on("requestfailed", lambda request: self._on_request_failed(page, request))
+        page.on("response", lambda response: self._on_response(page, response))
+
+    def _on_console(self, page: Any, message: Any) -> None:
+        if getattr(message, "type", None) != "error":
+            return
+        self._observe("console_errors", page)
+        record = getattr(self, "_record_diagnostic", None)
+        if record:
+            record(page, "console_error", message=getattr(message, "text", ""))
+
+    def _on_page_error(self, page: Any, error: Any) -> None:
+        self._observe("page_errors", page)
+        record = getattr(self, "_record_diagnostic", None)
+        if record:
+            record(page, "page_error", message=str(error))
+
+    def _on_request(self, page: Any, request: Any) -> None:
+        self._record_main_document_request(page, request)
+        record = getattr(self, "_diagnostic_request_started", None)
+        if record:
+            record(page, request)
+
+    def _on_request_finished(self, page: Any, request: Any) -> None:
+        record = getattr(self, "_diagnostic_request_finished", None)
+        if record:
+            record(page, request)
+
+    def _on_request_failed(self, page: Any, request: Any) -> None:
+        state = self.main_document_state.get(page)
+        if state is not None and state.get("candidate_key") == id(request):
+            self._clear_main_document_candidate(state)
+        self._observe("failed_requests", page)
+        failure = getattr(request, "failure", None)
+        if callable(failure):
+            try:
+                failure = failure()
+            except Exception:
+                failure = None
+        record = getattr(self, "_diagnostic_request_finished", None)
+        if record:
+            record(page, request, failure=failure)
+
+    def _on_response(self, page: Any, response: Any) -> None:
+        self._record_main_document_response(page, response)
+        try:
+            if int(response.status) >= 400:
+                self._observe("http_errors", page)
+        except (AttributeError, TypeError, ValueError):
+            pass
+        record = getattr(self, "_diagnostic_response", None)
+        if record:
+            record(page, response)
 
     def _observe(self, kind: str, page: Any = None) -> None:
         self.telemetry[kind] += 1
@@ -284,13 +347,110 @@ class BrowserEngine:
             self.pages.remove(page)
         self.tab_ids.pop(page, None)
         self.served.pop(page, None)
+        self.main_document_state.pop(page, None)
         if self.current is page:
             self.current = self.pages[-1] if self.pages else None
         if not self.pages and self.current_cmd != "stop":
             self._mark_stop("browser_closed")
 
-    def _on_frame_navigated(self, frame: Any) -> None:
+    def _on_tracked_page_closed(self, page: Any) -> None:
+        self.main_document_state.pop(page, None)
+        self._on_page_closed(page)
+
+    @staticmethod
+    def _clear_main_document_candidate(state: dict[str, Any]) -> None:
+        state.update(candidate_key=None, candidate_method=None, candidate_url=None,
+                     candidate_response=None, candidate_uncertain=False)
+
+    @staticmethod
+    def _without_fragment(url: Any) -> str:
+        return urllib.parse.urldefrag(str(url or ""))[0]
+
+    def _main_document_method(self, page: Any) -> str | None:
+        state = self.main_document_state.get(page)
+        if not state or state.get("candidate_key") is not None or state.get("candidate_uncertain"):
+            return None
+        method = state.get("method") if state else None
+        return method if isinstance(method, str) and method in {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"} else None
+
+    @staticmethod
+    def _main_frame(page: Any, frame: Any) -> bool:
+        try:
+            main = page.main_frame
+            return frame is main or frame == main
+        except Exception:  # noqa: BLE001 - an unconfirmable frame is not evidence
+            return False
+
+    def _record_main_document_request(self, page: Any, request: Any) -> None:
+        state = self.main_document_state.get(page)
+        if state is None:
+            return
+        try:
+            if not request.is_navigation_request():
+                return
+            if not self._main_frame(page, request.frame):
+                return
+            method = str(request.method or "").upper()
+            url = str(request.url or "")
+            state.update(candidate_key=id(request), candidate_method=method or None, candidate_url=url,
+                         candidate_response=None, candidate_uncertain=not bool(method and url))
+        except Exception:  # noqa: BLE001 - navigation with unknown request/frame/method must fail closed
+            state.update(candidate_key=None, candidate_method=None, candidate_url=None,
+                         candidate_response=None, candidate_uncertain=True)
+            state["method"] = None
+
+    def _record_main_document_response(self, page: Any, response: Any) -> None:
+        state = self.main_document_state.get(page)
+        if state is None:
+            return
+        try:
+            request = response.request
+            if state.get("candidate_key") != id(request):
+                return
+            if not request.is_navigation_request() or not self._main_frame(page, request.frame):
+                state["candidate_uncertain"] = True
+                return
+            method = str(request.method or "").upper()
+            url = str(response.url or "")
+            state["candidate_response"] = {"key": id(request), "method": method or None, "url": url}
+        except Exception:  # noqa: BLE001 - the next committed document cannot be confirmed safely
+            state["candidate_response"] = {"key": state.get("candidate_key"), "method": None, "url": None}
+
+    def _on_frame_navigated(self, frame: Any, page: Any = None) -> None:
         self.nav_counts[frame] = self.nav_counts.get(frame, 0) + 1
+        if page is None:
+            try:
+                page = frame.page
+            except Exception:  # noqa: BLE001
+                page = None
+        if page is None or not self._main_frame(page, frame):
+            return
+        state = self.main_document_state.get(page)
+        if state is None:
+            state = {"url": "", "method": None, "candidate_key": None, "candidate_method": None,
+                     "candidate_url": None, "candidate_response": None, "candidate_uncertain": True}
+            self.main_document_state[page] = state
+        try:
+            new_url = str(frame.url or "")
+        except Exception:  # noqa: BLE001
+            new_url = ""
+        response = state.get("candidate_response")
+        candidate_key = state.get("candidate_key")
+        if response and response.get("key") == candidate_key:
+            if (response.get("method") and
+                    self._without_fragment(response.get("url")) == self._without_fragment(new_url)):
+                state["method"] = response["method"]
+            else:
+                state["method"] = None
+        elif (not state.get("candidate_uncertain") and candidate_key is None and state.get("url") != new_url and
+              self._without_fragment(state.get("url")) == self._without_fragment(new_url)):
+            # A same-document navigation (for example, a hash change) retains the loaded document method.
+            pass
+        else:
+            # A commit without a matching, inspectable final response could be a POST document.
+            state["method"] = None
+        state["url"] = new_url
+        self._clear_main_document_candidate(state)
 
     def _on_download(self, download: Any, page: Any = None) -> None:
         try:

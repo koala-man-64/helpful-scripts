@@ -385,10 +385,11 @@ class _Table:
         return False  # it is a table or grid
 
     def get_by_role(self, role: str) -> Any:
-        return SimpleNamespace(all=lambda: [_Cell(self.header)] if role == "columnheader" else [self.row])
+        items = [_Cell(self.header)] if role == "columnheader" else [self.row]
+        return SimpleNamespace(all=lambda: items, count=lambda: len(items), nth=lambda index: items[index])
 
     def element_handle(self) -> Any:
-        return SimpleNamespace(owner_frame=lambda: self.page.main_frame)
+        return SimpleNamespace(owner_frame=lambda: self.page.main_frame, dispose=lambda: None)
 
     def aria_snapshot(self, mode: str = "ai") -> str:
         return "- table"

@@ -66,7 +66,7 @@ TOOL_VERSION = "0.2.0"
 
 
 CONTRACT_VERSION = 1
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 
 
 TESTED_PLAYWRIGHT = ("1.61", "1.64")   # aria_snapshot(mode="ai") + aria-ref engine verified on these lines
@@ -324,14 +324,14 @@ HOME_DOT_FOLDERS_ALLOWED = frozenset({".claude"})  # every other dot-folder dire
 # Reply keys that can hold page-derived data. BrowserEngine.dispatch lists the ones a reply has in `untrusted` when its
 # handler did not set the list itself.
 UNTRUSTED_KEYS = ["snapshot", "text", "title", "url", "details", "changes", "frames", "tabs", "dialogs", "target_line", "value_after", "value",
-                  "commands", "downloads", "new_tab", "frames_loading", "selected", "background_dialogs"]
+                  "commands", "downloads", "new_tab", "frames_loading", "selected", "background_dialogs", "diagnostics"]
 
 
 # error.details keys only the tool writes: receipt pointers, byte counts, field indexes, condition names. A non-empty
 # value under any other key (ambiguous candidates, select options, dialog messages, a call log) can hold page text.
 TOOL_DETAIL_KEYS = frozenset({"command_id", "executed", "receipt", "output_id", "next_offset", "exception", "pending", "completed_fields",
                               "expectations", "evidence_bytes", "quota", "session_bytes", "other_sessions_bytes", "journal_bytes",
-                              "previous_tab", "previous_tab_open", "current_tab"})
+                              "previous_tab", "previous_tab_open", "current_tab", "diagnostics", "trace_file", "trace_error"})
 
 
 OFF_ALLOWLIST_OK = frozenset({"ping", "stop", "back", "goto", "snapshot", "text", "tabs", "tab"})

@@ -42,7 +42,8 @@ def authorize(config: dict[str, Any], command: str, args: dict[str, Any]) -> boo
     committing = bool(args.get("_commit")) or command == "eval" or bool(args.get("enter")) or (command == "journal" and args.get("clear"))
     if committing and level != "commit":
         raise common._tag(ValueError("This operation requires a commit profile."), common.ERR_GUARDED)
-    if level == "read" and command not in READ:
+    paginating = command == "table" and bool(args.get("next"))
+    if level == "read" and (command not in READ or paginating):
         raise common._tag(ValueError("This profile permits observation only."), common.ERR_GUARDED)
     if command == "eval" and config.get("eval") is False:
         raise common._tag(ValueError("eval is disabled by profile policy."), common.ERR_GUARDED, hint=common._hint("eval_disabled"))
@@ -50,4 +51,4 @@ def authorize(config: dict[str, Any], command: str, args: dict[str, Any]) -> boo
         raise common._tag(ValueError("File uploads and file-backed API bodies are disabled by profile policy."), common.ERR_GUARDED)
     if command == "api" and str(args.get("method", "GET")).upper() not in ("GET", "HEAD") and not args.get("_commit"):
         raise common._tag(ValueError("Write API calls require commit api."), common.ERR_GUARDED)
-    return command not in READ or committing
+    return command not in READ or committing or paginating

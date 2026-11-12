@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>CSV export fixture</title></head>
+<style>#quoted { white-space: pre-wrap; }</style>
+<body>
+  <table id="records" aria-label="Records">
+    <thead><tr><th scope="col">@Name</th><th scope="col">Text</th></tr></thead>
+    <tbody>
+      <tr><td>=1+1</td><td id="quoted"></td></tr>
+      <tr><td>-2</td><td>+SUM(A1:A2)</td></tr>
+    </tbody>
+  </table>
+  <script>document.querySelector('#quoted').textContent = '雪\n"quoted"';</script>
+</body>
+</html>

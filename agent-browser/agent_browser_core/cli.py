@@ -114,6 +114,13 @@ def _finish(result: dict[str, Any], session: dict[str, Any] | None = None) -> di
     return _merge_notes(result, notes)
 
 
+def _check_trace(args: argparse.Namespace) -> None:
+    if getattr(args, "trace", False):
+        from .diagnostics import TRACE_COMMANDS
+        if args.command != "commit" and args.command not in TRACE_COMMANDS:
+            raise core_common._tag(ValueError("--trace requires a synchronous browser command."), core_common.ERR_USAGE)
+
+
 def _remote(args: argparse.Namespace, verb: str, cmd: str, payload: dict[str, Any], default_timeout: float = core_common.DEFAULT_TIMEOUT, autostart: bool = False) -> dict[str, Any]:
     # Every argument check runs before _session_for: a usage or validation error must not autostart a daemon.
     if getattr(args, "tab", None) is not None:
@@ -130,6 +137,8 @@ def _remote(args: argparse.Namespace, verb: str, cmd: str, payload: dict[str, An
         payload["target"] = {k: getattr(args, k) for k in ("role", "name", "label") if getattr(args, k, None)}
     if getattr(args, "expect", None):
         payload["expect"] = args.expect
+    if getattr(args, "trace", False):
+        payload["trace"] = True
     if getattr(args, "committing", False):
         payload["operation"], cmd = cmd, "commit"
     if getattr(args, "snapshot", False):
@@ -705,6 +714,7 @@ def main(argv: list[str] | None = None) -> int:
     _reconfigure_streams()
     profile = getattr(args, "profile", None)
     try:
+        _check_trace(args)
         result = args.func(args)
     except KeyboardInterrupt:
         _emit_error(core_common._tag(RuntimeError("Interrupted; inspect the receipt before repeating an action."), "interrupted",
