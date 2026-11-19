@@ -161,7 +161,7 @@ LOG_TRIM_AT = 4 * 1024 * 1024  # daemon.log past this size is trimmed when the n
 LOG_KEEP = 1024 * 1024         # ... to its last megabyte
 
 
-def _trim_log(path: Path) -> bool:
+def _trim_log(path: Path, descriptors: Sequence[int] = (1, 2)) -> bool:
     """Keep daemon.log bounded: past LOG_TRIM_AT bytes, keep only its last LOG_KEEP bytes, cut at a line start.
     Called under the session lock before the browser starts, when this daemon is the file's only writer."""
     try:
@@ -171,14 +171,17 @@ def _trim_log(path: Path) -> bool:
             handle.seek(-LOG_KEEP, os.SEEK_END)
             tail = handle.read()
             cut = tail.find(b"\n")
+            tail = tail[cut + 1:] if cut >= 0 else tail
+            # The kept tail is written over the start before the rest is cut off, so a crash in between leaves a
+            # longer log, never an empty one.
             handle.seek(0)
-            handle.truncate(0)
-            handle.write(tail[cut + 1:] if cut >= 0 else tail)
+            handle.write(tail)
+            handle.truncate(len(tail))
     except OSError:
         return False
-    # The stdout and stderr this process inherited share one file position, which is still past the old end: a
-    # write there would pad the file back out with zero bytes. Move it to the new end.
-    for descriptor in (1, 2):
+    # The stdout and stderr this process inherited (`descriptors`) share one file position, which is still past the
+    # old end: a write there would pad the file back out with zero bytes. Move it to the new end.
+    for descriptor in descriptors:
         try:
             os.lseek(descriptor, 0, os.SEEK_END)
         except OSError:
@@ -1311,6 +1314,9 @@ class BrowserEngine:
                                hint=core_common._hint("guarded_key" if allow_keys is not None else "guarded_secret", self.profile))
         nav_before = self._nav_signature(page)
         try:
+            # The page can have moved to another host since the command was authorized: a commit takes a screenshot
+            # first, and a page can redirect itself at any time. Judge the action by the page it is about to act on.
+            policy.authorize(self._page_policy(page=page), action, args)
             self.action_attempted = True
             run(page, locator)
         except (ValueError, RuntimeError):
@@ -1559,13 +1565,13 @@ class BrowserEngine:
                         ok = False
                 except Exception:  # noqa: BLE001
                     ok = False
-            if ok and "gone" in conditions:
+            if "gone" in conditions:  # looked at on every pass, so gone_seen is true whenever the target was visible
                 gone = self._gone(page, str(conditions["gone"]))
                 gone_seen = gone_seen or gone is False
-                if gone is True:
-                    satisfied.append("gone")
-                else:
+                if gone is not True:
                     ok = False
+                elif ok:
+                    satisfied.append("gone")
             if ok and "text_gone" in conditions:
                 if self._text_absent(page, str(conditions["text_gone"])) is True:
                     satisfied.append("text_gone")

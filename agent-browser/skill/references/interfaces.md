@@ -131,7 +131,8 @@ A `hosts` rule in `config.json` gives one site its own `permission`, `eval` and 
 inside a profile. The rule follows the host the browser reports for the command's top-level
 page; a refusal it causes says so, and `state` lists `host_rules` and the `page_policy` on
 the current tab. Session verbs (`state`, `journal`, `output`, `needs-human`, `stop`) ignore
-host rules.
+host rules. A blank or `data:` page with no host of its own gets the tightest rule of the
+profile; a blank page a site opened takes that site's rule.
 
 `table` without a ref reads the page's one visible table, or its one ARIA grid when it has
 no table; grid cells are included. Opt-in pagination uses `--next SELECTOR`, requires
@@ -171,7 +172,9 @@ Use the optional MCP extra (`pip install -e "agent-browser[mcp]"`) and register 
 `agent-browser-mcp` stdio command with your host. Pass the same explicit session ID
 through every tool in one task. The 19 typed tools share the daemon dispatcher;
 `browser_commit` and `browser_eval` are distinct approval targets, and file transfer is
-`browser_upload`, a tool of its own (it is no longer an operation of `browser_action`). A tool reply carries the
+`browser_upload`, a tool of its own (it is no longer an operation of `browser_action`). A caller that had allowed
+`browser_action` must allow `browser_upload` too, or it is asked on the first upload; the repo's permission
+template lists neither. A tool reply carries the
 same compact JSON twice, as text and as structuredContent; each copy is bounded to 7,000
 UTF-8 bytes, and the whole serialized reply stays under 24,000, even for unlimited text reads.
 Pending waits allow other sessions' MCP calls to run. Cancelling an MCP call does not undo

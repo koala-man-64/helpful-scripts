@@ -319,7 +319,8 @@ sessions nobody has used since. It keeps what a clear keeps, whatever its age: a
 write, an open handoff, and their files. No command asks anyone for this, so it is the way to stop evidence growing
 without adding approvals. `journal --sessions` lists every session that holds receipts or handoffs (`receipts`,
 `unknown`, `open_handoffs`, `last`, `bytes`), 40 at most with the rest counted in `sessions_omitted`; a listed ID is
-what `--session` takes to read or clear that session's evidence. Manual and commit screenshots mask recognized secret inputs, textareas and
+what `--session` takes to read or clear that session's evidence. Session IDs are routing labels, not secrets:
+any caller of the profile can already name one. Manual and commit screenshots mask recognized secret inputs, textareas and
 contenteditable controls in every frame, including controls that cannot be inspected.
 The default quota is 1 GiB/profile (`evidence_max_bytes`, minimum
 65536); reaching it blocks new audited mutations/captures while preserving inspection,
@@ -435,8 +436,14 @@ controls; writable config/session files cannot sandbox a hostile local process.
 everywhere and act only on that instance. A rule may set `permission`, `eval` and `uploads`, and may raise or lower
 them. Its key is a bare host name (no scheme, port, path or wildcard; anything else is a `config` error) that also
 covers the host's subdomains. The most specific matching name wins, and a host with no rule keeps the profile's
-policy. The rule is chosen by the host the browser reports for the command's top-level page, `--tab` included, so
-content in a cross-site iframe is governed by the page that embeds it. Session verbs (`state`, `journal`, `output`,
+policy. An IP address matches only itself, never a longer address that ends in it (the same holds in
+`allowed_hosts`). The rule is chosen by the host the browser reports for the command's top-level page, `--tab` included, so
+content in a cross-site iframe is governed by the page that embeds it. A `blob:` page is judged by the host inside
+its address, and a blank page that a site opened by the host of the page that opened it. A page whose host cannot
+be told (a blank page with no opener, a `data:` page) gets the tightest level any rule or the profile gives, so it
+is never a way around a rule that lowers a host. The page is judged when the command is accepted and again just
+before an action runs; a page that redirects itself in the instant after that second check can still receive the
+action. Session verbs (`state`, `journal`, `output`,
 `needs-human`, `stop`) are not page actions and ignore host rules. A refusal caused by a rule says so, and `state`
 lists `host_rules` and, when one applies to the current tab, the `page_policy` in force. A profile's `hosts`
 replaces the top-level `hosts` whole. When a workflow needs a human decision before a write, this is the setting to

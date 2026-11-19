@@ -36,6 +36,8 @@ def _host_rules(value: Any, where: str) -> dict[str, dict[str, Any]]:
         if not HOST_NAME_RE.match(host):
             raise _config_error(f"{where}: {shown} is not a bare host name. Write it without a scheme, port, path or wildcard; "
                                 "a rule also covers the host's subdomains.")
+        if re.fullmatch(r"[0-9.]+", host) and not (common.IPV4_RE.match(host) and all(int(octet) <= 255 for octet in host.split("."))):
+            raise _config_error(f"{where}: {shown} is not a complete IPv4 address. An address matches only itself, so write all four parts.")
         if host in rules:
             raise _config_error(f"{where}: {shown} is listed twice.")
         if not isinstance(rule, dict):
@@ -84,17 +86,32 @@ def for_host(config: dict[str, Any], host: str) -> dict[str, Any]:
     `_host_rule` names the rule that applied. A host with no rule gets the profile's policy unchanged."""
     rules = config.get("hosts") or {}
     host = (host or "").lower().rstrip(".")
-    matching = [name for name in rules if host == name or host.endswith("." + name)]
+    matching = [name for name in rules if common._host_matches(host, name)]
     if not matching:
         return config
     best = max(matching, key=len)
     return {**config, **rules[best], "_host_rule": best}
 
 
+def most_restrictive(config: dict[str, Any]) -> dict[str, Any]:
+    """The tightest policy any page of this profile can get: the lowest permission among the profile and its
+    `hosts` rules, and every switch any of them turns off. It applies to a page whose host cannot be told (a
+    blank page with no opener, a data: page), so such a page can never be a way around a rule that lowers a host."""
+    rules = list((config.get("hosts") or {}).values())
+    levels = [config.get("permission", "commit"), *(rule["permission"] for rule in rules if "permission" in rule)]
+    result = {**config, "permission": min(levels, key=PERMISSIONS.index), "_hostless": True}
+    for capability in ("eval", "uploads"):
+        if config.get(capability) is False or any(rule.get(capability) is False for rule in rules):
+            result[capability] = False
+    return result
+
+
 def _guarded(config: dict[str, Any], message: str, hint: str | None = None) -> Exception:
     """A refusal that says when it comes from a host rule rather than from the profile's own level."""
     if config.get("_host_rule"):
         message += f" The hosts rule for {config['_host_rule']} in config.json applies to this page."
+    elif config.get("_hostless"):
+        message += " This page has no host of its own, so the tightest hosts rule in config.json applies to it."
     return common._tag(ValueError(message), common.ERR_GUARDED, hint=hint)
 
 

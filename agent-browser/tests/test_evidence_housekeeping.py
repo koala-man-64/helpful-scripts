@@ -175,20 +175,37 @@ def test_retention_forgets_a_session_nobody_has_used(make_daemon: Any) -> None:
     assert daemon.paths.dir.is_dir() and (daemon.paths.dir / "journal.sqlite3").is_file()
 
 
-def test_retention_never_follows_a_linked_evidence_folder(make_daemon: Any, tmp_path: Path) -> None:
+def _link_folder(target: Path, link: Path) -> None:
+    """A directory junction on Windows (no privilege needed), a symlink elsewhere."""
+    try:
+        from _winapi import CreateJunction
+    except ImportError:
+        link.symlink_to(target, target_is_directory=True)
+    else:
+        CreateJunction(str(target), str(link))
+
+
+@pytest.mark.parametrize("linked", ["evidence folder", "session folder", "sessions folder"])
+def test_retention_never_follows_a_link_out_of_the_profile(make_daemon: Any, tmp_path: Path, linked: str) -> None:
+    # A clear refuses a linked evidence folder. Retention runs unattended, so it must not follow one either.
     daemon, _ctx, _page = make_daemon(config={"evidence_retention_days": 7})
     outside = tmp_path / "outside"
-    precious = _file(outside / "notes.txt", age_days=90)
-    workspace = _workspace(daemon, "chat-a")
-    workspace.mkdir(parents=True)
-    try:
-        os.symlink(outside, workspace / "outputs", target_is_directory=True)
-    except OSError:
-        pytest.skip("this account cannot create symlinks")
+    precious = [_file(outside / "outputs" / "notes.txt", age_days=90), _file(outside / "notes.txt", age_days=90),
+                _file(outside / "elsewhere" / "outputs" / "notes.txt", age_days=90)]
+    sessions = daemon.paths.dir / "sessions"
+    if linked == "evidence folder":
+        workspace = _workspace(daemon, "chat-a")
+        workspace.mkdir(parents=True)
+        _link_folder(outside, workspace / "outputs")
+    elif linked == "session folder":
+        sessions.mkdir(parents=True, exist_ok=True)
+        _link_folder(outside, sessions / ("c" * 32))
+    else:
+        _link_folder(outside, sessions)
 
     daemon.apply_retention()
 
-    assert precious.exists()
+    assert all(path.exists() for path in precious)
 
 
 def test_maintain_applies_retention_once_a_day_and_survives_a_failure(make_daemon: Any, fake_clock: Any, monkeypatch: pytest.MonkeyPatch,
@@ -240,6 +257,26 @@ def test_a_log_past_the_limit_keeps_its_last_megabyte_from_a_line_start(tmp_path
     kept = log.read_bytes()
     assert core_daemon.LOG_KEEP - len(line) <= len(kept) <= core_daemon.LOG_KEEP
     assert kept.startswith(b"2026-11-19T") and kept.endswith(b"goto ok 10817ms\n") and b"\x00" not in kept
+
+
+def test_a_handle_left_past_the_old_end_does_not_pad_the_trimmed_log(tmp_path: Path) -> None:
+    # The daemon inherits stdout and stderr positioned at the old end of the file. Unmoved, the next write there
+    # would put megabytes of zero bytes back.
+    log = tmp_path / "daemon.log"
+    line = b"2026-11-19T06:04:01Z poll ok 13ms\n"
+    log.write_bytes(line * (core_daemon.LOG_TRIM_AT // len(line) + 500))
+    inherited = os.open(log, os.O_WRONLY | getattr(os, "O_BINARY", 0))
+    try:
+        os.lseek(inherited, 0, os.SEEK_END)
+
+        assert core_daemon._trim_log(log, descriptors=(inherited,)) is True
+        os.write(inherited, b"2026-11-19T06:05:11Z goto ok 10817ms\n")
+    finally:
+        os.close(inherited)
+
+    kept = log.read_bytes()
+    assert b"\x00" not in kept and len(kept) <= core_daemon.LOG_KEEP + 64
+    assert kept.endswith(b"goto ok 10817ms\n")
 
 
 def test_a_log_under_the_limit_is_left_alone(tmp_path: Path) -> None:

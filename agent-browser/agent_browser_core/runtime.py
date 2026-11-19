@@ -242,13 +242,34 @@ class OperatingMixin:
                 page = self.target_page(args) if (args or {}).get("tab") is not None else self.current
             except (ValueError, RuntimeError):
                 page = None
-        host = ""
-        if page is not None:
+        if page is None:
+            return self.config
+        host = self._page_host(page)
+        return policy.for_host(self.config, host) if host else policy.most_restrictive(self.config)
+
+    def _page_host(self, page: Any, depth: int = 0) -> str | None:
+        """The host whose content a page shows, for host rules: the page's own; the host inside a blob: or
+        filesystem: address; or, for a blank page that a site opened and wrote into, that opener's host. None when
+        it cannot be told, which _page_policy answers with the tightest policy of the profile."""
+        try:
+            url = str(page.url or "")
+        except Exception:  # noqa: BLE001
+            return None
+        if url.startswith(("blob:", "filesystem:")):
+            url = url.split(":", 1)[1]
+        try:
+            host = urllib.parse.urlsplit(url).hostname or ""
+        except ValueError:
+            host = ""
+        if host:
+            return host
+        opener = None
+        if depth < 5:
             try:
-                host = urllib.parse.urlsplit(page.url).hostname or ""
-            except ValueError:
-                host = ""
-        return policy.for_host(self.config, host)
+                opener = page.opener() if callable(getattr(page, "opener", None)) else None
+            except Exception:  # noqa: BLE001
+                opener = None
+        return self._page_host(opener, depth + 1) if opener is not None else None
 
     def _host_policy_report(self) -> dict[str, Any]:
         """What `state` adds when the profile has host rules: the hosts that have one, and the policy in force on the
@@ -257,9 +278,9 @@ class OperatingMixin:
             return {}
         report: dict[str, Any] = {"host_rules": sorted(self.config["hosts"])}
         effective = self._page_policy({})
-        if effective.get("_host_rule"):
+        if effective.get("_host_rule") or effective.get("_hostless"):
             level = effective.get("permission", "commit")
-            report["page_policy"] = {"host": effective["_host_rule"], "permission": level,
+            report["page_policy"] = {"host": effective.get("_host_rule", ""), "permission": level,
                                      "eval": bool(effective.get("eval", True)) and level == "commit",
                                      "uploads": bool(effective.get("uploads", True))}
         return report
@@ -286,10 +307,12 @@ class OperatingMixin:
         doomed, retained, handoffs = self.journal.prune(cutoff)
         root = self.paths.dir.resolve()
         workspaces = [root]
+        sessions_dir = root / "sessions"
         try:
-            sessions_dir = root / "sessions"
-            if sessions_dir.is_dir() and not sessions_dir.is_symlink():
-                workspaces += sorted(entry for entry in sessions_dir.iterdir() if entry.is_dir() and not entry.is_symlink())
+            # A session folder that is a symlink or a junction resolves to somewhere else, as every folder does when
+            # `sessions` itself is one. Such a folder is skipped: retention never follows a link out of the profile.
+            if sessions_dir.is_dir():
+                workspaces += sorted(entry for entry in sessions_dir.iterdir() if entry.is_dir() and entry.resolve().parent == sessions_dir)
         except OSError:
             pass
         files = 0

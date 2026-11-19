@@ -220,3 +220,24 @@ def test_eval_needs_a_reason_and_the_receipt_keeps_it(policy_browser: PolicyBrow
     assert code == 0, err
     stored = json.loads(state["commands"][0]["arguments"])
     assert stored["reason"] == "read the page title" and "document.title" not in json.dumps(state["commands"])
+
+
+def test_a_blank_window_opened_by_a_lowered_site_is_not_a_way_around_its_rule(policy_browser: PolicyBrowser, site) -> None:
+    # The page on the read-only host opens a blank window and writes a button into it. That window's address is
+    # about:blank, with no host of its own; it must be judged by the page that opened it.
+    cli, port = policy_browser, urlsplit(site.url).port
+    cli.start({"hosts": {"localhost": {"permission": "read"}}})
+
+    code, _opened, err = cli("goto", f"http://localhost:{port}/host_rule_popup.html")
+    assert code == 0, err
+    code, tabs, err = cli("tabs")
+    assert code == 0, err
+    blank = next((tab for tab in tabs["tabs"] if tab["url"] == "about:blank"), None)
+    assert blank is not None, tabs
+
+    code, shown, err = cli("snapshot", "--tab", blank["id"])
+    assert code == 0, err
+    button = _ref(shown, r'button "Delete everything"')
+    code, _out, err = cli("click", button, "--tab", blank["id"])
+    assert code == 2 and err["class"] == "guarded", err
+    assert "observation only" in err["message"] and "hosts rule for localhost" in err["message"], err

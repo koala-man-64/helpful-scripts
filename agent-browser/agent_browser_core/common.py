@@ -1450,8 +1450,19 @@ def _check_url(url: str, paths: ProfilePaths, config: dict[str, Any]) -> str:
     return raw
 
 
+IPV4_RE = re.compile(r"\d{1,3}(?:\.\d{1,3}){3}\Z")
+
+
+def _host_matches(host: str, name: str) -> bool:
+    """Whether `host` is `name` or one of its subdomains. An IP address has no subdomains and matches only itself:
+    10.0.0.1 is not "under" an entry written 0.0.1."""
+    if host == name:
+        return True
+    return not (":" in host or IPV4_RE.match(host)) and host.endswith("." + name)
+
+
 def _host_allowed(host: str, allowed: Sequence[str]) -> bool:
-    return any(host == a or host.endswith("." + a) for a in allowed if a)
+    return any(_host_matches(host, a) for a in allowed if a)
 
 
 _PROCESS_CWD: Any = object()

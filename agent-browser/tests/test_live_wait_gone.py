@@ -53,3 +53,21 @@ def test_journal_sessions_lists_the_sessions_that_hold_receipts(cli, site):
     assert by_id["listing-a"]["receipts"] >= 1 and by_id["listing-a"]["current"] is True, listed
     assert by_id["listing-b"]["receipts"] >= 1 and by_id["listing-b"]["current"] is False, listed
     assert listed["evidence_retention_days"] is None and "--session" in listed["note"]
+
+
+def test_wait_gone_takes_a_ref_and_a_removed_element_is_gone(cli, site):
+    import re
+
+    session = "wait-gone-ref"
+    cli.ok("goto", f"{site.url}/wait_gone.html", "--session", session)
+    cli.ok("click", "--role", "button", "--name", "Save", "--session", session)
+    full = cli.ok("snapshot", "--full", "--session", session)
+    status = next((line for line in full["snapshot"] if "Saving changes" in line and "[ref=" in line), None)
+    if status is None:  # the status line already went on a slow machine: nothing left to take a ref from
+        pytest.skip("the status line was removed before the snapshot")
+    ref = re.search(r"\[ref=([^\]]+)\]", status).group(1)
+
+    done = cli.ok("wait", "--gone", ref, "--timeout", "40", "--session", session)
+
+    assert done["pending"] is False and done["satisfied"] == ["gone"], done
+    assert "Saved" in cli.ok("text", "--session", session)["text"]

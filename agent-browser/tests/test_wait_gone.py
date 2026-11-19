@@ -160,3 +160,26 @@ def test_visible_filter_fake_matches_playwright_semantics() -> None:
     shown = FakeLocator(None, FakeElement(ref="a", visible=True), count_override=3)
     hidden = FakeLocator(None, FakeElement(ref="b", visible=False), count_override=3)
     assert shown.filter(visible=True).count() == 3 and hidden.filter(visible=True).count() == 0
+
+
+def test_blocking_wait_notices_the_target_even_while_another_condition_fails(make_daemon: Any, fake_clock: Any) -> None:
+    # The blocking path used to look at --gone only once the earlier conditions held, so a target that was visible
+    # the whole time could be reported as never seen.
+    daemon, _ctx, page = make_daemon(snapshot_text=PAGE)
+    daemon.dispatch("snapshot", {}, 5.0)
+    passes = {"count": 0}
+    real_wait = page.wait_for_timeout
+
+    def tick(milliseconds: float) -> None:
+        if milliseconds >= 500:  # the wait loop's own pause between passes, not a 1 ms event pump
+            passes["count"] += 1
+            if passes["count"] == 2:
+                page.elements["e2"].visible = False
+                page.main_frame.body_text = "Saved"
+        real_wait(milliseconds)
+
+    page.wait_for_timeout = tick  # type: ignore[method-assign]
+
+    done = daemon.dispatch("wait", {"text": "Saved", "gone": "e2"}, 30.0)
+
+    assert set(done["satisfied"]) == {"text", "gone"} and done["gone_seen"] is True
