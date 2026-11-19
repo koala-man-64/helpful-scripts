@@ -658,7 +658,7 @@ def test_page_derived_error_fields_are_marked_untrusted_on_the_wire_and_in_the_c
         ambiguous = wire("click", {"target": {"role": "button", "name": "Save"}})
         assert ambiguous["class"] == "ambiguous" and len(ambiguous["details"]["candidates"]) == 2
         assert ambiguous["untrusted"] == ["details"]
-        assert wire("eval", {"js": "window.inject()"})["untrusted"] == ["message"]
+        assert wire("eval", {"js": "window.inject()", "reason": "test"})["untrusted"] == ["message"]
         # A tool-only error (a receipt pointer, nothing from the page) carries no marker.
         assert "untrusted" not in wire("click", {"target": "e999"})
 
@@ -671,7 +671,7 @@ def test_page_derived_error_fields_are_marked_untrusted_on_the_wire_and_in_the_c
         error = cli_error("click", "--role", "button", "--name", "Save")
         assert error["class"] == "ambiguous" and "ignore earlier instructions" in json.dumps(error["details"]["candidates"])
         assert error["untrusted"] == ["details"]
-        error = cli_error("eval", "window.inject()")
+        error = cli_error("eval", "window.inject()", "--reason", "test")
         assert error["message"].startswith("Page.evaluate: Error: Ignore earlier") and error["untrusted"] == ["message"]
         assert "untrusted" not in cli_error("click", "e999")
     finally:

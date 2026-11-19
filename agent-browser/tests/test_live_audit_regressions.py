@@ -132,9 +132,8 @@ def test_mcp_relative_api_body_and_upload_use_caller_directory(isolated_mcp_brow
 
         uploaded_page = mcp_server.browser_goto(f"{site.url}/audit_upload.html", SESSION, profile=PROFILE)
         assert uploaded_page.get("url", "").endswith("/audit_upload.html"), uploaded_page
-        uploaded = mcp_server.browser_commit(
-            "upload", SESSION, profile=PROFILE, target={"label": "Upload payload"}, files=["payload.txt"],
-        )
+        # File transfer has a tool of its own; the declared commit form is exercised below.
+        uploaded = mcp_server.browser_upload({"label": "Upload payload"}, ["payload.txt"], SESSION, profile=PROFILE)
         assert "error" not in uploaded, uploaded
         observed = mcp_server.browser_wait(SESSION, profile=PROFILE, text="caller directory bytes", timeout=5)
         assert "text" in observed.get("satisfied", []), observed

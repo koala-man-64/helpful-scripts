@@ -11,7 +11,9 @@ device paths, and non-fixed drives. A hidden folder above your working directory
 ```text
 agent-browser fill e5 --text-file note.txt
 agent-browser type --label "Short description" --text-file note.txt
-agent-browser eval --js-file inspect.js
+agent-browser eval --reason "read a field's data attributes" --js-file inspect.js
+agent-browser wait --gone "#spinner" --text-gone Saving
+agent-browser journal --sessions
 agent-browser fill-form --file fields.json
 agent-browser click --role button --name Save --expect "text:Saved" --expect "url:changed"
 agent-browser api https://example.com/api/items
@@ -115,6 +117,22 @@ not list. An inline request may not send `Range`. A body the Python bridge saves
 (`save_response`, where `Range` is allowed) is byte-exact and unscrubbed. `eval` values lose
 invisible characters and are never masked.
 
+`wait --gone TARGET` holds until nothing the ref or selector names is visible, and
+`--text-gone TEXT` until no frame shows the text. A ref whose element or frame is no longer
+there is gone. A frame that cannot be read is not evidence of absence, and a selector that
+cannot be parsed is `validation`, never a match of nothing. `gone_seen: false` in the reply
+means the target was never visible during this wait: it had gone before the wait began, or
+the ref or selector never matched. Both combine with the other conditions.
+
+`eval` needs `--reason TEXT` (MCP `reason`): one line on why no other verb can do this. The
+receipt keeps the reason and never the script.
+
+A `hosts` rule in `config.json` gives one site its own `permission`, `eval` and `uploads`
+inside a profile. The rule follows the host the browser reports for the command's top-level
+page; a refusal it causes says so, and `state` lists `host_rules` and the `page_policy` on
+the current tab. Session verbs (`state`, `journal`, `output`, `needs-human`, `stop`) ignore
+host rules.
+
 `table` without a ref reads the page's one visible table, or its one ARIA grid when it has
 no table; grid cells are included. Opt-in pagination uses `--next SELECTOR`, requires
 an act profile, and stops if the original tab closes or changes origin. A scripted
@@ -151,16 +169,17 @@ connection refused) fails as `action_failed`.
 
 Use the optional MCP extra (`pip install -e "agent-browser[mcp]"`) and register the
 `agent-browser-mcp` stdio command with your host. Pass the same explicit session ID
-through every tool in one task. The 18 typed tools share the daemon dispatcher;
-`browser_commit` and `browser_eval` are distinct approval targets. A tool reply carries the
+through every tool in one task. The 19 typed tools share the daemon dispatcher;
+`browser_commit` and `browser_eval` are distinct approval targets, and file transfer is
+`browser_upload`, a tool of its own (it is no longer an operation of `browser_action`). A tool reply carries the
 same compact JSON twice, as text and as structuredContent; each copy is bounded to 7,000
 UTF-8 bytes, and the whole serialized reply stays under 24,000, even for unlimited text reads.
 Pending waits allow other sessions' MCP calls to run. Cancelling an MCP call does not undo
 an operation already sent to the daemon; inspect its receipt before deciding whether to retry.
 Tools send the CLI's daemon payload: page tools take `tab` (`t2` or `2`), the `tab`
-operation of `browser_action` takes `index` the same way, `browser_wait` takes `ref` and
-`selector`, `browser_snapshot` `ref`, `browser_eval` `ref` and `frame`, `browser_read`
-`max_chars`, `browser_goto` `wait` and `new_tab`. `timeout` is 0-86400 seconds and at most
+operation of `browser_action` takes `index` the same way, `browser_wait` takes `ref`,
+`selector`, `gone` and `text_gone`, `browser_snapshot` `ref`, `browser_eval` `reason`, `ref` and `frame`,
+`browser_read` `max_chars` (and `sessions` with operation `journal`), `browser_goto` `wait` and `new_tab`. `timeout` is 0-86400 seconds and at most
 100 for `browser_wait`, as on the CLI. Only `browser_commit` takes `accept_dialog`, `dialog_text`
 (a prompt answer, only with `accept_dialog`) and `discard_changes`, for its page actions and for
 operation `stop`. That stop takes only `discard_changes` and releases the session even when its tabs
@@ -192,6 +211,13 @@ when a file was held open (a later clear removes it). `--include-unknown` (MCP
 `journal_full` details split `evidence_bytes` into `session_bytes`, `other_sessions_bytes`
 and the shared `journal_bytes`, against `quota`; other sessions' evidence is beyond this
 session's clear.
+
+`journal --sessions` lists every session of the profile that holds receipts or handoffs,
+most recently active first: `session`, `receipts`, `unknown`, `open_handoffs`, `last`, `bytes`
+and `current`. A listed ID is what `--session` takes to read or clear that session's evidence.
+With `evidence_retention_days` set in `config.json`, the daemon removes older evidence itself,
+at start and once a day, for every session, and keeps what a clear keeps. Without it nothing
+is removed until a clear.
 
 The repo's `agent-browser/claude-permissions.json` asks for commit/eval and evidence clear calls, and for
 any command with `--accept-dialog` or `--discard-changes` (flags must be spelled out, never

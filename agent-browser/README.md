@@ -44,13 +44,14 @@ Copy-Item -Recurse -Force .\agent-browser\skill\* "$HOME\.claude\skills\agent-br
 
 `python -m agent_browser` also works. The interfaces are private to helpful-scripts.
 For stdio MCP install `agent-browser[mcp]` (`mcp>=1.29,<2`), then run `agent-browser-mcp`
-or `python -m agent_browser_core.mcp_server`. The 18 typed tools share the dispatcher;
-`browser_commit` and `browser_eval` are distinct caller approval targets.
+or `python -m agent_browser_core.mcp_server`. The 19 typed tools share the dispatcher;
+`browser_commit` and `browser_eval` are distinct caller approval targets, and file transfer is
+`browser_upload`, a tool of its own, so a caller's rules can single it out too.
 A tool error carries the same `error` object as CLI stderr; its hint names the equivalent
 CLI command. Bad arguments and unknown tools are `validation`.
 Tool arguments become the CLI's daemon payload: every page tool takes `tab` (`t2` or `2`),
-`browser_action` takes the `tab` operation's `index` the same way, `browser_wait` takes `ref`
-and `selector`, `browser_snapshot` `ref`, `browser_eval` `ref` and `frame`, `browser_read`
+`browser_action` takes the `tab` operation's `index` the same way, `browser_wait` takes `ref`,
+`selector`, `gone` and `text_gone`, `browser_snapshot` `ref`, `browser_eval` `reason`, `ref` and `frame`, `browser_read`
 `max_chars`, and `browser_goto` `wait` and `new_tab`. `timeout` follows the CLI rule (0-86400
 seconds; `browser_wait` at most 100). Only `browser_commit` (`accept_dialog`, `dialog_text`, `discard_changes`)
 accepts a dialog or discards unsaved edits; a stop that discards them is its operation `stop`, which takes only
@@ -196,16 +197,16 @@ qualification requires a separately authorized test record.
 | `text [REF] [--max-chars N]` | Readable text of the page (every frame) or of one element. |
 | `value REF` | Current value of a field (masked on secret fields). |
 | `screenshot [REF] [--path F.png] [--full-page] [--annotate]` | PNG under the profile's `shots/` (or a path under the cwd); `--annotate` draws temporary ref labels. |
-| `wait [--url-contains S] [--text S] [--ref R] [--selector S] [--signed-in HOST] [--seconds N] [--timeout S]` | Conditions AND-ed; cooperative polling; default 60 s, at most 100 s per call; inspect the receipt after timeout before deciding what to do next. Refused on a page outside `allowed_hosts`. |
+| `wait [--url-contains S] [--text S] [--ref R] [--selector S] [--gone TARGET] [--text-gone S] [--signed-in HOST] [--seconds N] [--timeout S]` | Conditions AND-ed; cooperative polling; default 60 s, at most 100 s per call; inspect the receipt after timeout before deciding what to do next. `--gone` holds until nothing a ref or selector names is visible (a ref whose element or frame is no longer there is gone); `--text-gone` until no frame shows the text. A frame that cannot be read is not counted as absence, and a selector that cannot be parsed is `validation`. `gone_seen: false` in the reply means the target was never visible during the wait: it had gone before the wait began, or it never matched. Refused on a page outside `allowed_hosts`. |
 | `back` / `reload` / `tabs` / `tab TAB [--close]` | Navigation and tabs (`TAB` is a stable id `t1`, `t2` or 1-based index). Pass `--tab TAB` on any command to drive tabs in parallel without switching focus. Closing the last tab is refused. Closing the current tab makes the tab used before it current (for a popup, usually the page that opened it), and the reply's `note` says so. |
 | `upload REF FILE...` / `downloads` | Attach local files; save and list files the page downloaded. |
-| `eval JS [--ref REF] [--frame NAME]` | Run JavaScript. Off when `config.json` says `"eval": false`. Refuses a credential field as `--ref`; the script itself, like page and `--frame` eval, can still reach any field. |
+| `eval JS --reason TEXT [--ref REF] [--frame NAME]` | Run JavaScript. `--reason` is required: one line on why no other verb can do this. The receipt keeps the reason and never the script, and a caller approving the command reads it. Off when `config.json` says `"eval": false`. Refuses a credential field as `--ref`; the script itself, like page and `--frame` eval, can still reach any field. |
 | `needs-human [--signed-in HOST] [--reason TEXT]` | Focus/flash for human input; returns a durable handoff ID. The same reason and condition while that handoff is open return its ID without refocusing. Its receipt is final with status `needs_human`. |
 | `doctor [--live] [--browser msedge\|chrome] [--exe P]` | Preflight rows; `--live` boots a headless browser, checks refs, clicks, stops. Exit 0 even when a row fails. `home_private` warns when other local accounts may read the profile folders: on Windows, a home outside your user profile and `%LOCALAPPDATA%`; on POSIX, a `profiles/<name>` folder with group or other permission bits. |
 | `clean [--profile P] [--purge-profile P] [--dry-run]` | Stale sessions/orphans and old download staging files. Evidence stays until explicitly cleared. A purge lists the profile in `profiles_purged` only once its folder is gone; if a program still holds some of its files, `clean` finishes the other profiles and then fails with `profile_in_use` and `details.profiles_purge_failed`. |
 | `output --id ID [--offset N]` | Page through a stored overflow reply or a large receipt (`r<command id>`). |
 | `state [--command ID] [--handoff ID [--resolve]] [--offset N]` | Session state, a receipt or a handoff; `--resolve` only as `commit state`. |
-| `journal [--command ID] [--handoff ID] [--offset N] [--clear [--include-unknown]]` | Receipts and handoffs; `--clear` only as `commit journal`. |
+| `journal [--command ID] [--handoff ID] [--offset N] [--sessions] [--clear [--include-unknown]]` | Receipts and handoffs; `--clear` only as `commit journal`. `--sessions` lists every session of the profile that holds receipts or handoffs, with its evidence size. |
 | `fill-form --file F.json` | Preflight, then fill/select/check/uncheck many fields; never submits. |
 | `table [REF]` | One rendered table or grid as columns and rows with refs. |
 | `api URL [--method M] [--json-file F] [--servicenow]` | Same-origin request with the tab's cookies; methods other than GET/HEAD only as `commit api`. `--servicenow` adds the page's session key (`X-UserToken`). |
@@ -311,7 +312,14 @@ that was cleared is `not_found`. `state` lists open handoffs first, newest first
 of its reply budget; `handoffs_omitted` counts the rest, and `state --handoff ID` reads any one.
 
 Journal, masked screenshots, overflow JSON and raw API response files remain until
-explicitly cleared. Manual and commit screenshots mask recognized secret inputs, textareas and
+explicitly cleared, unless `evidence_retention_days` is set (an integer of 1 or more, per profile). With it the
+daemon deletes older evidence itself, when it starts and then once a day, for every session of the profile: the
+receipts a clear would delete, the files named for them, files that name no remaining receipt, and the folders of
+sessions nobody has used since. It keeps what a clear keeps, whatever its age: an unknown receipt that may record a
+write, an open handoff, and their files. No command asks anyone for this, so it is the way to stop evidence growing
+without adding approvals. `journal --sessions` lists every session that holds receipts or handoffs (`receipts`,
+`unknown`, `open_handoffs`, `last`, `bytes`), 40 at most with the rest counted in `sessions_omitted`; a listed ID is
+what `--session` takes to read or clear that session's evidence. Manual and commit screenshots mask recognized secret inputs, textareas and
 contenteditable controls in every frame, including controls that cannot be inspected.
 The default quota is 1 GiB/profile (`evidence_max_bytes`, minimum
 65536); reaching it blocks new audited mutations/captures while preserving inspection,
@@ -422,6 +430,18 @@ Generic UI actions can autosave. Approval-sensitive workflows must disable eval
 and use declared commits under caller approval rules. These are cooperative
 controls; writable config/session files cannot sandbox a hostile local process.
 
+`hosts` gives one site its own level inside a profile:
+`{"permission":"read","hosts":{"dev12345.service-now.com":{"permission":"act","eval":false}}}` lets an agent look
+everywhere and act only on that instance. A rule may set `permission`, `eval` and `uploads`, and may raise or lower
+them. Its key is a bare host name (no scheme, port, path or wildcard; anything else is a `config` error) that also
+covers the host's subdomains. The most specific matching name wins, and a host with no rule keeps the profile's
+policy. The rule is chosen by the host the browser reports for the command's top-level page, `--tab` included, so
+content in a cross-site iframe is governed by the page that embeds it. Session verbs (`state`, `journal`, `output`,
+`needs-human`, `stop`) are not page actions and ignore host rules. A refusal caused by a rule says so, and `state`
+lists `host_rules` and, when one applies to the current tab, the `page_policy` in force. A profile's `hosts`
+replaces the top-level `hosts` whole. When a workflow needs a human decision before a write, this is the setting to
+reach for: give that site `read` or `act`, instead of relying on callers to declare their commits.
+
 Real environment variables, read lazily; no `.env` loading (the tool must run bare).
 
 | Variable | Meaning |
@@ -447,8 +467,8 @@ allowed until it is back. `wait` is refused there too: during a sign-in on an id
 `needs-human --signed-in <app host>` and poll it with `state --handoff ID`. The daemon reads `config.json`
 when it starts, so after editing it run `stop` then `start`. `eval` must be a JSON boolean; anything else is a
 `config` error rather than a silent default. The keys are `eval`, `allowed_hosts`, `upload_roots`, `permission`,
-`uploads`, `evidence_max_bytes`, `max_chars` and `profiles`; a profile object under `profiles` takes the same keys
-except `profiles`. Any other key, at either level and in any profile, is a `config` error that names it, so a
+`uploads`, `evidence_max_bytes`, `evidence_retention_days`, `max_chars`, `hosts` and `profiles`; a profile object
+under `profiles` takes the same keys except `profiles`. Any other key, at either level and in any profile, is a `config` error that names it, so a
 misspelled restriction (`allow_hosts`, `permision`) cannot leave the permissive default in force. An absent `allowed_hosts` leaves hosts
 unrestricted; a present list must contain at least one nonblank host. An empty
 effective list is a configuration error.
@@ -466,7 +486,8 @@ effective list is a configuration error.
   launch.json       the settings and token the client hands the daemon; the daemon deletes it once it holds the lock
   daemon.log        command/status/timing diagnostics and truncated launch/shutdown error text, one sanitised,
                     URL-redacted line per entry; no command arguments, page content or request values. An unexpected
-                    command error adds the file, line and function it was raised at, never its text
+                    command error adds the file, line and function it was raised at, never its text. Past 4 MiB
+                    it is trimmed to its last megabyte when the next daemon starts
   journal.sqlite3   redacted receipts, evidence references and durable human handoffs
   last_snapshot.txt the manual session's last filtered snapshot; with several tabs, also last_snapshot_<tab>.txt
                     per tab (`snapshot_file` names the one written)

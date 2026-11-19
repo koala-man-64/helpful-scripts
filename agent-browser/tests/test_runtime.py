@@ -175,7 +175,7 @@ def test_read_permission_denial_is_journaled_without_values(make_daemon):
 def test_eval_default_preserved_and_act_denies_eval(make_daemon):
     daemon, ctx, page = make_daemon(config={"permission": "act"})
     with pytest.raises(ValueError, match="commit"):
-        daemon.dispatch("eval", {"js": "fetch('/write')"}, 1)
+        daemon.dispatch("eval", {"js": "fetch('/write')", "reason": "test"}, 1)
     assert daemon.config.get("eval", True) is True
 
 

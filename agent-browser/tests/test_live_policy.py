@@ -125,7 +125,7 @@ def test_a_page_that_leaves_the_allowlist_is_read_only(policy_browser: PolicyBro
 
     # The page navigates itself to another host, as a link or a redirect would.
     outside = f"http://localhost:{port}/form.html"
-    code, _moved, err = cli("eval", f"location.href = '{outside}'")
+    code, _moved, err = cli("eval", f"location.href = '{outside}'", "--reason", "navigate as a link would")
     assert code == 0, err
     arrived = cli.snapshot_at(outside)
     assert arrived["off_allowlist"] is True
@@ -146,7 +146,7 @@ def test_a_read_profile_can_look_but_not_act(policy_browser: PolicyBrowser, site
 
     code, _out, err = cli("click", link)
     assert code == 2 and err["class"] == "guarded" and "observation only" in err["message"], err
-    code, _out, err = cli("eval", "document.title")
+    code, _out, err = cli("eval", "document.title", "--reason", "read the title")
     assert code == 2 and err["class"] == "guarded", err
 
     code, state, err = cli("state")
@@ -164,3 +164,59 @@ def test_a_misspelled_policy_key_stops_start_before_a_browser_opens(policy_brows
     assert code == 1 and out == {} and err["class"] == "config" and "permision" in err["message"], (out, err)
     code, status, _err = cli("status")
     assert code == 0 and status["running"] is False
+
+
+def test_a_host_rule_lets_one_site_be_acted_on_in_a_read_only_profile(policy_browser: PolicyBrowser, site) -> None:
+    cli, port = policy_browser, urlsplit(site.url).port
+    cli.start({"profiles": {PROFILE: {"permission": "read", "hosts": {"127.0.0.1": {"permission": "act"}}}}})
+
+    code, opened, err = cli("goto", f"{site.url}/home.html")
+    assert code == 0, err
+    code, clicked, err = cli("click", _ref(opened, r'link "Form"'))
+    assert code == 0 and clicked["url"].endswith("/form.html"), (clicked, err)    # the rule allows acting on 127.0.0.1
+    code, state, err = cli("state")
+    assert code == 0 and state["host_rules"] == ["127.0.0.1"] and state["permission"] == "read", (state, err)
+    assert state["page_policy"] == {"host": "127.0.0.1", "permission": "act", "eval": False, "uploads": True}
+
+    # Looking is allowed everywhere; acting is not. localhost is the same server under a host with no rule.
+    code, elsewhere, err = cli("goto", f"http://localhost:{port}/home.html")
+    assert code == 0 and elsewhere["title"] == "Home", (elsewhere, err)
+    code, _out, err = cli("click", _ref(elsewhere, r'link "Form"'))
+    assert code == 2 and err["class"] == "guarded" and "observation only" in err["message"], err
+    assert "hosts rule" not in err["message"]
+    code, state, err = cli("state")
+    assert code == 0 and "page_policy" not in state, (state, err)
+    assert cli.snapshot_at(f"http://localhost:{port}/home.html")["url"].endswith("/home.html")  # the refused click did not navigate
+
+
+def test_a_host_rule_can_make_one_site_read_only(policy_browser: PolicyBrowser, site) -> None:
+    cli, port = policy_browser, urlsplit(site.url).port
+    cli.start({"hosts": {"localhost": {"permission": "read"}}})
+
+    code, opened, err = cli("goto", f"http://localhost:{port}/home.html")
+    assert code == 0, err
+    code, _out, err = cli("click", _ref(opened, r'link "Form"'))
+    assert code == 2 and err["class"] == "guarded", err
+    assert "observation only" in err["message"] and "hosts rule for localhost" in err["message"], err
+
+    code, opened, err = cli("goto", f"{site.url}/home.html")
+    assert code == 0, err
+    code, clicked, err = cli("click", _ref(opened, r'link "Form"'))
+    assert code == 0 and clicked["url"].endswith("/form.html"), (clicked, err)
+
+
+def test_eval_needs_a_reason_and_the_receipt_keeps_it(policy_browser: PolicyBrowser, site) -> None:
+    cli = policy_browser
+    cli.start({})
+    code, _opened, err = cli("goto", f"{site.url}/home.html")
+    assert code == 0, err
+
+    code, out, err = cli("eval", "document.title")
+    assert code == 2 and out == {} and err["class"] == "usage" and "--reason" in err["hint"], err
+
+    code, out, err = cli("eval", "document.title", "--reason", "read the page title")
+    assert code == 0 and out["value"] == "Home", (out, err)
+    code, state, err = cli("state", "--command", out["command_id"])
+    assert code == 0, err
+    stored = json.loads(state["commands"][0]["arguments"])
+    assert stored["reason"] == "read the page title" and "document.title" not in json.dumps(state["commands"])

@@ -302,7 +302,7 @@ class ApiMixin:
         method = str(args.get("method", "GET")).upper()
         if method not in {"GET", "HEAD", "POST", "PATCH", "PUT", "DELETE"}:
             raise common._tag(ValueError("Unsupported API method."), common.ERR_USAGE)
-        policy.authorize(self.config, "api", {**args, "method": method})
+        policy.authorize(self._page_policy(page=page), "api", {**args, "method": method})
         headers = args.get("headers") or {"Accept": "application/json"}
         if not isinstance(headers, dict) or any(not isinstance(k, str) or k.lower() not in SAFE_HEADERS or not isinstance(v, str) or "\n" in v or "\r" in v for k, v in headers.items()):
             raise common._tag(ValueError("API headers may only contain Accept, Content-Type, conditional headers and Range."), common.ERR_GUARDED)

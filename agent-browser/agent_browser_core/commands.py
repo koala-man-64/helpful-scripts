@@ -32,6 +32,8 @@ def extended(args: argparse.Namespace):
     if cmd in {"state", "journal"}:
         payload = {"command_id": args.receipt, "handoff_id": args.handoff, "offset": args.offset, "clear": getattr(args, "clear", False),
                    "include_unknown": getattr(args, "include_unknown", False), "resolve": getattr(args, "resolve_handoff", False)}
+        if getattr(args, "sessions", False):
+            payload["sessions"] = True
     elif cmd == "needs-human":
         payload = {"reason": args.reason, "condition": {"signed_in": args.signed_in} if args.signed_in else {}}
     elif cmd == "fill-form":
@@ -86,6 +88,7 @@ def configure(parser, sub, add):
         if name == "journal":
             p.add_argument("--clear", action="store_true", help="remove this session's finished receipts and resolved handoffs (commit journal --clear)")
             p.add_argument("--include-unknown", action="store_true", help="with --clear, also remove unknown write receipts and open handoffs")
+            p.add_argument("--sessions", action="store_true", help="list every session of this profile that holds receipts, with its evidence size")
     p = add("needs-human", extended, "focus and flash for a human action")
     p.add_argument("--reason", default="Human action required")
     p.add_argument("--signed-in")

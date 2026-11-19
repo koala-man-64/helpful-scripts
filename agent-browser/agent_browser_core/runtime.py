@@ -9,6 +9,7 @@ import stat
 import secrets
 import tempfile
 import urllib.parse
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from . import common, diagnostics, evidence, policy
@@ -18,6 +19,64 @@ STOP_TAB_WAIT = 2.0  # seconds stop waits at least, per tab, for it to close or 
 # tab, tab picks one, tabs and downloads list, and check works in a page of its own. `goto --new-tab` and control verbs
 # run too.
 TAB_CHANGE_EXEMPT = frozenset({"snapshot", "tab", "tabs", "downloads", "diagnose"})
+RETENTION_INTERVAL = 86400.0  # evidence_retention_days is applied when the daemon starts and then once a day
+SESSIONS_SHOWN = 40           # journal --sessions lists this many, most recently active first
+
+
+def _remove_evidence_entry(entry: Path) -> bool:
+    """Remove one file or folder of an evidence directory. A link or junction is removed itself, never followed."""
+    try:
+        if entry.is_symlink() or getattr(entry.lstat(), "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+            os.unlink(entry)
+        elif entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def _prune_old_evidence(folder: Path, workspace: Path, doomed: set[str], retained: set[str], cutoff: float) -> int:
+    """Retention for one evidence folder (outputs or shots): remove the files named for a receipt retention deleted,
+    and files that name no remaining receipt and were last written before `cutoff`. A file named for a receipt that
+    stays is kept whatever its age. A folder that is a link, or not where it should be, is left alone."""
+    try:
+        if folder.is_symlink() or folder.resolve() != workspace.resolve() / folder.name:
+            return 0
+        entries = list(folder.iterdir())
+    except OSError:
+        return 0
+    removed = 0
+    for entry in entries:
+        owner = re.split(r"[-.]", entry.name, maxsplit=1)[0]
+        if owner in retained:
+            continue
+        try:
+            old = entry.lstat().st_mtime < cutoff
+        except OSError:
+            continue
+        if (owner in doomed or old) and _remove_evidence_entry(entry):
+            removed += 1
+    return removed
+
+
+def _prune_stale_views(workspace: Path, cutoff: float) -> int:
+    """A session folder nobody has used since `cutoff`: remove its last snapshot and last output, then the folders
+    retention emptied. A session still in use rewrites both views on its next command."""
+    removed = 0
+    for view in (workspace / "last_output.json", *workspace.glob("last_snapshot*.txt")):
+        try:
+            if view.is_file() and view.lstat().st_mtime < cutoff and _remove_evidence_entry(view):
+                removed += 1
+        except OSError:
+            pass
+    for folder in (workspace / "outputs", workspace / "shots", workspace / "downloads", workspace):
+        try:
+            folder.rmdir()  # only when empty
+        except OSError:
+            pass
+    return removed
 
 
 def _purge_evidence_dir(path: Path, keep: set[str]) -> int:
@@ -74,6 +133,7 @@ class OperatingMixin:
         self._active_diagnostics: tuple[str, str, diagnostics.CommandDiagnostics] | None = None
         self._diagnostic_requests: dict[int, dict[str, Any]] = {}
         self.journal = evidence.Journal(self.paths.dir, self.config.get("evidence_max_bytes", evidence.DEFAULT_QUOTA))
+        self._retention_due = 0.0  # on the daemon's clock; 0 runs it at the first turn of the serve loop
 
     def start_browser(self) -> None:
         super().start_browser()
@@ -170,6 +230,89 @@ class OperatingMixin:
                 self.current = state["current"] = page
             finally:
                 self.creating_session = False
+
+    def _page_policy(self, args: dict[str, Any] | None = None, page: Any = None) -> dict[str, Any]:
+        """The policy in force for a command's page: the profile's, with the `hosts` rule for the page's current host
+        laid over it. The host is the one the browser reports for the top-level page. A command with no page, or
+        with a --tab that does not resolve (refused later), gets the profile's own policy."""
+        if not self.config.get("hosts"):
+            return self.config
+        if page is None:
+            try:
+                page = self.target_page(args) if (args or {}).get("tab") is not None else self.current
+            except (ValueError, RuntimeError):
+                page = None
+        host = ""
+        if page is not None:
+            try:
+                host = urllib.parse.urlsplit(page.url).hostname or ""
+            except ValueError:
+                host = ""
+        return policy.for_host(self.config, host)
+
+    def _host_policy_report(self) -> dict[str, Any]:
+        """What `state` adds when the profile has host rules: the hosts that have one, and the policy in force on the
+        current tab when a rule applies to it."""
+        if not self.config.get("hosts"):
+            return {}
+        report: dict[str, Any] = {"host_rules": sorted(self.config["hosts"])}
+        effective = self._page_policy({})
+        if effective.get("_host_rule"):
+            level = effective.get("permission", "commit")
+            report["page_policy"] = {"host": effective["_host_rule"], "permission": level,
+                                     "eval": bool(effective.get("eval", True)) and level == "commit",
+                                     "uploads": bool(effective.get("uploads", True))}
+        return report
+
+    def maintain(self) -> None:
+        """Housekeeping between requests: apply evidence_retention_days, when it is set, at start and then once a day.
+        A failure is logged and tried again the next day. It never stops the daemon."""
+        if not self.config.get("evidence_retention_days") or common._now() < self._retention_due:
+            return
+        self._retention_due = common._now() + RETENTION_INTERVAL
+        try:
+            removed = self.apply_retention()
+            if any(removed.values()):
+                self.dlog(f"retention removed {removed['receipts']} receipts, {removed['handoffs']} handoffs and {removed['files']} files")
+        except Exception as exc:  # noqa: BLE001 - housekeeping is never worth the browser
+            self.dlog(f"retention failed: {type(exc).__name__}")
+
+    def apply_retention(self) -> dict[str, int]:
+        """Delete evidence older than evidence_retention_days for every session of the profile: the receipts
+        Journal.prune removes, the files named for them, and files that name no remaining receipt. What an explicit
+        clear keeps stays here too: an unknown receipt that may record a write, an open handoff, and their files."""
+        cutoff_time = common._wall() - self.config["evidence_retention_days"] * 86400
+        cutoff = datetime.fromtimestamp(cutoff_time, timezone.utc).strftime(common.UTC_FORMAT)
+        doomed, retained, handoffs = self.journal.prune(cutoff)
+        root = self.paths.dir.resolve()
+        workspaces = [root]
+        try:
+            sessions_dir = root / "sessions"
+            if sessions_dir.is_dir() and not sessions_dir.is_symlink():
+                workspaces += sorted(entry for entry in sessions_dir.iterdir() if entry.is_dir() and not entry.is_symlink())
+        except OSError:
+            pass
+        files = 0
+        for workspace in workspaces:
+            for folder in (workspace / "outputs", workspace / "shots"):
+                files += _prune_old_evidence(folder, workspace, doomed, retained, cutoff_time)
+            if workspace != root:
+                files += _prune_stale_views(workspace, cutoff_time)
+        return {"receipts": len(doomed), "handoffs": handoffs, "files": files}
+
+    def _evidence_sessions(self) -> dict[str, Any]:
+        """journal --sessions: who holds evidence in this profile. Receipts and files belong to the session that made
+        them, and a session ID is what `--session` takes to read or clear them."""
+        rows = self.journal.sessions()
+        shown = []
+        for row in rows[:SESSIONS_SHOWN]:
+            workspace = common.ProfilePaths(self.profile, self.paths.root, row["session"]).workspace
+            shown.append({**row, "session": common.sanitize_text(row["session"], 200, single_line=True),
+                          "bytes": evidence.session_usage(self.paths.dir, workspace), "current": row["session"] == self.session_id})
+        return {"profile": self.profile, "sessions": shown, "sessions_omitted": len(rows) - len(shown),
+                "evidence_bytes": self.journal.usage(), "evidence_max_bytes": self.journal.quota,
+                "evidence_retention_days": self.config.get("evidence_retention_days"),
+                "note": common._hint("sessions_clear", self.profile)}
 
     def _check_tab_change(self, cmd: str, args: dict[str, Any]) -> None:
         """Refuse a command bound to a current tab this session has not seen since it changed: the old tab closed, or a
@@ -488,7 +631,8 @@ class OperatingMixin:
         self.action_attempted = False
         expectation_deadline = common._now() + timeout
         try:
-            mutating = policy.authorize(self.config, cmd, args)
+            # Control verbs act on the session, not on a page, so a host rule never applies to them.
+            mutating = policy.authorize(self.config if cmd in policy.CONTROL else self._page_policy(args), cmd, args)
             if args.get("expect") and cmd in {"run", "wait"}:
                 raise common._tag(ValueError("Recipes and wait have their own verification conditions; --expect applies to ordinary actions and API calls."), common.ERR_USAGE)
             self._check_tab_change(cmd, args)
@@ -617,7 +761,8 @@ class OperatingMixin:
                 self._remember_current(sid, self.current)
 
     def _wait_job(self, command_id: str, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        conditions = args.get("conditions") or {k: args[k] for k in ("seconds", "url_contains", "signed_in", "text", "ref", "selector") if args.get(k) not in (None, "", 0)}
+        conditions = args.get("conditions") or {k: args[k] for k in ("seconds", "url_contains", "signed_in", "text", "ref", "selector", "gone", "text_gone")
+                                                if args.get(k) not in (None, "", 0)}
         if not conditions:
             raise common._tag(ValueError("wait needs a condition."), common.ERR_USAGE)
         started = common._now()
@@ -711,6 +856,12 @@ class OperatingMixin:
                         classified = self._classify(exc, f"selector {value!r}")
                         if getattr(classified, "error_class", None) in {common.ERR_VALIDATION, common.ERR_BROWSER_CLOSED}:
                             raise classified from exc
+            elif key == "gone":
+                gone = self._gone(page, str(value))
+                job["gone_seen"] = bool(job.get("gone_seen")) or gone is False
+                ok = gone is True
+            elif key == "text_gone":
+                ok = self._text_absent(page, str(value)) is True
             else: raise common._tag(ValueError("Unknown wait condition."), common.ERR_USAGE)
             if ok: satisfied.append(key)
         # Conditions can themselves take time. Success must have been observed
@@ -721,6 +872,10 @@ class OperatingMixin:
             loading = self._settle(page, cap=2.0)
             result.update(self.snap_envelope(page, loading=loading, max_bytes=job.get("max_bytes") or common.DEFAULT_MAX_BYTES))
             result.update(pending=False, satisfied=satisfied, waited_s=round(common._now() - job["started"], 2))
+            if "gone" in job["conditions"]:
+                # False: the target was never visible during this wait. It may have gone before the wait began, or the
+                # ref or selector never matched anything.
+                result["gone_seen"] = bool(job.get("gone_seen"))
             self.jobs.pop(command_id)
             self.journal.finish(command_id, "completed", result)
         else:
@@ -818,9 +973,14 @@ class OperatingMixin:
                 "handoffs": shown, "handoffs_omitted": len(handoffs) - len(shown),
                 "evidence_bytes": self.journal.usage(), "evidence_max_bytes": self.journal.quota,
                 "background_dialogs": self.sessions[self.session_id].get("dialogs", []),
-                "permission": self.config.get("permission", "commit"), "eval": self.config.get("eval", True) and self.config.get("permission", "commit") == "commit"}
+                "permission": self.config.get("permission", "commit"), "eval": self.config.get("eval", True) and self.config.get("permission", "commit") == "commit",
+                **self._host_policy_report()}
 
     def h_journal(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
+        if args.get("sessions"):
+            if args.get("clear") or args.get("include_unknown") or args.get("command_id") or args.get("handoff_id"):
+                raise common._tag(ValueError("--sessions lists every session; it takes no --command, --handoff or --clear."), common.ERR_USAGE)
+            return self._evidence_sessions()
         if args.get("include_unknown") and not args.get("clear"):
             raise common._tag(ValueError("--include-unknown applies only to commit journal --clear."), common.ERR_USAGE)
         if not args.get("clear"):
