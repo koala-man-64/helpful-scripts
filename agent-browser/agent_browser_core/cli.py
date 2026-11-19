@@ -294,7 +294,8 @@ def _cmd_screenshot(args: argparse.Namespace) -> Any:
 def _cmd_wait(args: argparse.Namespace) -> Any:
     timeout = _check_timeout(args.timeout if args.timeout is not None else core_common.WAIT_DEFAULT, wait=True)
     args.timeout = timeout
-    payload = {"url_contains": args.url_contains, "text": args.text, "ref": args.ref, "selector": args.selector, "signed_in": args.signed_in, "seconds": args.seconds}
+    payload = {"url_contains": args.url_contains, "text": args.text, "ref": args.ref, "selector": args.selector, "gone": args.gone,
+               "text_gone": args.text_gone, "signed_in": args.signed_in, "seconds": args.seconds}
     if not any(v not in (None, "", 0) for v in payload.values()):
         raise core_common._tag(ValueError("wait needs a condition."), core_common.ERR_USAGE, hint=core_common._hint("no_wait_condition"))
     return _remote(args, "wait", "wait", payload, timeout)
@@ -336,7 +337,8 @@ def _cmd_downloads(args: argparse.Namespace) -> Any:
 
 
 def _cmd_eval(args: argparse.Namespace) -> Any:
-    return _remote(args, "eval", "eval", {"js": _input_text(args, "js"), "target": args.ref, "frame": args.frame, **_dialog_payload(args)})
+    return _remote(args, "eval", "eval", {"js": _input_text(args, "js"), "target": args.ref, "frame": args.frame, "reason": args.reason,
+                                          **_dialog_payload(args)})
 
 
 def _input_text(args: argparse.Namespace, name: str) -> str:
@@ -580,6 +582,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--text", metavar="TEXT")
     p.add_argument("--ref", metavar="REF")
     p.add_argument("--selector", metavar="SEL")
+    p.add_argument("--gone", metavar="TARGET", help="a ref or selector with nothing visible any more (a spinner, a dialog)")
+    p.add_argument("--text-gone", metavar="TEXT", help="text that no frame shows any more")
     p.add_argument("--signed-in", metavar="HOST", help="page is on HOST, not a sign-in page, no password field")
     p.add_argument("--seconds", type=float, metavar="N")
     p = add("back", _cmd_back, "browser back")
@@ -601,6 +605,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--js-file")
     p.add_argument("--ref", metavar="REF", help="run with the element as `el`")
     p.add_argument("--frame", metavar="NAME")
+    p.add_argument("--reason", metavar="TEXT", help="required: one line on why no other verb can do this (kept in the receipt)")
     _add_dialog_flags(p)
     p = add("doctor", _cmd_doctor, "preflight checks (always exit 0)")
     p.add_argument("--live", action="store_true", help="also boot a headless browser and click a ref")

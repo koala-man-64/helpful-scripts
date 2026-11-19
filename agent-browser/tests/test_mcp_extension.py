@@ -35,7 +35,7 @@ def test_mcp_schema_and_complete_result_budget(monkeypatch):
     async def run():
         server = mcp_server.make_server()
         tools = await server.list_tools()
-        assert len(tools) == 18
+        assert len(tools) == 19
         commit = next(t for t in tools if t.name == "browser_commit")
         assert "api" in commit.inputSchema["properties"]["operation"]["enum"]
         assert "state" in commit.inputSchema["properties"]["operation"]["enum"]
@@ -199,7 +199,7 @@ def test_real_stdio_handshake_and_error_contract():
             async with ClientSession(reader, writer) as session:
                 await session.initialize()
                 tools = await session.list_tools()
-                assert len(tools.tools) == 18
+                assert len(tools.tools) == 19
                 reply = await session.call_tool("browser_read", {"operation": "state", "session_id": "gate"})
                 assert reply.isError
                 assert reply.structuredContent["contract_version"] == 1
@@ -241,7 +241,9 @@ DIALOG_KEYS = {"accept_dialog", "dialog_text", "discard_changes"}
     (["click", "e1", "--tab", "t2"], "browser_click", {"target": "e1", "tab": "t2"}),
     (["fill", "e1", "hello", "--tab", "1"], "browser_fill", {"target": "e1", "text": "hello", "tab": 1}),
     (["wait", "--ref", "e3", "--selector", "#a", "--tab", "2"], "browser_wait", {"ref": "e3", "selector": "#a", "tab": 2}),
-    (["eval", "el.id", "--ref", "e2", "--frame", "gsft_main"], "browser_eval", {"js": "el.id", "ref": "e2", "frame": "gsft_main"}),
+    (["eval", "el.id", "--ref", "e2", "--frame", "gsft_main", "--reason", "read an id"], "browser_eval",
+     {"js": "el.id", "ref": "e2", "frame": "gsft_main", "reason": "read an id"}),
+    (["wait", "--gone", "#spinner", "--text-gone", "Saving", "--tab", "2"], "browser_wait", {"gone": "#spinner", "text_gone": "Saving", "tab": 2}),
     (["text", "--max-chars", "500", "--tab", "t3"], "browser_read", {"operation": "text", "max_chars": 500, "tab": "t3"}),
     (["tab", "t2", "--close"], "browser_action", {"operation": "tab", "index": "t2", "close": True}),
     (["back", "--tab", "2"], "browser_action", {"operation": "back", "tab": 2}),
@@ -401,16 +403,21 @@ def test_mcp_tab_operation_takes_stable_ids_and_never_sends_index_zero(make_daem
 
 def test_mcp_schema_exposes_the_cli_parameters(monkeypatch):
     tools = {tool.name: tool.inputSchema["properties"] for tool in asyncio.run(mcp_server.make_server().list_tools())}
-    assert len(tools) == 18
+    assert len(tools) == 19
     page_tools = {"browser_goto", "browser_snapshot", "browser_click", "browser_fill", "browser_fill_form", "browser_action", "browser_read",
-                  "browser_wait", "browser_screenshot", "browser_api", "browser_eval", "browser_commit", "browser_recipe"}
+                  "browser_wait", "browser_screenshot", "browser_api", "browser_eval", "browser_commit", "browser_recipe", "browser_upload"}
     for name in page_tools:
         assert {s.get("type") for s in tools[name]["tab"]["anyOf"]} == {"integer", "string", "null"}, name
         assert tools[name]["tab"]["default"] is None, name
     index = tools["browser_action"]["index"]
     assert {s.get("type") for s in index["anyOf"]} == {"integer", "string", "null"} and index["default"] is None
-    assert {"ref", "selector"} <= set(tools["browser_wait"])
-    assert "ref" in tools["browser_snapshot"] and {"ref", "frame"} <= set(tools["browser_eval"])
+    assert {"ref", "selector", "gone", "text_gone"} <= set(tools["browser_wait"])
+    assert "ref" in tools["browser_snapshot"] and {"ref", "frame", "reason"} <= set(tools["browser_eval"])
+    # File transfer has a tool of its own, so a caller can gate it by name; browser_action no longer carries it.
+    assert {"target", "files"} <= set(tools["browser_upload"])
+    assert "files" not in tools["browser_action"] and "upload" not in tools["browser_action"]["operation"]["enum"]
+    required = {tool.name: set(tool.inputSchema.get("required", [])) for tool in asyncio.run(mcp_server.make_server().list_tools())}
+    assert "reason" in required["browser_eval"] and {"target", "files"} <= required["browser_upload"]
     assert "max_chars" in tools["browser_read"] and "content_type" in tools["browser_commit"]
     assert tools["browser_goto"]["wait"]["enum"] == ["load", "domcontentloaded"] and tools["browser_goto"]["new_tab"]["default"] is False
     # enter submits, so it stays commit-only; the snapshot budget is MCP's own.

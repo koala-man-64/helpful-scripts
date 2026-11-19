@@ -34,6 +34,20 @@ def evidence_usage(directory: Path, skip: frozenset[str] = frozenset()) -> int:
     return total
 
 
+def session_usage(directory: Path, workspace: Path) -> int:
+    """Evidence bytes one session holds. The manual session's workspace is the profile folder itself, which also
+    holds the shared receipts database and the other sessions' folders; neither is counted as its own."""
+    if workspace != directory:
+        return evidence_usage(workspace)
+    journal = 0
+    for path in directory.glob("journal.sqlite3*"):
+        try:
+            journal += path.stat().st_size
+        except FileNotFoundError:
+            pass
+    return max(evidence_usage(workspace, frozenset({"sessions"})) - journal, 0)
+
+
 def require_space(directory: Path, quota: int, additional: int = 0, workspace: Path | None = None) -> None:
     """The quota is profile-wide, but a clear reaches only its own session, so with `workspace` the error
     says how much of the profile's evidence belongs to that session and how much to other sessions."""
@@ -81,7 +95,7 @@ def read_receipt(directory: Path, session: str, command_id: str) -> dict[str, An
 
 def _receipt_args(verb: str, args: dict[str, Any]) -> dict[str, Any]:
     """Argument names and structural targeting only. Values and script/body/file contents are omitted."""
-    safe = {k: (common.sanitize_text(v, 160) if k in {"target", "role", "name", "label", "operation", "method"} and isinstance(v, str) else "<omitted>")
+    safe = {k: (common.sanitize_text(v, 160) if k in {"target", "role", "name", "label", "operation", "method", "reason"} and isinstance(v, str) else "<omitted>")
             for k, v in args.items() if not k.startswith("_") and k not in PRIVATE_ARGS}
     name = verb.rsplit(" ", 1)[-1]
     if name == "run":
@@ -228,6 +242,36 @@ class Journal:
         with self.connect() as db:
             return [dict(row) for row in db.execute("SELECT * FROM handoffs WHERE session=? AND (? IS NULL OR id=?) ORDER BY status='needs_human' DESC, rowid DESC",
                                                      (session, handoff_id, handoff_id))]
+
+    def sessions(self) -> list[dict[str, Any]]:
+        """Every session that holds receipts or handoffs, most recently active first."""
+        with self.connect() as db:
+            found = {row["session"]: {"session": row["session"], "receipts": row["receipts"], "unknown": row["unknown"] or 0,
+                                      "open_handoffs": 0, "last": row["last"]}
+                     for row in db.execute("SELECT session, COUNT(*) AS receipts, SUM(status='unknown') AS unknown, "
+                                           "MAX(COALESCE(finished, started)) AS last FROM commands GROUP BY session")}
+            for row in db.execute("SELECT session, SUM(status='needs_human') AS open_handoffs FROM handoffs GROUP BY session"):
+                entry = found.setdefault(row["session"], {"session": row["session"], "receipts": 0, "unknown": 0, "open_handoffs": 0, "last": None})
+                entry["open_handoffs"] = row["open_handoffs"] or 0
+        return sorted(found.values(), key=lambda entry: entry["last"] or "", reverse=True)
+
+    def prune(self, cutoff: str) -> tuple[set[str], set[str], int]:
+        """Retention: delete, for every session, the receipts last touched before `cutoff` (UTC, as stored) that a
+        clear would delete: settled ones, and unknown ones that cannot record a write. An unknown receipt that may
+        record a write stays whatever its age, and so does every open handoff: they are what stops an uncertain
+        write from being replayed. A resolved handoff goes once its session has no receipt left. Returns the
+        deleted command IDs, the IDs that remain, and how many handoffs were deleted."""
+        with self.connect() as db:
+            old = db.execute("SELECT id, verb, status, outcome FROM commands WHERE COALESCE(finished, started) < ? "
+                             "AND status NOT IN ('running','pending')", (cutoff,)).fetchall()
+            doomed = {row["id"] for row in old if row["status"] in SETTLED or not _risky(row["verb"], row["outcome"])}
+            db.executemany("DELETE FROM commands WHERE id=?", [(command_id,) for command_id in doomed])
+            handoffs = db.execute("DELETE FROM handoffs WHERE status='resolved' AND session NOT IN (SELECT DISTINCT session FROM commands)").rowcount
+            retained = {row["id"] for row in db.execute("SELECT id FROM commands")}
+        if doomed or handoffs:
+            with self.connect() as db:  # reclaim the bytes, as an explicit clear does
+                db.execute("VACUUM")
+        return doomed, retained, handoffs
 
     def resolve_handoff(self, session: str, handoff_id: str) -> None:
         with self.connect() as db:

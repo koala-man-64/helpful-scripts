@@ -388,6 +388,12 @@ class FakeLocator:
     def nth(self, index: int) -> "FakeLocator":
         return self
 
+    def filter(self, visible: bool | None = None) -> "FakeLocator":
+        """locator.filter(visible=True): only the matches that are visible."""
+        if visible and not (self.element and self.element.visible):
+            return FakeLocator(self.page, None, count_override=0, owner_frame=self._owner_frame)
+        return self
+
     def element_handle(self, timeout: float | None = None) -> FakeElementHandle:
         return FakeElementHandle(self.element, self._owner_frame)
 

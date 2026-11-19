@@ -129,7 +129,7 @@ class Cli:
         self.home = home
 
     def argv(self, *args: str) -> list[str]:
-        return [sys.executable, "-X", "utf8", str(TOOL), *args, "--profile", PROFILE]
+        return [sys.executable, "-X", "utf8", str(TOOL), *live_support.with_eval_reason(args), "--profile", PROFILE]
 
     def __call__(self, *args: str, timeout: float = 120) -> tuple[int, dict, dict]:
         proc = subprocess.run(self.argv(*args), capture_output=True, text=True, encoding="utf-8",

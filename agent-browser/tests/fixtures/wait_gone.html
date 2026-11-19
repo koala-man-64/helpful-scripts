@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Wait gone</title>
+</head>
+<body>
+  <h1>Wait gone</h1>
+  <button id="save" type="button">Save</button>
+  <p id="result"></p>
+  <script>
+    // Save shows a status line for eight seconds, then removes it and reports the result.
+    document.getElementById('save').addEventListener('click', () => {
+      document.getElementById('result').textContent = '';
+      const spinner = document.createElement('p');
+      spinner.id = 'spinner';
+      spinner.setAttribute('role', 'status');
+      spinner.textContent = 'Saving changes';
+      document.body.append(spinner);
+      setTimeout(() => { spinner.remove(); document.getElementById('result').textContent = 'Saved'; }, 8000);
+    });
+  </script>
+</body>
+</html>

@@ -335,8 +335,11 @@ KEY_EXTENSIONS = frozenset({".pem", ".key", ".pfx", ".p12", ".kdbx", ".ppk", ".j
 
 # Every key config.json may hold. A profile object under `profiles` takes the same keys except `profiles` itself.
 # A key outside these is a config error: a misspelled restriction must not leave the default, permissive policy.
-PROFILE_POLICY_KEYS = frozenset({"eval", "allowed_hosts", "upload_roots", "permission", "evidence_max_bytes", "uploads", "max_chars"})
+PROFILE_POLICY_KEYS = frozenset({"eval", "allowed_hosts", "upload_roots", "permission", "evidence_max_bytes", "uploads", "max_chars",
+                                 "hosts", "evidence_retention_days"})
 CONFIG_KEYS = PROFILE_POLICY_KEYS | {"profiles"}
+# What a rule under `hosts` may set for pages on that host. Everything else is per profile.
+HOST_RULE_KEYS = frozenset({"permission", "eval", "uploads"})
 
 
 HOME_DOT_FOLDERS_ALLOWED = frozenset({".claude"})  # every other dot-folder directly under the user's home is refused
@@ -557,7 +560,7 @@ HINTS = {
     "wait_timeout": "Still waiting. Run the same wait command again, or ask the user whether sign-in is finished.",
     "nav_timeout": "The page did not finish loading in time and the navigation may still complete. Run: {tool} snapshot --profile {profile} before repeating it.",
     "wait_cap": "wait runs at most 100 seconds per call. Use --timeout 100 and run the same wait again if needed.",
-    "no_wait_condition": "Give at least one condition: --url-contains, --text, --ref, --selector, --signed-in, or --seconds.",
+    "no_wait_condition": "Give at least one condition: --url-contains, --text, --ref, --selector, --gone, --text-gone, --signed-in, or --seconds.",
     "daemon_unresponsive": "Run: {tool} stop --force --profile {profile}",
     "busy": "Another command held the browser, so this one was not run. Repeat it, or check: {tool} status --profile {profile}",
     "busy_status": "The browser is running another command, not hung. Do not force-stop it. Check again: {tool} status --profile {profile}",
@@ -571,6 +574,7 @@ HINTS = {
     "check_not_checkbox": "This element is not a checkbox. Use: {tool} click <ref>",
     "fill_not_input": "This element is not a text field. Use: {tool} click <ref> then {tool} snapshot --profile {profile}",
     "eval_disabled": "eval is disabled by config.json on this machine.",
+    "eval_reason": "Say in one line why no other verb can do this: {tool} eval --reason <why> <script> --profile {profile}",
     "browser_closed": "The browser window was closed. Run: {tool} start --profile {profile} (sign-in is kept)",
     "timeout_client": "The browser did not answer in time. Run: {tool} status --profile {profile}",
     "timeout_client_action": "The daemon did not answer in time and the command may have run. Run: {tool} state --profile {profile} (this session's receipts) before repeating it.",
@@ -593,6 +597,7 @@ HINTS = {
     "inspect_receipt": "Inspect the receipt before repeating an action. Run: {tool} journal --profile {profile}",
     "commit_clear": "Clearing deletes this session's finished receipts with their screenshots and saved responses; unknown write receipts and open handoffs stay. With the user's approval, run: {tool} commit journal --clear",
     "handoff_not_found": "Handoffs belong to the session that created them, and clearing evidence removes resolved ones. List this session's with: {tool} state --profile {profile}",
+    "sessions_clear": "Each session clears its own evidence. For one listed here, with the user's approval: {tool} commit journal --clear --session <session> --profile {profile}. Set evidence_retention_days in config.json to have old evidence removed without a prompt.",
     "clear_retained": "Unknown write receipts or open handoffs were kept (retained_commands, retained_handoffs). Inspect them: {tool} state --profile {profile}. Only with the user's approval, remove them too: {tool} commit journal --clear --include-unknown --profile {profile}",
     "clear_files_left": "Some evidence files could not be removed (in use or not accessible) and stay (files_not_removed). Close what holds them, then with the user's approval run the same clear again: {tool} commit journal --clear --profile {profile}",
     "journal_full": "Inspect this session's receipts: {tool} journal --profile {profile}. With the user's approval, free space: {tool} commit journal --clear --profile {profile}",
@@ -854,7 +859,7 @@ def _load_config() -> dict[str, Any]:
             raise _tag(RuntimeError("config.json upload_roots must be a list of strings."), ERR_CONFIG)
         if value is not None:
             out["upload_roots"] = [v for v in value if v.strip()]
-    for key in ("profiles", "permission", "evidence_max_bytes", "uploads", "max_chars"):
+    for key in ("profiles", "permission", "evidence_max_bytes", "uploads", "max_chars", "hosts", "evidence_retention_days"):
         if key in data:
             out[key] = data[key]
     return out
@@ -1445,8 +1450,19 @@ def _check_url(url: str, paths: ProfilePaths, config: dict[str, Any]) -> str:
     return raw
 
 
+IPV4_RE = re.compile(r"\d{1,3}(?:\.\d{1,3}){3}\Z")
+
+
+def _host_matches(host: str, name: str) -> bool:
+    """Whether `host` is `name` or one of its subdomains. An IP address has no subdomains and matches only itself:
+    10.0.0.1 is not "under" an entry written 0.0.1."""
+    if host == name:
+        return True
+    return not (":" in host or IPV4_RE.match(host)) and host.endswith("." + name)
+
+
 def _host_allowed(host: str, allowed: Sequence[str]) -> bool:
-    return any(host == a or host.endswith("." + a) for a in allowed if a)
+    return any(_host_matches(host, a) for a in allowed if a)
 
 
 _PROCESS_CWD: Any = object()

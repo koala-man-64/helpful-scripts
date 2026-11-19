@@ -41,7 +41,11 @@ An explicit profile stop closes every session of that profile (other profiles ar
 Caller permission templates ask before `stop --all`, `stop --force`, commit, eval, `--accept-dialog` and `--discard-changes`.
 
 Unconfigured profiles keep full access and eval enabled. Configured `read`, `act`,
-and `commit` levels narrow access. Arbitrary eval and declared commits require `commit`.
+and `commit` levels narrow access, per profile or per site with a `hosts` rule; `state`
+lists `host_rules` and the `page_policy` on the current tab. A refusal that names a hosts
+rule is the user's policy for that site: stop and say so, never route around it.
+Arbitrary eval and declared commits require `commit`. Every eval says why:
+`agent-browser eval --reason "read a data attribute" "el.dataset.id" --ref e5`.
 Generic interaction can autosave or submit: `press Enter` and a Submit click need only `act`,
 and `fill`/`type --enter` needs a `commit` profile but not the `commit` verb; no ask
 rule covers them. Approval-sensitive workflows must disable
@@ -79,6 +83,8 @@ Repeat `--expect` for AND checks under one deadline: `text:Saved`, `gone:e12`,
 reload. Recipes and wait use their own verification conditions.
 For exact state use `value:e5=High`, `checked:e8`, `unchecked:e8`, or
 `count:#results tbody tr=12`. `download:*.csv` requires a completed new download.
+To wait for something to go away use `agent-browser wait --gone "#spinner"` or
+`agent-browser wait --text-gone Saving`; `gone_seen: false` means it was never visible.
 Pair `persisted:#priority=High` with the save response/message to verify after one
 reload; use a stable selector, never a ref. Credential fields remain guarded.
 
@@ -93,7 +99,9 @@ after interruption or failed verification. Completed, failed, unknown and needs_
 receipts are distinct. If `executed` is true, inspect the outcome before another action.
 Writes are never automatically replayed.
 
-Journal, screenshots and raw API response artifacts stay until explicitly cleared.
+Journal, screenshots and raw API response artifacts stay until explicitly cleared, or
+until `evidence_retention_days` in config removes old ones. `agent-browser journal --sessions`
+lists every session that holds evidence.
 The default profile quota is 1 GiB; reaching it blocks new audited mutations/captures.
 Inspection, explicit clearing and handoff resolution remain available. Clearing is a
 commit operation, `agent-browser commit journal --clear`; a bare `journal --clear` is
@@ -125,8 +133,9 @@ re-encodings are not detected, so read pages with `text` or `snapshot` and use `
 A 401 or a sign-in/off-origin redirect opens a handoff (`needs_human`). Other redirects
 (`redirect: true`, body withheld) and a 403 (real body) add a `note` instead.
 The optional MCP server uses the same dispatcher, policy and options (`tab`, `ref`, `timeout`);
-commit/eval tools stay separately identifiable, and only `browser_commit` accepts dialogs or
-discards edits (a discarding stop is its operation `stop`). Read [interfaces](references/interfaces.md).
+commit/eval tools stay separately identifiable, file transfer is its own tool (`browser_upload`),
+and only `browser_commit` accepts dialogs or discards edits (a discarding stop is its operation
+`stop`). Read [interfaces](references/interfaces.md).
 
 ## Error handling
 

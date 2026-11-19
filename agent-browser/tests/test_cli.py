@@ -755,3 +755,13 @@ def test_start_and_text_max_chars_configuration(monkeypatch: pytest.MonkeyPatch,
     assert captured[-1][1]["max_chars"] == 1200
     capsys.readouterr()
 
+
+def test_eval_reason_flag_is_sent_to_the_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(core_cli, "_session_for", lambda args, verb, autostart=False: (None, {"token": "t", "port": 1, "profile": "default"}))
+    monkeypatch.setattr(core_cli.core_session, "_request", lambda session, cmd, payload, timeout, **kw: sent.append((cmd, payload)) or {"value": 1})
+
+    assert ab.main(["eval", "1 + 1", "--reason", "check arithmetic"]) == 0
+
+    command, payload = sent[0]
+    assert command == "eval" and payload["reason"] == "check arithmetic" and payload["js"] == "1 + 1"

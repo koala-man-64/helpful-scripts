@@ -79,6 +79,7 @@ class Cli:
         self.home = home
 
     def __call__(self, *args: str, timeout: float = 120) -> tuple[int, dict, dict]:
+        args = live_support.with_eval_reason(args)
         proc = subprocess.run([sys.executable, "-X", "utf8", str(TOOL), *args, "--profile", PROFILE], capture_output=True,
                               text=True, encoding="utf-8", env=_env(self.home), timeout=timeout)
         out = json.loads(proc.stdout) if proc.stdout.strip() else {}

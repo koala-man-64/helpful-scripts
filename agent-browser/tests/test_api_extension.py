@@ -325,7 +325,7 @@ def test_mcp_uses_the_same_dispatch_permission_gate(make_daemon, monkeypatch):
                                {**arguments, **({"operation": command} if committing else {})}, 1)
 
     monkeypatch.setattr(mcp_server.client, "invoke", invoke)
-    assert mcp_server.browser_eval("arbitrary()", "manual")["error"]["class"] == "guarded"
+    assert mcp_server.browser_eval("arbitrary()", "why", "manual")["error"]["class"] == "guarded"
     assert mcp_server.browser_commit("click", "manual", target="e1")["error"]["class"] == "guarded"
 
 
@@ -346,7 +346,7 @@ def test_mcp_upload_and_body_file_cannot_read_profile_token_files(make_daemon, t
 
     monkeypatch.setattr(mcp_server.client, "invoke", invoke)
     results = [
-        mcp_server.browser_action("upload", "manual", target="e1", files=[str(daemon.paths.launch)]),
+        mcp_server.browser_upload("e1", [str(daemon.paths.launch)], "manual"),
         mcp_server.browser_commit("upload", "manual", target="e1", files=[str(daemon.paths.session)]),
         mcp_server.browser_commit("api", "manual", url="/items", method="POST", body_file=str(daemon.paths.session)),
     ]

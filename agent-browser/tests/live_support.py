@@ -79,6 +79,14 @@ def settle_browsers(root: Path, *, grace: float = EXIT_GRACE, helper_grace: floa
     return blocking
 
 
+def with_eval_reason(args: tuple[str, ...]) -> tuple[str, ...]:
+    """`eval` requires --reason. The live suites use eval to probe page state, not to exercise that rule
+    (tests/test_live_policy.py does), so their CLI wrappers add a reason when a call gives none."""
+    if args and args[0] == "eval" and "--reason" not in args:
+        return (*args, "--reason", "live test probe")
+    return args
+
+
 def wait_for_pid_exit(pid: int, timeout: float, *, alive: Callable[[int], bool] | None = None,
                       clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep) -> bool:
     alive = alive or core_common._pid_alive

@@ -650,7 +650,7 @@ def test_confirm_raised_by_eval_fails_with_dialog_after_running_and_is_not_repea
     page.custom_evaluators["confirm('Delete record?')"] = script_confirm
 
     with pytest.raises(ValueError) as exc:
-        daemon.dispatch("eval", {"js": "confirm('Delete record?')"}, 5.0)
+        daemon.dispatch("eval", {"reason": "test", "js": "confirm('Delete record?')"}, 5.0)
     assert exc.value.error_class == core_common.ERR_DIALOG and exc.value.hint == core_common._hint("dialog")
     assert exc.value.details["executed"] is True
     assert [(d["message"], d["handled"]) for d in exc.value.details["dialogs"]] == [("Delete record?", "dismissed")]
@@ -660,7 +660,7 @@ def test_confirm_raised_by_eval_fails_with_dialog_after_running_and_is_not_repea
     after = daemon.dispatch("click", {"target": "e4"}, 5.0)
     assert "changes" in after and "frames" not in after and after["dialogs"] == []
 
-    accepted = daemon.dispatch("eval", {"js": "confirm('Delete record?')", "accept_dialog": True}, 5.0)
+    accepted = daemon.dispatch("eval", {"reason": "test", "js": "confirm('Delete record?')", "accept_dialog": True}, 5.0)
     assert accepted["value"] is True and raised[-1].accepted_with == ""
     assert [d["handled"] for d in accepted["dialogs"]] == ["accepted"] and "note" not in accepted
 
@@ -882,7 +882,7 @@ def test_per_command_tab_targeting_preserves_current_tab_and_serves_isolated_ref
     assert "Second tab body" in txt2["text"] and txt2["tab_id"] == "t2"
 
     page2.custom_evaluators["1+1"] = 2
-    ev2 = daemon.dispatch("eval", {"js": "1+1", "tab": "t2"}, 5.0)
+    ev2 = daemon.dispatch("eval", {"reason": "test", "js": "1+1", "tab": "t2"}, 5.0)
     assert ev2["tab"] == 2 and ev2["tab_id"] == "t2" and ev2["value"] == 2
     assert daemon.current is page1
 
@@ -1039,7 +1039,7 @@ def test_a_popup_that_closes_itself_during_a_click_says_so_and_leaves_its_opener
 
 @pytest.mark.parametrize(("cmd", "args"), [
     ("click", {"target": {"role": "button", "name": "Outer button"}}), ("press", {"key": "Enter"}), ("goto", {"url": "http://x/next"}),
-    ("back", {}), ("reload", {}), ("text", {}), ("value", {"target": "e4"}), ("eval", {"js": "1+1"}), ("snapshot", {"ref": "e1"}),
+    ("back", {}), ("reload", {}), ("text", {}), ("value", {"target": "e4"}), ("eval", {"reason": "test", "js": "1+1"}), ("snapshot", {"ref": "e1"}),
     ("wait", {"seconds": 1}), ("commit", {"operation": "click", "target": "e4"}),
 ])
 def test_commands_on_a_current_tab_the_session_has_not_seen_are_refused(make_daemon, outer_text: str, cmd: str, args: dict) -> None:
@@ -1179,7 +1179,7 @@ def test_goto_on_background_tab_and_allowlist_per_tab(make_daemon, outer_text: s
 def test_eval_disabled_by_config_is_guarded(make_daemon, outer_text: str) -> None:
     daemon, ctx, page = make_daemon(snapshot_text=outer_text, eval_enabled=False)
     with pytest.raises(ValueError) as exc:
-        daemon.dispatch("eval", {"js": "1+1"}, 5.0)
+        daemon.dispatch("eval", {"reason": "test", "js": "1+1"}, 5.0)
     assert exc.value.error_class == core_common.ERR_GUARDED
     assert exc.value.hint == core_common._hint("eval_disabled")
 
@@ -1192,7 +1192,7 @@ def test_eval_on_a_password_ref_is_guarded_and_never_evaluated(make_daemon, oute
     el.custom_evaluators["el => el.value"] = lambda: ran.append("eval") or "typed-by-the-user"
 
     with pytest.raises(ValueError) as exc:
-        daemon.dispatch("eval", {"js": "el => el.value", "target": "f1e3"}, 5.0)
+        daemon.dispatch("eval", {"reason": "test", "js": "el => el.value", "target": "f1e3"}, 5.0)
     assert exc.value.error_class == core_common.ERR_GUARDED
     assert exc.value.hint == core_common._hint("guarded_eval_secret")
     assert exc.value.details["executed"] is False
@@ -1201,7 +1201,7 @@ def test_eval_on_a_password_ref_is_guarded_and_never_evaluated(make_daemon, oute
     el.secret_info = None
     el.raise_on["secret_check"] = FakePlaywrightError("Execution context was destroyed")
     with pytest.raises(ValueError) as unverified:
-        daemon.dispatch("eval", {"js": "el => el.value", "target": "f1e3"}, 5.0)
+        daemon.dispatch("eval", {"reason": "test", "js": "el => el.value", "target": "f1e3"}, 5.0)
     assert unverified.value.error_class == core_common.ERR_ACTION_FAILED
     assert unverified.value.details["executed"] is False
     assert ran == []
@@ -1211,7 +1211,7 @@ def test_eval_on_a_normal_ref_still_returns_its_value(make_daemon, outer_text: s
     daemon, ctx, page = make_daemon(snapshot_text=outer_text)
     page.elements["f1e3"].custom_evaluators["el => el.value"] = "Abel"
 
-    result = daemon.dispatch("eval", {"js": "el => el.value", "target": "f1e3"}, 5.0)
+    result = daemon.dispatch("eval", {"reason": "test", "js": "el => el.value", "target": "f1e3"}, 5.0)
     assert result["value"] == "Abel" and result["executed"] is True
 
 
@@ -1246,10 +1246,10 @@ def test_eval_value_drops_invisible_characters_without_masking(make_daemon) -> N
     daemon, ctx, page = make_daemon()
     tag = chr(0xE0041)
     page.custom_evaluators["window.config"] = {"k" + chr(0x200B): ["v" + tag + chr(0x2060), {"n" + tag: 1}], "token": "kept-as-is"}
-    result = daemon.dispatch("eval", {"js": "window.config"}, 5.0)
+    result = daemon.dispatch("eval", {"reason": "test", "js": "window.config"}, 5.0)
     assert result["value"] == {"k": ["v", {"n": 1}], "token": "kept-as-is"}  # decision 5: eval results are never masked
     page.custom_evaluators["document.title"] = "ok" + tag + chr(0x2028) + "next"
-    assert daemon.dispatch("eval", {"js": "document.title"}, 5.0)["value"] == "ok\nnext"
+    assert daemon.dispatch("eval", {"reason": "test", "js": "document.title"}, 5.0)["value"] == "ok\nnext"
 
 
 def test_text_drops_invisible_instruction_characters(make_daemon) -> None:
@@ -1366,3 +1366,34 @@ def test_target_line_is_the_targets_own_line_not_a_line_that_spells_its_ref(make
 
     assert clicked["target_line"] == '- button "Delete account" [ref=e3]'
     assert page.elements["e3"].calls == [("click", "left")] and page.elements["e2"].calls == []
+
+
+# ---------------------------------------------------------------------------
+# eval says why
+
+
+@pytest.mark.parametrize("reason", [None, "", "   ", 7, chr(0x200B) + chr(0x200B)])
+def test_eval_without_a_reason_is_refused_before_it_runs(make_daemon: Any, reason: Any) -> None:
+    daemon, _ctx, page = make_daemon(snapshot_text='- generic [ref=e1]')
+    ran: list[str] = []
+    page.evaluate = lambda js: ran.append(js)  # type: ignore[method-assign]
+    args = {"js": "document.title"} if reason is None else {"js": "document.title", "reason": reason}
+
+    with pytest.raises(ValueError) as refused:
+        daemon.dispatch("eval", args, 5.0)
+
+    assert refused.value.error_class == core_common.ERR_USAGE and ran == []
+    assert refused.value.hint == core_common._hint("eval_reason", daemon.profile) and "--reason" in refused.value.hint
+    assert refused.value.details["executed"] is False
+
+
+def test_the_receipt_keeps_the_reason_and_never_the_script(make_daemon: Any) -> None:
+    daemon, _ctx, page = make_daemon(snapshot_text='- generic [ref=e1]')
+    page.evaluate = lambda js: "INC0010023"  # type: ignore[method-assign]
+
+    result = daemon.dispatch("eval", {"js": "document.querySelector('#number').dataset.sysId", "reason": "read a data attribute"}, 5.0)
+
+    row = daemon.journal.rows("manual", result["command_id"])[0]
+    stored = json.loads(row["arguments"])
+    assert stored["reason"] == "read a data attribute"
+    assert "js" not in stored and "dataset" not in json.dumps(row)

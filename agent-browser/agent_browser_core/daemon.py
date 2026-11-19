@@ -157,6 +157,38 @@ class DownloadRecord:
     saved: str | None = None
 
 
+LOG_TRIM_AT = 4 * 1024 * 1024  # daemon.log past this size is trimmed when the next daemon starts
+LOG_KEEP = 1024 * 1024         # ... to its last megabyte
+
+
+def _trim_log(path: Path, descriptors: Sequence[int] = (1, 2)) -> bool:
+    """Keep daemon.log bounded: past LOG_TRIM_AT bytes, keep only its last LOG_KEEP bytes, cut at a line start.
+    Called under the session lock before the browser starts, when this daemon is the file's only writer."""
+    try:
+        if path.stat().st_size <= LOG_TRIM_AT:
+            return False
+        with open(path, "r+b") as handle:
+            handle.seek(-LOG_KEEP, os.SEEK_END)
+            tail = handle.read()
+            cut = tail.find(b"\n")
+            tail = tail[cut + 1:] if cut >= 0 else tail
+            # The kept tail is written over the start before the rest is cut off, so a crash in between leaves a
+            # longer log, never an empty one.
+            handle.seek(0)
+            handle.write(tail)
+            handle.truncate(len(tail))
+    except OSError:
+        return False
+    # The stdout and stderr this process inherited (`descriptors`) share one file position, which is still past the
+    # old end: a write there would pad the file back out with zero bytes. Move it to the new end.
+    for descriptor in descriptors:
+        try:
+            os.lseek(descriptor, 0, os.SEEK_END)
+        except OSError:
+            pass
+    return True
+
+
 def _log_line(message: str) -> None:
     """One daemon.log entry; serve writes these itself before a Daemon exists."""
     # One physical line per entry: a multi-line exception or traceback, or a forged newline, cannot add log lines.
@@ -564,6 +596,11 @@ class BrowserEngine:
         if spec is None:
             return self.page()
         return self._resolve_tab(spec)
+
+    def _page_policy(self, args: dict[str, Any] | None = None, page: Any = None) -> dict[str, Any]:
+        """The policy in force for a command's page. Here that is the profile's own; the runtime layer lays the
+        page host's `hosts` rule over it."""
+        return self.config
 
     def _is_timeout(self, exc: Exception) -> bool:
         return isinstance(exc, self.errors[1]) or "Timeout" in type(exc).__name__ or "exceeded" in str(exc)
@@ -1277,6 +1314,9 @@ class BrowserEngine:
                                hint=core_common._hint("guarded_key" if allow_keys is not None else "guarded_secret", self.profile))
         nav_before = self._nav_signature(page)
         try:
+            # The page can have moved to another host since the command was authorized: a commit takes a screenshot
+            # first, and a page can redirect itself at any time. Judge the action by the page it is about to act on.
+            policy.authorize(self._page_policy(page=page), action, args)
             self.action_attempted = True
             run(page, locator)
         except (ValueError, RuntimeError):
@@ -1474,12 +1514,14 @@ class BrowserEngine:
     def h_wait(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         explicit_tab = args.get("tab") is not None
         page = self.target_page(args)
-        conditions = {k: args.get(k) for k in ("url_contains", "text", "ref", "selector", "signed_in", "seconds") if args.get(k) not in (None, "", 0)}
+        conditions = {k: args.get(k) for k in ("url_contains", "text", "ref", "selector", "gone", "text_gone", "signed_in", "seconds")
+                      if args.get(k) not in (None, "", 0)}
         if not conditions:
             raise core_common._tag(ValueError("wait needs a condition."), core_common.ERR_USAGE, hint=core_common._hint("no_wait_condition", self.profile))
         started = core_common._now()
         deadline = started + timeout
         satisfied: list[str] = []
+        gone_seen = False
         while True:
             page = self.target_page(args) if explicit_tab else self.page()
             satisfied = []
@@ -1523,6 +1565,18 @@ class BrowserEngine:
                         ok = False
                 except Exception:  # noqa: BLE001
                     ok = False
+            if "gone" in conditions:  # looked at on every pass, so gone_seen is true whenever the target was visible
+                gone = self._gone(page, str(conditions["gone"]))
+                gone_seen = gone_seen or gone is False
+                if gone is not True:
+                    ok = False
+                elif ok:
+                    satisfied.append("gone")
+            if ok and "text_gone" in conditions:
+                if self._text_absent(page, str(conditions["text_gone"])) is True:
+                    satisfied.append("text_gone")
+                else:
+                    ok = False
             if ok:
                 break
             if core_common._now() >= deadline:
@@ -1534,7 +1588,10 @@ class BrowserEngine:
                 core_common._sleep(0.5)
             self.last_activity = core_common._now()
         loading = self._settle(page, cap=2.0)
-        return self.snap_envelope(page, loading=loading, extra={"waited_s": round(core_common._now() - started, 1), "satisfied": satisfied},
+        extra = {"waited_s": round(core_common._now() - started, 1), "satisfied": satisfied}
+        if "gone" in conditions:
+            extra["gone_seen"] = gone_seen
+        return self.snap_envelope(page, loading=loading, extra=extra,
                                   max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES)
 
     def _signed_in(self, page: Any, host: str) -> bool:
@@ -1556,6 +1613,52 @@ class BrowserEngine:
             except Exception:  # noqa: BLE001
                 continue
         return False
+
+    def _text_absent(self, page: Any, text: str) -> bool | None:
+        """True when no frame shows the text (case-insensitive). None while a frame cannot be read, such as one that
+        is navigating: an unreadable frame is not evidence that the text is gone."""
+        needle, unknown = text.lower(), False
+        for frame in page.frames:
+            try:
+                if needle in frame.locator("body").inner_text(timeout=1000).lower():
+                    return False
+            except Exception:  # noqa: BLE001
+                unknown = unknown or not self._frame_detached(frame)
+        return None if unknown else True
+
+    def _gone(self, page: Any, target: str) -> bool | None:
+        """True when nothing the ref or selector names is visible on the page; False while something is. A ref whose
+        element or frame is no longer there is gone. None while that cannot be told (a frame that cannot be read)."""
+        t = core_snapshots.normalize_target(target)
+        if not t:
+            raise core_common._tag(ValueError("wait --gone needs a ref or a selector."), core_common.ERR_USAGE,
+                                   hint=core_common._hint("no_wait_condition", self.profile))
+        if core_common.REF_RE.match(t):
+            try:
+                return not self.resolve(page, t).is_visible()
+            except ValueError as exc:
+                cls = getattr(exc, "error_class", None)
+                if cls in (core_common.ERR_STALE_REF, core_common.ERR_REF_NOT_FOUND):
+                    return True
+                if cls in (core_common.ERR_VALIDATION, core_common.ERR_USAGE):
+                    raise
+                return None
+        try:
+            frames = list(page.frames)
+        except Exception:  # noqa: BLE001
+            return None
+        for frame in frames:
+            try:
+                if frame.locator(t).filter(visible=True).count() > 0:
+                    return False
+            except Exception as exc:  # noqa: BLE001
+                # A selector that cannot be parsed would otherwise read as "nothing matches": a false success.
+                if "not a valid selector" in str(exc) or "Unexpected token" in str(exc):
+                    raise core_common._tag(ValueError(f"Bad selector {t!r}."), core_common.ERR_VALIDATION,
+                                           hint=core_common._hint("bad_ref", self.profile)) from exc
+                if not self._frame_detached(frame):
+                    return None
+        return True
 
     def h_back(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         page = self.target_page(args)
@@ -1615,9 +1718,15 @@ class BrowserEngine:
         return {"profile": self.profile, "downloads": out, "folder": str(self.paths.downloads).replace("\\", "/")}
 
     def h_eval(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        if self.config.get("eval") is False:
-            raise core_common._tag(ValueError("eval is disabled by config.json."), core_common.ERR_GUARDED, hint=core_common._hint("eval_disabled"))
         page = self.target_page(args)
+        if self._page_policy(page=page).get("eval") is False:
+            raise core_common._tag(ValueError("eval is disabled by config.json."), core_common.ERR_GUARDED, hint=core_common._hint("eval_disabled"))
+        # eval is the escape hatch from every other guard, so each use says why. The receipt keeps the reason, never
+        # the script, and a caller approving the command sees it.
+        reason = args.get("reason")
+        if not isinstance(reason, str) or not core_common.sanitize_text(reason, 200, single_line=True).strip():
+            raise core_common._tag(ValueError("eval needs a reason: one line on why no other verb can do this."), core_common.ERR_USAGE,
+                                   hint=core_common._hint("eval_reason", self.profile))
         js = args.get("js") or ""
         if not js.strip():
             raise core_common._tag(ValueError("eval needs a JavaScript expression."), core_common.ERR_USAGE)
@@ -1678,6 +1787,9 @@ class BrowserEngine:
         })
 
     started_at: str = ""
+
+    def maintain(self) -> None:
+        """Housekeeping between requests. The runtime layer applies evidence retention here."""
 
     def heartbeat(self, port: int) -> bool:
         """Refresh session.json; False when that failed. A failed write (the file held open by another program, a
@@ -1946,6 +2058,8 @@ def serve(launch_file: Path) -> int:
 def _serve_locked(launch_file: Path, launch: dict[str, Any], paths: core_common.ProfilePaths, log: Any) -> int:
     # launch.json carries the token, which from here lives only in memory and in session.json.
     core_session._discard_launch(launch_file, str(launch.get("token") or ""))
+    if _trim_log(Path(launch["log"])):
+        _log_line("daemon.log passed its size limit and was trimmed to its last megabyte")
     daemon: Daemon | None = None
     server: _Server | None = None
     exit_code = 0
@@ -1975,6 +2089,7 @@ def _serve_locked(launch_file: Path, launch: dict[str, Any], paths: core_common.
         while daemon.stop_reason is None:
             server.handle_request()
             daemon.pump()
+            daemon.maintain()
             if core_common._now() - last_heartbeat >= heartbeat_every:
                 # A write that failed can already have held this single-threaded loop for 2 s: wait longer for the next.
                 heartbeat_every = core_common.HEARTBEAT_SECONDS if daemon.heartbeat(port) else core_common.HEARTBEAT_RETRY_SECONDS

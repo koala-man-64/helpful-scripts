@@ -82,6 +82,13 @@ def _call(command: str, arguments: dict[str, Any], session_id: str, profile: str
         return {**common._storage_error(result, exc, profile), "contract_version": common.CONTRACT_VERSION}
 
 
+def _call_error(message: str) -> dict[str, Any]:
+    """A usage error for an argument combination the typed schema cannot express, in the one error shape."""
+    from .cli import _error_payload
+    return {**_error_payload(common._tag(ValueError(message), common.ERR_USAGE, hint=common._hint("tool_arguments"))),
+            "contract_version": common.CONTRACT_VERSION}
+
+
 def browser_goto(url: str, session_id: str, profile: str | None = None, timeout: float = 30,
                  wait: Literal["load", "domcontentloaded"] = "load", new_tab: bool = False, tab: int | str | None = None,
                  trace: bool = False) -> dict[str, Any]:
@@ -109,16 +116,23 @@ def browser_fill_form(fields: list[Field], session_id: str, profile: str | None 
     return _call("fill-form", {"fields": fields, "tab": tab, "expect": expect or [], "trace": trace}, session_id, profile)
 
 
-def browser_action(operation: Literal["type", "press", "select", "check", "uncheck", "hover", "scroll", "upload", "back", "reload", "tab"],
+def browser_action(operation: Literal["type", "press", "select", "check", "uncheck", "hover", "scroll", "back", "reload", "tab"],
                    session_id: str, profile: str | None = None, target: str | Target | None = None,
                    text: str | None = None, key: str | None = None, values: list[str] | None = None,
-                   files: list[str] | None = None, down: int = 0, up: int = 0, index: int | str | None = None,
+                   down: int = 0, up: int = 0, index: int | str | None = None,
                    close: bool = False, expect: list[str] | None = None, tab: int | str | None = None,
                    trace: bool = False) -> dict[str, Any]:
     """index picks the tab for operation tab: a 1-based index (1, 2) or a stable id (t1, t2)."""
-    return _call(operation, {"target": target, "text": text, "key": key, "values": values or [], "files": files or [],
+    return _call(operation, {"target": target, "text": text, "key": key, "values": values or [],
                              "down": down, "up": up, "index": index, "close": close, "expect": expect or [], "tab": tab,
                              "trace": trace}, session_id, profile)
+
+
+def browser_upload(target: str | Target, files: list[str], session_id: str, profile: str | None = None,
+                   expect: list[str] | None = None, tab: int | str | None = None, trace: bool = False) -> dict[str, Any]:
+    """Attach local files to a file input or to the control that opens a file chooser. Paths follow the upload rules.
+    A tool of its own, apart from browser_action, so a caller's permission rules can single out file transfer."""
+    return _call("upload", {"target": target, "files": files, "expect": expect or [], "tab": tab, "trace": trace}, session_id, profile)
 
 
 def browser_read(operation: Literal["text", "value", "table", "tabs", "downloads", "state", "journal"],
@@ -127,22 +141,29 @@ def browser_read(operation: Literal["text", "value", "table", "tabs", "downloads
                  tab: int | str | None = None, next: str | Target | None = None,
                  max_pages: int | None = None, max_rows: int | None = None, columns: list[str] | None = None,
                  keys: list[str] | None = None, export_format: Literal["json", "csv"] | None = None,
-                 trace: bool = False) -> dict[str, Any]:
-    """table accepts bounded pagination, exact column headers and an evidence export; refs are single-page only."""
+                 trace: bool = False, sessions: bool = False) -> dict[str, Any]:
+    """table accepts bounded pagination, exact column headers and an evidence export; refs are single-page only.
+    journal with sessions lists every session of the profile that holds receipts, with its evidence size."""
     table_args = {"next": next, "max_pages": max_pages, "max_rows": max_rows, "columns": columns,
                   "keys": keys, "export_format": export_format}
     arguments = {"target": target, "command_id": command_id, "offset": offset, "max_chars": max_chars, "tab": tab, "trace": trace}
     arguments.update({key: value for key, value in table_args.items() if value is not None})
+    if sessions:
+        if operation != "journal":
+            return _call_error("sessions applies only to operation journal.")
+        arguments = {"sessions": True}
     return _call(operation, arguments, session_id, profile)
 
 
 def browser_wait(session_id: str, profile: str | None = None, text: str | None = None,
                  signed_in: str | None = None, url_contains: str | None = None, seconds: float | None = None,
                  timeout: float = 60, ref: str | None = None, selector: str | None = None,
-                 tab: int | str | None = None) -> dict[str, Any]:
-    """timeout is at most 100 seconds per call; call again to keep waiting."""
+                 tab: int | str | None = None, gone: str | None = None, text_gone: str | None = None) -> dict[str, Any]:
+    """timeout is at most 100 seconds per call; call again to keep waiting. gone is a ref or selector with nothing
+    visible any more; text_gone is text no frame shows any more."""
     return _call("wait", {"text": text, "signed_in": signed_in, "url_contains": url_contains, "seconds": seconds,
-                          "ref": ref, "selector": selector, "tab": tab}, session_id, profile, timeout, wait=True)
+                          "ref": ref, "selector": selector, "gone": gone, "text_gone": text_gone, "tab": tab},
+                 session_id, profile, timeout, wait=True)
 
 
 def browser_screenshot(session_id: str, profile: str | None = None, target: str | None = None,
@@ -160,10 +181,11 @@ def browser_api(url: str, session_id: str, profile: str | None = None, serviceno
     return _call("api", {"url": url, "method": "GET", "servicenow": servicenow, "tab": tab, "trace": trace}, session_id, profile)
 
 
-def browser_eval(js: str, session_id: str, profile: str | None = None, ref: str | None = None, frame: str | None = None,
+def browser_eval(js: str, reason: str, session_id: str, profile: str | None = None, ref: str | None = None, frame: str | None = None,
                  tab: int | str | None = None, trace: bool = False) -> dict[str, Any]:
-    """Commit-capable arbitrary JavaScript; caller permission rules should treat it as such. ref runs it with the element as el."""
-    return _call("eval", {"js": js, "target": ref, "frame": frame, "tab": tab, "trace": trace}, session_id, profile)
+    """Commit-capable arbitrary JavaScript; caller permission rules should treat it as such. reason is one line on
+    why no other tool can do this; the receipt keeps it. ref runs the script with the element as el."""
+    return _call("eval", {"js": js, "reason": reason, "target": ref, "frame": frame, "tab": tab, "trace": trace}, session_id, profile)
 
 
 def browser_commit(operation: Literal["click", "fill", "type", "press", "select", "check", "uncheck", "upload", "fill-form", "api", "run", "journal", "state",

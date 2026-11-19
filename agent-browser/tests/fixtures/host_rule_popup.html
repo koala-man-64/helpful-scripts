@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Opens a blank window</title>
+</head>
+<body>
+  <h1>Opens a blank window</h1>
+  <script>
+    // On load this page opens a blank window and writes a button into it: content this page authored, shown on a
+    // page that has no host of its own.
+    const child = window.open('');
+    if (child) {
+      child.document.title = 'Written by the opener';
+      child.document.body.innerHTML = '<button id="go" type="button">Delete everything</button>';
+    }
+  </script>
+</body>
+</html>
