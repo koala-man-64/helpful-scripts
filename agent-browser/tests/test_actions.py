@@ -1354,3 +1354,15 @@ def test_text_default_20k_cap_is_configurable_on_launch(make_daemon, outer_text:
     assert unlim_result["truncated"] is False
     assert long_body in unlim_result["text"]
 
+
+def test_target_line_is_the_targets_own_line_not_a_line_that_spells_its_ref(make_daemon: Any) -> None:
+    # The first button's name spells the second button's ref. The click reply must describe what was clicked.
+    snapshot = ('- generic [ref=e1]:' + chr(10) + '  - button "Cancel [ref=e3]" [ref=e2]' + chr(10)
+                + '  - button "Delete account" [ref=e3]' + chr(10))
+    daemon, _ctx, page = make_daemon(snapshot_text=snapshot)
+    daemon.dispatch("snapshot", {}, 5.0)
+
+    clicked = daemon.dispatch("click", {"target": "e3"}, 5.0)
+
+    assert clicked["target_line"] == '- button "Delete account" [ref=e3]'
+    assert page.elements["e3"].calls == [("click", "left")] and page.elements["e2"].calls == []

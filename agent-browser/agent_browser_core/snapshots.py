@@ -263,8 +263,12 @@ def describe_refs(text: str, refs: Collection[str], *, mask_refs: Collection[str
 
 def filter_snapshot(text: str, *, full: bool = False, find: str | None = None, frame_names: dict[str, str] | None = None,
                     mask_refs: Collection[str] = (), input_values: Mapping[str, Collection[str]] | None = None,
-                    secret_refs: Collection[str] = ()) -> list[str]:
+                    secret_refs: Collection[str] = (), ref_lines: dict[str, str] | None = None) -> list[str]:
     """Reduce Playwright's ai-mode tree to what a small model can act on. Pure function.
+
+    ref_lines, when given, is filled with each shown ref's line as printed, keyed by the ref Playwright parsed for
+    it. Callers look a ref's line up there instead of searching the output, where a name or value can spell
+    [ref=e5] itself.
 
     Typed values never pass through: a field line (see input_value_lines) whose ref is in mask_refs, or that has no
     ref, shows *** for its value and contents, and its value is removed from the names of the lines around it (and, for
@@ -308,6 +312,7 @@ def filter_snapshot(text: str, *, full: bool = False, find: str | None = None, f
                         if level == 0:
                             break
     out: list[str] = []
+    out_refs: list[str | None] = []     # the ref each printed line carries, parallel to out
     kept_levels: list[int] = []
     for line, (keep_line, keep_ref), (name, value) in zip(lines, keep, shown):
         while kept_levels and kept_levels[-1] >= line.level:
@@ -322,6 +327,7 @@ def filter_snapshot(text: str, *, full: bool = False, find: str | None = None, f
             kept_levels.pop()  # the root wrapper never renders; its children stay at depth 0
             continue
         out.append("  " * depth + _render(line, keep_ref, frame_names, prefixes, name, value))
+        out_refs.append(line.ref if keep_ref else None)
     # A trailing colon promises children; drop it when the filter removed them all.
     for i, text in enumerate(out):
         if text.endswith(":"):
@@ -329,6 +335,10 @@ def filter_snapshot(text: str, *, full: bool = False, find: str | None = None, f
             has_child = i + 1 < len(out) and (len(out[i + 1]) - len(out[i + 1].lstrip(" "))) > depth
             if not has_child:
                 out[i] = text[:-1]
+    if ref_lines is not None:
+        for text, ref in zip(out, out_refs):
+            if ref:
+                ref_lines.setdefault(ref, text.strip())
     return out
 
 
@@ -353,10 +363,3 @@ def diff_lines(before: Sequence[str] | None, after: Sequence[str]) -> dict[str, 
     removed = [l for l in before if l not in after_set]
     return {"added": added, "removed": removed}
 
-
-def find_line(lines: Sequence[str] | None, ref: str) -> str | None:
-    marker = f"[ref={ref}]"
-    for line in lines or []:
-        if marker in line:
-            return line.strip()
-    return None

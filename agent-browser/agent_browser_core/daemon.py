@@ -51,6 +51,11 @@ SECRET_JS = """el => {
 
 
 # fill focuses the retargeted control before it types; press and type focus the element itself (locator.focus).
+# SECRET_JS for every element of a locator in one round trip. An element that throws is reported as unknown, which
+# callers treat as not clear, so one odd control cannot hide the rest.
+SECRET_ALL_JS = """els => els.map(el => { try { return (%s)(el); } catch (error) { return {unknown: true}; } })""" % SECRET_JS
+
+
 FILL_FOCUS_JS = """el => {
   %s
   el.focus();
@@ -139,6 +144,9 @@ class Served:
     mask_refs: set[str] = field(default_factory=set)
     secret_refs: set[str] = field(default_factory=set)
     input_values: dict[str, set[str]] = field(default_factory=dict)
+    # Each ref's rendered line, keyed by the ref Playwright gave it. Looked up by key, never by searching the text:
+    # a name or value can spell [ref=e5] itself.
+    ref_lines: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -158,6 +166,13 @@ def _log_line(message: str) -> None:
         print(line, file=sys.stderr, flush=True)
     except (OSError, ValueError):
         pass
+
+
+def _frames(exc: BaseException, limit: int = 8) -> str:
+    """Where an unexpected error was raised: file, line and function of its innermost frames, innermost first.
+    No exception text and no source lines, so nothing from a page or a command's arguments reaches the log."""
+    frames = [(Path(frame.f_code.co_filename).name, lineno, frame.f_code.co_name) for frame, lineno in traceback.walk_tb(exc.__traceback__)]
+    return " < ".join(f"{name}:{lineno} {function}" for name, lineno, function in reversed(frames[-limit:])) or "unknown"
 
 
 class BrowserEngine:
@@ -860,10 +875,11 @@ class BrowserEngine:
         parsed = core_snapshots.parse_ai_snapshot(raw)
         by_prefix, frames, names, prefixes = self._frame_map(page, parsed)
         mask_refs, secret_refs, input_values = self._value_masks(page, parsed)
+        ref_lines: dict[str, str] = {}
         lines = core_snapshots.filter_snapshot(raw, full=full, find=find, frame_names=names, mask_refs=mask_refs,
-                                               input_values=input_values, secret_refs=secret_refs)
+                                               input_values=input_values, secret_refs=secret_refs, ref_lines=ref_lines)
         nav_at = {f: before.get(f, 0) for f in [page.main_frame, *by_prefix.values()]}  # a frame attached meanwhile: 0
-        served = Served(raw, lines, by_prefix, nav_at, frames, names, prefixes, mask_refs, secret_refs, input_values)
+        served = Served(raw, lines, by_prefix, nav_at, frames, names, prefixes, mask_refs, secret_refs, input_values, ref_lines)
         self.served[page] = served
         text = "\n".join(lines)
         try:
@@ -1229,9 +1245,10 @@ class BrowserEngine:
         explicit_tab = args.get("tab") is not None
         page = self.target_page(args)
         before_lines = self._before_lines(page)
+        served_before = self.served.get(page)
         target = args.get("target")
         locator = self.resolve(page, target) if target else None
-        target_line = (core_snapshots.find_line(before_lines, core_snapshots.normalize_target(target)) if isinstance(target, str)
+        target_line = ((served_before.ref_lines.get(core_snapshots.normalize_target(target)) if served_before else None) if isinstance(target, str)
                        else core_common.sanitize_text(json.dumps(target), 300)) if target else None
         masked = False
         if guard:
@@ -1662,6 +1679,18 @@ class BrowserEngine:
 
     started_at: str = ""
 
+    def heartbeat(self, port: int) -> bool:
+        """Refresh session.json; False when that failed. A failed write (the file held open by another program, a
+        full disk) is logged and tried again later. It never ends the daemon, which holds every session's tabs."""
+        try:
+            self.write_session(port)
+            return True
+        except OSError as exc:
+            self.dlog(f"heartbeat not written: {type(exc).__name__}")
+        except Exception as exc:  # noqa: BLE001 - a diagnostics write is never worth the browser
+            self.dlog(f"heartbeat failed: {type(exc).__name__} at {_frames(exc)}")
+        return False
+
     def pump(self) -> None:
         page = self.current
         if page is None:
@@ -1815,7 +1844,7 @@ class _Handler(socketserver.StreamRequestHandler):
                                                                         getattr(exc, "untrusted", None))}
             daemon.dlog(f"{cmd} error {reply['error']['class']}")
         except Exception as exc:  # noqa: BLE001 - never let a handler take the daemon down
-            daemon.dlog(f"{cmd} crashed: {type(exc).__name__}")
+            daemon.dlog(f"{cmd} crashed: {type(exc).__name__} at {_frames(exc)}")
             reply = {"ok": False, "error": {"class": core_common.ERR_DAEMON, "message": "Command failed unexpectedly; inspect its journal receipt before repeating an action.",
                                             "hint": core_common._hint("daemon_unresponsive", daemon.profile)}}
         finally:
@@ -1941,12 +1970,14 @@ def _serve_locked(launch_file: Path, launch: dict[str, Any], paths: core_common.
         daemon.write_session(port)
         daemon.dlog(f"listening on 127.0.0.1:{port} browser {daemon.browser_version}")
         last_heartbeat = core_common._now()
+        heartbeat_every = core_common.HEARTBEAT_SECONDS
         idle_limit = float(launch.get("idle_seconds") or 0)
         while daemon.stop_reason is None:
             server.handle_request()
             daemon.pump()
-            if core_common._now() - last_heartbeat >= core_common.HEARTBEAT_SECONDS:
-                daemon.write_session(port)
+            if core_common._now() - last_heartbeat >= heartbeat_every:
+                # A write that failed can already have held this single-threaded loop for 2 s: wait longer for the next.
+                heartbeat_every = core_common.HEARTBEAT_SECONDS if daemon.heartbeat(port) else core_common.HEARTBEAT_RETRY_SECONDS
                 last_heartbeat = core_common._now()
             if daemon.idle_expired(idle_limit):
                 daemon._mark_stop("idle")

@@ -415,3 +415,20 @@ def test_export_failure_removes_same_command_temp_file(tmp_path: Path, monkeypat
 
     assert not list(engine.paths.outputs.glob("*"))
     assert not list(engine.paths.outputs.glob(".*.tmp"))
+
+
+def test_row_ref_is_the_rows_own_ref_not_one_spelled_in_a_cell(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A row's accessible name repeats its cells. A cell holding "[ref=e2]" used to become the first row's ref, so
+    # the reply pointed that row at the second row's element.
+    engine = _Engine(tmp_path, _pages()[:1])
+
+    def named_row_snapshot(row: _Row, *, mode: str, timeout: float | None = None) -> str:
+        name = "see [ref=e2] " + " ".join(row.values)
+        return f'- row "{name}" [ref={row.ref}]:' + chr(10) + '  - cell "see [ref=e2]"'
+
+    monkeypatch.setattr(_Row, "aria_snapshot", named_row_snapshot)
+
+    result = tables.extract_table(engine, {"target": None}, 5)
+
+    assert [row["ref"] for row in result["rows"]] == ["f2e1", "f2e2"]
+    assert engine.table_rows[engine.page] == {"f2e1", "f2e2"}

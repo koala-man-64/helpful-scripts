@@ -13,6 +13,10 @@ def profile_config(config: dict[str, Any], profile: str) -> dict[str, Any]:
     profiles = config.get("profiles", {})
     if not isinstance(profiles, dict) or any(not common._is_profile_name(k) or not isinstance(v, dict) for k, v in profiles.items()):
         raise common._tag(RuntimeError("profiles must map valid profile names to policy objects."), common.ERR_CONFIG)
+    # Every profile is checked, not only the one in use: a typo in any of them is a restriction that is not applied.
+    common._check_policy_keys(result, common.PROFILE_POLICY_KEYS, "The policy")
+    for name, overrides in profiles.items():
+        common._check_policy_keys(overrides, common.PROFILE_POLICY_KEYS, f"profiles.{name}")
     result.update(profiles.get(profile, {}))
     if result.get("permission", "commit") not in ("read", "act", "commit"):
         raise common._tag(RuntimeError("permission must be read, act or commit."), common.ERR_CONFIG)

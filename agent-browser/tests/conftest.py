@@ -374,6 +374,20 @@ class FakeLocator:
             return value() if callable(value) else value
         raise AssertionError(f"FakeLocator.evaluate: no fake for js={js[:80]!r}")
 
+    def evaluate_all(self, js: str) -> list[Any]:
+        """One result per matching element, in one round trip: here zero elements or the one bound."""
+        if js == core_daemon.SECRET_ALL_JS:
+            if not self.count():
+                return []
+            try:
+                return [self.evaluate(core_daemon.SECRET_JS)]
+            except Exception:  # noqa: BLE001 - the in-page try/catch reports a control that throws as unknown
+                return [{"unknown": True}]
+        raise AssertionError(f"FakeLocator.evaluate_all: no fake for js={js[:80]!r}")
+
+    def nth(self, index: int) -> "FakeLocator":
+        return self
+
     def element_handle(self, timeout: float | None = None) -> FakeElementHandle:
         return FakeElementHandle(self.element, self._owner_frame)
 

@@ -704,3 +704,78 @@ def test_classified_playwright_errors_mark_their_message_untrusted(make_daemon: 
         assert cli._error_payload(classified)["error"]["untrusted"] == ["message"], text
     logged = daemon._classify(FakePlaywrightError("Locator.click: failed\n  - <div>intercepts pointer events</div>"), "click")
     assert cli._error_payload(logged)["error"]["untrusted"] == ["message", "details"]
+
+
+# ---------------------------------------------------------------------------
+# A failed heartbeat write, and what a crash leaves in the log
+
+
+def test_failed_heartbeat_write_is_logged_and_does_not_raise(make_daemon: Any, monkeypatch: pytest.MonkeyPatch,
+                                                           capsys: pytest.CaptureFixture[str]) -> None:
+    daemon, _ctx, _page = make_daemon()
+
+    def held_open(port: int) -> None:
+        raise PermissionError(13, "The process cannot access the file because it is being used by another process")
+
+    monkeypatch.setattr(daemon, "write_session", held_open)
+    capsys.readouterr()
+
+    assert daemon.heartbeat(4321) is False
+
+    assert "heartbeat not written: PermissionError" in capsys.readouterr().err
+    assert daemon.stop_reason is None
+
+
+def test_no_error_from_a_heartbeat_ends_the_daemon(make_daemon: Any, monkeypatch: pytest.MonkeyPatch,
+                                                  capsys: pytest.CaptureFixture[str]) -> None:
+    daemon, _ctx, _page = make_daemon()
+    daemon.port = 4321
+    assert daemon.heartbeat(4321) is True  # the ordinary case writes session.json
+
+    def unexpected(port: int) -> None:
+        raise TypeError("Object of type set is not JSON serializable")
+
+    monkeypatch.setattr(daemon, "write_session", unexpected)
+    capsys.readouterr()
+
+    assert daemon.heartbeat(4321) is False
+
+    logged = capsys.readouterr().err
+    assert "heartbeat failed: TypeError at test_daemon.py:" in logged and "JSON serializable" not in logged
+
+
+def test_serve_survives_a_heartbeat_that_cannot_be_written(serve_seams: list[bool], monkeypatch: pytest.MonkeyPatch) -> None:
+    # Another program holding session.json open, or a full disk, used to end the daemon and close every session's tabs.
+    paths = core_common._paths("default")
+    launch_file = _write_launch(paths, "daemon-token", idle_seconds=0.01)  # the first idle check ends the loop
+    monkeypatch.setattr(core_common, "HEARTBEAT_SECONDS", 0.0)             # a heartbeat on every turn of the loop
+    real_write = core_daemon.Daemon.write_session
+    writes: list[str] = []
+
+    def first_write_only(daemon: Any, port: int) -> None:
+        writes.append("startup" if not writes else "heartbeat")
+        if len(writes) > 1:
+            raise OSError("disk full")
+        real_write(daemon, port)
+
+    monkeypatch.setattr(core_daemon.Daemon, "write_session", first_write_only)
+
+    assert core_daemon.serve(launch_file) == 0
+
+    log = paths.log.read_text(encoding="utf-8")
+    assert "heartbeat" in writes and "heartbeat not written: OSError" in log
+    assert "fatal" not in log and "stopping: idle" in log
+
+
+def test_command_crash_logs_where_it_was_raised_without_the_error_text(daemon_server: _ServerHarness,
+                                                                      capsys: pytest.CaptureFixture[str]) -> None:
+    capsys.readouterr()
+    daemon_server.fail_next_ping.set()  # the ping handler raises Exception("boom")
+
+    with pytest.raises(RuntimeError) as failed:
+        core_session._request(daemon_server.session, "ping", {}, timeout=2.0)
+
+    assert failed.value.error_class == core_common.ERR_DAEMON
+    logged = capsys.readouterr().err
+    assert "ping crashed: Exception at test_daemon.py:" in logged and "guarded_h_ping" in logged
+    assert "boom" not in logged and "Traceback" not in logged

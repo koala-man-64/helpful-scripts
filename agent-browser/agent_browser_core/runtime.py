@@ -405,16 +405,28 @@ class OperatingMixin:
         return str(path)
 
     def _secret_masks(self, page: Any) -> list[Any]:
-        # The broad selector also covers sign-in controls before labels settle.
+        """What a screenshot blacks out. Each frame's editable controls are inspected in one round trip: one per
+        control took 11 s on a form with 800 inputs, twice per commit. A control that is secret or cannot be
+        inspected is masked, and so is every control of a frame whose inspection fails."""
+        from .daemon import SECRET_ALL_JS
         masks = []
         for frame in page.frames:
+            # The broad selector also covers sign-in controls before labels settle.
             masks.append(frame.locator('input[type="password"],input[autocomplete="one-time-code"],input[name*="password" i],input[name*="token" i]'))
             candidates = frame.locator(
                 'input:not([type="hidden"]):not([type="button"]):not([type="submit"]):not([type="reset"]):'
                 'not([type="checkbox"]):not([type="radio"]),textarea,[contenteditable]'
             )
-            if hasattr(candidates, "all"):
-                masks.extend(loc for loc in candidates.all() if self._is_secret(page, loc))
+            try:
+                infos = candidates.evaluate_all(SECRET_ALL_JS)
+            except Exception:  # noqa: BLE001 - a navigating or detached frame: none of its controls is confirmed clear
+                infos = None
+            if not isinstance(infos, list):
+                masks.append(candidates)
+                continue
+            for index, info in enumerate(infos):
+                if not isinstance(info, dict) or self._verdict(page, info, page.url) != "clear":
+                    masks.append(candidates.nth(index))
         return masks
 
     def h_ping(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:

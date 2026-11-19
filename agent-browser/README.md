@@ -21,7 +21,7 @@ one command at a time. Playwright does the driving; the model only ever sees JSO
 
 ```powershell
 $env:PIP_INDEX_URL = "https://pypi.org/simple"; $env:PIP_EXTRA_INDEX_URL = ""; $env:PIP_NO_INPUT = "1"
-python -m pip install --user "playwright>=1.61,<2"   # Edge or Chrome is used as installed; no `playwright install`
+python -m pip install --user "playwright>=1.61,<1.66"   # Edge or Chrome is used as installed; no `playwright install`
 python -m pip install --user -e agent-browser           # console script: agent-browser
 agent-browser doctor                                    # Python, Playwright, browser, policies, Job Object, skill
 agent-browser goto https://example.com                  # opens the window and prints the page as refs
@@ -446,7 +446,10 @@ and path are ignored, so an entry written with a scheme or port matches nothing)
 allowed until it is back. `wait` is refused there too: during a sign-in on an identity provider outside the list, run
 `needs-human --signed-in <app host>` and poll it with `state --handoff ID`. The daemon reads `config.json`
 when it starts, so after editing it run `stop` then `start`. `eval` must be a JSON boolean; anything else is a
-`config` error rather than a silent default. An absent `allowed_hosts` leaves hosts
+`config` error rather than a silent default. The keys are `eval`, `allowed_hosts`, `upload_roots`, `permission`,
+`uploads`, `evidence_max_bytes`, `max_chars` and `profiles`; a profile object under `profiles` takes the same keys
+except `profiles`. Any other key, at either level and in any profile, is a `config` error that names it, so a
+misspelled restriction (`allow_hosts`, `permision`) cannot leave the permissive default in force. An absent `allowed_hosts` leaves hosts
 unrestricted; a present list must contain at least one nonblank host. An empty
 effective list is a configuration error.
 
@@ -456,11 +459,14 @@ effective list is a configuration error.
 %LOCALAPPDATA%\agent-browser\profiles\<name>\
   user-data\        the Chromium profile: cookies, local storage, sign-ins (never your daily Edge profile)
   session.json      pid, port, token, browser, heartbeat, busy (request in flight: cmd, since, until), code hash (written by the
-                    daemon; the `start` that launched it adds `launcher`)
+                    daemon; the `start` that launched it adds `launcher`). A heartbeat that cannot be written (the file
+                    held open by another program, a full disk) is logged and tried again 30 s later; it never stops
+                    the daemon
   session.lock      held by the daemon for its lifetime; the OS releases it on death (liveness truth)
   launch.json       the settings and token the client hands the daemon; the daemon deletes it once it holds the lock
   daemon.log        command/status/timing diagnostics and truncated launch/shutdown error text, one sanitised,
-                    URL-redacted line per entry; no command arguments, page content or request values
+                    URL-redacted line per entry; no command arguments, page content or request values. An unexpected
+                    command error adds the file, line and function it was raised at, never its text
   journal.sqlite3   redacted receipts, evidence references and durable human handoffs
   last_snapshot.txt the manual session's last filtered snapshot; with several tabs, also last_snapshot_<tab>.txt
                     per tab (`snapshot_file` names the one written)
@@ -560,7 +566,13 @@ the background route: `alert` is accepted, everything else (`beforeunload` inclu
   changes between the snapshot and the check, falls back to the standard roles alone. A contenteditable field is
   checked only when it has the textbox role. A `last_snapshot*.txt` written by an older version keeps its content
   until the next snapshot rewrites it or `commit journal --clear` removes it.
-- `goto` opens only `http`/`https` (and `about:blank`); `edge://`, `file:`, `javascript:` are refused.
+- `goto` opens only `http`/`https` (and `about:blank`); `edge://`, `file:`, `javascript:` are refused. So is an
+  address that does not name its host plainly (`guarded`): the part before the path may hold only letters, digits,
+  dots, hyphens and underscores (or a bracketed IPv6 address), an optional port and optional userinfo. A backslash
+  there is read by browsers as a slash, which ends the host early; a percent escape, a space or a non-ASCII
+  lookalike is decoded or folded by the browser before it decides. Each can make the host a browser opens differ
+  from the one `allowed_hosts` was checked against, so none is interpreted. Write an international name in its
+  `xn--` form.
 - Uploads, file-backed inputs (`--text-file`, `--js-file`, `--json-file`, `fill-form --file`) and `--path` targets
   must sit under the caller's current folder, this session's `downloads`/`shots`, or `upload_roots`. The daemon
   checks them against the caller's folder, never its own. Apart from this session's `downloads`/`shots`, the state
@@ -660,8 +672,11 @@ one connection, so a new connection renumbers the page and the model's `e7` can 
 after any DOM change. One long-lived connection keeps a ref bound to its element until its frame navigates, keeps
 dialog and download listeners live between commands, and avoids an unauthenticated DevTools port on a signed-in profile.
 
-Verified against Playwright 1.61 on this machine (CI installs the newest release `playwright>=1.61,<2` allows, 1.64 so
-far; both lines are in `TESTED_PLAYWRIGHT`, and another line only gets a `doctor` warning): `aria_snapshot(mode="ai")` puts refs on every visible node that
+Verified against Playwright 1.61 on this machine. CI installs the newest release `playwright>=1.61,<1.66` allows;
+1.61, 1.64 and 1.65 are in `TESTED_PLAYWRIGHT`. The range ends at the newest tested line, because the snapshot text,
+the `aria-ref` engine and the error messages read here are not a versioned Playwright interface: raise the bound
+only after the live suite passes on the newer line. A line outside the list that is installed anyway gets a `doctor`
+warning. Observed behaviour: `aria_snapshot(mode="ai")` puts refs on every visible node that
 receives pointer events (headings and generic divs included, hence the role-based filter); refs inside a frame carry
 `f<N>` prefixes and resolve through `page.locator("aria-ref=f1e4")` (newer versions can prefix main-frame refs too, so
 each prefix is resolved through its element's owner frame); a scoped snapshot empties the ref map and a full
@@ -681,7 +696,7 @@ one refills it with the same numbers; a frame navigation reuses numbers (hence t
 | `guarded` from `check URL` | The page, or one of its redirects, went to a host outside loopback and was blocked; `details.blocked_external` names it. |
 | `action_failed` "Could not confirm the field…" | The credential check could not inspect the field (page navigating, frame detached, focus inside a custom element's closed shadow root). Take a fresh `snapshot` and retry; give `press` a ref if a press without one keeps failing. |
 | `unsaved_changes` | The page has edits and they were kept. Click its Save/Update button, or re-run with `--discard-changes` (MCP: `browser_commit` with `discard_changes`, operation `stop` for a stop) once the user agreed to lose them. A refused `stop` lists the kept tabs in `details.tabs` and closed the rest. |
-| `config` from `start` naming a policy key (`permission`, `profiles`, `evidence_max_bytes`, ...) | `config.json` has a malformed profile policy. `start` checks it before launching a browser; fix the named key and start again. |
+| `config` from `start` naming a policy key (`permission`, `profiles`, `evidence_max_bytes`, ...) | `config.json` has a malformed profile policy or a key the tool does not know (a typo). `start` checks it before launching a browser; fix the named key and start again. |
 | `Profile path is too long` (class `config`) | Set `AGENT_BROWSER_HOME` to a short path inside your user profile, such as `%LOCALAPPDATA%\ab`. |
 | `browser_launch` with a log tail | Read `daemon.log`; `agent-browser doctor` decodes Edge and Chrome policies (`DeveloperToolsAvailability=2`, `ForceEphemeralProfiles`). Try `--browser chrome`. |
 | `profile_in_use` | A stray browser holds the profile folder. `agent-browser clean --profile <p>`. From `clean --purge-profile`: a program (a browser, an editor, a virus scan) still holds files of the profile named in `details.profiles_purge_failed`; close it and run the purge again. |

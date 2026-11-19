@@ -57,6 +57,77 @@ def test_check_url_allowed_hosts_including_subdomains_and_lookalike_rejection() 
         assert exc.value.error_class == core_common.ERR_GUARDED
         assert exc.value.hint == core_common._hint("guarded_host")
 
+
+BACKSLASH = chr(92)
+
+
+@pytest.mark.parametrize("config", [{}, {"allowed_hosts": ["allowed.example"]}])
+@pytest.mark.parametrize("address", [
+    "https://evil.test" + BACKSLASH + "@" + "allowed.example/x",   # urlsplit reads allowed.example; the browser opens evil.test
+    "https://evil.test" + BACKSLASH + ".allowed.example/x",        # urlsplit reads a subdomain of allowed.example
+    "evil.test" + BACKSLASH + "@" + "allowed.example/x",           # the same without a scheme
+    "https://allowed.example" + BACKSLASH + "@" + "evil.test/x",
+])
+def test_check_url_refuses_a_backslash_in_the_authority(address: str, config: dict) -> None:
+    # Browsers read a backslash in an http(s) address as a slash, which ends the host. urlsplit keeps reading and
+    # takes the host after a later @ or dot, so the allowlist checked one host and the browser opened another.
+    with pytest.raises(ValueError) as exc:
+        core_common._check_url(address, _paths(), config)
+    assert exc.value.error_class == core_common.ERR_GUARDED
+    assert exc.value.hint == core_common._hint("guarded_url")
+
+
+@pytest.mark.parametrize("config", [{}, {"allowed_hosts": ["allowed.example"]}])
+@pytest.mark.parametrize("address", [
+    "https://evil.test" + chr(0xFF3C) + ".allowed.example/x",   # fullwidth backslash, which browsers fold to a backslash
+    "https://evil.test%5c.allowed.example/x",                   # percent escapes a browser decodes before it decides
+    "https://evil.test%2f.allowed.example/x",
+    "https://evil.test%40.allowed.example/x",
+    "https://evil.test .allowed.example/x",
+    "https://evil.test" + chr(0) + ".allowed.example/x",
+    "https://evil.test" + chr(0x3002) + "allowed.example/x",    # ideographic full stop, folded to a dot
+    "https://m" + chr(0xFC) + "ller.allowed.example/x",         # an international name must be written as xn--
+    "https:///allowed.example/x",                               # no host at all
+    "https://[allowed.example]/x",
+])
+def test_check_url_refuses_a_host_that_needs_a_browser_to_read_it(address: str, config: dict) -> None:
+    # Every one of these passed the allowlist as a subdomain of allowed.example (or as no host), and was safe only
+    # because browsers happen to reject it. The check must not depend on how a browser reads the address.
+    with pytest.raises(ValueError) as exc:
+        core_common._check_url(address, _paths(), config)
+    assert exc.value.error_class == core_common.ERR_GUARDED
+    assert exc.value.hint == core_common._hint("guarded_url")
+
+
+@pytest.mark.parametrize("address", [
+    "https://allowed.example/x", "https://sub.allowed.example:8443/x?next=%2Fhome", "https://xn--mller-kva.allowed.example/",
+    "https://my_host.allowed.example/", "https://allowed.example:/x", "https://reader%40corp" + "@" + "allowed.example/x",
+])
+def test_check_url_accepts_plain_authorities(address: str) -> None:
+    assert core_common._check_url(address, _paths(), {"allowed_hosts": ["allowed.example"]}) == address
+
+
+@pytest.mark.parametrize("address", ["http://[::1]:8080/x", "http://127.0.0.1:3000/x", "localhost:3000/x"])
+def test_check_url_accepts_ip_literals_and_ports(address: str) -> None:
+    expected = address if "://" in address else "https://" + address
+    assert core_common._check_url(address, _paths(), {}) == expected
+
+
+def test_check_url_keeps_a_backslash_after_the_authority() -> None:
+    address = "https://allowed.example/a" + BACKSLASH + "b?q=" + BACKSLASH
+    assert core_common._check_url(address, _paths(), {"allowed_hosts": ["allowed.example"]}) == address
+
+
+def test_names_and_refs_with_a_trailing_newline_are_refused() -> None:
+    # "$" also matches before a final newline, so a profile named "default" plus a newline used to pass.
+    newline = chr(10)
+    assert core_common._is_profile_name("default") and not core_common._is_profile_name("default" + newline)
+    assert core_common.REF_RE.match("f2e5") and not core_common.REF_RE.match("f2e5" + newline)
+    assert core_common.TAB_ID_RE.match("t2") and not core_common.TAB_ID_RE.match("t2" + newline)
+    with pytest.raises(ValueError) as exc:
+        core_common._validate_profile("default" + newline)
+    assert exc.value.error_class == core_common.ERR_VALIDATION
+
 @pytest.mark.parametrize(
     "host, allowed, expected",
     [
