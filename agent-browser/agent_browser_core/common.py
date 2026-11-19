@@ -114,6 +114,9 @@ START_TIMEOUT = 45.0
 STOP_GRACE = 10.0
 
 
+KILL_GRACE = 5.0                       # how long an ended process gets to disappear before it counts as still running
+
+
 WAIT_DEFAULT = 60.0
 
 
@@ -565,6 +568,8 @@ HINTS = {
     "busy": "Another command held the browser, so this one was not run. Repeat it, or check: {tool} status --profile {profile}",
     "busy_status": "The browser is running another command, not hung. Do not force-stop it. Check again: {tool} status --profile {profile}",
     "profile_in_use": "Another browser holds this profile. Run: {tool} clean --profile {profile}",
+    "still_running": "A process that holds this profile did not end; it may still be shutting down. Wait a few seconds and run the same command again. If it stays, end the pids in details.still_running in Task Manager.",
+    "process_list": "The list of running processes could not be read, so a leftover browser was not looked for. If a later start reports profile_in_use, run: {tool} clean --profile {profile}",
     "playwright_missing": "Install it for the interpreter that runs {tool}: python -m pip install --user \"" + PLAYWRIGHT_REQUIREMENT + "\"",
     "browser_not_found": "Set AGENT_BROWSER_EXE or pass --exe pointing at msedge.exe or chrome.exe.",
     "stale_code": "Implementation changed since daemon startup. Explicitly restart the shared profile: {tool} stop --profile {profile} --all, then {tool} start --profile {profile}. This closes every session in that profile.",
@@ -1177,19 +1182,221 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
-def _kill_tree(pid: int) -> None:
-    if pid <= 0:
-        return
-    if _is_windows():
+class _WindowsProcesses:
+    """The few kernel calls that list, inspect and end processes.
+
+    Nothing here goes through WMI. `taskkill /T` and `Get-CimInstance Win32_Process` both do, and both fail as a
+    whole while WMI is cancelling calls ("Call cancelled"): the first then ends nothing, the second lists nothing.
+    """
+
+    QUERY = 0x1000                              # PROCESS_QUERY_LIMITED_INFORMATION
+    TERMINATE = 0x0001 | 0x1000 | 0x00100000    # PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE
+
+    def __init__(self) -> None:
+        import ctypes  # noqa: PLC0415
+        from ctypes import wintypes  # noqa: PLC0415
+
+        class Entry(ctypes.Structure):  # PROCESSENTRY32W
+            _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                        ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                        ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD),
+                        ("szExeFile", wintypes.WCHAR * 260)]
+
+        class Basic(ctypes.Structure):  # PROCESS_BASIC_INFORMATION
+            _fields_ = [("ExitStatus", ctypes.c_long), ("PebBaseAddress", ctypes.c_void_p), ("AffinityMask", ctypes.c_size_t),
+                        ("BasePriority", ctypes.c_long), ("UniqueProcessId", ctypes.c_size_t),
+                        ("InheritedFromUniqueProcessId", ctypes.c_size_t)]
+
+        class Text(ctypes.Structure):  # UNICODE_STRING
+            _fields_ = [("Length", wintypes.USHORT), ("MaximumLength", wintypes.USHORT), ("Buffer", ctypes.c_void_p)]
+
+        # Private library objects: the prototypes set here must not change what another user of ctypes.windll sees.
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+        native = ctypes.WinDLL("ntdll")  # type: ignore[attr-defined]
+        handle, moment = wintypes.HANDLE, ctypes.POINTER(wintypes.FILETIME)
+        for name, result, arguments in (
+            ("CreateToolhelp32Snapshot", handle, [wintypes.DWORD, wintypes.DWORD]),
+            ("Process32FirstW", wintypes.BOOL, [handle, ctypes.POINTER(Entry)]),
+            ("Process32NextW", wintypes.BOOL, [handle, ctypes.POINTER(Entry)]),
+            ("OpenProcess", handle, [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]),
+            ("TerminateProcess", wintypes.BOOL, [handle, wintypes.UINT]),
+            ("WaitForSingleObject", wintypes.DWORD, [handle, wintypes.DWORD]),
+            ("GetProcessTimes", wintypes.BOOL, [handle, moment, moment, moment, moment]),
+            ("CloseHandle", wintypes.BOOL, [handle]),
+        ):
+            function = getattr(kernel, name)
+            function.restype, function.argtypes = result, arguments
+        native.NtQueryInformationProcess.restype = ctypes.c_long
+        native.NtQueryInformationProcess.argtypes = [handle, ctypes.c_int, ctypes.c_void_p, wintypes.ULONG, ctypes.POINTER(wintypes.ULONG)]
+        self._ctypes, self._wintypes, self._kernel, self._native = ctypes, wintypes, kernel, native
+        self._entry, self._basic, self._text = Entry, Basic, Text
+        self._no_snapshot = ctypes.c_void_p(-1).value  # INVALID_HANDLE_VALUE
+
+    def snapshot(self) -> list[tuple[int, int, str]] | None:
+        """(pid, parent pid, image name) of every process, or None when the list cannot be taken."""
+        handle = self._kernel.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+        if not handle or handle == self._no_snapshot:
+            return None
         try:
-            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=15)
-        except (OSError, subprocess.SubprocessError) as exc:
-            _log(f"taskkill failed for pid {pid}: {exc}")
+            entry = self._entry()
+            entry.dwSize = self._ctypes.sizeof(entry)
+            found: list[tuple[int, int, str]] = []
+            more = self._kernel.Process32FirstW(handle, self._ctypes.byref(entry))
+            while more:
+                found.append((int(entry.th32ProcessID), int(entry.th32ParentProcessID), str(entry.szExeFile)))
+                more = self._kernel.Process32NextW(handle, self._ctypes.byref(entry))
+            return found
+        finally:
+            self._kernel.CloseHandle(handle)
+
+    def open(self, pid: int, access: int) -> int | None:
+        """A handle to `pid`, or None: it is gone, or this user may not open it. While the handle is open the
+        pid cannot be given to another process."""
+        return self._kernel.OpenProcess(access, False, pid) or None
+
+    def close(self, handle: int) -> None:
+        self._kernel.CloseHandle(handle)
+
+    def created(self, handle: int) -> int:
+        """When the process started, in 100 ns ticks; 0 when that cannot be read."""
+        moments = [self._wintypes.FILETIME() for _ in range(4)]
+        if not self._kernel.GetProcessTimes(handle, *(self._ctypes.byref(moment) for moment in moments)):
+            return 0
+        return (moments[0].dwHighDateTime << 32) | moments[0].dwLowDateTime
+
+    def parent(self, handle: int) -> int:
+        """The pid that started the process this handle names; 0 when that cannot be read."""
+        basic = self._basic()
+        status = self._native.NtQueryInformationProcess(handle, 0, self._ctypes.byref(basic), self._ctypes.sizeof(basic), None)
+        return int(basic.InheritedFromUniqueProcessId) if status == 0 else 0
+
+    def command_line(self, handle: int) -> str:
+        """The process's command line; empty when it cannot be read."""
+        needed = self._wintypes.ULONG(0)
+        buffer = self._ctypes.create_string_buffer(2048)
+        status = self._native.NtQueryInformationProcess(handle, 60, buffer, len(buffer), self._ctypes.byref(needed))  # ProcessCommandLineInformation
+        if status != 0 and needed.value > len(buffer):
+            buffer = self._ctypes.create_string_buffer(needed.value)
+            status = self._native.NtQueryInformationProcess(handle, 60, buffer, len(buffer), self._ctypes.byref(needed))
+        if status != 0:
+            return ""
+        text = self._text.from_buffer(buffer)
+        start = self._ctypes.addressof(buffer)
+        if not text.Buffer or not text.Length or text.Buffer < start or text.Buffer + text.Length > start + len(buffer):
+            return ""  # the string must lie inside the buffer the kernel filled
+        return self._ctypes.wstring_at(text.Buffer, text.Length // 2)
+
+    def end(self, handle: int) -> None:
+        self._kernel.TerminateProcess(handle, 1)
+
+    def gone(self, handle: int, wait_ms: int = 0) -> bool:
+        """Has the process exited? Waits up to `wait_ms` for it."""
+        return self._kernel.WaitForSingleObject(handle, wait_ms) == 0  # WAIT_OBJECT_0
+
+
+_WINDOWS_PROCESSES: _WindowsProcesses | None = None
+
+
+def _windows_processes() -> _WindowsProcesses:
+    global _WINDOWS_PROCESSES  # noqa: PLW0603 - the libraries are loaded once per process
+    if _WINDOWS_PROCESSES is None:
+        _WINDOWS_PROCESSES = _WindowsProcesses()
+    return _WINDOWS_PROCESSES
+
+
+def _end_tree(pid: int, api: Any = None) -> bool | None:
+    """Windows: end `pid` and every process it started, each through a handle opened for it. True when `pid` has
+    exited, False when it is still running after KILL_GRACE, None when it could not be opened (it is gone already,
+    or it is not this user's to end).
+
+    A process counts as a child only when the handle opened for it names the member as its parent and it is not
+    older than that member. A pid that an unrelated process took over fails one test or the other, and every handle
+    stays open until the end, so no member's pid can be reused while the tree is walked.
+
+    The whole tree is opened before anything is ended. Ending a member can take others with it at once (a launcher
+    that runs its interpreter in a kill-on-close job does), and a member that has vanished from the process list
+    would hide everything it started. The walk then repeats until a pass finds nothing new: a member can start a
+    process between the snapshot and its own end.
+    """
+    api = api or _windows_processes()
+    root = api.open(pid, api.TERMINATE)
+    if root is None:
+        return None
+    held: dict[int, tuple[Any, int]] = {pid: (root, api.created(root))}  # in the order found: a parent before its children
+    refused = {0, os.getpid()}
+    ended: set[int] = set()
+    try:
+        for _ in range(4):
+            entries = api.snapshot()
+            if entries is None:
+                break
+            grew = True
+            while grew:
+                grew = False
+                for child, parent, _name in entries:
+                    if parent not in held or child in held or child in refused:
+                        continue
+                    handle = api.open(child, api.TERMINATE)
+                    started = api.created(handle) if handle is not None else 0
+                    if handle is None or api.parent(handle) != parent or started < held[parent][1]:
+                        if handle is not None:
+                            api.close(handle)
+                        refused.add(child)
+                        continue
+                    held[child] = (handle, started)
+                    grew = True
+            fresh = [member for member in held if member not in ended]
+            if not fresh:
+                break
+            for member in fresh:  # the root first, so it starts nothing more
+                api.end(held[member][0])
+                ended.add(member)
+        if pid not in ended:  # the process list could not be taken: the root at least
+            api.end(root)
+        return bool(api.gone(root, int(KILL_GRACE * 1000)))
+    finally:
+        for handle, _started in held.values():
+            api.close(handle)
+
+
+def _gone_within(pid: int, seconds: float) -> bool:
+    deadline = _now() + seconds
+    while _pid_alive(pid):
+        if _now() >= deadline:
+            return False
+        _sleep(0.05)
+    return True
+
+
+def _kill_tree(pid: int) -> bool:
+    """End `pid` and every process it started. True when `pid` is no longer running afterwards.
+
+    On Windows the kernel route above comes first; taskkill is kept for a machine where that route fails, and is
+    never the only attempt, because taskkill itself needs WMI.
+    """
+    if pid <= 0:
+        return True
+    if pid == os.getpid():
+        return False  # never this process, whoever asks
+    if _is_windows():
+        ended: bool | None = None
+        try:
+            ended = _end_tree(pid)
+        except Exception as exc:  # noqa: BLE001 - whatever fails in the kernel route, taskkill is still tried
+            _log(f"ending the tree of pid {pid} failed: {type(exc).__name__}")
+        if ended:
+            return True
+        if _pid_alive(pid):
+            try:
+                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=15)
+            except (OSError, subprocess.SubprocessError) as exc:
+                _log(f"taskkill failed for pid {pid}: {exc}")
     else:
         try:
             os.kill(pid, 9)
         except OSError:
             pass
+    return _gone_within(pid, 2.0)
 
 
 def _rmtree_retry(path: Path, attempts: int = 6) -> bool:
@@ -1218,42 +1425,89 @@ def _tail(path: Path, lines: int = 15) -> str:
     return "\n".join(sanitize_text(redact_text(line), 500, single_line=True) for line in text.strip().splitlines()[-lines:])
 
 
-def _processes_using(needle: str) -> list[dict[str, Any]]:
-    """Processes whose command line contains `needle` (ordinal, case-insensitive). Windows CIM only."""
+def _process_table() -> list[dict[str, Any]] | None:
+    """Every process, with the command line where this user may read it: pid, parent, name, cmd. None when the
+    list cannot be read, which is a different answer from an empty list. Windows only, straight from the kernel."""
     if not _is_windows():
-        return []
+        return None
+    try:
+        api = _windows_processes()
+        entries = api.snapshot()
+        if entries is None:
+            return None
+        rows: list[dict[str, Any]] = []
+        for pid, parent, name in entries:
+            cmd = ""
+            handle = api.open(pid, api.QUERY) if pid else None
+            if handle is not None:
+                try:
+                    cmd = api.command_line(handle)
+                finally:
+                    api.close(handle)
+            rows.append({"pid": pid, "parent": parent, "name": name, "cmd": cmd})
+        return rows
+    except Exception as exc:  # noqa: BLE001 - whatever fails here, the answer is "cannot be read"; the CIM query is tried next
+        _log(f"the process list could not be read: {type(exc).__name__}")
+        return None
+
+
+def _cim_processes_using(needle: str) -> list[dict[str, Any]] | None:
+    """The same answer from WMI, for a machine where the kernel calls fail. None when the query itself fails."""
     quoted = needle.replace("'", "''")
     # $PID excludes the PowerShell running this query, whose own command line contains the needle.
+    # With the preference set to Stop, a failed CIM call ends PowerShell with a non-zero exit instead of no output.
     script = (
+        "$ErrorActionPreference = 'Stop'; "
         "Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and "
         f"$_.CommandLine.IndexOf('{quoted}', [System.StringComparison]::OrdinalIgnoreCase) -ge 0 }} | "
         "Select-Object ProcessId, Name, CommandLine | ConvertTo-Json -Compress"
     )
     try:
-        out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, text=True, timeout=30, check=False).stdout.strip()
+        done = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True, text=True, timeout=30, check=False)
     except (OSError, subprocess.SubprocessError):
-        return []
+        return None
+    if done.returncode != 0:
+        return None
+    out = done.stdout.strip()
     if not out:
         return []
     try:
         data = json.loads(out)
     except ValueError:
-        return []
+        return None
     rows = data if isinstance(data, list) else [data]
     return [{"pid": int(r.get("ProcessId") or 0), "name": str(r.get("Name") or ""), "cmd": str(r.get("CommandLine") or "")} for r in rows if r]
 
 
+def _processes_using(needle: str) -> list[dict[str, Any]] | None:
+    """Processes whose command line contains `needle`, whatever its case. None when the process list could not be
+    read at all: an answer no caller may take for "nothing is running". Windows only."""
+    if not _is_windows():
+        return []
+    table = _process_table()
+    if table is None:
+        return _cim_processes_using(needle)
+    wanted = needle.casefold()
+    return [{"pid": row["pid"], "name": row["name"], "cmd": row["cmd"]} for row in table if row["cmd"] and wanted in row["cmd"].casefold()]
+
+
+def _profile_holders(user_data_dir: Path) -> list[dict[str, Any]] | None:
+    """Browser, driver and daemon processes holding this exact profile folder, never a name fragment, and without
+    Chromium's own children, which follow their browser out. None when the process list could not be read."""
+    rows = _processes_using(str(user_data_dir))
+    if rows is None:
+        return None
+    return [proc for proc in rows
+            if proc["name"].lower() in BROWSER_PROCESS_NAMES and "--type=" not in proc["cmd"] and proc["pid"] != os.getpid()]
+
+
 def _kill_browsers_using(user_data_dir: Path, dry_run: bool = False) -> list[int]:
-    """Kill browser/driver/daemon processes holding this exact profile folder. Never a name fragment."""
+    """End the processes holding this exact profile folder. Returns the pids that are gone (with dry_run: the ones
+    that would be ended); a process that survives is not in the list."""
     killed: list[int] = []
-    for proc in _processes_using(str(user_data_dir)):
-        if proc["name"].lower() not in BROWSER_PROCESS_NAMES or "--type=" in proc["cmd"]:
-            continue
-        if proc["pid"] == os.getpid():
-            continue
-        killed.append(proc["pid"])
-        if not dry_run:
-            _kill_tree(proc["pid"])
+    for proc in _profile_holders(user_data_dir) or []:
+        if dry_run or _kill_tree(proc["pid"]):
+            killed.append(proc["pid"])
     return killed
 
 

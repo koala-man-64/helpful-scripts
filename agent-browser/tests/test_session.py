@@ -683,10 +683,10 @@ def test_stop_session_kill_tree_only_if_pid_still_alive(monkeypatch: pytest.Monk
     core_session._write_json_atomic(paths.session, _valid_session(paths, pid=555))
     monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
     monkeypatch.setattr(core_session, "_request", lambda s, cmd, args, timeout, **kw: {"stopping": True})
-    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: True)  # never exits
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: True)  # does not exit when asked
     monkeypatch.setattr(core_common, "_kill_browsers_using", lambda user_data, dry_run=False: [])
-    kill_tree_calls = []
-    monkeypatch.setattr(core_common, "_kill_tree", lambda pid: kill_tree_calls.append(pid))
+    kill_tree_calls: list[int] = []
+    monkeypatch.setattr(core_common, "_kill_tree", lambda pid: kill_tree_calls.append(pid) or True)  # True: it is gone
 
     result = core_session.stop_session(paths)
 
@@ -726,6 +726,84 @@ def test_stop_session_also_kills_browsers_using_the_profile(monkeypatch: pytest.
 
     result = core_session.stop_session(paths)
     assert result["killed_pids"] == [111, 222]
+    assert "note" not in result  # the process list was readable and nothing is left
+
+
+def _edge_holding(paths: core_common.ProfilePaths, pid: int = 777) -> dict[str, Any]:
+    return {"pid": pid, "name": "msedge.exe", "cmd": f'"C:\\Edge\\msedge.exe" --user-data-dir={paths.user_data} about:blank'}
+
+
+def test_a_forced_stop_that_leaves_the_daemon_running_is_an_error_and_keeps_its_record(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # What a forced stop did while WMI was cancelling calls: taskkill ended nothing, the stop said `stopped: true`,
+    # named the daemon in killed_pids and deleted its record.
+    paths = core_common._paths("default")
+    _touch_lock(paths)
+    session = _valid_session(paths, pid=555)
+    core_session._write_json_atomic(paths.session, session)
+    monkeypatch.setattr(core_session, "_liveness", lambda p: ("running", session))
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(core_common, "_kill_tree", lambda pid: False)  # neither the kernel route nor taskkill ended it
+    swept: list[Path] = []
+    monkeypatch.setattr(core_common, "_kill_browsers_using", lambda user_data, dry_run=False: swept.append(user_data) or [])
+
+    with pytest.raises(RuntimeError) as exc:
+        core_session.stop_session(paths, force=True)
+
+    assert exc.value.error_class == core_common.ERR_PROFILE_IN_USE and not isinstance(exc.value, ValueError)  # exit 1
+    assert exc.value.details == {"still_running": [555], "killed_pids": []}
+    assert exc.value.hint == core_common._hint("still_running", "default")
+    assert paths.session.exists()  # status still finds the daemon, and a second stop can try again
+    assert swept == []
+
+
+def test_a_stop_that_leaves_a_browser_holding_the_profile_is_an_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
+    paths = core_common._paths("default")
+    session = _valid_session(paths, pid=555)
+    core_session._write_json_atomic(paths.session, session)
+    monkeypatch.setattr(core_session, "_liveness", lambda p: ("stale", session))  # the daemon died; its browser did not
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(core_common, "_processes_using", lambda needle: [_edge_holding(paths)])
+    asked: list[int] = []
+    monkeypatch.setattr(core_common, "_kill_tree", lambda pid: asked.append(pid) or False)  # it would not end
+
+    with pytest.raises(RuntimeError) as exc:
+        core_session.stop_session(paths, force=True)
+
+    assert exc.value.error_class == core_common.ERR_PROFILE_IN_USE
+    assert exc.value.details == {"still_running": [777], "killed_pids": []} and asked == [777]
+    assert not paths.session.exists()  # the daemon is gone, so its record goes; the error names what is left
+
+
+def test_a_stop_says_so_when_it_could_not_look_for_a_leftover_browser(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
+    paths = core_common._paths("default")
+    _touch_lock(paths)
+    session = _valid_session(paths, pid=555)
+    core_session._write_json_atomic(paths.session, session)
+    monkeypatch.setattr(core_session, "_liveness", lambda p: ("running", session))
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(core_common, "_kill_tree", lambda pid: True)
+    monkeypatch.setattr(core_common, "_processes_using", lambda needle: None)  # neither the kernel list nor CIM answered
+
+    result = core_session.stop_session(paths, force=True)
+
+    assert result["stopped"] is True and result["killed_pids"] == [555]  # the daemon is verified gone
+    assert result["note"] == core_common._hint("process_list", "default")  # the browser sweep is not claimed
+    assert not paths.session.exists()
+
+
+def test_a_stop_ends_a_leftover_browser_and_reports_only_what_is_gone(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
+    paths = core_common._paths("default")
+    session = _valid_session(paths, pid=555)
+    core_session._write_json_atomic(paths.session, session)
+    monkeypatch.setattr(core_session, "_liveness", lambda p: ("stale", session))
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: False)
+    running = [_edge_holding(paths)]
+    monkeypatch.setattr(core_common, "_processes_using", lambda needle: list(running))
+    monkeypatch.setattr(core_common, "_kill_tree", lambda pid: running.clear() or True)
+
+    result = core_session.stop_session(paths)
+
+    assert result == {"profile": "default", "stopped": True, "killed_pids": [777]}
 
 
 # ---------------------------------------------------------------------------
@@ -824,6 +902,73 @@ def test_clean_dry_run_touches_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert paths.session.exists()  # ...but not actually removed
     assert result["artifacts_removed"] == 0
     assert old_file.exists()
+
+
+def test_clean_that_leaves_a_process_holding_the_profile_is_an_error_with_the_rest_reported(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    paths = core_common._paths("default")
+    core_session._write_json_atomic(paths.session, _valid_session(paths))  # stale: no lock is held
+    monkeypatch.setattr(core_common, "_processes_using", lambda needle: [_edge_holding(paths)])
+    monkeypatch.setattr(core_common, "_kill_tree", lambda pid: False)  # it would not end
+
+    with pytest.raises(RuntimeError) as exc:
+        core_session.clean()
+
+    assert exc.value.error_class == core_common.ERR_PROFILE_IN_USE
+    assert exc.value.hint == core_common._hint("still_running", "default")
+    details = exc.value.details
+    assert details["still_running"] == [777] and details["killed_pids"] == []  # not reported as killed
+    assert details["stale_sessions_removed"] == ["default"] and not paths.session.exists()  # the rest was done
+
+
+def test_clean_dry_run_lists_what_it_would_end_and_raises_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    paths = core_common._paths("default")
+    core_session._write_json_atomic(paths.session, _valid_session(paths))
+    monkeypatch.setattr(core_common, "_processes_using", lambda needle: [_edge_holding(paths)])
+    asked: list[int] = []
+    monkeypatch.setattr(core_common, "_kill_tree", lambda pid: asked.append(pid) or True)
+
+    result = core_session.clean(dry_run=True)
+
+    assert result["killed_pids"] == [777] and asked == [] and "note" not in result
+
+
+def test_clean_says_so_when_the_process_list_cannot_be_read(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    paths = core_common._paths("default")
+    core_session._write_json_atomic(paths.session, _valid_session(paths))
+    monkeypatch.setattr(core_common, "_processes_using", lambda needle: None)
+
+    result = core_session.clean()
+
+    assert result["killed_pids"] == [] and result["note"] == core_common._hint("process_list", "default")
+
+
+def test_doctor_does_not_call_a_teardown_clean_when_the_process_list_cannot_be_read(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(core_session, "stop_session", lambda *args, **kwargs: {})
+    monkeypatch.setattr(core_session, "start_session", lambda paths, ns, timeout: {"browser_version": "test", "launcher": "fake"})
+    monkeypatch.setattr(core_session, "_require_running", lambda paths, verb: {"pid": 0})
+    monkeypatch.setattr(core_session, "_request", lambda s, command, args, timeout: (
+        {"snapshot": ['- button "ok" [ref=e1]', '- button "inner" [ref=f1e1]']} if command == "goto" else {}))
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: False)
+    checks: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(core_common, "_processes_using", lambda needle: None)
+    core_session._live_probe(checks)
+    row = next(check for check in checks if check["id"] == "live_teardown")
+    assert row["status"] == "warn" and "could not be read" in row["detail"]
+
+    checks.clear()
+    monkeypatch.setattr(core_common, "_processes_using", lambda needle: [])
+    core_session._live_probe(checks)
+    row = next(check for check in checks if check["id"] == "live_teardown")
+    assert (row["status"], row["detail"]) == ("ok", "daemon and browser exited")
+
+
+def test_focus_says_when_the_process_list_cannot_be_read(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(core_common, "_is_windows", lambda: True)
+    monkeypatch.setattr(core_common, "_processes_using", lambda needle: None)
+
+    assert core_session.focus_window(core_common._paths("default")) == {
+        "profile": "default", "focused": False, "reason": "the process list could not be read"}
 
 
 def test_clean_purge_refused_while_running(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

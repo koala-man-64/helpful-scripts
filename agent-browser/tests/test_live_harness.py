@@ -39,6 +39,17 @@ def _settle(alive_until: dict[int, float], procs: list[dict[str, Any]]) -> tuple
     return blocking, killed, clock
 
 
+def test_teardown_fails_loudly_when_the_process_list_cannot_be_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    # "Nothing survived" needs a list that was read. An unreadable one used to look like an empty one, and a suite
+    # could leave a browser running without failing.
+    monkeypatch.setattr(live_support.core_common, "_processes_using", lambda needle: None)
+
+    with pytest.raises(RuntimeError, match="could not be read"):
+        live_support.browser_processes(Path("C:/t/abx1"))
+    with pytest.raises(RuntimeError, match="could not be read"):
+        live_support.settle_browsers(Path("C:/t/abx1"), kill=lambda pid: None, clock=Clock(), sleep=lambda seconds: None)
+
+
 def test_only_chromium_children_with_a_type_flag_are_helpers() -> None:
     assert [live_support.is_helper(p) for p in (MAIN, DRIVER, PROFILE_IMPORT, RENDERER)] == [False, False, True, True]
     assert live_support.describe([MAIN, PROFILE_IMPORT]) == [

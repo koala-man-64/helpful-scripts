@@ -362,19 +362,41 @@ def stop_session(paths: core_common.ProfilePaths, force: bool = False) -> dict[s
     # The recorded pid is only trusted while the daemon holds the lock (running/busy/unresponsive/starting);
     # a stale record may name a pid that the OS has since given to an unrelated process.
     if pid and state in ("running", "busy", "incompatible", "unresponsive", "starting") and core_common._pid_alive(pid):
-        core_common._kill_tree(pid)
+        if not core_common._kill_tree(pid):
+            # The daemon is still there, so its record stays: status still finds it and a second stop can try again.
+            raise _still_running([paths.profile], [pid], {"killed_pids": list(result["killed_pids"])})
         result["killed_pids"].append(pid)
         result["stopped"] = True
+    left: list[int] = []
+    listed = True
     if state in ("running", "busy", "incompatible", "unresponsive", "stale", "starting"):
         # Chromium's helper processes (--type=...) follow the main process out; give them a moment so a
         # `status`/`clean` right after `stop` does not see a browser that is still winding down.
         deadline = core_common._now() + 4.0
-        while core_common._now() < deadline and any(p["name"].lower() in ("msedge.exe", "chrome.exe") for p in core_common._processes_using(str(paths.user_data))):
+        while core_common._now() < deadline:
+            rows = core_common._processes_using(str(paths.user_data))
+            if rows is None or not any(p["name"].lower() in ("msedge.exe", "chrome.exe") for p in rows):
+                break
             core_common._sleep(0.3)
         result["killed_pids"].extend(k for k in core_common._kill_browsers_using(paths.user_data) if k not in result["killed_pids"])
+        holders = core_common._profile_holders(paths.user_data)
+        listed, left = holders is not None, [p["pid"] for p in holders or []]
         result["stopped"] = True
     paths.session.unlink(missing_ok=True)
+    if left:
+        raise _still_running([paths.profile], left, {"killed_pids": list(result["killed_pids"])})
+    if not listed:
+        result["note"] = core_common._hint("process_list", paths.profile)
     return result
+
+
+def _still_running(profiles: list[str], pids: list[int], details: dict[str, Any]) -> Exception:
+    """A stop or clean that leaves a process holding a profile is an error, never a quiet success."""
+    count = "1 process" if len(pids) == 1 else f"{len(pids)} processes"
+    names = ", ".join(repr(name) for name in profiles)
+    return core_common._tag(RuntimeError(f"{count} holding profile {names} did not end, so the profile is not free."),
+                            core_common.ERR_PROFILE_IN_USE, hint=core_common._hint("still_running", profiles[0]),
+                            details={**details, "still_running": pids})
 
 
 def status_session(paths: core_common.ProfilePaths) -> dict[str, Any]:
@@ -411,6 +433,7 @@ def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = 
     root = core_common._home() / "profiles"
     out: dict[str, Any] = {"home": str(core_common._home()), "stale_sessions_removed": [], "killed_pids": [], "artifacts_removed": 0, "profiles_purged": [], "dry_run": dry_run}
     purge_failed: list[str] = []
+    still_running: dict[str, list[int]] = {}
     if not root.is_dir():
         return out
     cutoff = time.time() - core_common.ARTIFACT_RETENTION_DAYS * 86400
@@ -427,6 +450,11 @@ def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = 
                 paths.session.unlink(missing_ok=True)
         if state in ("stale", "none"):
             out["killed_pids"].extend(core_common._kill_browsers_using(paths.user_data, dry_run=dry_run))
+            holders = core_common._profile_holders(paths.user_data)
+            if holders is None:
+                out["note"] = core_common._hint("process_list", entry.name)
+            elif holders and not dry_run:
+                still_running[entry.name] = [p["pid"] for p in holders]
         download_dirs = [paths.downloads]
         sessions_dir = paths.dir / "sessions"
         if sessions_dir.is_dir():
@@ -461,6 +489,9 @@ def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = 
                                details={**out, "profiles_purge_failed": purge_failed})
     if purge and purge not in out["profiles_purged"]:
         raise core_common._tag(ValueError(f"No profile named {purge!r}."), core_common.ERR_NOT_FOUND, hint=core_common._hint("no_such_profile"))
+    if still_running:
+        # The rest of the cleaning is done and reported in details; what is not done must not read as success.
+        raise _still_running(list(still_running), [pid for found in still_running.values() for pid in found], out)
     return out
 
 
@@ -620,10 +651,16 @@ def _live_probe(checks: list[dict[str, Any]]) -> None:
         pid = int(session.get("pid") or 0)
         stop_session(paths)
         alive = core_common._pid_alive(pid) if pid else False
-        leftovers = [p for p in core_common._processes_using(str(paths.user_data)) if p["name"].lower() in core_common.BROWSER_PROCESS_NAMES and p["pid"] != os.getpid()]
-        _check(checks, "live_teardown", "ok" if not alive and not leftovers else "warn",
-               "daemon and browser exited" if not alive and not leftovers else f"daemon alive={alive}, leftovers={[p['pid'] for p in leftovers]}",
-               None if not alive and not leftovers else f"Run: {core_common.TOOL_NAME} clean --profile _doctor")
+        rows = core_common._processes_using(str(paths.user_data))
+        leftovers = [p for p in rows or [] if p["name"].lower() in core_common.BROWSER_PROCESS_NAMES and p["pid"] != os.getpid()]
+        if rows is None and not alive:
+            # An unreadable process list is not "the browser exited".
+            _check(checks, "live_teardown", "warn", "the daemon exited; the process list could not be read, so a leftover browser was not looked for",
+                   f"Run: {core_common.TOOL_NAME} clean --profile _doctor")
+        else:
+            _check(checks, "live_teardown", "ok" if not alive and not leftovers else "warn",
+                   "daemon and browser exited" if not alive and not leftovers else f"daemon alive={alive}, leftovers={[p['pid'] for p in leftovers]}",
+                   None if not alive and not leftovers else f"Run: {core_common.TOOL_NAME} clean --profile _doctor")
     except (RuntimeError, ValueError) as exc:
         booted = any(c["id"] == "live_boot" for c in checks)
         _check(checks, "live_probe" if booted else "live_boot", "fail", str(exc), getattr(exc, "hint", None))
@@ -636,7 +673,10 @@ def _live_probe(checks: list[dict[str, Any]]) -> None:
 def focus_window(paths: core_common.ProfilePaths) -> dict[str, Any]:
     if not core_common._is_windows():
         return {"profile": paths.profile, "focused": False, "reason": "windows only"}
-    pids = {p["pid"] for p in core_common._processes_using(str(paths.user_data)) if p["name"].lower() in ("msedge.exe", "chrome.exe")}
+    rows = core_common._processes_using(str(paths.user_data))
+    if rows is None:
+        return {"profile": paths.profile, "focused": False, "reason": "the process list could not be read"}
+    pids = {p["pid"] for p in rows if p["name"].lower() in ("msedge.exe", "chrome.exe")}
     if not pids:
         return {"profile": paths.profile, "focused": False, "reason": "no browser process"}
     try:

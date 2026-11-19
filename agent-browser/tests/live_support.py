@@ -36,7 +36,11 @@ class LiveTeardownWarning(UserWarning):
 
 
 def browser_processes(root: Path) -> list[dict[str, Any]]:
-    return [proc for proc in core_common._processes_using(str(root)) if proc["name"].lower() in BROWSER_NAMES]
+    rows = core_common._processes_using(str(root))
+    if rows is None:
+        # Teardown claims "nothing survived". An unreadable process list cannot back that claim, so it fails loudly.
+        raise RuntimeError(f"the process list could not be read, so nothing can be said about the processes under {root}")
+    return [proc for proc in rows if proc["name"].lower() in BROWSER_NAMES]
 
 
 def is_helper(proc: dict[str, Any]) -> bool:

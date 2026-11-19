@@ -38,10 +38,12 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pyte
     monkeypatch.setenv("AGENT_BROWSER_HOME", str(tmp_path / "home"))
     spawned: list[list[str]] = []
     if request.node.get_closest_marker("live") is None:
-        # The process-listing seam shells out to PowerShell CIM on Windows; offline tests never do that.
-        # A test that needs specific processes re-patches it (a later monkeypatch wins). Live tests keep the
-        # real seam: their leftover-browser checks would otherwise see nothing.
-        monkeypatch.setattr(core_common, "_processes_using", lambda needle: [])
+        # The process table is this machine's real processes; offline tests never read it. A test that needs
+        # specific processes patches the table or _processes_using (a later monkeypatch wins), and a test marked
+        # `processes` reads the real table on purpose. Live tests keep it too: their leftover-browser checks
+        # would otherwise see nothing.
+        if request.node.get_closest_marker("processes") is None:
+            monkeypatch.setattr(core_common, "_process_table", lambda: [])
 
         def refuse_spawn(argv: list[str], log_path: Path, cwd: Path) -> tuple[int, str]:
             # A real daemon started here outlives the test (one leaked per bad --timeout before PR 17).
