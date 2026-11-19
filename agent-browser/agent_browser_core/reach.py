@@ -161,7 +161,7 @@ class ReachMixin:
             if args.get("annotate"):
                 served = self._serve_snapshot(page)
                 labels = []
-                for ref in dict.fromkeys(re.findall(r"\[ref=([^\]]+)\]", "\n".join(served.lines))):
+                for ref in served.ref_lines:
                     if len(labels) >= 200: break
                     try:
                         locator = self.resolve(page, ref)

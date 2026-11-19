@@ -512,7 +512,7 @@ def test_parse_round_trips_what_playwright_prints() -> None:
         assert (None if got.value is None else core_common.yaml_unquote(got.value)) == value, line
 
 # ---------------------------------------------------------------------------
-# budget_lines / diff_lines / find_line
+# budget_lines / diff_lines / ref_lines
 
 def test_budget_lines_truncation() -> None:
     lines = ["a", "b", "c"]
@@ -546,11 +546,23 @@ def test_diff_lines() -> None:
     assert core_snapshots.diff_lines(after, [])["removed"] == after
     assert core_snapshots.diff_lines(None, after)["added"] == after
 
-def test_find_line(data_page_text: str) -> None:
-    out = core_snapshots.filter_snapshot(data_page_text)
-    assert core_snapshots.find_line(out, "e6") == '- button "ok" [ref=e6]'
-    assert core_snapshots.find_line(out, "e999") is None
-    assert core_snapshots.find_line(None, "e1") is None
+def test_ref_lines_map_each_shown_ref_to_its_printed_line(data_page_text: str) -> None:
+    ref_lines: dict[str, str] = {}
+    out = core_snapshots.filter_snapshot(data_page_text, ref_lines=ref_lines)
+    assert ref_lines["e6"] == '- button "ok" [ref=e6]'
+    assert "e999" not in ref_lines
+    assert set(ref_lines.values()) <= {line.strip() for line in out}
+
+
+def test_ref_lines_ignore_a_ref_spelled_in_a_name_or_a_value() -> None:
+    # A page can name a control "Cancel [ref=e5]" or hold [ref=e5] in a field. Searching the printed text for
+    # [ref=e5] found those lines first. The map is keyed by the ref Playwright itself gave each line.
+    raw = ('- button "Cancel [ref=e5]" [ref=e9]' + chr(10) + '- textbox "Notes" [ref=e7]: see [ref=e5]' + chr(10)
+           + '- button "Delete account" [ref=e5]')
+    ref_lines: dict[str, str] = {}
+    core_snapshots.filter_snapshot(raw, ref_lines=ref_lines)
+    assert ref_lines == {"e9": '- button "Cancel [ref=e5]" [ref=e9]', "e7": '- textbox "Notes" [ref=e7]: see [ref=e5]',
+                         "e5": '- button "Delete account" [ref=e5]'}
 
 # ---------------------------------------------------------------------------
 # sanitize_text / redact_url / safe_name

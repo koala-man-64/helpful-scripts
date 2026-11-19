@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Many inputs</title>
+  <style>
+    body { margin: 8px; font: 12px sans-serif; }
+    #grid { display: flex; flex-wrap: wrap; gap: 4px; width: 1200px; }
+    #grid input { width: 80px; height: 18px; border: 1px solid #888; background: #fff; }
+  </style>
+</head>
+<body>
+  <h1>Many inputs</h1>
+  <div id="grid"></div>
+  <script>
+    // 120 ordinary fields; the 58th is a code field recognisable only by its label, not by type, name or autocomplete.
+    const grid = document.getElementById('grid');
+    for (let i = 0; i < 120; i++) {
+      const input = document.createElement('input');
+      input.id = 'f' + i;
+      input.setAttribute('aria-label', i === 57 ? 'Security code' : 'Field ' + i);
+      if (i === 57) input.value = '123456';
+      grid.append(input);
+    }
+  </script>
+</body>
+</html>

@@ -64,7 +64,7 @@ per-profile background daemon: JSON in and out, elements addressed by refs (`e12
 `f2e5`) or semantic locators (`--role`, `--name`, `--label`), multi-session tab
 ownership (`--session`), and durable SQLite command receipts (`state`, `journal`).
 
-- Install: `python -m pip install --user "playwright>=1.61,<2"` then
+- Install: `python -m pip install --user "playwright>=1.61,<1.66"` then
   `python -m pip install --user -e "agent-browser[mcp]"` (same pip-index prefix as mcp-chatbot;
   no `playwright install`, the installed Edge/Chrome is used).
 - Test: `cd agent-browser; python -m pytest` (offline; no browser, Playwright never imported).

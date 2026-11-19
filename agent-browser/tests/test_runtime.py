@@ -163,8 +163,10 @@ def test_stop_all_still_stops_the_profile_without_asking(make_daemon):
 
 def test_read_permission_denial_is_journaled_without_values(make_daemon):
     daemon, ctx, page = make_daemon(config={"permission": "read"})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as denied:
         daemon.dispatch("fill", {"target": "e1", "text": "private work note"}, 1)
+    # The class says who refused: without the read gate the same call fails as ref_not_found, also a ValueError.
+    assert denied.value.error_class == common.ERR_GUARDED and "observation only" in str(denied.value)
     rows = daemon.journal.rows("manual")
     assert rows[0]["status"] == "failed"
     assert "private work note" not in json.dumps(rows)

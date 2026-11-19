@@ -122,3 +122,25 @@ def test_manual_and_commit_screenshots_mask_native_and_contenteditable_pixels(cl
         pixels = _sample_screenshot_pixels(cli, session, screenshot, boxes)
         assert set(pixels) == {"native", "main", "iframe"}
         assert all(color[:3] == [255, 0, 255] for color in pixels.values()), (name, pixels)
+
+
+def test_screenshot_masks_the_right_control_among_many(cli, site):
+    # Every editable control of a frame is inspected in one round trip and masked by its position in that answer.
+    # A code field in the middle of 120 inputs must be the one blacked out, and its neighbours must not be.
+    session = "secret-mask-many"
+    cli.ok("goto", f"{site.url}/mask_many_inputs.html", "--session", session)
+
+    boxes = cli.ok("eval", """(() => {
+      const rect = id => {
+        const box = document.getElementById(id).getBoundingClientRect();
+        return {x: box.x, y: box.y, width: box.width, height: box.height};
+      };
+      return {viewport: {width: innerWidth, height: innerHeight}, first: rect('f0'), before: rect('f56'),
+              code: rect('f57'), after: rect('f58'), last: rect('f119')};
+    })()""", "--session", session)["value"]
+
+    shot = cli.ok("screenshot", "--session", session)
+
+    pixels = _sample_screenshot_pixels(cli, session, Path(shot["path"]), boxes)
+    assert pixels["code"][:3] == [255, 0, 255], pixels
+    assert all(pixels[name][:3] != [255, 0, 255] for name in ("first", "before", "after", "last")), pixels

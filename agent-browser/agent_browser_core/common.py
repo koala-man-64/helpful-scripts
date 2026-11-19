@@ -6,7 +6,7 @@ newest snapshot. A per-profile background daemon owns a Playwright persistent co
 browser window, its cookies (sign-ins), and the element refs survive between commands.
 
 Requirements:
-  pip install "playwright>=1.61,<2"      (Edge or Chrome already installed; no `playwright install`)
+  pip install "playwright>=1.61,<1.66"   (Edge or Chrome already installed; no `playwright install`)
   pip install pytest                      (tests only)
 
 Commands (run `agent-browser --help` for full detail):
@@ -69,7 +69,13 @@ CONTRACT_VERSION = 1
 PROTOCOL_VERSION = 3
 
 
-TESTED_PLAYWRIGHT = ("1.61", "1.64")   # aria_snapshot(mode="ai") + aria-ref engine verified on these lines
+TESTED_PLAYWRIGHT = ("1.61", "1.64", "1.65")   # aria_snapshot(mode="ai") + aria-ref engine verified on these lines
+
+
+# The range pyproject.toml installs. Its upper bound is the newest tested line: the snapshot text, the aria-ref
+# engine and the error messages this tool reads are not a versioned Playwright interface, so a newer line is
+# admitted only after the live suite has passed on it.
+PLAYWRIGHT_REQUIREMENT = "playwright>=1.61,<1.66"
 
 
 SESSION_SCHEMA = 1
@@ -78,7 +84,7 @@ SESSION_SCHEMA = 1
 DEFAULT_PROFILE = "default"
 
 
-PROFILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
+PROFILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}\Z")  # \Z, not $: $ also matches before a trailing newline
 
 
 INTERNAL_DATA_PROFILE = "_doctor"
@@ -87,10 +93,10 @@ TEST_PROFILES = frozenset({"_live"})
 RESERVED_PROFILES = frozenset({INTERNAL_DATA_PROFILE}) | TEST_PROFILES
 
 
-REF_RE = re.compile(r"^(f\d+)?e\d+$")
+REF_RE = re.compile(r"^(f\d+)?e\d+\Z")
 
 
-TAB_ID_RE = re.compile(r"^t[1-9]\d*$", re.I)
+TAB_ID_RE = re.compile(r"^t[1-9]\d*\Z", re.I)
 
 
 MAX_PROFILE_PATH_CHARS = 180           # Chromium silently falls back to the default profile past MAX_PATH
@@ -163,6 +169,9 @@ LOCK_PROBE_RETRY = 0.025               # a second look at a lock no live process
 
 
 HEARTBEAT_SECONDS = 5.0
+
+
+HEARTBEAT_RETRY_SECONDS = 30.0         # after a heartbeat that could not be written: the attempt itself can block for 2 s
 
 
 SESSION_AGE_WARN_SECONDS = 8 * 3600
@@ -315,7 +324,19 @@ URL_TRAILING = ".,;:!?)]}'"  # sentence punctuation and a closing quote after a 
 ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 
+# The host part of an http(s) authority as this tool accepts it: letters, digits, dot, hyphen and underscore, or a
+# bracketed IPv6 literal, then an optional port. A percent escape, a space, a control or non-ASCII character or a
+# fullwidth lookalike is refused, so the host urlsplit reports is the host any browser opens.
+AUTHORITY_HOST_RE = re.compile(r"(?:[A-Za-z0-9._-]+|\[[0-9A-Fa-f:.]+\])(?::[0-9]{0,5})?\Z")
+
+
 KEY_EXTENSIONS = frozenset({".pem", ".key", ".pfx", ".p12", ".kdbx", ".ppk", ".jks"})
+
+
+# Every key config.json may hold. A profile object under `profiles` takes the same keys except `profiles` itself.
+# A key outside these is a config error: a misspelled restriction must not leave the default, permissive policy.
+PROFILE_POLICY_KEYS = frozenset({"eval", "allowed_hosts", "upload_roots", "permission", "evidence_max_bytes", "uploads", "max_chars"})
+CONFIG_KEYS = PROFILE_POLICY_KEYS | {"profiles"}
 
 
 HOME_DOT_FOLDERS_ALLOWED = frozenset({".claude"})  # every other dot-folder directly under the user's home is refused
@@ -524,6 +545,7 @@ HINTS = {
     "secret_unverified": "Could not confirm the field is not a password or code field. Run: {tool} snapshot --profile {profile} and retry with a fresh ref; if a press without a ref keeps failing, give it a ref.",
     "guarded_scheme": "Only http:// and https:// URLs can be opened.",
     "guarded_host": "That host is not in allowed_hosts (config.json). Ask the user before continuing.",
+    "guarded_url": "Write the host in plain letters, digits, dots and hyphens, with forward slashes only (the xn-- form for an international name). Anything else can make the browser open a different host than the one written.",
     "guarded_path": "The file must be under the current folder, this session's downloads/shots folders, or a configured upload root.",
     "off_allowlist": "The page left the allowed hosts. Use: {tool} back --profile {profile}, or ask the user.",
     "off_allowlist_wait": "wait cannot watch a page outside allowed_hosts. For a sign-in on an identity provider, run: {tool} needs-human --signed-in <app host> --profile {profile} and poll it with: {tool} state --handoff <id> --profile {profile}; otherwise use: {tool} back --profile {profile}.",
@@ -540,7 +562,7 @@ HINTS = {
     "busy": "Another command held the browser, so this one was not run. Repeat it, or check: {tool} status --profile {profile}",
     "busy_status": "The browser is running another command, not hung. Do not force-stop it. Check again: {tool} status --profile {profile}",
     "profile_in_use": "Another browser holds this profile. Run: {tool} clean --profile {profile}",
-    "playwright_missing": "Install it for the interpreter that runs {tool}: python -m pip install --user \"playwright>=1.61,<2\"",
+    "playwright_missing": "Install it for the interpreter that runs {tool}: python -m pip install --user \"" + PLAYWRIGHT_REQUIREMENT + "\"",
     "browser_not_found": "Set AGENT_BROWSER_EXE or pass --exe pointing at msedge.exe or chrome.exe.",
     "stale_code": "Implementation changed since daemon startup. Explicitly restart the shared profile: {tool} stop --profile {profile} --all, then {tool} start --profile {profile}. This closes every session in that profile.",
     "protocol_mismatch": "Client and daemon are incompatible. Run {tool} stop --profile {profile} --all --force, then {tool} start --profile {profile}. This closes every session in that profile.",
@@ -818,6 +840,7 @@ def _load_config() -> dict[str, Any]:
         raise _tag(RuntimeError(f"config.json is not valid JSON: {exc}"), ERR_CONFIG) from exc
     if not isinstance(data, dict):
         raise _tag(RuntimeError("config.json must contain a JSON object."), ERR_CONFIG)
+    _check_policy_keys(data, CONFIG_KEYS, "config.json")
     out: dict[str, Any] = {}
     if "eval" in data:
         if not isinstance(data["eval"], bool):
@@ -835,6 +858,14 @@ def _load_config() -> dict[str, Any]:
         if key in data:
             out[key] = data[key]
     return out
+
+
+def _check_policy_keys(policy: dict[str, Any], known: frozenset[str], where: str) -> None:
+    """Refuse a policy object with a key outside `known` (a typo such as allow_hosts or permision)."""
+    unknown = sorted(str(key) for key in policy if key not in known)
+    if unknown:
+        names = ", ".join(repr(sanitize_text(key, 60, single_line=True)) for key in unknown[:5])
+        raise _tag(RuntimeError(f"{where} has an unknown key: {names}. Known keys: {', '.join(sorted(known))}."), ERR_CONFIG)
 
 
 def _normalize_allowed_hosts(value: Any) -> list[str]:
@@ -1385,7 +1416,10 @@ def _check_url(url: str, paths: ProfilePaths, config: dict[str, Any]) -> str:
         raise _tag(ValueError("goto needs a URL."), ERR_USAGE)
     if "://" not in raw and not raw.lower().startswith(("about:", "data:", "javascript:", "file:", "blob:")):
         raw = "https://" + raw
-    parts = urllib.parse.urlsplit(raw)
+    try:
+        parts = urllib.parse.urlsplit(raw)
+    except ValueError as exc:  # a bracketed host that is not an IP address, for one
+        raise _tag(ValueError("The address cannot be read as a URL."), ERR_GUARDED, hint=_hint("guarded_url")) from exc
     scheme = parts.scheme.lower()
     allowed = _normalize_allowed_hosts(config["allowed_hosts"]) if "allowed_hosts" in config else None
     if scheme == "about" and parts.path == "blank":
@@ -1394,6 +1428,17 @@ def _check_url(url: str, paths: ProfilePaths, config: dict[str, Any]) -> str:
         return raw
     if scheme not in ALLOWED_SCHEMES:
         raise _tag(ValueError(f"URL scheme {scheme or '(none)'!r} is not allowed."), ERR_GUARDED, hint=_hint("guarded_scheme"))
+    # The host that is checked must be the host a browser opens. Browsers read a backslash in an http(s) address as
+    # a slash, which ends the host, while urlsplit keeps reading and takes the host after a later @ or dot. They
+    # also decode percent escapes and fold lookalike characters before they decide. So the authority may hold no
+    # backslash, space, control or non-ASCII character, and its host must be plain (AUTHORITY_HOST_RE): an address
+    # that needs a browser's reading to find its host is refused, never interpreted.
+    authority = parts.netloc
+    plain = authority.isascii() and not any(ord(c) <= 0x20 or ord(c) == 0x7f or c == "\\" for c in authority)
+    if not plain or not AUTHORITY_HOST_RE.match(authority.rpartition("@")[2]):
+        raise _tag(ValueError("The address does not name its host plainly (letters, digits, dots and hyphens, then forward slashes); "
+                              "a browser could open a different host than the one checked."),
+                   ERR_GUARDED, hint=_hint("guarded_url"))
     host = (parts.hostname or "").lower()
     if allowed is not None and not _host_allowed(host, allowed):
         raise _tag(ValueError(f"Host {host!r} is outside allowed_hosts."), ERR_GUARDED, hint=_hint("guarded_host"))

@@ -11,7 +11,10 @@ requires-python = ">=3.10"
 dependencies = [
     # The engine. aria_snapshot(mode="ai") and the aria-ref selector engine appeared in 1.5x and are
     # what Playwright MCP uses; TESTED_PLAYWRIGHT in agent_browser_core/common.py names verified lines.
-    "playwright>=1.61,<2",
+    # The upper bound is the newest tested line (PLAYWRIGHT_REQUIREMENT there, checked by tests/test_packaging.py):
+    # the snapshot text and error messages this tool reads are not a versioned interface. Raise it only after the
+    # live suite passes on the newer line.
+    "playwright>=1.61,<1.66",
 ]
 
 [project.optional-dependencies]

@@ -473,8 +473,10 @@ def _read_page(engine: Any, page: Any, table: Any, *, keep_refs: bool, row_limit
                 deadline_hit = True
                 break
             snapshot = row.aria_snapshot(mode="ai", **({"timeout": _remaining_ms(deadline)} if bounded else {}))
-            match = re.search(r"\[ref=([^\]]+)\]", snapshot)
-            ref = match[1] if match else None
+            # The row's own line, parsed: its name repeats its cells' text, so [ref=...] written in a cell must not
+            # be taken for the row's ref.
+            own = next(iter(snapshots.parse_ai_snapshot(snapshot)), None)
+            ref = own.ref if own is not None and own.parsed else None
             if ref and prefix and not ref.startswith("f"):
                 ref = prefix + ref
         rows.append({"ref": ref, "cells": cells})
