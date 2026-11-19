@@ -31,5 +31,8 @@ packages = ["agent_browser_core"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["live: needs a real Edge/Chrome and Playwright; run with AGENT_BROWSER_LIVE=1 python -m pytest -m live"]
+markers = [
+    "live: needs a real Edge/Chrome and Playwright; run with AGENT_BROWSER_LIVE=1 python -m pytest -m live",
+    "processes: reads this machine's process list and starts short-lived child processes; no browser (Windows)",
+]
 addopts = "-m 'not live'"
