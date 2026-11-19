@@ -25,6 +25,7 @@ import pytest
 from agent_browser_core import common as core_common
 
 WINDOWS = sys.platform == "win32"
+OWN_ANCESTORS = core_common._own_ancestors  # the real one: conftest replaces it for offline tests, as it does the process table
 SLEEPER = "import time; time.sleep(60)"
 # A parent that starts one more sleeper, prints that one's pid, then sleeps itself.
 PARENT = ("import subprocess, sys, time; "
@@ -43,6 +44,7 @@ class FakeProcesses:
         self.ended: list[int] = []
         self.closed: list[int] = []
         self.snapshots = 0
+        self.opened: list[int] = []
         self.before_snapshot: Any = None
 
     def snapshot(self) -> list[tuple[int, int, str]] | None:
@@ -52,6 +54,7 @@ class FakeProcesses:
         return [(pid, facts["parent"], facts.get("name", "x.exe")) for pid, facts in self.processes.items() if facts["alive"]]
 
     def open(self, pid: int, access: int) -> int | None:
+        self.opened.append(pid)
         facts = self.processes.get(pid)
         if facts is None or not facts.get("openable", True):
             return None
@@ -67,6 +70,8 @@ class FakeProcesses:
 
     def parent(self, handle: int) -> int:
         facts = self.processes[self.handles[handle]]
+        if facts.get("parent_by_handle") == "raises":
+            raise OSError("the kernel call failed")
         return facts.get("parent_by_handle", facts["parent"])
 
     def end(self, handle: int) -> None:
@@ -144,6 +149,57 @@ def test_a_pid_taken_over_since_the_snapshot_is_not_a_child() -> None:
 
     assert 40 not in api.ended and api.processes[40]["alive"] is True
     assert api.all_handles_closed()
+
+
+@pytest.mark.parametrize("unreadable", [10, 11], ids=["the root's start time", "a child's start time"])
+def test_nothing_is_taken_for_a_child_when_a_start_time_cannot_be_read(unreadable: int) -> None:
+    # Without both times the "not older than its parent" test cannot be made, and a reused pid could pass for a child.
+    processes = _tree()
+    processes[unreadable]["created"] = 0
+    api = FakeProcesses(processes)
+
+    assert core_common._end_tree(10, api) is True
+
+    assert api.ended == [10]  # the root is the caller's choice; what hangs below an unprovable link is left alone
+    assert all(api.processes[pid]["alive"] for pid in (11, 12, 13))
+    assert api.all_handles_closed()
+
+
+def test_a_process_that_was_refused_is_not_opened_again_on_a_later_pass() -> None:
+    api = FakeProcesses(_tree(**{"30": {"parent": 10, "created": 50, "name": "notepad.exe"}}))
+
+    def late_child(count: int) -> None:
+        if count == 2:
+            api.processes[14] = {"parent": 11, "created": 135, "name": "msedge.exe", "alive": True}
+
+    api.before_snapshot = late_child
+
+    assert core_common._end_tree(10, api) is True
+
+    assert api.snapshots >= 3 and api.opened.count(30) == 1 and 30 not in api.ended
+
+
+def test_the_walk_stops_after_four_passes_however_much_the_tree_keeps_starting() -> None:
+    api = FakeProcesses(_tree())
+
+    def one_more(count: int) -> None:  # every snapshot shows a process the driver started since the last one
+        api.processes[100 + count] = {"parent": 11, "created": 200 + count, "name": "msedge.exe", "alive": True}
+
+    api.before_snapshot = one_more
+
+    assert core_common._end_tree(10, api) is True  # the answer is about the root
+
+    assert api.snapshots == 4 and [pid for pid in (101, 102, 103, 104) if pid in api.ended] == [101, 102, 103, 104]
+    assert api.all_handles_closed()
+
+
+def test_a_handle_is_closed_when_looking_at_a_process_fails() -> None:
+    api = FakeProcesses(_tree(**{"15": {"parent": 11, "created": 125, "parent_by_handle": "raises", "name": "msedge.exe"}}))
+
+    with pytest.raises(OSError):
+        core_common._end_tree(10, api)
+
+    assert api.all_handles_closed() and api.ended == []  # nothing was ended yet: _kill_tree goes on to taskkill
 
 
 def test_a_process_started_while_the_tree_was_ending_is_found_on_the_next_pass() -> None:
@@ -266,6 +322,75 @@ def test_kill_tree_on_a_process_that_is_already_gone_is_true_without_any_program
     assert core_common._kill_tree(4242) is True
 
 
+def _ancestry(**facts: dict[str, Any]) -> FakeProcesses:
+    me = os.getpid()
+    processes: dict[int, dict[str, Any]] = {
+        me: {"parent": 71, "created": 500, "name": "python.exe"},
+        71: {"parent": 72, "created": 400, "name": "python.exe"},   # a venv launcher
+        72: {"parent": 73, "created": 300, "name": "bash.exe"},
+        73: {"parent": 1, "created": 200, "name": "claude.exe"},
+        80: {"parent": 1, "created": 100, "name": "explorer.exe"},
+    }
+    for pid, changed in facts.items():
+        processes[int(pid)].update(changed)
+    return FakeProcesses(processes)
+
+
+def test_own_ancestors_follow_the_parent_chain() -> None:
+    api = _ancestry()
+
+    assert OWN_ANCESTORS(api) == {71, 72, 73}  # pid 1 is not in the list, so the chain ends there
+    assert api.all_handles_closed()
+
+
+def test_a_recorded_parent_that_started_after_its_child_is_a_reused_pid_and_ends_the_chain() -> None:
+    api = _ancestry(**{"72": {"created": 450}})  # 71's real parent is gone; another process now has pid 72
+
+    assert OWN_ANCESTORS(api) == {71}
+
+
+@pytest.mark.parametrize("failure", ["no snapshot", "own start time unreadable", "the kernel call raises"])
+def test_own_ancestors_are_empty_when_they_cannot_be_read(failure: str) -> None:
+    api = _ancestry()
+    if failure == "no snapshot":
+        api.before_snapshot = lambda count: "unreadable"
+    elif failure == "own start time unreadable":
+        api.processes[os.getpid()]["created"] = 0
+    else:
+        api.created = lambda handle: (_ for _ in ()).throw(OSError("failed"))  # type: ignore[method-assign]
+
+    assert OWN_ANCESTORS(api) == set()  # a guard that cannot be computed must not block a stop
+
+
+def test_kill_tree_refuses_a_process_this_one_runs_under(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A venv launcher has its interpreter's command line, so a holder search can name the caller's own parent.
+    def refuse(pid: int) -> bool:
+        raise AssertionError("a process the caller runs under must not be handed to the kernel route")
+
+    monkeypatch.setattr(core_common, "_is_windows", lambda: True)
+    monkeypatch.setattr(core_common, "_own_ancestors", lambda api=None: {4242})
+    monkeypatch.setattr(core_common, "_end_tree", refuse)
+    monkeypatch.setattr(core_common.subprocess, "run", _refuse_programs)
+
+    assert core_common._kill_tree(4242) is False
+
+
+def test_gone_within_collects_its_own_child_where_a_dead_child_lingers(monkeypatch: pytest.MonkeyPatch, fake_clock: Any) -> None:
+    # POSIX: a killed child still answers a signal until its parent collects it, so it would read as still running.
+    collected: list[tuple[int, int]] = []
+    monkeypatch.setattr(core_common, "_is_windows", lambda: False)
+    monkeypatch.setattr(os, "WNOHANG", 1, raising=False)
+    monkeypatch.setattr(os, "waitpid", lambda pid, options: collected.append((pid, options)) or (pid, 0))
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: not collected)
+
+    assert core_common._gone_within(4242, 2.0) is True
+    assert collected == [(4242, 1)]
+
+    monkeypatch.setattr(os, "waitpid", lambda pid, options: (_ for _ in ()).throw(ChildProcessError()))  # someone else's child
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: True)
+    assert core_common._gone_within(4242, 2.0) is False
+
+
 def test_kill_tree_never_ends_the_process_that_calls_it(monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(pid: int) -> bool:
         raise AssertionError("the calling process must not be handed to the kernel route")
@@ -373,6 +498,25 @@ def test_kill_browsers_using_lists_only_what_is_gone(monkeypatch: pytest.MonkeyP
     assert core_common._kill_browsers_using(Path(HOME), dry_run=True) == [1, 8] and asked == []
 
 
+def test_the_holders_are_read_again_before_each_one_is_ended(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Ending one holder can take seconds. By then the second pid read at the start may have gone with the first
+    # one's tree, and the number may belong to another program.
+    second = {"pid": 8, "name": "chrome.exe", "cmd": rf"chrome.exe --user-data-dir={HOME}"}
+    running = [EDGE, second]
+    monkeypatch.setattr(core_common, "_processes_using", lambda needle: list(running))
+    asked: list[int] = []
+
+    def end(pid: int) -> bool:
+        asked.append(pid)
+        running.clear()  # the second holder went with the first one's tree
+        return True
+
+    monkeypatch.setattr(core_common, "_kill_tree", end)
+
+    assert core_common._kill_browsers_using(Path(HOME)) == [1]
+    assert asked == [1]  # pid 8 is never ended on the strength of the first reading
+
+
 # ---------------------------------------------------------------------------
 # The real kernel route, on real child processes
 
@@ -385,6 +529,16 @@ def _alive_after(pids: list[int], seconds: float) -> list[int]:
         time.sleep(0.05)
         left = [pid for pid in left if core_common._pid_alive(pid)]
     return left
+
+
+def _listed_after(token: str, seconds: float) -> list[int] | None:
+    """The pids whose command line still has the token once `seconds` have passed; None if the list cannot be read."""
+    deadline = time.monotonic() + seconds
+    while True:
+        rows = core_common._processes_using(token)
+        if not rows or time.monotonic() >= deadline:
+            return None if rows is None else [row["pid"] for row in rows]
+        time.sleep(0.05)
 
 
 @contextlib.contextmanager
@@ -433,7 +587,86 @@ def test_the_process_table_shows_a_real_child_with_its_command_line_and_parent()
         found = core_common._processes_using(token.upper())  # whatever its case
         assert found is not None and pid in {row["pid"] for row in found}
         assert all(token in row["cmd"] for row in found)
-    assert core_common._processes_using(token) == []  # readable, and nothing left
+    assert _listed_after(token, 15.0) == []  # readable, and nothing left once the ended processes are gone
+
+
+class _FailingList:
+    """kernel32 as far as snapshot() uses it, with a list that is empty or that breaks off."""
+
+    def __init__(self, entries: int, last_error: int) -> None:
+        self.left, self.last_error, self.closed = entries, last_error, 0
+
+    def CreateToolhelp32Snapshot(self, flags: int, pid: int) -> int:  # noqa: N802 - the Windows name
+        return 77
+
+    def _next(self, handle: int, entry: Any) -> int:
+        import ctypes
+
+        if self.left:
+            self.left -= 1
+            entry._obj.th32ProcessID, entry._obj.th32ParentProcessID, entry._obj.szExeFile = 4, 0, "System"
+            return 1
+        ctypes.set_last_error(self.last_error)
+        return 0
+
+    Process32FirstW = Process32NextW = _next
+
+    def CloseHandle(self, handle: int) -> int:  # noqa: N802
+        self.closed += 1
+        return 1
+
+
+@pytest.mark.skipif(not WINDOWS, reason="the kernel route is Windows only")
+@pytest.mark.parametrize("entries, last_error, readable", [(0, 18, False), (3, 5, False), (3, 18, True)],
+                         ids=["an empty list", "a list that breaks off", "a list that ends normally"])
+def test_a_process_list_that_is_empty_or_breaks_off_is_unreadable(entries: int, last_error: int, readable: bool) -> None:
+    # The caller's own process is in every real list, and a list cut short must not read as "the rest is not running".
+    api = core_common._WindowsProcesses()
+    api._kernel = _FailingList(entries, last_error)
+
+    found = api.snapshot()
+
+    assert (found is not None) is readable and api._kernel.closed == 1
+    if readable:
+        assert found == [(4, 0, "System")] * 3
+
+
+@pytest.mark.skipif(not WINDOWS, reason="the kernel route is Windows only")
+def test_the_structures_have_the_sizes_windows_gives_them() -> None:
+    import ctypes
+
+    api = core_common._WindowsProcesses()
+    sizes = (ctypes.sizeof(api._entry), ctypes.sizeof(api._basic), ctypes.sizeof(api._text))
+
+    assert sizes == ((568, 48, 16) if ctypes.sizeof(ctypes.c_void_p) == 8 else (556, 24, 8))
+
+
+@pytest.mark.processes
+@pytest.mark.skipif(not WINDOWS, reason="the kernel route is Windows only")
+def test_a_command_line_longer_than_the_first_buffer_is_read_whole() -> None:
+    token = f"abk-{uuid.uuid4().hex}"
+    padding = "x" * 5000  # the first read offers 2048 bytes; the kernel then says how many it needs
+    process = subprocess.Popen([sys.executable, "-c", SLEEPER, padding, token])
+    try:
+        table = core_common._process_table()
+        assert table is not None
+        row = next(row for row in table if row["pid"] == process.pid)
+        assert row["cmd"].endswith(token) and padding in row["cmd"]
+    finally:
+        _end_everything_named(token)
+        process.wait(timeout=10)
+
+
+@pytest.mark.processes
+@pytest.mark.skipif(not WINDOWS, reason="the kernel route is Windows only")
+def test_the_real_ancestors_of_this_test_include_its_parent_and_not_itself() -> None:
+    table = core_common._process_table()
+    assert table is not None
+    parent = next(row["parent"] for row in table if row["pid"] == os.getpid())
+
+    found = core_common._own_ancestors()
+
+    assert parent in found and os.getpid() not in found
 
 
 @pytest.mark.processes
@@ -460,7 +693,7 @@ def test_kill_tree_ends_a_real_process_and_what_it_started_with_no_helper_progra
             patch.setattr(core_common.subprocess, "run", _refuse_programs)  # neither taskkill nor PowerShell
             assert core_common._kill_tree(parent) is True
 
-        assert _alive_after(everyone, 5.0) == []
+        assert _alive_after(everyone, 15.0) == []
         assert core_common._pid_alive(bystander)  # a process outside the tree is untouched
 
 

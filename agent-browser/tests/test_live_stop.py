@@ -115,12 +115,13 @@ def test_the_kernel_list_and_the_cim_query_agree_about_a_running_browser(stop_ho
     assert code == 0 and started.get("status") == "started", err
 
     def mains(rows: list[dict[str, Any]]) -> set[tuple[int, str]]:
-        return {(row["pid"], row["name"].lower()) for row in rows if "--type=" not in row["cmd"]}  # helpers come and go
+        # The browser itself: its helpers (--type=) come and go between the two readings.
+        return {(row["pid"], row["name"].lower()) for row in rows
+                if row["name"].lower() in ("msedge.exe", "chrome.exe") and "--type=" not in row["cmd"]}
 
     from_cim = common._cim_processes_using(str(stop_home))
     if from_cim is None:
         pytest.skip("WMI did not answer, which is the failure the kernel route exists for")
     from_kernel = common._processes_using(str(stop_home))
 
-    assert from_kernel is not None and mains(from_kernel) == mains(from_cim)
-    assert any(name in ("msedge.exe", "chrome.exe") for _pid, name in mains(from_kernel))
+    assert from_kernel is not None and mains(from_kernel) == mains(from_cim) and mains(from_kernel)

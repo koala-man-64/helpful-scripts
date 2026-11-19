@@ -568,8 +568,9 @@ HINTS = {
     "busy": "Another command held the browser, so this one was not run. Repeat it, or check: {tool} status --profile {profile}",
     "busy_status": "The browser is running another command, not hung. Do not force-stop it. Check again: {tool} status --profile {profile}",
     "profile_in_use": "Another browser holds this profile. Run: {tool} clean --profile {profile}",
-    "still_running": "A process that holds this profile did not end; it may still be shutting down. Wait a few seconds and run the same command again. If it stays, end the pids in details.still_running in Task Manager.",
-    "process_list": "The list of running processes could not be read, so a leftover browser was not looked for. If a later start reports profile_in_use, run: {tool} clean --profile {profile}",
+    "still_running": "A process that holds this profile is still running; it may be shutting down or still starting. Wait a few seconds and run the same command again. If it stays, end the pids in details.still_running in Task Manager.",
+    "process_list": "The list of running processes could not be read, so a leftover browser was not looked for. Run the same command again; if a later start reports profile_in_use, run: {tool} clean --profile {profile}",
+    "process_list_clean": "The list of running processes could not be read, so leftover browsers were not looked for. Run the same command again.",
     "playwright_missing": "Install it for the interpreter that runs {tool}: python -m pip install --user \"" + PLAYWRIGHT_REQUIREMENT + "\"",
     "browser_not_found": "Set AGENT_BROWSER_EXE or pass --exe pointing at msedge.exe or chrome.exe.",
     "stale_code": "Implementation changed since daemon startup. Explicitly restart the shared profile: {tool} stop --profile {profile} --all, then {tool} start --profile {profile}. This closes every session in that profile.",
@@ -1233,7 +1234,11 @@ class _WindowsProcesses:
         self._no_snapshot = ctypes.c_void_p(-1).value  # INVALID_HANDLE_VALUE
 
     def snapshot(self) -> list[tuple[int, int, str]] | None:
-        """(pid, parent pid, image name) of every process, or None when the list cannot be taken."""
+        """(pid, parent pid, image name) of every process, or None when the list cannot be taken.
+
+        A list that came back empty, or that stopped for any reason but its own end, is None too: the caller's
+        own process is always in a real one, and a cut-off list must not read as "the rest is not running".
+        """
         handle = self._kernel.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
         if not handle or handle == self._no_snapshot:
             return None
@@ -1241,10 +1246,13 @@ class _WindowsProcesses:
             entry = self._entry()
             entry.dwSize = self._ctypes.sizeof(entry)
             found: list[tuple[int, int, str]] = []
+            self._ctypes.set_last_error(0)
             more = self._kernel.Process32FirstW(handle, self._ctypes.byref(entry))
             while more:
                 found.append((int(entry.th32ProcessID), int(entry.th32ParentProcessID), str(entry.szExeFile)))
                 more = self._kernel.Process32NextW(handle, self._ctypes.byref(entry))
+            if not found or self._ctypes.get_last_error() not in (0, 18):  # 18: ERROR_NO_MORE_FILES, the normal end
+                return None
             return found
         finally:
             self._kernel.CloseHandle(handle)
@@ -1290,7 +1298,8 @@ class _WindowsProcesses:
         self._kernel.TerminateProcess(handle, 1)
 
     def gone(self, handle: int, wait_ms: int = 0) -> bool:
-        """Has the process exited? Waits up to `wait_ms` for it."""
+        """Has the process exited? Waits up to `wait_ms` for it. Only for a handle opened with TERMINATE, which
+        carries the right to wait; on any other handle the wait fails and the answer is False."""
         return self._kernel.WaitForSingleObject(handle, wait_ms) == 0  # WAIT_OBJECT_0
 
 
@@ -1307,25 +1316,28 @@ def _windows_processes() -> _WindowsProcesses:
 def _end_tree(pid: int, api: Any = None) -> bool | None:
     """Windows: end `pid` and every process it started, each through a handle opened for it. True when `pid` has
     exited, False when it is still running after KILL_GRACE, None when it could not be opened (it is gone already,
-    or it is not this user's to end).
+    or it is not this user's to end). The answer is about `pid` alone: its descendants are ended, not waited for.
 
-    A process counts as a child only when the handle opened for it names the member as its parent and it is not
-    older than that member. A pid that an unrelated process took over fails one test or the other, and every handle
-    stays open until the end, so no member's pid can be reused while the tree is walked.
+    A process counts as a child only when the handle opened for it names the member as its parent, both start
+    times can be read, and it is not older than that member. A pid that an unrelated process took over fails one
+    test or the other, and every handle stays open until the end, so no member's pid can be reused while the tree
+    is walked. What cannot be shown to be a child is left alone, with everything below it.
 
-    The whole tree is opened before anything is ended. Ending a member can take others with it at once (a launcher
-    that runs its interpreter in a kill-on-close job does), and a member that has vanished from the process list
-    would hide everything it started. The walk then repeats until a pass finds nothing new: a member can start a
-    process between the snapshot and its own end.
+    Each pass opens every process it finds before it ends any of them. Ending a member can take others with it at
+    once (a launcher that runs its interpreter in a kill-on-close job does), and a member that has vanished from
+    the process list would hide everything it started. The walk repeats, four passes at most, until one finds
+    nothing new: a member can start a process between the snapshot and its own end. When the process list cannot
+    be taken at all, `pid` alone is ended.
     """
     api = api or _windows_processes()
     root = api.open(pid, api.TERMINATE)
     if root is None:
         return None
-    held: dict[int, tuple[Any, int]] = {pid: (root, api.created(root))}  # in the order found: a parent before its children
+    held: dict[int, tuple[Any, int]] = {pid: (root, 0)}  # pid -> (handle, start time), a parent before its children
     refused = {0, os.getpid()}
     ended: set[int] = set()
     try:
+        held[pid] = (root, api.created(root))
         for _ in range(4):
             entries = api.snapshot()
             if entries is None:
@@ -1337,10 +1349,17 @@ def _end_tree(pid: int, api: Any = None) -> bool | None:
                     if parent not in held or child in held or child in refused:
                         continue
                     handle = api.open(child, api.TERMINATE)
-                    started = api.created(handle) if handle is not None else 0
-                    if handle is None or api.parent(handle) != parent or started < held[parent][1]:
-                        if handle is not None:
-                            api.close(handle)
+                    if handle is None:
+                        refused.add(child)
+                        continue
+                    try:
+                        started, older = api.created(handle), held[parent][1]
+                        is_child = api.parent(handle) == parent and bool(started) and bool(older) and started >= older
+                    except BaseException:
+                        api.close(handle)
+                        raise
+                    if not is_child:
+                        api.close(handle)
                         refused.add(child)
                         continue
                     held[child] = (handle, started)
@@ -1359,25 +1378,70 @@ def _end_tree(pid: int, api: Any = None) -> bool | None:
             api.close(handle)
 
 
+def _own_ancestors(api: Any = None) -> set[int]:
+    """The pids this process runs under, as far up as the chain can be trusted. A recorded parent that started
+    after its child is a reused pid, not a parent, and the chain ends there. Empty when nothing can be read."""
+    if api is None and not _is_windows():
+        return set()
+    try:
+        api = api or _windows_processes()
+        entries = api.snapshot()
+        if entries is None:
+            return set()
+        parents = {pid: parent for pid, parent, _name in entries}
+
+        def started(pid: int) -> int:
+            handle = api.open(pid, api.QUERY)
+            if handle is None:
+                return 0
+            try:
+                return int(api.created(handle))
+            finally:
+                api.close(handle)
+
+        found: set[int] = set()
+        child, born = os.getpid(), started(os.getpid())
+        while born:
+            parent = parents.get(child, 0)
+            older = started(parent) if parent and parent not in found and parent != os.getpid() else 0
+            if not older or older > born:
+                break
+            found.add(parent)
+            child, born = parent, older
+        return found
+    except Exception as exc:  # noqa: BLE001 - a guard that cannot be computed protects nothing more; it must not block a stop
+        _log(f"this process's ancestors could not be read: {type(exc).__name__}")
+        return set()
+
+
 def _gone_within(pid: int, seconds: float) -> bool:
     deadline = _now() + seconds
-    while _pid_alive(pid):
+    while True:
+        if not _is_windows():
+            # A killed child stays a zombie, and still answers a signal, until its parent collects it. When `pid`
+            # is this process's child, collect it; for anyone else's child the call fails and changes nothing.
+            try:
+                os.waitpid(pid, os.WNOHANG)
+            except OSError:
+                pass
+        if not _pid_alive(pid):
+            return True
         if _now() >= deadline:
             return False
         _sleep(0.05)
-    return True
 
 
 def _kill_tree(pid: int) -> bool:
     """End `pid` and every process it started. True when `pid` is no longer running afterwards.
 
     On Windows the kernel route above comes first; taskkill is kept for a machine where that route fails, and is
-    never the only attempt, because taskkill itself needs WMI.
+    never the only attempt, because taskkill itself needs WMI. A pid this process runs under is refused: ending
+    it would end the caller.
     """
     if pid <= 0:
         return True
-    if pid == os.getpid():
-        return False  # never this process, whoever asks
+    if pid == os.getpid() or pid in _own_ancestors():
+        return False  # never this process or one it runs under, whoever asks
     if _is_windows():
         ended: bool | None = None
         try:
@@ -1503,12 +1567,20 @@ def _profile_holders(user_data_dir: Path) -> list[dict[str, Any]] | None:
 
 def _kill_browsers_using(user_data_dir: Path, dry_run: bool = False) -> list[int]:
     """End the processes holding this exact profile folder. Returns the pids that are gone (with dry_run: the ones
-    that would be ended); a process that survives is not in the list."""
+    that would be ended); a process that survives is not in the list.
+
+    The list is read again before each one is ended. Ending one can take seconds, and a pid read before that
+    wait may by then belong to another process, or to one that went with the tree just ended.
+    """
     killed: list[int] = []
-    for proc in _profile_holders(user_data_dir) or []:
-        if dry_run or _kill_tree(proc["pid"]):
-            killed.append(proc["pid"])
-    return killed
+    tried: set[int] = set()
+    while True:
+        holders = [proc["pid"] for proc in _profile_holders(user_data_dir) or [] if proc["pid"] not in tried]
+        if dry_run or not holders:
+            return holders if dry_run else killed
+        tried.add(holders[0])
+        if _kill_tree(holders[0]):
+            killed.append(holders[0])
 
 
 def _job_info() -> dict[str, Any]:

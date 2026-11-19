@@ -382,19 +382,28 @@ def stop_session(paths: core_common.ProfilePaths, force: bool = False) -> dict[s
         holders = core_common._profile_holders(paths.user_data)
         listed, left = holders is not None, [p["pid"] for p in holders or []]
         result["stopped"] = True
-    paths.session.unlink(missing_ok=True)
     if left:
+        # The record stays while anything holds the profile. The same command then reads it as stale and looks
+        # for the leftover again, and so does the daemon of the next start.
         raise _still_running([paths.profile], left, {"killed_pids": list(result["killed_pids"])})
+    if state == "starting" and core_common._lock_in_use(paths.lock, 0):
+        # No record yet, so the daemon's pid is not known and nothing ended it. "stopped" would be false.
+        raise core_common._tag(RuntimeError(f"A daemon for profile {paths.profile!r} is still starting and its process is not known yet, so it was not ended."),
+                               core_common.ERR_PROFILE_IN_USE, hint=core_common._hint("still_running", paths.profile),
+                               details={"killed_pids": list(result["killed_pids"]), "still_running": []})
     if not listed:
+        # Nothing was verified, so the record stays here too.
         result["note"] = core_common._hint("process_list", paths.profile)
+        return result
+    paths.session.unlink(missing_ok=True)
     return result
 
 
 def _still_running(profiles: list[str], pids: list[int], details: dict[str, Any]) -> Exception:
     """A stop or clean that leaves a process holding a profile is an error, never a quiet success."""
-    count = "1 process" if len(pids) == 1 else f"{len(pids)} processes"
+    count = "1 process holding" if len(pids) == 1 else f"{len(pids)} processes holding"
     names = ", ".join(repr(name) for name in profiles)
-    return core_common._tag(RuntimeError(f"{count} holding profile {names} did not end, so the profile is not free."),
+    return core_common._tag(RuntimeError(f"{count} profile {names} still {'runs' if len(pids) == 1 else 'run'}, so the profile is not free."),
                             core_common.ERR_PROFILE_IN_USE, hint=core_common._hint("still_running", profiles[0]),
                             details={**details, "still_running": pids})
 
@@ -452,7 +461,7 @@ def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = 
             out["killed_pids"].extend(core_common._kill_browsers_using(paths.user_data, dry_run=dry_run))
             holders = core_common._profile_holders(paths.user_data)
             if holders is None:
-                out["note"] = core_common._hint("process_list", entry.name)
+                out["note"] = core_common._hint("process_list_clean")
             elif holders and not dry_run:
                 still_running[entry.name] = [p["pid"] for p in holders]
         download_dirs = [paths.downloads]
@@ -482,16 +491,17 @@ def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = 
                     purge_failed.append(entry.name)
                     continue
             out["profiles_purged"].append(entry.name)
+    survivors = [pid for found in still_running.values() for pid in found]
     if purge_failed:
         names = ", ".join(repr(name) for name in purge_failed)
         raise core_common._tag(RuntimeError(f"Could not remove every file of profile {names}; another program still holds some of them."),
                                core_common.ERR_PROFILE_IN_USE, hint=core_common._hint("purge_failed", purge_failed[0]),
-                               details={**out, "profiles_purge_failed": purge_failed})
+                               details={**out, "profiles_purge_failed": purge_failed, **({"still_running": survivors} if survivors else {})})
     if purge and purge not in out["profiles_purged"]:
         raise core_common._tag(ValueError(f"No profile named {purge!r}."), core_common.ERR_NOT_FOUND, hint=core_common._hint("no_such_profile"))
     if still_running:
         # The rest of the cleaning is done and reported in details; what is not done must not read as success.
-        raise _still_running(list(still_running), [pid for found in still_running.values() for pid in found], out)
+        raise _still_running(list(still_running), survivors, out)
     return out
 
 

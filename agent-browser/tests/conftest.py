@@ -44,6 +44,7 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pyte
         # would otherwise see nothing.
         if request.node.get_closest_marker("processes") is None:
             monkeypatch.setattr(core_common, "_process_table", lambda: [])
+            monkeypatch.setattr(core_common, "_own_ancestors", lambda api=None: set())  # reads the real parent chain
 
         def refuse_spawn(argv: list[str], log_path: Path, cwd: Path) -> tuple[int, str]:
             # A real daemon started here outlives the test (one leaked per bad --timeout before PR 17).
