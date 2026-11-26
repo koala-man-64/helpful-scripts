@@ -116,6 +116,8 @@ class _Table:
             return _Collection([_Locator(name, page=self.page) for name in self.headers])
         if role == "row":
             return _Collection(self._rows)
+        if role in {"cell", "gridcell", "rowheader"}:
+            return _Collection([_Locator(page=self.page)] if role == "cell" and any(self.data) else [])
         raise AssertionError(f"unexpected role: {role}")
 
     def element_handle(self) -> _Handle:

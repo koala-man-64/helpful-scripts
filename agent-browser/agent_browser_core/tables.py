@@ -625,9 +625,11 @@ def _wait_for_table_change(engine: Any, page: Any, table_target: Any, next_targe
                 nav_changed_at = common._now()
             navigated = nav_changed_at is not None and common._now() - nav_changed_at >= PAGE_NAV_STABILITY_SECONDS
             if (current_text != before_text or navigated) and not table.evaluate_all(ARIA_BUSY_JS):
-                # A grid can clear its old rows before the next page arrives. Respect the control's loading signal too.
-                _, control = _next_state(engine, page, next_target)
-                if control is None or not control.evaluate_all(ARIA_BUSY_JS):
+                state, control = _next_state(engine, page, next_target)
+                busy = control is not None and control.evaluate_all(ARIA_BUSY_JS)
+                # Some grids clear their rows and disable Next throughout the request without marking either busy.
+                if not busy and (state == "enabled" or any(table.get_by_role(role).count()
+                                                            for role in ("cell", "gridcell", "rowheader"))):
                     return page, table
         except _DeadlineExceeded:
             return None

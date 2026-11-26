@@ -10,7 +10,7 @@ import pytest
 from test_live_expansion import PROFILE, cli, live_home, site, pytestmark
 
 
-@pytest.mark.parametrize("mode", ["normal", "slow", "cleared"])
+@pytest.mark.parametrize("mode", ["normal", "slow", "cleared", "unmarked"])
 def test_live_async_pagination_deduplicates_and_exports_complete_json(cli, site, mode):
     session = "table-pages"
     cli.ok("goto", f"{site.url}/audit_table_pages.html?mode={mode}", "--session", session)
