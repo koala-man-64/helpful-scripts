@@ -99,21 +99,32 @@ class VerifiedActionsMixin:
             if hit:
                 watch["pages"].add(page)
 
-    def _text_counts(self, page: Any, text: str) -> dict[Any, int | None]:
+    def _remaining_timeout_ms(self, deadline: float | None, *, phase: str, cap_ms: int = 1000) -> int:
+        if deadline is None:
+            return cap_ms
+        remaining_ms = int((deadline - common._now()) * 1000)
+        if remaining_ms <= 0:
+            raise common._tag(RuntimeError(f"The action deadline expired during {phase}; inspect the receipt before repeating."),
+                              common.ERR_TIMEOUT, details={"executed": bool(getattr(self, "action_attempted", False))})
+        return max(1, min(cap_ms, remaining_ms))
+
+    def _text_counts(self, page: Any, text: str, deadline: float | None = None) -> dict[Any, int | None]:
         """Case-insensitive occurrences of text in each frame's rendered body text; None where it cannot be read."""
         needle, counts = text.lower(), {}
         for frame in page.frames:
+            timeout_ms = self._remaining_timeout_ms(deadline, phase="text expectation baseline")
             try:
-                counts[frame] = frame.locator("body").inner_text(timeout=1000).lower().count(needle)
+                counts[frame] = frame.locator("body").inner_text(timeout=timeout_ms).lower().count(needle)
             except Exception:  # noqa: BLE001 - a detached or navigating frame
                 counts[frame] = None
+        self._remaining_timeout_ms(deadline, phase="text expectation baseline")
         return counts
 
-    def _text_appeared(self, spec: dict[str, Any], *pages: Any) -> bool:
+    def _text_appeared(self, spec: dict[str, Any], *pages: Any, deadline: float | None = None) -> bool:
         """Some frame shows the text more often than before the action. A frame or tab the action opened starts at 0;
         a frame keeps its baseline when it navigates, so a reloaded page that still shows the text does not count."""
         for page in dict.fromkeys(pages):
-            for frame, count in self._text_counts(page, spec["value"]).items():
+            for frame, count in self._text_counts(page, spec["value"], deadline).items():
                 if count is not None and count > spec["baseline"].get(frame, 0):
                     return True
         return False
@@ -303,7 +314,7 @@ class VerifiedActionsMixin:
         except Exception:  # noqa: BLE001 - a detached frame or invalidated selector is not evidence of a count
             return None
 
-    def _expect_specs(self, specs: list[Any], page: Any) -> list[dict[str, Any]]:
+    def _expect_specs(self, specs: list[Any], page: Any, deadline: float | None = None) -> list[dict[str, Any]]:
         parsed: list[dict[str, Any]] = []
         allowed = {"text", "gone", "url", "response", "value", "checked", "unchecked", "count", "download", "persisted"}
         grammar = ("Use text:TEXT, gone:REF, url:changed, response:METHOD URL_GLOB:STATUS, "
@@ -311,6 +322,7 @@ class VerifiedActionsMixin:
                    "download:GLOB, or persisted:#id=VALUE.")
         try:
             for raw in specs:
+                self._remaining_timeout_ms(deadline, phase="expectation preflight")
                 if not isinstance(raw, str):
                     raise common._tag(ValueError("Expectations must be strings."), common.ERR_VALIDATION)
                 kind, sep, value = raw.partition(":")
@@ -322,12 +334,13 @@ class VerifiedActionsMixin:
                 if kind == "text":
                     # Text already shown does not count. A frame that cannot be read has no baseline, and 0 would let
                     # its existing text pass, so the action does not run.
-                    spec["baseline"] = self._text_counts(page, value)
+                    spec["baseline"] = self._text_counts(page, value, deadline)
                     if None in spec["baseline"].values():
                         raise common._tag(ValueError("Could not read the page text before the action, so a text: check has no baseline; nothing was done."),
                                           common.ERR_ACTION_FAILED, hint=common._hint("expect_text_baseline", self.profile))
                 elif kind == "gone":
-                    spec["element"] = self.resolve(page, value).element_handle()
+                    locator = self.resolve(page, value)
+                    spec["element"] = locator.element_handle(timeout=self._remaining_timeout_ms(deadline, phase="disappearance expectation"))
                     if spec["element"] is None or not spec["element"].is_visible():
                         raise common._tag(ValueError("Disappearance expectation requires an initially visible element."), common.ERR_NOT_FOUND)
                 elif kind in {"value", "persisted"}:
@@ -336,21 +349,25 @@ class VerifiedActionsMixin:
                         raise common._tag(ValueError(f"{kind}: needs TARGET=VALUE."), common.ERR_USAGE)
                     if kind == "persisted" and not re.fullmatch(r"#[A-Za-z_][A-Za-z0-9_-]*", target):
                         raise common._tag(ValueError("persisted: requires a simple stable CSS #id target."), common.ERR_USAGE)
-                    locator, info = self._expectation_target(page, target)
+                    locator, info = self._expectation_target(
+                        page, target, timeout_ms=self._remaining_timeout_ms(deadline, phase="value expectation"))
                     if not self._value_control(info):
                         raise common._tag(ValueError("Value expectations require a scalar input, textarea or select field."), common.ERR_VALIDATION)
+                    timeout_ms = self._remaining_timeout_ms(deadline, phase="value expectation")
                     try:
-                        locator.input_value(timeout=1000)
+                        locator.input_value(timeout=timeout_ms)
                     except Exception:
                         raise common._tag(ValueError("Value expectation target cannot be read as a scalar form control; nothing was done."),
                                           common.ERR_VALIDATION) from None
                     spec.update(target=target, expected=expected, locator=locator)
                 elif kind in {"checked", "unchecked"}:
-                    locator, info = self._expectation_target(page, value)
+                    locator, info = self._expectation_target(
+                        page, value, timeout_ms=self._remaining_timeout_ms(deadline, phase="checked expectation"))
                     if info.get("tag") != "INPUT" or info.get("type") not in {"checkbox", "radio"}:
                         raise common._tag(ValueError("Checked expectations require a native checkbox or radio input."), common.ERR_VALIDATION)
+                    timeout_ms = self._remaining_timeout_ms(deadline, phase="checked expectation")
                     try:
-                        locator.evaluate(CHECKED_STATE_JS, timeout=1000)
+                        locator.evaluate(CHECKED_STATE_JS, timeout=timeout_ms)
                     except Exception:
                         raise common._tag(ValueError("Checked expectation target cannot be inspected; nothing was done."), common.ERR_ACTION_FAILED) from None
                     spec.update(target=value, locator=locator)
@@ -358,8 +375,10 @@ class VerifiedActionsMixin:
                     selector, delimiter, expected = value.rpartition("=")
                     if not delimiter or not selector or not re.fullmatch(r"\d{1,9}", expected):
                         raise common._tag(ValueError("count: needs CSS_SELECTOR=NONNEGATIVE_INTEGER."), common.ERR_USAGE)
+                    self._remaining_timeout_ms(deadline, phase="count expectation")
                     if self._count_selector(page, selector) is None:
                         raise common._tag(ValueError("Count selector cannot be evaluated before the action; nothing was done."), common.ERR_VALIDATION)
+                    self._remaining_timeout_ms(deadline, phase="count expectation")
                     spec.update(selector=selector, expected_count=int(expected))
                 elif kind == "download":
                     if not value.strip() or len(value) > 255:
@@ -376,6 +395,7 @@ class VerifiedActionsMixin:
                     spec["watch"] = self._watch(lambda method, url, status, s=spec: method == s["method"] and fnmatch.fnmatchcase(url, s["glob"])
                                                 and fnmatch.fnmatchcase(str(status), s["status"]))
                 parsed.append(spec)
+                self._remaining_timeout_ms(deadline, phase="expectation preflight")
 
             if any(spec["kind"] == "persisted" for spec in parsed):
                 has_success_response = any(spec["kind"] == "response" and spec["status"].startswith("2") for spec in parsed)
@@ -431,7 +451,7 @@ class VerifiedActionsMixin:
         def checked(spec: dict[str, Any], check_page: Any, remaining: float) -> bool:
             kind = spec["kind"]
             if kind == "text":
-                return self._text_appeared(spec, page, check_page)
+                return self._text_appeared(spec, page, check_page, deadline=deadline)
             if kind == "url":
                 return page.url != url or (check_page is not page and check_page.url != url)
             if kind == "gone":

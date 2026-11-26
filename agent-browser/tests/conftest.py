@@ -159,17 +159,22 @@ class FakeDialog:
 class SemanticMatch:
     """One element a semantic target (role/name/label) matches, for a patched FakeFrame.get_by_role."""
 
-    def __init__(self, ref: str, name: str, visible: bool = True) -> None:
+    def __init__(self, ref: str, name: str, visible: bool = True, *, role: str = "button", value: str = "") -> None:
         self.ref = ref
         self.name = name
         self.visible = visible
+        self.role = role
+        self.value = value
 
     def is_visible(self) -> bool:
         return self.visible
 
     def aria_snapshot(self, mode: str = "ai") -> str:
         assert mode == "ai"
-        return f'- button "{self.name}" [ref={self.ref}]'
+        return f'- {self.role} "{self.name}" [ref={self.ref}]'
+
+    def input_value(self, timeout: int | None = None) -> str:
+        return self.value
 
 
 class SemanticMatches:
@@ -181,6 +186,9 @@ class SemanticMatches:
 
     def nth(self, index: int) -> SemanticMatch:
         return self.matches[index]
+
+    def input_value(self, timeout: int | None = None) -> str:
+        return self.matches[0].input_value(timeout=timeout) if self.matches else ""
 
 
 def beforeunload_on_close(daemon: Any, page: "FakePage", *, close_later: bool = False) -> list[FakeDialog]:

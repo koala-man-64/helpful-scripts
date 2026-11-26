@@ -127,17 +127,20 @@ class ReachMixin:
             self.table_rows.pop(page, None)
             self.table_row_epochs.pop(page, None)
             return super().h_click(args, timeout)
-        def run(page, row):
+        def run(page, row, budget_ms, begin_attempt):
+            budget_ms()
             if not row.evaluate("el => el.tagName==='TR' || el.getAttribute('role')==='row'"):
                 raise common._tag(ValueError("Table row ref changed; read table again."), common.ERR_STALE_REF)
             # Native table border-spacing can put the row center between cells. Use an
             # ordinary cell click so Playwright still checks visibility and hit targets.
             for cell in row.locator(CELL_SELECTOR).all():
+                budget_ms()
                 if cell.is_visible() and not cell.locator("a,button,input,select,textarea,[role=button],[role=link],[contenteditable=true]").count():
-                    options = {"timeout": max(timeout, .1) * 1000, "button": "right" if args.get("right") else "left"}
+                    options = {"timeout": begin_attempt(), "button": "right" if args.get("right") else "left"}
                     if args.get("double"): cell.dblclick(**options)
                     else: cell.click(**options)
                     return
+            budget_ms()
             raise common._tag(ValueError("Row has no safe plain cell; target the desired control explicitly."), common.ERR_GUARDED)
         return self._do_action(args, timeout, "click", run)
 
@@ -304,6 +307,19 @@ class ReachMixin:
             exc.untrusted = ["message"]  # type: ignore[attr-defined]
             raise
 
+    @staticmethod
+    def _recipe_control(frame: Any, *, label: str | None = None, selector: str | None = None) -> Any:
+        """Resolve one visible control inside the record frame, never against the whole page."""
+        locator = frame.get_by_label(label, exact=True) if label is not None else frame.locator(selector)
+        try:
+            matches = [locator.nth(index) for index in range(locator.count()) if locator.nth(index).is_visible()]
+        except Exception as exc:  # noqa: BLE001 - a detached or changing form is not a usable recipe target
+            raise common._tag(ValueError("Classic record control could not be inspected."), common.ERR_NOT_FOUND) from exc
+        if len(matches) != 1:
+            error = common.ERR_AMBIGUOUS if matches else common.ERR_NOT_FOUND
+            raise common._tag(ValueError("Classic record controls are missing or ambiguous."), error)
+        return matches[0]
+
     def h_run(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         recipe = args.get("recipe")
         if not isinstance(recipe, str) or recipe not in common.RECIPES or not common.RECORD_NUMBER_RE.fullmatch(str(args.get("number", ""))):
@@ -318,20 +334,27 @@ class ReachMixin:
                 return {"preview": {"number": number, "work_note": text}, "requires_commit": False, "blocked": True, "blocked_reason": reason}
             return {"status": "needs_human", "handoff_id": self.open_handoff(reason, {}), "pending": True}
 
-        frame = next((f for f in page.frames if f.name == "gsft_main"), None)
-        if frame is None:
+        frames = [f for f in page.frames if f.name == "gsft_main"]
+        if len(frames) != 1:
             return hand_off("Recipe requires the classic gsft_main record form")
+        frame = frames[0]
+        if page.is_closed() or frame.is_detached():
+            return hand_off("Recipe could not capture the original browser tab and record frame")
+        tab_id = self._tab_id(page)
+        if not tab_id:
+            return hand_off("Recipe could not capture the original browser tab and record frame")
         record_url = frame.url
         self._check_page_url(record_url)
-        if api.origin(record_url) != api.origin(page.url):
+        record_origin = api.origin(record_url)
+        if record_origin != api.origin(page.url):
             raise common._tag(ValueError("Classic record form must share the working tab's origin."), common.ERR_GUARDED)
         record_id = urllib.parse.parse_qs(urllib.parse.urlsplit(record_url).query).get("sys_id", [""])[0]
         if not re.fullmatch(r"[a-fA-F0-9]{32}", record_id):
             return hand_off("Recipe could not establish a stable classic record URL")
         try:
-            identity = self.resolve(page, {"label": "Number"})
-            notes = self.resolve(page, {"label": "Work notes"})
-            self.resolve(page, "button#sysverb_update")
+            identity = self._recipe_control(frame, label="Number")
+            notes = self._recipe_control(frame, label="Work notes")
+            self._recipe_control(frame, selector="button#sysverb_update")
         except ValueError as exc:
             if getattr(exc, "error_class", None) not in {common.ERR_NOT_FOUND, common.ERR_AMBIGUOUS, common.ERR_REF_NOT_FOUND}:
                 raise
@@ -347,29 +370,66 @@ class ReachMixin:
             return {"preview": {"number": number, "work_note": text}, "requires_commit": True}
         record_path = urllib.parse.urlsplit(record_url).path
         posts = self._watch(lambda method, url, status: method in {"POST", "PATCH"} and 200 <= status < 400
-                            and api.origin(url) == api.origin(record_url) and urllib.parse.urlsplit(url).path == record_path)
-        self.h_fill({"target": {"label": "Work notes"}, "text": text, "enter": False, "tab": args.get("tab")}, timeout)
-        self.h_click({"target": "button#sysverb_update", "tab": args.get("tab")}, timeout)
+                            and api.origin(url) == record_origin and urllib.parse.urlsplit(url).path == record_path)
+
+        def original_context_open() -> bool:
+            current_frames = [candidate for candidate in page.frames if candidate.name == "gsft_main"]
+            return (not page.is_closed() and page in self.pages and self._tab_id(page) == tab_id
+                    and current_frames == [frame] and not frame.is_detached())
+
+        def record_matches(budget_ms: Callable[[], int]) -> bool:
+            parsed = urllib.parse.urlsplit(frame.url)
+            current_id = urllib.parse.parse_qs(parsed.query).get("sys_id", [""])[0]
+            if (api.origin(frame.url) != record_origin or api.origin(page.url) != record_origin
+                    or parsed.path != record_path or current_id.lower() != record_id.lower()):
+                return False
+            identity = self._recipe_control(frame, label="Number")
+            return identity.input_value(timeout=budget_ms()).strip() == number
+
+        def before_attempt(action_page: Any, _locator: Any, budget_ms: Callable[[], int]) -> None:
+            if action_page is not page or not original_context_open():
+                raise common._tag(ValueError("The original tab or record frame changed before the work-note submission."), common.ERR_GUARDED)
+            self._check_page_url(frame.url)
+            if not record_matches(budget_ms):
+                raise common._tag(ValueError("The record identity changed before the work-note submission."), common.ERR_GUARDED)
+
+        action_deadline = args.get("_deadline")
+        fill_args = {"target": {"label": "Work notes", "frame": "gsft_main"}, "text": text, "enter": False,
+                     "tab": tab_id, "_commit": True, "_deadline": action_deadline}
+        self.h_fill(fill_args, timeout, locator_override=notes, pre_attempt=before_attempt)
+        update = self._recipe_control(frame, selector="button#sysverb_update")
+        click_args = {"target": {"selector": "button#sysverb_update", "frame": "gsft_main"},
+                      "tab": tab_id, "_commit": True, "_deadline": action_deadline}
+        # Bypass ReachMixin's table-row special case: this locator is already bound to the original record frame.
+        super().h_click(click_args, timeout, locator_override=update, pre_attempt=before_attempt)
         command_id, deadline = args["_command_id"], args.get("_deadline", common._now() + timeout)
         reloaded = False
 
+        def verify_identity() -> bool:
+            remaining = deadline - common._now()
+            if remaining <= 0:
+                return False
+            try:
+                matches = record_matches(lambda: max(1, min(1000, int((deadline - common._now()) * 1000))))
+            except Exception as exc:  # noqa: BLE001 - a missing or changing control is unverified after submission
+                raise common._tag(RuntimeError("Record identity could not be verified after submission; inspect the receipt before any retry."),
+                                  "persistence_unverified") from exc
+            if not matches:
+                raise common._tag(RuntimeError("Record identity changed while verifying persistence; inspect the receipt before any retry."),
+                                  "persistence_unverified")
+            return True
+
         def verify():
             nonlocal reloaded
-            posted = page in posts["pages"]
-            if posted and not reloaded:
+            if page in posts["pages"] and not reloaded and original_context_open() and common._now() < deadline:
+                # A successful Update may have returned the frame to a list. Read the captured record URL once.
                 self._check_page_url(record_url)
-                current = next((f for f in page.frames if f.name == "gsft_main"), None)
-                if current is not None:
-                    current.goto(record_url, wait_until="domcontentloaded", timeout=min(2, max(.1, deadline-common._now()))*1000)
+                if api.origin(frame.url) == record_origin and api.origin(page.url) == record_origin:
+                    frame.goto(record_url, wait_until="domcontentloaded", timeout=max(1, min(2000, int((deadline-common._now())*1000))))
                     reloaded = True
-            current = next((f for f in page.frames if f.name == "gsft_main"), None)
             verified = False
-            if reloaded and current:
-                current_id = urllib.parse.parse_qs(urllib.parse.urlsplit(current.url).query).get("sys_id", [""])[0]
-                identities = current.get_by_label("Number", exact=True)
-                if current_id != record_id or identities.count() != 1 or identities.input_value().strip() != number:
-                    raise common._tag(RuntimeError("Record identity changed while verifying persistence; inspect the receipt before any retry."), "persistence_unverified")
-                matches = current.get_by_text(text, exact=True)
+            if reloaded and original_context_open() and verify_identity():
+                matches = frame.get_by_text(text, exact=True)
                 verified = any(loc.is_visible() and loc.evaluate("el=>!el.closest('input,textarea,[contenteditable=true]')") for loc in matches.all())
             result = {"command_id": command_id, "session_id": self.session_id, "contract_version": common.CONTRACT_VERSION,
                       "executed": True, "number": number, "persisted": verified, "pending": not verified}

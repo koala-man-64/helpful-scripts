@@ -376,10 +376,15 @@ def test_recipe_preview_without_a_record_form_opens_no_handoff(cli: Cli, site: _
     assert cli.ok("state", "--session", session)["handoffs"] == []
 
 
-def test_recipe_preview_and_commit_use_one_local_post_then_readback(cli: Cli, site: _Site) -> None:
+@pytest.mark.parametrize("return_to_list", [False, True], ids=["stay-on-record", "return-to-list"])
+def test_recipe_preview_and_commit_use_one_local_post_then_readback(cli: Cli, site: _Site, return_to_list: bool) -> None:
     session, number = "recipe", "INC0010023"
-    note = "synthetic loopback work note"
+    note = "synthetic loopback work note" + (" with list return" if return_to_list else "")
     cli.ok("goto", f"{site.url}/expansion_recipe.html", "--session", session)
+    if return_to_list:
+        cli.ok("eval", "document.querySelector('#sysverb_update').addEventListener('click', () => { "
+               "history.replaceState(null, '', '/record-list'); document.body.replaceChildren(); }); true",
+               "--frame", "gsft_main", "--session", session)
     initial_gets = site.server.record_gets
     initial_posts = site.server.record_posts
 
@@ -397,6 +402,25 @@ def test_recipe_preview_and_commit_use_one_local_post_then_readback(cli: Cli, si
     assert site.server.record_posts == initial_posts + 1
     assert site.server.record_gets == initial_gets + 1
     assert site.server.record_notes["0123456789abcdef0123456789abcdef"] == note
+    sidebar = cli.ok("eval", "JSON.stringify([document.querySelector('aside textarea').value, "
+                     "Boolean(document.querySelector('aside button').dataset.clicked)])", "--session", session)
+    assert json.loads(sidebar["value"]) == ["Sidebar draft", False]
+
+
+def test_recipe_record_change_during_fill_prevents_submission(cli: Cli, site: _Site) -> None:
+    session = "recipe-changing-record"
+    cli.ok("goto", f"{site.url}/expansion_recipe.html", "--session", session)
+    cli.ok("eval", "document.querySelector('#work_notes').addEventListener('input', () => { "
+           "document.querySelector('#record_number').value = 'INC0099999'; }, {once: true}); true",
+           "--frame", "gsft_main", "--session", session)
+    initial_posts = site.server.record_posts
+
+    code, _output, error = cli("commit", "run", "sn/add-work-note", "--number", "INC0010023",
+                               "--text", "note on a changing form", "--session", session, "--timeout", "5")
+
+    assert code != 0 and error["class"] == "guarded", error
+    assert error["details"]["executed"] is True  # The fill already changed the local form.
+    assert site.server.record_posts == initial_posts
 
 
 def test_raw_request_cannot_forge_the_commit_flag_to_submit_a_recipe(cli: Cli, site: _Site) -> None:
@@ -504,3 +528,22 @@ def test_local_diagnostics_block_outside_requests_sockets_and_popups(cli: Cli, s
     assert result["popups_closed"] == 1
     assert len(cli.ok("tabs", "--session", session)["tabs"]) == 1
     assert "Home" in cli.ok("text", "--session", session)["text"]
+
+
+def test_stale_stop_leaves_restarted_browser_usable(cli: Cli, site: _Site) -> None:
+    from agent_browser_core import session as core_session
+
+    paths = core_common.ProfilePaths(PROFILE, cli.home)
+    previous = core_session._read_session(paths)
+    assert previous is not None
+    assert cli.ok("stop", "--all")["stopped"]
+    replacement = cli.ok("start", "--headless")
+    assert replacement["status"] == "started"
+
+    with pytest.raises(RuntimeError) as raised:
+        core_session.stop_session(paths, observed=("stale", previous))
+
+    assert raised.value.error_class == core_common.ERR_PROFILE_IN_USE
+    assert raised.value.details["cleanup_skipped"]
+    assert cli.ok("status")["pid"] == replacement["pid"]
+    assert cli.ok("goto", f"{site.url}/home.html")["title"] == "Home"

@@ -15,6 +15,7 @@ from typing import Any
 from . import common, diagnostics, evidence, policy
 
 STOP_TAB_WAIT = 2.0  # seconds stop waits at least, per tab, for it to close or to answer its beforeunload
+ACTION_DEADLINE_COMMANDS = frozenset({"click", "fill", "type", "press", "select", "check", "uncheck", "hover", "scroll", "upload", "fill-form"})
 # Verbs that still run when the current tab changed unseen (OperatingMixin._check_tab_change): snapshot shows the new
 # tab, tab picks one, tabs and downloads list, and check works in a page of its own. `goto --new-tab` and control verbs
 # run too.
@@ -619,7 +620,10 @@ class OperatingMixin:
 
     def dispatch(self, cmd: str, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         args = dict(args)
-        self.last_activity = common._now()  # every request counts toward the idle timer, poll and wait included
+        request_started = common._now()
+        self.last_activity = request_started  # every request counts toward the idle timer, poll and wait included
+        operation = str(args.get("operation") or "") if cmd == "commit" else cmd
+        enforce_action_deadline = operation in ACTION_DEADLINE_COMMANDS
         # Only the commit operation below declares a commit. A caller's own _commit would pass
         # the verb gates in policy.authorize and turn a recipe preview into a submission.
         args.pop("_commit", None)
@@ -652,7 +656,17 @@ class OperatingMixin:
             self.journal.start(command_id, sid, ("commit " if args.get("_commit") else "") + cmd, args, self.current.url if self.current else "")
         executed, screenshots = False, []
         self.action_attempted = False
-        expectation_deadline = common._now() + timeout
+        expectation_deadline = request_started + timeout if enforce_action_deadline else common._now() + timeout
+
+        def action_timeout(phase: str) -> float:
+            if not enforce_action_deadline:
+                return timeout
+            remaining = expectation_deadline - common._now()
+            if remaining <= 0:
+                raise common._tag(RuntimeError(f"The action deadline expired during {phase}; no browser action was attempted."),
+                                  common.ERR_TIMEOUT, details={"executed": False})
+            return min(timeout, remaining)
+
         try:
             # Control verbs act on the session, not on a page, so a host rule never applies to them.
             mutating = policy.authorize(self.config if cmd in policy.CONTROL else self._page_policy(args), cmd, args)
@@ -670,10 +684,14 @@ class OperatingMixin:
             # stop closes every tab of this session, so each tab's beforeunload is this command's to answer.
             self._cmd_target_page = None if cmd == "stop" else target_page
             if args.get("_commit") and target_page and cmd not in {"journal", "state"}:
+                action_timeout("before commit capture")
                 screenshots.append(self._capture(command_id, "before", target_page))
+                action_timeout("commit capture")
             args["_command_id"] = command_id
             args["_deadline"] = expectation_deadline
-            specs = self._expect_specs(args.get("expect") or [], target_page or self.page()) if args.get("expect") else []
+            if args.get("expect"):
+                specs = self._expect_specs(args.get("expect") or [], target_page or self.page(), deadline=expectation_deadline)
+                action_timeout("expectation preflight")
             expected_page = target_page
             expected_url = expected_page.url if expected_page else ""
             # The commit screenshot and the expectation baselines talk to the browser, which can deliver a close or
@@ -694,7 +712,7 @@ class OperatingMixin:
                     finally:
                         self._end()
                 else:
-                    result = super().dispatch(cmd, args, timeout)
+                    result = super().dispatch(cmd, args, action_timeout("browser action"))
                     executed = self.action_attempted
             finally:
                 # Stop before _verify_result so the trace covers only the synchronous handler dispatch.

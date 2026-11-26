@@ -61,12 +61,13 @@
     next.addEventListener("click", () => {
       if (next.disabled) return;
       next.disabled = true;
-      next.setAttribute("aria-busy", "true");
+      if (mode !== "unmarked") next.setAttribute("aria-busy", "true");
+      if ((mode === "cleared" || mode === "unmarked") && pageIndex === 0) rows.replaceChildren();
       setTimeout(() => {
         pageIndex = Math.min(pageIndex + 1, pages.length - 1);
         render();
         next.removeAttribute("aria-busy");
-      }, 125);
+      }, ["slow", "cleared", "unmarked"].includes(mode) && pageIndex === 0 ? 5500 : 125);
     });
     render();
   </script>

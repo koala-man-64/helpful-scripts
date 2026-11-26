@@ -8,7 +8,7 @@ from typing import Any, Callable
 import pytest
 
 from agent_browser_core import common as core_common, reach
-from conftest import FakeCDPSession, FakeFrame, FakePage, FakePlaywrightError
+from conftest import FakeCDPSession, FakeFrame, FakePage, FakePlaywrightError, SemanticMatch, SemanticMatches
 
 
 # -- check URL -------------------------------------------------------------------------------
@@ -348,6 +348,13 @@ class _Cell:
     def inner_text(self) -> str:
         return self.text
 
+    def evaluate(self, script: str, timeout: float | None = None) -> str:
+        if script == reach.tables.CELL_TEXT_JS:
+            return self.text[:2000]
+        if script == reach.tables.HEADER_TEXT_JS:
+            return self.text[:500]
+        raise AssertionError(f"unexpected table cell evaluation: {script}")
+
     def is_visible(self) -> bool:
         return True
 
@@ -366,9 +373,10 @@ class _Row:
 
     def locator(self, selector: str) -> Any:
         self.selectors.append(selector)
-        return SimpleNamespace(all=lambda: [_Cell(text) for text in self.cells])
+        cells = [_Cell(text) for text in self.cells]
+        return SimpleNamespace(all=lambda: cells, count=lambda: len(cells), nth=lambda index: cells[index])
 
-    def aria_snapshot(self, mode: str = "ai") -> str:
+    def aria_snapshot(self, mode: str = "ai", timeout: float | None = None) -> str:
         return f'- row "{" ".join(self.cells)}" [ref={self.ref}]'
 
 
@@ -388,7 +396,7 @@ class _Table:
         items = [_Cell(self.header)] if role == "columnheader" else [self.row]
         return SimpleNamespace(all=lambda: items, count=lambda: len(items), nth=lambda index: items[index])
 
-    def element_handle(self) -> Any:
+    def element_handle(self, timeout: float | None = None) -> Any:
         return SimpleNamespace(owner_frame=lambda: self.page.main_frame, dispose=lambda: None)
 
     def aria_snapshot(self, mode: str = "ai") -> str:
@@ -449,21 +457,35 @@ RECORD = "http://x/incident.do?sys_id=" + "a" * 32
 def _recipe_page(make_daemon, monkeypatch, *, frame_url: str | None = RECORD, fields: dict[str, Any] | None = None,
                  displayed: bool = False) -> tuple[Any, FakePage]:
     """A classic record form inside gsft_main, or no form at all when frame_url is None."""
-    daemon, _ctx, page = make_daemon(page_url="http://x/nav_to.do")
+    snapshot = ('- generic [ref=e1]:\n'
+                '  - textbox "Number" [ref=e2]\n'
+                '  - iframe "gsft_main" [ref=e3]:\n'
+                '    - generic [ref=f1e1]:\n'
+                '      - textbox "Number" [ref=f1e2]\n'
+                '      - textbox "Work notes" [ref=f1e3]\n'
+                '      - button "Update" [ref=f1e4]')
+    daemon, _ctx, page = make_daemon(page_url="http://x/nav_to.do", snapshot_text=snapshot)
+    form = next((candidate for candidate in page.frames if candidate.name == "gsft_main"), None)
+    assert form is not None
     if frame_url is not None:
-        form = FakeFrame(name="gsft_main", url=frame_url)
-        page.frames = [page.main_frame, form]
+        form.url = frame_url
+        values = {"Number": "INC0012345", "Work notes": "", **(fields or {})}
+        controls = {}
+        for label, ref in (("Number", "f1e2"), ("Work notes", "f1e3")):
+            value = values.get(label, "")
+            if not isinstance(value, Exception):
+                controls[label] = SemanticMatch(ref, label, role="textbox", value=str(value))
+        form.get_by_label = lambda label, exact=False: SemanticMatches([controls[label]] if label in controls else [])  # type: ignore[attr-defined]
+        update = SemanticMatch("f1e4", "Update", role="button")
+        form.locator = lambda selector: SemanticMatches([update] if selector == "button#sysverb_update" else [])  # type: ignore[method-assign]
         note = SimpleNamespace(is_visible=lambda: True, evaluate=lambda js: True)  # visible, outside any input
         form.get_by_text = lambda text, exact=False: SimpleNamespace(all=lambda: [note] if displayed else [])
-    values = {"Number": "INC0012345", "Work notes": "", **(fields or {})}
-
-    def resolve(_page: Any, target: Any) -> Any:
-        label = target.get("label") if isinstance(target, dict) else None
-        if isinstance(values.get(label), Exception):
-            raise values[label]
-        return SimpleNamespace(input_value=lambda: values.get(label, ""))
-
-    monkeypatch.setattr(daemon, "resolve", resolve)
+        sidebar = SemanticMatch("e2", "Number", role="textbox", value="INC0099999")
+        page.main_frame.get_by_label = lambda label, exact=False: SemanticMatches([sidebar] if label == "Number" else [])  # type: ignore[attr-defined]
+        page.recipe_controls = controls
+        page.recipe_update = update
+    else:
+        page.frames = [page.main_frame]
     return daemon, page
 
 
@@ -526,3 +548,50 @@ def test_recipe_preview_returns_the_preview_when_it_can_run(make_daemon, monkeyp
 
     assert result["requires_commit"] is True and result["preview"] == {"number": "INC0012345", "work_note": "note"}
     assert "blocked" not in result and daemon.journal.handoffs("manual") == []
+
+
+def test_recipe_preview_scopes_number_to_record_frame_despite_sidebar_duplicate(make_daemon, monkeypatch) -> None:
+    daemon, page = _recipe_page(make_daemon, monkeypatch)
+    assert page.main_frame.get_by_label("Number", exact=True).count() == 1
+
+    result = daemon.dispatch("run", PREVIEW, 5)
+
+    assert result["requires_commit"] is True
+    assert result["preview"] == {"number": "INC0012345", "work_note": "note"}
+    assert daemon.journal.handoffs("manual") == []
+
+
+@pytest.mark.parametrize("change", ["number", "sys_id", "closed_tab"])
+def test_recipe_commit_aborts_if_record_identity_or_original_tab_changes_after_fill(make_daemon, monkeypatch, change) -> None:
+    daemon, page = _recipe_page(make_daemon, monkeypatch)
+    controls = page.recipe_controls
+    frame = next(candidate for candidate in page.frames if candidate.name == "gsft_main")
+    filled = []
+    submitted = []
+
+    def action(args, timeout, action_name, run, **kwargs):
+        locator = kwargs["locator_override"]
+        kwargs["pre_attempt"](page, locator, lambda: 30_000)
+        if action_name == "fill":
+            assert locator is controls["Work notes"]
+            assert args["tab"] == daemon._tab_id(page) and args["_deadline"] is not None
+            controls["Work notes"].value = args["text"]
+            filled.append(args)
+            if change == "number":
+                controls["Number"].value = "INC0019999"
+            elif change == "sys_id":
+                frame.url = "http://x/incident.do?sys_id=" + "b" * 32
+            else:
+                page.close()
+        else:
+            assert action_name == "click" and locator is page.recipe_update
+            submitted.append(args)
+        return {}
+
+    monkeypatch.setattr(daemon, "_do_action", action)
+
+    with pytest.raises(ValueError) as raised:
+        daemon.dispatch("commit", {"operation": "run", **PREVIEW}, 5)
+
+    assert raised.value.error_class == core_common.ERR_GUARDED
+    assert len(filled) == 1 and submitted == []

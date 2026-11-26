@@ -117,6 +117,71 @@ def test_status_and_stop_on_an_empty_home_exit_zero(capsys: pytest.CaptureFixtur
     stop_payload = json.loads(capsys.readouterr().out)
     assert stop_payload["stopped"] is False
 
+@pytest.mark.parametrize("state", ["none", "stale"])
+def test_stop_preserves_its_initial_none_or_stale_observation(
+    monkeypatch: pytest.MonkeyPatch, state: str
+) -> None:
+    metadata = {"token": "stale-token", "pid": 555} if state == "stale" else None
+    calls: list[tuple[str, dict[str, Any] | None]] = []
+    liveness_reads = 0
+
+    def liveness(paths: core_common.ProfilePaths) -> tuple[str, dict[str, Any] | None]:
+        nonlocal liveness_reads
+        liveness_reads += 1
+        if liveness_reads == 1:
+            return state, metadata
+        return "running", {"token": "replacement", "pid": 777}
+
+    monkeypatch.setattr(core_session, "_liveness", liveness)
+    monkeypatch.setattr(
+        core_session,
+        "stop_session",
+        lambda paths, force=False, *, observed=None: calls.append(observed) or {"profile": paths.profile, "stopped": False},
+    )
+    args = argparse.Namespace(profile="default", all=False, force=False, discard_changes=False)
+
+    result = core_cli._cmd_stop(args)
+
+    assert result == {"profile": "default", "stopped": False}
+    assert calls == [(state, metadata)]
+    assert liveness_reads == 1
+
+
+@pytest.mark.parametrize("state", ["running", "busy", "unresponsive"])
+def test_running_stop_uses_its_observed_session_after_a_replacement(monkeypatch: pytest.MonkeyPatch, state: str) -> None:
+    old = {"profile": "default", "pid": 555, "port": 4444, "token": "old-token", "code_hash": core_common._code_hash()}
+    monkeypatch.setattr(core_session, "_liveness", lambda paths: (state, old))
+    monkeypatch.setattr(core_cli, "_session_for", lambda *a, **k: pytest.fail("stop must not resolve a replacement session"))
+    requests: list[tuple[dict[str, Any], str, dict[str, Any], float]] = []
+    monkeypatch.setattr(
+        core_session,
+        "_request",
+        lambda session, cmd, payload, timeout: requests.append((session, cmd, dict(payload), timeout)) or {"stopping": True},
+    )
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: False)
+    args = argparse.Namespace(profile="default", all=False, force=False, discard_changes=True, session=None, timeout=3.0, max_bytes=None)
+
+    result = core_cli._cmd_stop(args)
+
+    assert result["stopping"] is True
+    assert len(requests) == 1
+    session, cmd, payload, timeout = requests[0]
+    assert session is old and cmd == "stop" and timeout == 3.0
+    assert payload["discard_changes"] is True and payload["_session_id"] == "manual"
+
+
+def test_nonforced_stop_rejects_an_incompatible_daemon_before_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    old = {"profile": "default", "pid": 555, "port": 4444, "token": "old-token"}
+    monkeypatch.setattr(core_session, "_liveness", lambda paths: ("incompatible", old))
+    monkeypatch.setattr(core_session, "_request", lambda *a, **k: pytest.fail("protocol mismatch must be rejected before dispatch"))
+    args = argparse.Namespace(profile="default", all=False, force=False, discard_changes=False, session=None, timeout=None)
+
+    with pytest.raises(RuntimeError) as exc:
+        core_cli._cmd_stop(args)
+
+    assert exc.value.error_class == "protocol_mismatch"
+
+
 # ---------------------------------------------------------------------------
 # doctor: never touches the registry, PATH, or a real subprocess
 

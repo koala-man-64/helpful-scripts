@@ -126,10 +126,10 @@ def test_prefixed_main_frame_refs_use_the_element_owner(make_daemon, monkeypatch
     monkeypatch.setattr(FakeLocator, "element_handle", lambda self, timeout=None: SimpleNamespace(owner_frame=lambda: owner))
     daemon.dispatch("snapshot", {}, 1)
     if belongs_to_page:
-        assert daemon.dispatch("click", {"target": "f9e2"}, 1)["ok"]
+        assert daemon.dispatch("click", {"target": "f9e2"}, 5)["ok"]
         page.emit("framenavigated", page.main_frame)
     with pytest.raises(ValueError) as exc:
-        daemon.dispatch("click", {"target": "f9e2"}, 1)
+        daemon.dispatch("click", {"target": "f9e2"}, 5)
     assert exc.value.error_class == core_common.ERR_STALE_REF
 
 
