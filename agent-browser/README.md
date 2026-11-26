@@ -61,6 +61,32 @@ fits one 7,000-byte tool reply; narrow with `find` or `ref` instead of paging.
 Use one explicit MCP `session_id` throughout the task. Installing repository templates
 is a separate step; editing them does not update an already-installed caller policy.
 
+### Update an existing installation after a merge
+
+On Windows, use `Get-Command agent-browser` to find the launcher on PATH. Use its
+Python interpreter to run `python -m pip show agent-browser` and check the install location.
+
+- **Editable install.** If pip lists an `Editable project location`, update that checkout
+  to the merged commit. New CLI invocations pick up the source changes. Rerun the
+  editable install with the same extras if the dependencies or entry points changed.
+- **Wheel or other regular install.** Reinstall from the merged source, even when the
+  package version is unchanged. For a per-user install, run this from the root of a
+  clean `helpful-scripts` checkout at the merged commit. Use `--no-deps` when the
+  installed Playwright and optional MCP versions already satisfy `agent-browser/pyproject.toml`.
+
+  ```powershell
+  python -m pip install --user --force-reinstall --no-deps ./agent-browser
+  ```
+
+  If requirements changed, run `python -m pip install --user ./agent-browser` first
+  (use `"./agent-browser[mcp]"` for MCP) to resolve them. In a virtual environment,
+  use that environment's Python and omit `--user`.
+
+Run `agent-browser doctor` to verify the installed command. A running daemon keeps
+its loaded code. Check `agent-browser status --profile NAME` for `stale_code: true`
+and restart that profile after its users have finished. Restart any long-running
+`agent-browser-mcp` process from its MCP client to load the updated package there too.
+
 ## Commands
 
 Global flags, before or after the verb: `--profile NAME`, `--tab TAB` (target a specific tab by stable id `t1`, `t2` or 1-based index without switching the active tab), `--timeout SECONDS`, `--snapshot` (full snapshot after an
