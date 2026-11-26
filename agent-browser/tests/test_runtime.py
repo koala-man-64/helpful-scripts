@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from agent_browser_core import common, evidence
-from conftest import FakeDialog, FakeFrame, FakePage, FakePlaywrightError, beforeunload_on_close
+from conftest import FakeDialog, FakeFrame, FakePage, FakePlaywrightError, SemanticMatch, SemanticMatches, beforeunload_on_close
 
 
 def test_session_identity_precedence(monkeypatch):
@@ -981,33 +981,68 @@ def test_response_on_another_sessions_page_never_satisfies_an_expectation(make_d
     assert still["pending"] is True and still["expectations"] == [{"kind": "response", "passed": False}]
 
 
-def test_recipe_persistence_check_survives_unrelated_traffic(make_daemon, monkeypatch):
+@pytest.mark.parametrize("context_change", ["none", "page_close", "frame_replace"])
+def test_recipe_persistence_check_stays_on_original_tab_and_frame(make_daemon, monkeypatch, context_change):
     record = "http://x/incident.do?sys_id=" + "a" * 32
-    daemon, _, page = make_daemon(page_url="http://x/nav_to.do")
+    snapshot = ('- generic [ref=e1]:\n'
+                '  - iframe "gsft_main" [ref=e2]:\n'
+                '    - generic [ref=f1e1]:\n'
+                '      - textbox "Number" [ref=f1e2]\n'
+                '      - textbox "Work notes" [ref=f1e3]\n'
+                '      - button "Update" [ref=f1e4]')
+    daemon, _, page = make_daemon(page_url="http://x/nav_to.do", snapshot_text=snapshot)
     other = _other_session_page(daemon)
-    form = FakeFrame(name="gsft_main", url=record)
-    page.frames = [page.main_frame, form]
+    form = next(frame for frame in page.frames if frame.name == "gsft_main")
+    form.url = record
     reloaded = []
     note = SimpleNamespace(is_visible=lambda: True, evaluate=lambda js: True)
     form.get_by_text = lambda text, exact=False: SimpleNamespace(all=lambda: [note] if reloaded else [])
-    form.get_by_label = lambda label, exact=False: SimpleNamespace(count=lambda: 1, input_value=lambda: "INC0012345")
+    controls = {
+        "Number": SemanticMatch("f1e2", "Number", role="textbox", value="INC0012345"),
+        "Work notes": SemanticMatch("f1e3", "Work notes", role="textbox"),
+    }
+    form.get_by_label = lambda label, exact=False: SemanticMatches([controls[label]] if label in controls else [])  # type: ignore[attr-defined]
+    update = SemanticMatch("f1e4", "Update", role="button")
+    form.locator = lambda selector: SemanticMatches([update] if selector == "button#sysverb_update" else [])  # type: ignore[method-assign]
     form.goto = lambda url, **kwargs: reloaded.append(url)
-    fields = {"Number": "INC0012345", "Work notes": ""}
-    monkeypatch.setattr(daemon, "resolve", lambda _page, target: SimpleNamespace(
-        input_value=lambda: fields.get(target.get("label"), "") if isinstance(target, dict) else ""))
-    monkeypatch.setattr(daemon, "h_fill", lambda args, timeout: {})
 
-    def submit(args, timeout):
-        page.emit("response", _response("POST", record))
-        for index in range(1100):
-            page.emit("response", _response("GET", f"http://x/asset{index}.js"))
-            other.emit("response", _response("POST", record))  # another session's page: never this record's evidence
+    def action(args, timeout, action_name, run, **kwargs):
+        locator = kwargs["locator_override"]
+        kwargs["pre_attempt"](page, locator, lambda: 30_000)
+        if action_name == "fill":
+            assert locator is controls["Work notes"]
+            assert args["tab"] == daemon._tab_id(page) and args["_deadline"] is not None
+            controls["Work notes"].value = args["text"]
+        else:
+            assert action_name == "click" and locator is update
+            assert args["tab"] == daemon._tab_id(page) and args["_deadline"] is not None
+            def click(**_kwargs):
+                page.emit("response", _response("POST", record))
+                for index in range(1100):
+                    page.emit("response", _response("GET", f"http://x/asset{index}.js"))
+                    other.emit("response", _response("POST", record))  # another session's page: never this record's evidence
+                if context_change == "page_close":
+                    page.close()
+                elif context_change == "frame_replace":
+                    replacement = FakeFrame(name="gsft_main", url=record)
+                    page.frames = [page.main_frame, replacement]
+            update.click = click  # type: ignore[attr-defined]
+
+            def begin_attempt():
+                daemon.action_attempted = True
+                return 30_000
+
+            run(page, locator, lambda: 30_000, begin_attempt)
         return {}
-    monkeypatch.setattr(daemon, "h_click", submit)
+    monkeypatch.setattr(daemon, "_do_action", action)
 
     result = daemon.dispatch("commit", {"operation": "run", "recipe": "sn/add-work-note", "number": "INC0012345", "text": "note"}, 30)
 
-    assert result["persisted"] is True and result["pending"] is False and reloaded == [record]
+    if context_change == "none":
+        assert result["persisted"] is True and result["pending"] is False and reloaded == [record]
+    else:
+        assert result["executed"] is True and result["pending"] is True and result["persisted"] is False, json.dumps(result)
+        assert reloaded == []
 
 
 def test_every_request_refreshes_the_idle_clock(make_daemon):

@@ -2,6 +2,11 @@
 <html lang="en">
 <head><meta charset="utf-8"><title>Local classic-form recipe</title></head>
 <body>
+  <aside aria-label="Another record">
+    <label>Number <input value="INC0099999" readonly></label>
+    <label>Work notes <textarea>Sidebar draft</textarea></label>
+    <button id="sysverb_update" type="button" onclick="this.dataset.clicked = 'yes'">Update</button>
+  </aside>
   <iframe name="gsft_main" title="Record form" src="/record?sys_id=0123456789abcdef0123456789abcdef&amp;number=INC0010023"></iframe>
 </body>
 </html>
