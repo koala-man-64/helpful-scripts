@@ -24,6 +24,7 @@ MAX_EXPORT_BYTES = 32 * 1024 * 1024
 MAX_TABLE_BYTES = 16 * 1024 * 1024
 PAGE_NAV_STABILITY_SECONDS = 0.5
 NEXT_DISABLED_JS = "el => el.matches(':disabled') || el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true'"
+ARIA_BUSY_JS = "elements => elements.some(el => el.closest('[aria-busy=true]'))"
 CELL_TEXT_JS = "el => String(el.innerText || '').slice(0, 2000)"
 HEADER_TEXT_JS = "el => String(el.innerText || '').slice(0, 500)"
 TABLE_TEXT_JS = "el => String(el.innerText || '').slice(0, 100000)"
@@ -237,7 +238,7 @@ def extract_table(engine: Any, args: dict[str, Any], timeout: float) -> dict[str
             stop_reason, complete, truncated = "new_tab", False, True
             break
         changed = _wait_for_table_change(
-            engine, page, table_target, before_text, before_navigation, page_origin,
+            engine, page, table_target, values["next"], before_text, before_navigation, page_origin,
             float(deadline),
         )
         if changed is None:
@@ -611,7 +612,7 @@ def _table_text(table: Any, deadline: float | None) -> str:
     return common.sanitize_text(_locator_text(table, TABLE_TEXT_JS, deadline), 100_000)
 
 
-def _wait_for_table_change(engine: Any, page: Any, table_target: Any, before_text: str,
+def _wait_for_table_change(engine: Any, page: Any, table_target: Any, next_target: Any, before_text: str,
                            before_navigation: Any, origin: tuple[str, str, int], deadline: float) -> tuple[Any, Any] | None:
     nav_changed_at: float | None = None
     while common._now() < deadline:
@@ -620,12 +621,13 @@ def _wait_for_table_change(engine: Any, page: Any, table_target: Any, before_tex
         try:
             table = _resolve_table(engine, page, table_target)
             current_text = _table_text(table, deadline)
-            if current_text != before_text:
-                return page, table
-            if engine._nav_signature(page) != before_navigation:
-                if nav_changed_at is None:
-                    nav_changed_at = common._now()
-                elif common._now() - nav_changed_at >= PAGE_NAV_STABILITY_SECONDS:
+            if nav_changed_at is None and engine._nav_signature(page) != before_navigation:
+                nav_changed_at = common._now()
+            navigated = nav_changed_at is not None and common._now() - nav_changed_at >= PAGE_NAV_STABILITY_SECONDS
+            if (current_text != before_text or navigated) and not table.evaluate_all(ARIA_BUSY_JS):
+                # A grid can clear its old rows before the next page arrives. Respect the control's loading signal too.
+                _, control = _next_state(engine, page, next_target)
+                if control is None or not control.evaluate_all(ARIA_BUSY_JS):
                     return page, table
         except _DeadlineExceeded:
             return None

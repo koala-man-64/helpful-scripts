@@ -61,6 +61,10 @@ class _Locator:
     def get_attribute(self, name: str) -> str | None:
         return self.href if name == "href" else None
 
+    def evaluate_all(self, script: str) -> bool:
+        assert script == tables.ARIA_BUSY_JS
+        return False
+
 
 class _Handle:
     def __init__(self, frame: object) -> None:
@@ -116,6 +120,10 @@ class _Table:
 
     def element_handle(self) -> _Handle:
         return _Handle(self.page.main_frame)
+
+    def evaluate_all(self, script: str) -> bool:
+        assert script == tables.ARIA_BUSY_JS
+        return False
 
     def inner_text(self, timeout: float | None = None) -> str:
         return "\n".join(["\t".join(self.headers), *("\t".join(row) for row in self.data)])
