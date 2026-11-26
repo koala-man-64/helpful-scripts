@@ -348,6 +348,13 @@ class _Cell:
     def inner_text(self) -> str:
         return self.text
 
+    def evaluate(self, script: str, timeout: float | None = None) -> str:
+        if script == reach.tables.CELL_TEXT_JS:
+            return self.text[:2000]
+        if script == reach.tables.HEADER_TEXT_JS:
+            return self.text[:500]
+        raise AssertionError(f"unexpected table cell evaluation: {script}")
+
     def is_visible(self) -> bool:
         return True
 
@@ -366,9 +373,10 @@ class _Row:
 
     def locator(self, selector: str) -> Any:
         self.selectors.append(selector)
-        return SimpleNamespace(all=lambda: [_Cell(text) for text in self.cells])
+        cells = [_Cell(text) for text in self.cells]
+        return SimpleNamespace(all=lambda: cells, count=lambda: len(cells), nth=lambda index: cells[index])
 
-    def aria_snapshot(self, mode: str = "ai") -> str:
+    def aria_snapshot(self, mode: str = "ai", timeout: float | None = None) -> str:
         return f'- row "{" ".join(self.cells)}" [ref={self.ref}]'
 
 
@@ -388,7 +396,7 @@ class _Table:
         items = [_Cell(self.header)] if role == "columnheader" else [self.row]
         return SimpleNamespace(all=lambda: items, count=lambda: len(items), nth=lambda index: items[index])
 
-    def element_handle(self) -> Any:
+    def element_handle(self, timeout: float | None = None) -> Any:
         return SimpleNamespace(owner_frame=lambda: self.page.main_frame, dispose=lambda: None)
 
     def aria_snapshot(self, mode: str = "ai") -> str:

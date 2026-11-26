@@ -9,7 +9,7 @@ import os
 import re
 import unicodedata
 import urllib.parse
-from typing import Any
+from typing import Any, Callable
 
 from . import api, common, snapshots
 
@@ -50,7 +50,7 @@ def extract_table(engine: Any, args: dict[str, Any], timeout: float) -> dict[str
         args.get(name) is not None for name in ("max_rows", "columns", "keys", "export_format")
     )
     if no_options:
-        return _extract_compat_page(engine, args)
+        return _extract_compat_page(engine, args, timeout)
 
     if paginating and _is_ref_target(args.get("target")):
         raise common._tag(
@@ -100,10 +100,16 @@ def extract_table(engine: Any, args: dict[str, Any], timeout: float) -> dict[str
         if raw_limit <= 0:
             stop_reason, complete, truncated = "row_limit", False, True
             break
+        deduplicate_rows = paginating or values["keys"] is not None
+        page_row_budget = (
+            _page_row_budget(max_rows - len(rows), seen_keys, values["keys"], key_indexes)
+            if deduplicate_rows else None
+        )
+        read_limit = raw_limit if deduplicate_rows else min(raw_limit, max_rows - len(rows))
         try:
             page_headers, raw_rows, more_rows, byte_limited, deadline_hit, headers_complete = _read_page(
                 engine, page, table, keep_refs=not paginating,
-                row_limit=raw_limit, bounded=True, deadline=deadline,
+                row_limit=read_limit, deadline=float(deadline), row_budget=page_row_budget,
             )
         except _DeadlineExceeded:
             stop_reason, complete, truncated = "deadline", False, True
@@ -134,7 +140,8 @@ def extract_table(engine: Any, args: dict[str, Any], timeout: float) -> dict[str
                 schema = tuple(page_headers)
                 schema_headerless = not has_dom_headers
                 output_columns, selected_indexes = _select_columns(page_headers, values["columns"])
-                key_indexes = _select_keys(page_headers, values["keys"])
+                if key_indexes is None:
+                    key_indexes = _select_keys(page_headers, values["keys"])
         elif has_dom_headers == schema_headerless or tuple(page_headers) != schema:
             stop_reason, complete, truncated = "schema_changed", False, True
             break
@@ -359,71 +366,68 @@ def _resolve_table(engine: Any, page: Any, target: Any) -> Any:
     return table
 
 
-def _extract_compat_page(engine: Any, args: dict[str, Any]) -> dict[str, Any]:
+def _extract_compat_page(engine: Any, args: dict[str, Any], timeout: float) -> dict[str, Any]:
     page = engine.target_page(args)
     table = _resolve_table(engine, page, args.get("target"))
-    headers, rows, _more, _byte_limited, _deadline_hit, _headers_complete = _read_page(
-        engine, page, table, keep_refs=True, row_limit=None, bounded=False, deadline=None
+    deadline = args.get("_deadline", common._now() + max(float(timeout), 0.0))
+    if isinstance(deadline, bool) or not isinstance(deadline, (int, float)):
+        raise common._tag(ValueError("Invalid table command deadline."), common.ERR_VALIDATION)
+    headers, rows, more, byte_limited, deadline_hit, headers_complete = _read_page(
+        engine, page, table, keep_refs=True, row_limit=DEFAULT_ROWS, deadline=float(deadline)
     )
     _remember_row_refs(engine, page, rows)
-    return {
+    result = {
         "columns": headers,
         "rows": rows,
         "tab": engine._tab_index(page),
         "tab_id": engine._tab_id(page),
         "untrusted": ["columns", "rows"],
     }
+    stop_reason = (
+        "deadline" if deadline_hit or not headers_complete else
+        "byte_limit" if byte_limited else
+        "row_limit" if more else None
+    )
+    if stop_reason:
+        result.update({"complete": False, "truncated": True, "stop_reason": stop_reason,
+                       "rows_scanned": len(rows)})
+    return result
 
 
 def _read_page(engine: Any, page: Any, table: Any, *, keep_refs: bool, row_limit: int | None,
-               bounded: bool, deadline: float | None) -> tuple[list[str], list[dict[str, Any]], bool, bool, bool, bool]:
+               deadline: float,
+               row_budget: Callable[[list[str], list[str]], bool] | None = None
+               ) -> tuple[list[str], list[dict[str, Any]], bool, bool, bool, bool]:
     headers: list[str] = []
     headers_complete = True
-    if not bounded:
-        headers = [common.sanitize_text(loc.inner_text(), 500)
-                   for loc in table.get_by_role("columnheader").all() if loc.is_visible()]
-    else:
-        header_locator = table.get_by_role("columnheader")
-        header_count = header_locator.count()
-        if header_count > MAX_COLUMNS:
-            raise common._tag(ValueError(f"Table exceeds the {MAX_COLUMNS}-column extraction bound."), common.ERR_VALIDATION)
-        for index in range(header_count):
-            if _deadline_expired(deadline):
-                headers_complete = False
-                return headers, [], False, False, True, False
-            loc = header_locator.nth(index)
-            if not loc.is_visible():
-                continue
-            try:
-                headers.append(common.sanitize_text(_locator_text(loc, HEADER_TEXT_JS, deadline), 500))
-            except _DeadlineExceeded:
-                headers_complete = False
-                return headers, [], False, False, True, False
-
-    if bounded and len(headers) > MAX_COLUMNS:
+    header_locator = table.get_by_role("columnheader")
+    header_count = header_locator.count()
+    if header_count > MAX_COLUMNS:
         raise common._tag(ValueError(f"Table exceeds the {MAX_COLUMNS}-column extraction bound."), common.ERR_VALIDATION)
-    prefix = ""
-    if keep_refs:
-        if page not in engine.served:
-            engine._serve_snapshot(page)
-        served = engine.served[page]
-        handle = table.element_handle()
+    for index in range(header_count):
+        if _deadline_expired(deadline):
+            headers_complete = False
+            return headers, [], False, False, True, False
+        loc = header_locator.nth(index)
+        if not loc.is_visible():
+            continue
         try:
-            frame = handle.owner_frame()
-        finally:
-            try:
-                handle.dispose()
-            except Exception:  # noqa: BLE001 - handle cleanup is best effort
-                pass
-        prefix = next((p for p, f in served.frame_by_prefix.items() if f is frame), "")
+            headers.append(common.sanitize_text(_locator_text(loc, HEADER_TEXT_JS, deadline), 500))
+        except _DeadlineExceeded:
+            headers_complete = False
+            return headers, [], False, False, True, False
 
+    if len(headers) > MAX_COLUMNS:
+        raise common._tag(ValueError(f"Table exceeds the {MAX_COLUMNS}-column extraction bound."), common.ERR_VALIDATION)
+    prefix: str | None = None
+    row_snapshot_taken = False
     row_locator = table.get_by_role("row")
     row_count = row_locator.count()
     rows: list[dict[str, Any]] = []
     has_more = byte_limited = deadline_hit = False
     raw_bytes = 0
     for index in range(row_count):
-        if bounded and _deadline_expired(deadline):
+        if _deadline_expired(deadline):
             deadline_hit = True
             break
         row = row_locator.nth(index)
@@ -433,39 +437,75 @@ def _read_page(engine: Any, page: Any, table: Any, *, keep_refs: bool, row_limit
             has_more = True
             break
         cell_locator = row.locator(CELL_SELECTOR)
-        if bounded:
-            cell_count = cell_locator.count()
-            if cell_count > MAX_COLUMNS:
-                raise common._tag(ValueError(f"Table exceeds the {MAX_COLUMNS}-column extraction bound."), common.ERR_VALIDATION)
-            cell_locs = [cell_locator.nth(cell_index) for cell_index in range(cell_count)]
-        else:
-            cell_locs = cell_locator.all()
+        cell_count = cell_locator.count()
+        if cell_count > MAX_COLUMNS:
+            raise common._tag(ValueError(f"Table exceeds the {MAX_COLUMNS}-column extraction bound."), common.ERR_VALIDATION)
+        cell_locs = [cell_locator.nth(cell_index) for cell_index in range(cell_count)]
         cells: list[str] = []
         row_bytes = 2
         for cell_index, cell in enumerate(cell_locs):
             try:
-                text = (common.sanitize_text(_locator_text(cell, CELL_TEXT_JS, deadline), 2000)
-                        if bounded else common.sanitize_text(cell.inner_text(), 2000))
+                text = common.sanitize_text(_locator_text(cell, CELL_TEXT_JS, deadline), 2000)
             except _DeadlineExceeded:
                 deadline_hit = True
                 break
-            if bounded:
-                size = len(json.dumps(text, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-                row_bytes += size + (1 if cell_index else 0)
-                if raw_bytes + row_bytes > MAX_TABLE_BYTES:
-                    byte_limited = True
-                    break
+            size = len(json.dumps(text, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+            row_bytes += size + (1 if cell_index else 0)
+            if raw_bytes + row_bytes > MAX_TABLE_BYTES:
+                byte_limited = True
+                break
             cells.append(text)
         if deadline_hit or byte_limited:
             break
-        if bounded:
-            raw_bytes += row_bytes
+        raw_bytes += row_bytes
+        if row_budget is not None and row_budget(headers, cells):
+            # One extra row has been read to tell whether the output budget is exceeded.
+            # Do not pay for its ref snapshot because it cannot appear in the response.
+            rows.append({"ref": None, "cells": cells})
+            has_more = True
+            break
         ref = None
         if keep_refs:
             if _deadline_expired(deadline):
                 deadline_hit = True
                 break
-            snapshot = row.aria_snapshot(mode="ai", **({"timeout": _remaining_ms(deadline)} if bounded else {}))
+            try:
+                # Defer the full-page snapshot until a row will actually be returned. That
+                # keeps expired and byte-limited previews from paying for an unused ref map.
+                if page not in engine.served:
+                    engine._serve_snapshot(page)
+                if _deadline_expired(deadline):
+                    deadline_hit = True
+                    break
+                if prefix is None:
+                    served = engine.served[page]
+                    handle_timeout = _remaining_ms(deadline)
+                    if handle_timeout is None or handle_timeout <= 0:
+                        deadline_hit = True
+                        break
+                    handle = table.element_handle(timeout=handle_timeout)
+                    try:
+                        frame = handle.owner_frame()
+                    finally:
+                        try:
+                            handle.dispose()
+                        except Exception:  # noqa: BLE001 - handle cleanup is best effort
+                            pass
+                    if _deadline_expired(deadline):
+                        deadline_hit = True
+                        break
+                    prefix = next((p for p, f in served.frame_by_prefix.items() if f is frame), "")
+                snapshot_timeout = _remaining_ms(deadline)
+                if snapshot_timeout is None or snapshot_timeout <= 0:
+                    deadline_hit = True
+                    break
+                snapshot = row.aria_snapshot(mode="ai", timeout=snapshot_timeout)
+            except Exception as exc:  # noqa: BLE001 - retain failures unless the deadline expired
+                if _deadline_timeout(exc, deadline):
+                    deadline_hit = True
+                    break
+                raise
+            row_snapshot_taken = True
             # The row's own line, parsed: its name repeats its cells' text, so [ref=...] written in a cell must not
             # be taken for the row's ref.
             own = next(iter(snapshots.parse_ai_snapshot(snapshot)), None)
@@ -473,9 +513,37 @@ def _read_page(engine: Any, page: Any, table: Any, *, keep_refs: bool, row_limit
             if ref and prefix and not ref.startswith("f"):
                 ref = prefix + ref
         rows.append({"ref": ref, "cells": cells})
-    if keep_refs:
+        if _deadline_expired(deadline):
+            deadline_hit = True
+            break
+    if keep_refs and row_snapshot_taken and not _deadline_expired(deadline):
+        # Scoped row snapshots can narrow Playwright's ref map. Restore the full-page map
+        # after the row refs have been read, unless the command budget is already spent.
         engine._serve_snapshot(page)
     return headers, rows, has_more, byte_limited, deadline_hit, headers_complete
+
+
+def _page_row_budget(capacity: int, seen_keys: dict[tuple[str, ...], tuple[str, ...]],
+                     keys: list[str] | None, key_indexes: list[int] | None
+                     ) -> Callable[[list[str], list[str]], bool]:
+    """Stop a page after enough distinct rows plus one useful lookahead."""
+    page_keys: set[tuple[str, ...]] = set()
+    resolved_key_indexes = key_indexes
+
+    def over_budget(headers: list[str], cells: list[str]) -> bool:
+        nonlocal resolved_key_indexes
+        if keys is not None and resolved_key_indexes is None:
+            effective_headers = headers or [f"column_{index + 1}" for index in range(len(cells))]
+            resolved_key_indexes = _select_keys(effective_headers, keys)
+        key = _key_for(tuple(cells), resolved_key_indexes)
+        if key in seen_keys or key in page_keys:
+            # Keep reading duplicates so conflicts are reported and overlaps do not
+            # consume the distinct-row budget.
+            return False
+        page_keys.add(key)
+        return len(page_keys) > capacity
+
+    return over_budget
 
 
 def _locator_text(locator: Any, script: str, deadline: float | None) -> str:
@@ -485,7 +553,7 @@ def _locator_text(locator: Any, script: str, deadline: float | None) -> str:
     try:
         return str(locator.evaluate(script, timeout=remaining) or "")
     except Exception as exc:  # noqa: BLE001 - convert only expiry; preserve real locator errors
-        if deadline is not None and _deadline_expired(deadline):
+        if _deadline_timeout(exc, deadline):
             raise _DeadlineExceeded from exc
         raise
 
@@ -494,7 +562,19 @@ def _remaining_ms(deadline: float | None) -> int | None:
     if deadline is None:
         return None
     remaining = deadline - common._now()
-    return max(0, int(remaining * 1000))
+    if remaining <= 0:
+        return 0
+    return max(1, int(remaining * 1000))
+
+
+def _deadline_timeout(exc: Exception, deadline: float | None) -> bool:
+    if deadline is None:
+        return False
+    remaining = _remaining_ms(deadline)
+    if remaining == 0:
+        return True
+    timeout_error = type(exc).__name__ == "TimeoutError" or getattr(exc, "error_class", None) == common.ERR_TIMEOUT
+    return timeout_error and remaining == 1
 
 
 def _deadline_expired(deadline: float | None) -> bool:

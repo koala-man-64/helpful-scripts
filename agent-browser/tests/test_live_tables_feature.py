@@ -10,6 +10,17 @@ import pytest
 from test_live_expansion import PROFILE, cli, live_home, site, pytestmark
 
 
+def test_live_one_row_preview_reads_only_the_needed_rows(cli, site):
+    session = "table-preview"
+    cli.ok("goto", f"{site.url}/rows.html", "--session", session)
+    preview = cli.ok("table", "#t", "--max-rows", "1", "--session", session)
+
+    assert preview["row_count"] == 1 and 1 <= preview["rows_scanned"] <= 2
+    assert preview["rows"][0]["cells"] == ["Row 1", "Remove"]
+    assert preview["truncated"] and preview["stop_reason"] == "row_limit"
+    assert cli.ok("click", preview["rows"][0]["ref"], "--session", session)["executed"]
+
+
 @pytest.mark.parametrize("mode", ["normal", "slow", "cleared", "unmarked"])
 def test_live_async_pagination_deduplicates_and_exports_complete_json(cli, site, mode):
     session = "table-pages"

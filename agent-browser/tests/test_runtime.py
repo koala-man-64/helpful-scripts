@@ -424,22 +424,32 @@ def test_expect_gone_succeeds_when_handle_disposed_on_navigation(make_daemon, mo
 
 def test_table_with_css_selector_before_snapshot(make_daemon, monkeypatch):
     from types import SimpleNamespace
+    from agent_browser_core import tables
     daemon, ctx, page = make_daemon()
     assert page not in daemon.served
 
-    cell = SimpleNamespace(inner_text=lambda: "Rudy", is_visible=lambda: True)
+    def evaluate_text(script, timeout=None):
+        if script == tables.CELL_TEXT_JS:
+            return "Rudy"
+        if script == tables.HEADER_TEXT_JS:
+            return "Owner"
+        raise AssertionError(f"unexpected table text evaluation: {script}")
+
+    cell = SimpleNamespace(inner_text=lambda: "Rudy", is_visible=lambda: True,
+                           evaluate=evaluate_text)
     row = SimpleNamespace(
         is_visible=lambda: True,
         get_by_role=lambda role: SimpleNamespace(count=lambda: 0),
-        locator=lambda sel: SimpleNamespace(all=lambda: [cell]),
-        aria_snapshot=lambda mode="ai": '- row "Rudy" [ref=e9]',
+        locator=lambda sel: SimpleNamespace(all=lambda: [cell], count=lambda: 1, nth=lambda index: cell),
+        aria_snapshot=lambda mode="ai", timeout=None: '- row "Rudy" [ref=e9]',
     )
-    header = SimpleNamespace(inner_text=lambda: "Owner", is_visible=lambda: True)
+    header = SimpleNamespace(inner_text=lambda: "Owner", is_visible=lambda: True,
+                             evaluate=evaluate_text)
     fake_table = SimpleNamespace(
         evaluate=lambda js: False,
         get_by_role=lambda role: SimpleNamespace(all=lambda: [header] if role == "columnheader" else [row], count=lambda: 1,
                                                  nth=lambda index: ([header] if role == "columnheader" else [row])[index]),
-        element_handle=lambda: SimpleNamespace(owner_frame=lambda: page.main_frame, dispose=lambda: None),
+        element_handle=lambda timeout=None: SimpleNamespace(owner_frame=lambda: page.main_frame, dispose=lambda: None),
     )
     monkeypatch.setattr(daemon, "resolve", lambda p, t: fake_table)
 

@@ -43,6 +43,8 @@ class _Locator:
         if script == tables.NEXT_DISABLED_JS:
             return self.disabled
         if script == tables.CELL_TEXT_JS:
+            if self.page is not None:
+                self.page.cell_text_reads += 1
             return self.text[:2000]
         if script == tables.HEADER_TEXT_JS:
             return self.text[:500]
@@ -83,6 +85,8 @@ class _Row:
         self.page, self.values, self.ref, self.header = page, cells, ref, header
 
     def is_visible(self) -> bool:
+        if not self.header:
+            self.page.row_checks += 1
         return True
 
     def get_by_role(self, role: str) -> _Collection:
@@ -94,6 +98,8 @@ class _Row:
 
     def aria_snapshot(self, *, mode: str, timeout: float | None = None) -> str:
         assert mode == "ai"
+        self.page.row_snapshots += 1
+        self.page.row_snapshot_timeouts.append(timeout)
         return f'- row [ref={self.ref}]'
 
 
@@ -120,7 +126,8 @@ class _Table:
             return _Collection([_Locator(page=self.page)] if role == "cell" and any(self.data) else [])
         raise AssertionError(f"unexpected role: {role}")
 
-    def element_handle(self) -> _Handle:
+    def element_handle(self, timeout: float | None = None) -> _Handle:
+        self.page.table_handle_timeouts.append(timeout)
         return _Handle(self.page.main_frame)
 
     def evaluate_all(self, script: str) -> bool:
@@ -143,6 +150,11 @@ class _Page:
         self.pending: tuple[int, float] | None = None
         self.next_href = next_href
         self.clicks = 0
+        self.row_checks = 0
+        self.cell_text_reads = 0
+        self.row_snapshots = 0
+        self.row_snapshot_timeouts: list[float | None] = []
+        self.table_handle_timeouts: list[float | None] = []
 
     @property
     def table(self) -> _Table:
@@ -195,6 +207,8 @@ class _Engine:
         self.session_id = "tables"
         self.page_owners = {self.page: self.session_id}
         self.served: dict[Any, Any] = {}
+        self.snapshot_calls = 0
+        self.snapshot_row_counts: list[int] = []
         self.table_rows: dict[Any, set[str]] = {}
         self.table_row_epochs: dict[Any, Any] = {}
         self.new_pages: list[Any] = []
@@ -215,6 +229,8 @@ class _Engine:
         return page.url, page.nav_count, page.index
 
     def _serve_snapshot(self, page: _Page) -> Any:
+        self.snapshot_calls += 1
+        self.snapshot_row_counts.append(page.row_snapshots)
         served = SimpleNamespace(frame_by_prefix={"f2": page.main_frame})
         self.served[page] = served
         return served
@@ -266,6 +282,165 @@ def test_default_table_response_keeps_legacy_refs_and_shape(tmp_path: Path) -> N
         {"ref": "f2e2", "cells": ["2", "B"]},
     ]
     assert engine.table_rows[engine.page] == {"f2e1", "f2e2"}
+
+
+def test_existing_full_ref_map_is_refreshed_after_scoped_row_snapshots(tmp_path: Path) -> None:
+    engine = _Engine(tmp_path, _pages()[:1])
+    engine._serve_snapshot(engine.page)
+
+    result = tables.extract_table(engine, {"target": None}, 5)
+
+    assert result["rows"][0]["ref"] == "f2e1"
+    assert engine.table_rows[engine.page] == {"f2e1", "f2e2"}
+    # No pre-read full-page scan is needed when the page was already served; one refresh
+    # restores the full ref map after both scoped row snapshots.
+    assert engine.snapshot_calls == 2
+    assert engine.snapshot_row_counts == [0, 2]
+
+
+def test_max_rows_bounds_dom_cell_reads_and_keeps_returned_row_refs(tmp_path: Path) -> None:
+    page = [{"columns": ["ID", "Name"],
+             "rows": [[str(index), f"Name {index}"] for index in range(100)], "next": False}]
+    engine = _Engine(tmp_path, page)
+
+    result = tables.extract_table(engine, _args(max_rows=1), 10)
+
+    assert result["rows"] == [{"cells": ["0", "Name 0"], "ref": "f2e1"}]
+    assert result["rows_scanned"] == 1
+    assert result["stop_reason"] == "row_limit" and result["truncated"] is True
+    # The next visible row is only checked to establish truncation. Its cells and ref are not read.
+    assert engine.page.row_checks == 2
+    assert engine.page.cell_text_reads == 2
+    assert engine.page.row_snapshots == 1
+    assert engine.table_rows[engine.page] == {"f2e1"}
+
+
+def test_plain_table_response_is_bounded_and_marks_row_overflow(tmp_path: Path) -> None:
+    page = [{"columns": ["ID"], "rows": [[str(index)] for index in range(tables.DEFAULT_ROWS + 1)]}]
+    engine = _Engine(tmp_path, page)
+
+    result = tables.extract_table(engine, {"target": None, "_deadline": common._now() + 120}, 120)
+
+    assert len(result["rows"]) == tables.DEFAULT_ROWS
+    assert result["rows"][-1]["cells"] == [str(tables.DEFAULT_ROWS - 1)]
+    assert result["complete"] is False and result["truncated"] is True
+    assert result["stop_reason"] == "row_limit"
+    assert result["rows_scanned"] == tables.DEFAULT_ROWS
+    assert engine.page.cell_text_reads == tables.DEFAULT_ROWS
+    assert engine.page.row_checks == tables.DEFAULT_ROWS + 1
+    assert len(engine.table_rows[engine.page]) == tables.DEFAULT_ROWS
+
+
+def test_plain_table_byte_overflow_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tables, "MAX_TABLE_BYTES", 24)
+    engine = _Engine(tmp_path, [{"columns": ["ID"], "rows": [["a value larger than the limit"]]}])
+
+    result = tables.extract_table(engine, {"target": None}, 10)
+
+    assert result["rows"] == []
+    assert result["complete"] is False and result["truncated"] is True
+    assert result["stop_reason"] == "byte_limit"
+    assert engine.snapshot_calls == 0
+
+
+def test_plain_table_deadline_keeps_completed_rows_actionable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    engine = _Engine(tmp_path, [{"columns": ["ID"], "rows": [["1"], ["2"]]}])
+    monkeypatch.setattr(tables, "_deadline_expired", lambda _deadline: engine.page.row_snapshots >= 1)
+
+    result = tables.extract_table(engine, {"target": None}, 10)
+
+    assert result["rows"] == [{"ref": "f2e1", "cells": ["1"]}]
+    assert result["complete"] is False and result["truncated"] is True
+    assert result["stop_reason"] == "deadline"
+    assert engine.snapshot_calls == 1
+    assert engine.table_rows[engine.page] == {"f2e1"}
+
+
+def test_expired_plain_table_deadline_skips_snapshot_capture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    engine = _Engine(tmp_path, [{"columns": ["ID"], "rows": [["1"]]}])
+    monkeypatch.setattr(tables, "_deadline_expired", lambda _deadline: True)
+
+    result = tables.extract_table(engine, {"target": None}, 10)
+
+    assert result["rows"] == []
+    assert result["complete"] is False and result["truncated"] is True
+    assert result["stop_reason"] == "deadline"
+    assert engine.snapshot_calls == 0
+
+
+def test_table_ref_lookup_rechecks_deadline_before_aria_snapshot(tmp_path: Path, fake_clock, monkeypatch) -> None:
+    engine = _Engine(tmp_path, [{"columns": ["ID"], "rows": [["1"]]}])
+    fake_clock.step = 0
+    deadline = fake_clock.value + 1
+    original_serve = engine._serve_snapshot
+    original_owner_frame = _Handle.owner_frame
+
+    def advance_in_snapshot(page: _Page) -> Any:
+        served = original_serve(page)
+        fake_clock.value = deadline - 0.0005
+        return served
+
+    def expire_in_frame_lookup(handle: _Handle) -> object:
+        fake_clock.value = deadline
+        return original_owner_frame(handle)
+
+    monkeypatch.setattr(engine, "_serve_snapshot", advance_in_snapshot)
+    monkeypatch.setattr(_Handle, "owner_frame", expire_in_frame_lookup)
+
+    result = tables.extract_table(engine, {"target": None, "_deadline": deadline}, 1)
+
+    assert result["rows"] == []
+    assert result["complete"] is False and result["truncated"] is True
+    assert result["stop_reason"] == "deadline"
+    assert engine.page.table_handle_timeouts == [1]
+    assert engine.page.row_snapshot_timeouts == []
+
+
+def test_keyed_preview_reads_overlap_rows_until_distinct_limit_is_filled(tmp_path: Path) -> None:
+    pages = [
+        {"columns": ["ID", "Name"], "rows": [["1", "A"], ["2", "B"]], "next": True},
+        {"columns": ["ID", "Name"], "rows": [["2", "B"], ["3", "C"], ["4", "D"]], "next": False},
+    ]
+    engine = _Engine(tmp_path, pages)
+
+    result = tables.extract_table(
+        engine, _args(next="#next", max_pages=10, max_rows=3, columns=["Name"], keys=["ID"]), 10
+    )
+
+    assert result["columns"] == ["Name"]
+    assert result["rows"] == [{"cells": ["A"]}, {"cells": ["B"]}, {"cells": ["C"]}]
+    assert result["rows_scanned"] == 5
+    assert result["duplicate_rows"] == 1
+    assert result["stop_reason"] == "row_limit" and result["truncated"] is True
+    assert engine.clicks == 1
+
+
+def test_keyed_preview_still_reports_conflicts_at_the_distinct_row_limit(tmp_path: Path) -> None:
+    pages = [
+        {"columns": ["ID", "Name"], "rows": [["1", "A"], ["2", "B"]], "next": True},
+        {"columns": ["ID", "Name"], "rows": [["2", "changed"], ["3", "C"]], "next": False},
+    ]
+    engine = _Engine(tmp_path, pages)
+
+    result = tables.extract_table(engine, _args(next="#next", max_rows=3, keys=["ID"]), 10)
+
+    assert result["rows"] == [{"cells": ["1", "A"]}, {"cells": ["2", "B"]}]
+    assert result["key_conflict_count"] == 1
+    assert result["stop_reason"] == "key_conflict"
+    assert result["complete"] is False and result["truncated"] is True
+
+
+def test_key_conflict_after_max_distinct_rows_is_not_hidden_by_the_preview_limit(tmp_path: Path) -> None:
+    page = [{"columns": ["ID", "Name"],
+             "rows": [["1", "A"], ["1", "changed"], ["2", "B"]], "next": False}]
+    engine = _Engine(tmp_path, page)
+
+    result = tables.extract_table(engine, _args(max_rows=1, keys=["ID"]), 10)
+
+    assert [row["cells"] for row in result["rows"]] == [["1", "A"]]
+    assert result["key_conflict_count"] == 1
+    assert result["stop_reason"] == "key_conflict"
+    assert result["complete"] is False and result["truncated"] is True
 
 
 def test_async_pagination_deduplicates_selects_columns_and_writes_json(tmp_path: Path) -> None:
@@ -332,6 +507,22 @@ def test_schema_change_stops_before_mixing_different_pages(tmp_path: Path) -> No
     assert result["columns"] == ["ID", "Name"]
     assert result["rows"] == [{"cells": ["1", "A"]}]
     assert result["pages"] == 2
+    assert result["stop_reason"] == "schema_changed"
+    assert result["complete"] is False and result["truncated"] is True
+
+
+def test_dropped_key_column_on_later_page_is_a_partial_schema_change(tmp_path: Path) -> None:
+    pages = [
+        {"columns": ["ID", "Name"], "rows": [["1", "A"]], "next": True},
+        {"columns": ["Name"], "rows": [["B"]], "next": False},
+    ]
+    engine = _Engine(tmp_path, pages)
+
+    result = tables.extract_table(engine, _args(next="#next", keys=["ID"]), 10)
+
+    assert result["rows"] == [{"cells": ["1", "A"]}]
+    assert result["pages"] == 2
+    assert result["rows_scanned"] == 1
     assert result["stop_reason"] == "schema_changed"
     assert result["complete"] is False and result["truncated"] is True
 
