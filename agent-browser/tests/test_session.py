@@ -295,7 +295,9 @@ def test_incompatible_record_is_rejected_before_action_dispatch(monkeypatch, pro
     assert exc.value.error_class == "protocol_mismatch"
 
 
-def test_reused_start_health_check_uses_the_start_deadline(monkeypatch):
+def test_reused_start_health_check_uses_the_start_deadline(monkeypatch, fake_clock):
+    fake_clock.step = 0
+    started_at = fake_clock.now()
     paths = core_common._paths("default")
     _touch_lock(paths)
     monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
@@ -303,7 +305,7 @@ def test_reused_start_health_check_uses_the_start_deadline(monkeypatch):
     deadlines = []
     monkeypatch.setattr(core_session, "_ping", lambda record, timeout: deadlines.append(timeout) or {"pong": True})
     assert core_session.start_session(paths, _start_args(), timeout=17)["status"] == "already_running"
-    assert deadlines == [17]
+    assert deadlines == [pytest.approx(17 - (fake_clock.now() - started_at))]
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +375,7 @@ def test_start_session_retries_after_a_short_lock_only_transition(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock, initial: tuple[str, dict[str, Any] | None]
 ) -> None:
     paths = core_common._paths("default")
+    fake_clock.step = 0
     states = iter([initial, ("none", None)])
     monkeypatch.setattr(core_common, "_pid_alive", lambda pid: False)
     monkeypatch.setattr(core_session, "_transport_state", lambda p: next(states))
@@ -380,6 +383,7 @@ def test_start_session_retries_after_a_short_lock_only_transition(
     monkeypatch.setattr(core_session, "_launch_record", lambda p, args, token: {**launch, "token": token})
 
     def ready(p: core_common.ProfilePaths, record: dict[str, Any], timeout: float) -> dict[str, Any]:
+        assert timeout == pytest.approx(0.3)
         core_session._discard_launch(p.launch, record["token"])
         return {"profile": p.profile, "status": "started"}
 
@@ -389,6 +393,44 @@ def test_start_session_retries_after_a_short_lock_only_transition(
 
     assert result["status"] == "started"
     assert not paths.launch.exists()
+
+
+@pytest.mark.parametrize("still_starting", [False, True], ids=["available", "another daemon still starting"])
+def test_start_spends_only_its_remaining_timeout_after_waiting_for_purge(monkeypatch, fake_clock, still_starting):
+    paths = core_common._paths("default")
+    owner = core_common._try_lock(paths.start_lock)
+    assert owner is not None
+    fake_clock.step = 0
+    started_at = fake_clock.now()
+    real_acquire = core_common._acquire_lock
+    budgets = []
+
+    def finish_purge(path, wait):
+        assert path == paths.start_lock and wait == 5
+        fake_clock.sleep(3)
+        core_common._release_lock(owner)
+        return real_acquire(path, wait=wait)
+
+    def ready(paths, launch, timeout):
+        budgets.append(timeout)
+        core_session._discard_launch(paths.launch, launch["token"])
+        return {"status": "started"}
+
+    monkeypatch.setattr(core_common, "_acquire_lock", finish_purge)
+    monkeypatch.setattr(core_session, "_await_daemon", ready)
+    try:
+        if still_starting:
+            monkeypatch.setattr(core_session, "_transport_state", lambda p: ("starting", None))
+            with pytest.raises(RuntimeError, match="still starting"):
+                core_session.start_session(paths, _start_args(), timeout=5)
+            assert budgets == [] and not paths.launch.exists()
+            assert fake_clock.now() - started_at == pytest.approx(5)
+        else:
+            assert core_session.start_session(paths, _start_args(), timeout=5)["status"] == "started"
+            assert budgets == [2]
+    finally:
+        if not owner.closed:
+            core_common._release_lock(owner)
 
 
 def test_start_session_returns_already_running_without_spawning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -436,6 +478,23 @@ def test_start_session_spawns_and_writes_launch_file(monkeypatch: pytest.MonkeyP
     assert launch["config"] == {} and "code_hash" in launch
     argv = [core_common.sys.executable, "-X", "utf8", str(Path(ab.__file__).resolve()), "serve", "--launch-file", str(paths.launch)]
     assert argv[0] == core_common.sys.executable
+
+
+def test_readiness_probe_only_uses_the_remaining_start_time(monkeypatch, fake_clock):
+    paths = core_common._paths("default")
+    _install_success_recorder(monkeypatch, paths)
+    fake_clock.step = 0
+    spawn = core_common._spawn_daemon
+    probes = []
+
+    def slow_spawn(argv, log_path, cwd):
+        fake_clock.sleep(0.7)
+        return spawn(argv, log_path, cwd)
+
+    monkeypatch.setattr(core_common, "_spawn_daemon", slow_spawn)
+    monkeypatch.setattr(core_session, "_ping", lambda session, timeout: probes.append(timeout) or {"pong": True})
+    assert core_session.start_session(paths, _start_args(), timeout=1)["status"] == "started"
+    assert probes == [pytest.approx(0.2)]
 
 
 def test_launch_record_carries_an_absolute_home_for_the_daemon(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -790,6 +849,16 @@ def test_stale_stop_leaves_a_replacement_owner_untouched(monkeypatch: pytest.Mon
     assert exc.value.error_class == core_common.ERR_PROFILE_IN_USE
     assert exc.value.details["cleanup_skipped"] is True
     assert core_session._read_session(paths) == replacement
+
+
+def test_stale_stop_does_not_recreate_a_purged_profile():
+    paths = core_common._paths("default")
+    observed = _valid_session(paths)
+    core_session._write_json_atomic(paths.session, observed)
+    assert core_session.clean(purge=paths.profile)["profiles_purged"] == [paths.profile]
+
+    assert core_session.stop_session(paths, observed=("stale", observed))["stopped"]
+    assert not paths.dir.exists()
 
 
 @pytest.mark.parametrize("force", [False, True], ids=["graceful", "forced"])
@@ -1198,11 +1267,52 @@ def test_clean_purge_removes_a_stopped_profile(monkeypatch: pytest.MonkeyPatch, 
     paths = core_common._paths("default")
     paths.dir.mkdir(parents=True, exist_ok=True)
     (paths.dir / "marker.txt").write_text("x", encoding="utf-8")
+    paths.launch.write_text('{"token": "abandoned"}', encoding="utf-8")
     monkeypatch.setattr(core_common, "_kill_browsers_using", lambda user_data, dry_run=False: [])
 
     result = core_session.clean(purge="default")
     assert result["profiles_purged"] == ["default"]
     assert not paths.dir.exists()
+
+
+@pytest.mark.parametrize("stale", [False, True], ids=["no-endpoint", "stale-endpoint"])
+def test_purge_preserves_inflight_start_before_daemon_owns_session_lock(monkeypatch, stale):
+    paths = core_common._paths("default")
+    paths.dir.mkdir(parents=True)
+    marker = paths.dir / "saved-profile"
+    marker.write_text("keep")
+    if stale:
+        core_session._write_json_atomic(paths.session, _valid_session(paths))
+    swept = []
+    monkeypatch.setattr(core_common, "_kill_browsers_using", lambda *a, **kw: swept.append(True) or [])
+
+    def during_start(paths, launch, timeout):
+        for dry_run in (True, False):
+            with pytest.raises(RuntimeError) as busy:
+                core_session.clean(purge=paths.profile, dry_run=dry_run)
+            assert busy.value.error_class == core_common.ERR_PROFILE_IN_USE
+        assert json.loads(paths.launch.read_text())["token"] == launch["token"]
+        assert paths.session.exists() == stale
+        assert marker.read_text() == "keep" and not swept
+        core_session._discard_launch(paths.launch, launch["token"])
+        return {"status": "started"}
+
+    monkeypatch.setattr(core_session, "_await_daemon", during_start)
+    assert core_session.start_session(paths, _start_args())["status"] == "started"
+
+
+def test_purge_respects_daemon_session_lock_before_endpoint_publication(monkeypatch):
+    paths = core_common._paths("default")
+    owner = core_common._try_lock(paths.lock)
+    assert owner is not None and not paths.session.exists()
+    monkeypatch.setattr(core_common, "_kill_browsers_using", lambda *a, **kw: pytest.fail("clean targeted a starting browser"))
+    try:
+        with pytest.raises(ValueError) as busy:
+            core_session.clean(purge=paths.profile)
+        assert busy.value.hint == core_common._hint("purge_running", "default")
+        assert paths.dir.is_dir() and paths.lock.exists()
+    finally:
+        core_common._release_lock(owner)
 
 
 def test_clean_purge_failure_is_reported_once_and_later_profiles_are_still_cleaned(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -1243,6 +1353,7 @@ def test_clean_purge_dry_run_reports_the_profile_without_removing_it(monkeypatch
     result = core_session.clean(purge="default", dry_run=True)
     assert result["profiles_purged"] == ["default"]
     assert paths.dir.exists()
+    assert not paths.start_lock.exists() and not paths.admission_lock.exists()
 
 
 def test_clean_unknown_purge_is_not_found(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

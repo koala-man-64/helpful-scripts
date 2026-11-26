@@ -393,6 +393,14 @@ If a new daemon owns the profile when `stop` reaches orphan cleanup, `stop`
 returns `profile_in_use` with `details.cleanup_skipped`. Use `status` to see
 which daemon currently owns the profile.
 
+`clean --purge-profile P` refuses with `profile_in_use` if a start is claiming
+that profile. If purge is already deleting it, `start` waits within its command
+timeout or returns `profile_in_use`. A later start can create a fresh profile.
+The empty coordination files in `AGENT_BROWSER_HOME/profile-locks/` stay on
+disk across purges. During an upgrade, let any `start` or `clean` command
+from the older CLI finish before starting or purging that profile with the new
+CLI. An older daemon already holding its session lock is protected.
+
 - **Success**: JSON on stdout, exit `0`. Every reply that carries page-derived keys (`state`, `ping` and `journal`
   included) lists them in `untrusted`; hints never contain page text.
   Metadata keys come before `snapshot`, so a truncated read still carries `url`, `title`, `truncated`, `note`.

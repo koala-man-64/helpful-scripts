@@ -210,9 +210,11 @@ def _raise_remote(error: dict[str, Any], profile: str) -> None:
     raise core_common._tag(exc, cls, hint=hint, details=details, untrusted=error.get("untrusted"))
 
 
-def _wait_for_starting_profile(paths: core_common.ProfilePaths, timeout: float = 10.0) -> tuple[str, dict[str, Any] | None]:
+def _wait_for_starting_profile(paths: core_common.ProfilePaths, *, deadline: float | None = None) -> tuple[str, dict[str, Any] | None]:
+    transition_deadline = core_common._now() + 10.0
+    if deadline is not None:
+        transition_deadline = min(deadline, transition_deadline)
     state, session = _transport_state(paths)
-    deadline = core_common._now() + timeout
     while True:
         # A lock can briefly be held by stop cleanup or a replacement daemon before it
         # publishes its endpoint. The old record then looks running although its PID is gone.
@@ -222,7 +224,7 @@ def _wait_for_starting_profile(paths: core_common.ProfilePaths, timeout: float =
         )
         if not transition:
             return state, session
-        remaining = deadline - core_common._now()
+        remaining = transition_deadline - core_common._now()
         if remaining <= 0:
             return "starting", None
         core_common._sleep(min(0.2, remaining))
@@ -281,13 +283,35 @@ def _launch_record(paths: core_common.ProfilePaths, args: argparse.Namespace, to
 
 def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, timeout: float = core_common.START_TIMEOUT) -> dict[str, Any]:
     core_common._check_profile_path_length(paths)  # the one place a browser is spawned, whoever built `paths`
-    state, session = _wait_for_starting_profile(paths)
+    # The detached child takes its own lock. Keep the launch record, process and readiness
+    # handshake together so purge cannot cut between publication and daemon ownership.
+    deadline = core_common._now() + timeout
+    with core_common._profile_locks(paths.start_lock, wait=timeout) as reserved:
+        if not reserved:
+            raise _profile_transition_busy(paths)
+        return _start_session_locked(paths, args, deadline)
+
+
+def _profile_transition_busy(paths: core_common.ProfilePaths) -> Exception:
+    return core_common._tag(RuntimeError(f"Profile {paths.profile!r} is being started or cleaned. Retry after that operation finishes."),
+                            core_common.ERR_PROFILE_IN_USE, hint=core_common._hint("profile_transition", paths.profile))
+
+
+def _remaining_start_time(deadline: float) -> float:
+    remaining = deadline - core_common._now()
+    if remaining <= 0:
+        raise core_common._tag(RuntimeError("The start deadline expired before the browser was ready."), core_common.ERR_TIMEOUT)
+    return remaining
+
+
+def _start_session_locked(paths: core_common.ProfilePaths, args: argparse.Namespace, deadline: float) -> dict[str, Any]:
+    state, session = _wait_for_starting_profile(paths, deadline=deadline)
     if state == "starting":
         raise core_common._tag(RuntimeError("The browser is still starting."), core_common.ERR_NOT_RUNNING, hint=core_common._hint("starting", paths.profile))
     if state == "incompatible":
         raise _restart_required(paths)
     if state == "running" and session is not None:
-        pong = _ping(session, timeout=timeout)
+        pong = _ping(session, timeout=_remaining_start_time(deadline))
         if pong is None:
             raise core_common._tag(RuntimeError("The existing daemon did not answer within the start deadline."), core_common.ERR_DAEMON_UNRESPONSIVE,
                                    hint=core_common._hint("daemon_unresponsive", paths.profile))
@@ -299,13 +323,14 @@ def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, tim
         raise core_common._tag(RuntimeError("A daemon holds the lock but does not answer."), core_common.ERR_DAEMON_UNRESPONSIVE, hint=core_common._hint("daemon_unresponsive", paths.profile))
     token = secrets.token_hex(32)
     launch = _launch_record(paths, args, token)  # validates browser, exe and profile policy before any cleanup or spawn
+    _remaining_start_time(deadline)
     # A concurrent start may now own the profile. Only the daemon holding session.lock can clean up orphans.
     paths.dir.mkdir(parents=True, exist_ok=True)
     (paths.dir / "startup_error.json").unlink(missing_ok=True)
     _write_json_atomic(paths.launch, launch)
     started = False
     try:
-        result = _await_daemon(paths, launch, timeout)
+        result = _await_daemon(paths, launch, _remaining_start_time(deadline))
         started = result["status"] == "started"
         return result
     finally:
@@ -315,14 +340,15 @@ def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, tim
 
 def _await_daemon(paths: core_common.ProfilePaths, launch: dict[str, Any], timeout: float) -> dict[str, Any]:
     argv = [sys.executable, "-X", "utf8", str(core_common.ENTRY_PATH), "serve", "--launch-file", str(paths.launch)]
-    pid, launcher = core_common._spawn_daemon(argv, paths.log, paths.dir)
     deadline = core_common._now() + timeout
+    pid, launcher = core_common._spawn_daemon(argv, paths.log, paths.dir)
     exited = False
     lock_was_held = False
-    while core_common._now() < deadline:
-        core_common._sleep(0.1)
+    while (remaining := deadline - core_common._now()) > 0:
+        core_common._sleep(min(0.1, remaining))
         session = _read_session(paths)
-        if session is not None and _ping(session) is not None:
+        ping_timeout = min(core_common.PING_TIMEOUT, deadline - core_common._now())
+        if session is not None and ping_timeout > 0 and _ping(session, timeout=ping_timeout) is not None:
             # A concurrent start's daemon may be the one serving; only this start's token makes it this start's daemon.
             own = core_daemon._token_ok(session.get("token"), launch["token"])
             if own:
@@ -400,13 +426,6 @@ def stop_session(paths: core_common.ProfilePaths, force: bool = False, *,
         result["killed_pids"].append(pid)
         result["stopped"] = True
 
-    # A startup with no session record owns session.lock before it can publish an endpoint.
-    # Do not clean its profile while it still holds that lock.
-    if state == "starting" and core_common._lock_in_use(paths.lock, 0):
-        raise core_common._tag(RuntimeError(f"A daemon for profile {paths.profile!r} is still starting and its process is not known yet, so it was not ended."),
-                               core_common.ERR_PROFILE_IN_USE, hint=core_common._hint("still_running", paths.profile),
-                               details={"killed_pids": list(result["killed_pids"]), "still_running": []})
-
     # Wait for the observed browser's normal shutdown before taking the profile lock. This
     # scan is read-only; doing it first keeps the exclusive cleanup window short.
     if state in ("running", "busy", "incompatible", "unresponsive", "stale", "starting"):
@@ -420,7 +439,17 @@ def stop_session(paths: core_common.ProfilePaths, force: bool = False, *,
     # The daemon takes this same lock before it starts a browser or writes session.json.
     # Acquire it only after signaling/waiting for the observed owner, then keep it through
     # orphan cleanup and record removal. If a replacement won, its lock or token stops us.
-    cleanup_lock = core_common._acquire_lock(paths.lock)
+    with core_common._profile_locks(paths.admission_lock) as admitted:
+        if not admitted:
+            _cleanup_refused(paths, _read_session(paths), result["killed_pids"])
+        if not paths.dir.is_dir():  # a concurrent purge finished while stop was waiting
+            result["stopped"] = True
+            return result
+        if state == "starting" and core_common._lock_in_use(paths.lock, 0):
+            raise core_common._tag(RuntimeError(f"A daemon for profile {paths.profile!r} is still starting and its process is not known yet, so it was not ended."),
+                                   core_common.ERR_PROFILE_IN_USE, hint=core_common._hint("still_running", paths.profile),
+                                   details={"killed_pids": list(result["killed_pids"]), "still_running": []})
+        cleanup_lock = core_common._acquire_lock(paths.lock)
     if cleanup_lock is None:
         _cleanup_refused(paths, _read_session(paths), result["killed_pids"])
     try:
@@ -497,8 +526,9 @@ def status_session(paths: core_common.ProfilePaths) -> dict[str, Any]:
 
 
 def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = False) -> dict[str, Any]:
-    root = core_common._home() / "profiles"
-    out: dict[str, Any] = {"home": str(core_common._home()), "stale_sessions_removed": [], "killed_pids": [], "artifacts_removed": 0, "profiles_purged": [], "dry_run": dry_run}
+    home = core_common._home()
+    root = home / "profiles"
+    out: dict[str, Any] = {"home": str(home), "stale_sessions_removed": [], "killed_pids": [], "artifacts_removed": 0, "profiles_purged": [], "dry_run": dry_run}
     purge_failed: list[str] = []
     still_running: dict[str, list[int]] = {}
     if not root.is_dir():
@@ -509,46 +539,55 @@ def clean(profile: str | None = None, purge: str | None = None, dry_run: bool = 
             continue
         if profile and entry.name != profile and purge != entry.name:
             continue
-        paths = core_common.ProfilePaths(entry.name, core_common._home())
-        state, _session = _liveness(paths)
-        if state == "stale":
-            out["stale_sessions_removed"].append(entry.name)
-            if not dry_run:
-                paths.session.unlink(missing_ok=True)
-        if state in ("stale", "none"):
-            out["killed_pids"].extend(core_common._kill_browsers_using(paths.user_data, dry_run=dry_run))
-            holders = core_common._profile_holders(paths.user_data)
-            if holders is None:
-                out["note"] = core_common._hint("process_list_clean")
-            elif holders and not dry_run:
-                still_running[entry.name] = [p["pid"] for p in holders]
-        download_dirs = [paths.downloads]
-        sessions_dir = paths.dir / "sessions"
-        if sessions_dir.is_dir():
-            download_dirs.extend(child / "downloads" for child in sorted(sessions_dir.iterdir()) if child.is_dir())
-        for folder in download_dirs:
-            if folder.is_dir():
-                for item in folder.iterdir():
-                    try:
-                        if item.is_file() and item.stat().st_mtime < cutoff:
-                            out["artifacts_removed"] += 1
-                            if not dry_run:
-                                item.unlink()
-                    except OSError:
-                        pass
-        if purge == entry.name:
-            if state in ("running", "busy", "incompatible", "starting", "unresponsive"):
+        paths = core_common.ProfilePaths(entry.name, home)
+        # The launcher can be waiting for its detached child. Claim both roles before
+        # observing ownership and keep them through the last unlink, including rmtree.
+        locks = (paths.start_lock, paths.admission_lock)
+        if dry_run:
+            locks = tuple(lock for lock in locks if lock.exists())  # a preview never creates a lock file
+        with core_common._profile_locks(*locks, wait=0) as reserved:
+            if not reserved:
+                if purge == entry.name:
+                    raise _profile_transition_busy(paths)
+                continue
+            if not paths.dir.is_dir():  # another purge finished after the directory listing
+                continue
+            if purge == entry.name and paths.dir.resolve() != root.resolve() / entry.name:
+                raise core_common._tag(ValueError("Unsafe profile purge path."), core_common.ERR_GUARDED)
+            state, _session = _liveness(paths)
+            if purge == entry.name and state not in ("stale", "none"):
                 raise core_common._tag(ValueError(f"Profile {entry.name!r} is running; refusing to purge."), core_common.ERR_VALIDATION, hint=core_common._hint("purge_running", entry.name))
-            if not dry_run:
-                resolved = paths.dir.resolve()
-                intended = (core_common._home() / "profiles").resolve()
-                if resolved.parent != intended or resolved.name != entry.name:
-                    raise core_common._tag(ValueError("Unsafe profile purge path."), core_common.ERR_GUARDED)
-                if not core_common._rmtree_retry(paths.dir):
+            if state == "stale":
+                out["stale_sessions_removed"].append(entry.name)
+                if not dry_run:
+                    paths.session.unlink(missing_ok=True)
+            if state in ("stale", "none"):
+                out["killed_pids"].extend(core_common._kill_browsers_using(paths.user_data, dry_run=dry_run))
+                holders = core_common._profile_holders(paths.user_data)
+                if holders is None:
+                    out["note"] = core_common._hint("process_list_clean")
+                elif holders and not dry_run:
+                    still_running[entry.name] = [p["pid"] for p in holders]
+            download_dirs = [paths.downloads]
+            sessions_dir = paths.dir / "sessions"
+            if sessions_dir.is_dir():
+                download_dirs.extend(child / "downloads" for child in sorted(sessions_dir.iterdir()) if child.is_dir())
+            for folder in download_dirs:
+                if folder.is_dir():
+                    for item in folder.iterdir():
+                        try:
+                            if item.is_file() and item.stat().st_mtime < cutoff:
+                                out["artifacts_removed"] += 1
+                                if not dry_run:
+                                    item.unlink()
+                        except OSError:
+                            pass
+            if purge == entry.name:
+                if not dry_run and not core_common._rmtree_retry(paths.dir):
                     # Keep cleaning the later profiles; the failure is raised once, after the loop.
                     purge_failed.append(entry.name)
                     continue
-            out["profiles_purged"].append(entry.name)
+                out["profiles_purged"].append(entry.name)
     survivors = [pid for found in still_running.values() for pid in found]
     if purge_failed:
         names = ", ".join(repr(name) for name in purge_failed)
