@@ -85,12 +85,18 @@ table; an ARIA grid only when there is no table. To traverse pages, use stable s
 agent-browser table "#results" --next "#next" --max-pages 10 --max-rows 1000 --key ID --column ID --column Name --export csv
 ```
 
-`--next` requires an `act` or `commit` profile. It follows only the supplied next-page
-control and stops when it is missing/disabled. Extraction is bound to the original tab
+`--next` requires an `act` or `commit` profile. Once it clicks Next, it waits for a page change
+and for the table and its Next control to finish any loading marked by `aria-busy`.
+An empty grid with a disabled or missing Next can still be loading. If the page change
+cannot be confirmed by the deadline, the reply and any saved JSON export report
+`complete: false` and `stop_reason: "deadline"`. On a page it has finished reading, a missing
+or disabled Next ends extraction. Extraction is bound to the original tab
 and stops if it closes or leaves its original origin; a scripted redirect may already
 have navigated before it is detected.
-Limits are 1-100 pages (default 10) and 1-10000 rows (default 1000). Repeat `--key`
-for a composite row identity; without it, identical cell rows are deduplicated.
+Limits are 1-100 pages (default 10) and 1-10000 rows (default 1000).
+A plain `table` read also observes the 1000-row default, byte limit, and command deadline.
+If one cuts the read short, the response includes `truncated: true` and `stop_reason`.
+Repeat `--key` for a composite row identity. Pagination deduplicates identical rows when no key is supplied.
 Repeat `--column` for exact column headers in the requested output order.
 Tables without headers use stable `column_1`, `column_2`, … names for bounded
 extraction and exports, based on the first nonempty page's width.
@@ -173,7 +179,8 @@ request and opens no handoff; its hint names `needs-human --signed-in`. An expir
 session (401 or sign-in redirect) opens a handoff as above.
 
 `run sn/add-work-note --number INC0010023 --text-file note.txt` previews the built-in
-classic-form recipe. `commit run` verifies record identity, submits once, reloads
+classic-form recipe. The recipe uses the Number, Work notes, and Update controls in the
+original tab's `gsft_main` record frame. `commit run` rechecks record identity before submitting once, reloads
 the same record and checks persistence. The preview is a read: it checks identity, an
 existing draft and an identical displayed note (`guarded`, as on commit), and for an
 unfamiliar layout or a draft returns `blocked: true` with `blocked_reason` instead of a
@@ -382,6 +389,10 @@ the recorded protocol and send one actual request under their own deadline, with
 preliminary health requests or automatic action retries. Reusing a running profile
 with start gives its health response the requested start deadline.
 
+If a new daemon owns the profile when `stop` reaches orphan cleanup, `stop`
+returns `profile_in_use` with `details.cleanup_skipped`. Use `status` to see
+which daemon currently owns the profile.
+
 - **Success**: JSON on stdout, exit `0`. Every reply that carries page-derived keys (`state`, `ping` and `journal`
   included) lists them in `untrusted`; hints never contain page text.
   Metadata keys come before `snapshot`, so a truncated read still carries `url`, `title`, `truncated`, `note`.
@@ -406,7 +417,9 @@ with start gives its health response the requested start deadline.
   `busy` (another session's command held the browser past this request's queue deadline; it was not run, repeat it).
   An exit-1 class raised after the command ran (`unavailable`, `persistence_unverified`) needs the receipt checked
   before any retry.
-- Exit `124` = `timeout`: the command may already have run. Inspect its receipt (`details.receipt`, or `state`)
+- Exit `124` = `timeout`. An interactive action that exhausts its budget during preflight records
+  `executed: false`. If the action was attempted and verification timed out, the receipt records
+  `executed: true`. Inspect its receipt (`details.receipt`, or `state`)
   before repeating it; only a timed-out wait is safe to run again. When the client stops waiting for the daemon,
   the message says the command may have run and the hint names `state`; a navigation timeout's hint asks for a
   snapshot first, because the page may still finish loading. Exit `130` = `interrupted` (same caution).
