@@ -12,6 +12,19 @@ from test_live_expansion import cli, live_home, pytestmark, site
 pytestmark = [*pytestmark, pytest.mark.skipif(os.getenv("AGENT_BROWSER_LIVE") != "1", reason="set AGENT_BROWSER_LIVE=1 to run live expectation journeys")]
 
 
+def test_expired_click_leaves_page_and_receipt_unexecuted(cli, site):
+    session = "deadline"
+    cli.ok("goto", f"{site.url}/rows.html", "--session", session)
+    code, _, error = cli("click", "button[data-row='1']", "--expect", "count:#t tr=9",
+                         "--timeout", "0", "--session", session)
+
+    assert code == 124 and error["details"]["executed"] is False
+    command_id = error["details"]["command_id"]
+    receipt = cli.ok("state", "--command", command_id, "--session", session)["commands"][0]
+    assert receipt["id"] == command_id and receipt["status"] == "failed"
+    assert len(cli.ok("table", "#t", "--session", session)["rows"]) == 10
+
+
 def test_cli_action_expectations_cover_value_state_count_persistence_and_download(cli, live_home, site) -> None:
     assert live_home.exists()
     opened = cli.ok("goto", f"{site.url}/expectation_contract.html")

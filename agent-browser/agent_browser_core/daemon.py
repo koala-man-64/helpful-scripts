@@ -747,7 +747,7 @@ class BrowserEngine:
     def _settle(self, page: Any, cap: float = core_common.SETTLE_CAP) -> list[str]:
         deadline = core_common._now() + cap
         try:
-            page.wait_for_load_state("load", timeout=min(3000, max(100, int((deadline - core_common._now()) * 1000))))
+            page.wait_for_load_state("load", timeout=min(3000, max(1, int((deadline - core_common._now()) * 1000))))
         except Exception:  # noqa: BLE001
             pass
         last: tuple | None = None
@@ -1276,27 +1276,49 @@ class BrowserEngine:
         return self.snap_envelope(page, full=bool(args.get("full")), find=args.get("find"), scope=args.get("ref"),
                                   max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES)
 
-    def _do_action(self, args: dict[str, Any], timeout: float, action: str, run: Callable[[Any, Any], Any], *,
+    def _do_action(self, args: dict[str, Any], timeout: float, action: str,
+                   run: Callable[[Any, Any, Callable[[], int], Callable[[], int]], Any], *,
                    guard: bool = False, value: bool = False, allow_keys: Sequence[str] | None = None,
-                   focus: Callable[[Any], Any] | None = None) -> dict[str, Any]:
+                   focus: Callable[[Any, Callable[[], int]], Any] | None = None, locator_override: Any = None,
+                   pre_attempt: Callable[[Any, Any, Callable[[], int]], Any] | None = None) -> dict[str, Any]:
         explicit_tab = args.get("tab") is not None
         page = self.target_page(args)
+        raw_deadline = args.get("_deadline")
+        deadline = raw_deadline if type(raw_deadline) in (int, float) else None
+
+        def action_timeout_ms() -> int:
+            if deadline is None:
+                return self._timeout_ms(timeout)
+            remaining = min(timeout, deadline - core_common._now())
+            if remaining <= 0:
+                point = "after the browser action was attempted" if self.action_attempted else "before the browser action was attempted"
+                raise core_common._tag(RuntimeError(
+                    f"The {action} deadline expired {point}; inspect the receipt before repeating."
+                ), core_common.ERR_TIMEOUT, details={"executed": bool(self.action_attempted)})
+            return max(1, min(self._timeout_ms(timeout), int(remaining * 1000)))
+
+        def begin_attempt() -> int:
+            milliseconds = action_timeout_ms()
+            self.action_attempted = True
+            return milliseconds
+
         before_lines = self._before_lines(page)
         served_before = self.served.get(page)
         target = args.get("target")
-        locator = self.resolve(page, target) if target else None
+        locator = locator_override if locator_override is not None else self.resolve(page, target) if target else None
         target_line = ((served_before.ref_lines.get(core_snapshots.normalize_target(target)) if served_before else None) if isinstance(target, str)
                        else core_common.sanitize_text(json.dumps(target), 300)) if target else None
         masked = False
         if guard:
-            verdict = (self._secret_check(page, locator) if locator is not None
+            scan_timeout = min(3000, action_timeout_ms())
+            verdict = (self._secret_check(page, locator, timeout_ms=scan_timeout) if locator is not None
                        else self._focused_secret_check(page) if allow_keys is not None else "clear")
             landed = False
             if verdict == "clear" and focus is not None and locator is not None:
                 # Playwright focuses the target and then sends keys to whatever holds focus, so a target that cannot
                 # take focus leaves them on the previously focused field. Focus as the action will, then check.
                 try:
-                    focus(locator)
+                    focus(locator, action_timeout_ms)
                 except Exception as exc:  # noqa: BLE001
                     raise self._classify(exc, action) from exc
                 verdict, landed = self._focused_secret_check(page), True
@@ -1317,8 +1339,10 @@ class BrowserEngine:
             # The page can have moved to another host since the command was authorized: a commit takes a screenshot
             # first, and a page can redirect itself at any time. Judge the action by the page it is about to act on.
             policy.authorize(self._page_policy(page=page), action, args)
-            self.action_attempted = True
-            run(page, locator)
+            action_timeout_ms()
+            if pre_attempt is not None:
+                pre_attempt(page, locator, action_timeout_ms)
+            run(page, locator, action_timeout_ms, begin_attempt)
         except (ValueError, RuntimeError):
             raise
         except Exception as exc:  # noqa: BLE001
@@ -1326,6 +1350,8 @@ class BrowserEngine:
             raise self._classify(exc, action) from exc
         self._check_blocks()
         settle_deadline = core_common._now() + 3.0
+        if deadline is not None:
+            settle_deadline = min(settle_deadline, deadline)
         new_tab = None
         while True:
             if not explicit_tab:
@@ -1334,7 +1360,11 @@ class BrowserEngine:
                 page = self.page()
                 explicit_tab = False
             remaining = settle_deadline - core_common._now()
+            if deadline is not None:
+                action_timeout_ms()
             loading = self._settle(page, cap=remaining) if remaining > 0 else ["new tab"]
+            if deadline is not None:
+                action_timeout_ms()
             # Page events can arrive while settling the opener, after click returned.
             # Observe the new current page without repeating the action or its wait budget.
             if not explicit_tab and self.page() is not page:
@@ -1346,6 +1376,8 @@ class BrowserEngine:
             result = self.act_envelope(page, action, target_line, before_lines, navigated=navigated, loading=loading,
                                        value_after=value_after, max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES,
                                        force_full=bool(args.get("snapshot")))
+            if deadline is not None:
+                action_timeout_ms()
             new_tab = result.get("new_tab") or new_tab
             if explicit_tab or self.page() is page:
                 if new_tab: result["new_tab"] = new_tab
@@ -1353,60 +1385,58 @@ class BrowserEngine:
             if core_common._now() >= settle_deadline:
                 raise core_common._tag(RuntimeError("The active tab kept changing during verification; inspect tabs and the receipt before another action."), "verification_unavailable")
 
-    def h_click(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        ms = self._timeout_ms(timeout)
-
-        def run(page: Any, loc: Any) -> None:
+    def h_click(self, args: dict[str, Any], timeout: float, *, locator_override: Any = None,
+                pre_attempt: Callable[[Any, Any, Callable[[], int]], Any] | None = None) -> dict[str, Any]:
+        def run(page: Any, loc: Any, budget_ms: Callable[[], int], begin_attempt: Callable[[], int]) -> None:
             if args.get("double"):
-                loc.dblclick(timeout=ms)
+                loc.dblclick(timeout=begin_attempt())
             else:
-                loc.click(timeout=ms, button="right" if args.get("right") else "left")
-        return self._do_action(args, timeout, "click", run)
+                loc.click(timeout=begin_attempt(), button="right" if args.get("right") else "left")
+        return self._do_action(args, timeout, "click", run, locator_override=locator_override, pre_attempt=pre_attempt)
 
-    def h_fill(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        ms = self._timeout_ms(timeout)
-
-        def run(page: Any, loc: Any) -> None:
-            loc.fill(args.get("text") or "", timeout=ms)
+    def h_fill(self, args: dict[str, Any], timeout: float, *, locator_override: Any = None,
+               pre_attempt: Callable[[Any, Any, Callable[[], int]], Any] | None = None) -> dict[str, Any]:
+        def run(page: Any, loc: Any, budget_ms: Callable[[], int], begin_attempt: Callable[[], int]) -> None:
+            loc.fill(args.get("text") or "", timeout=begin_attempt())
             if args.get("enter"):
-                loc.press("Enter", timeout=ms)
-        return self._do_action(args, timeout, "fill", run, guard=True, value=True, focus=lambda loc: loc.evaluate(FILL_FOCUS_JS, timeout=ms))
+                loc.press("Enter", timeout=begin_attempt())
+        return self._do_action(args, timeout, "fill", run, guard=True, value=True,
+                               focus=lambda loc, budget_ms: loc.evaluate(FILL_FOCUS_JS, timeout=budget_ms()),
+                               locator_override=locator_override, pre_attempt=pre_attempt)
 
     def h_type(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        ms = self._timeout_ms(timeout)
-
-        def run(page: Any, loc: Any) -> None:
+        def run(page: Any, loc: Any, budget_ms: Callable[[], int], begin_attempt: Callable[[], int]) -> None:
             if not args.get("append"):
-                loc.fill("", timeout=ms)
-            loc.press_sequentially(args.get("text") or "", delay=int(args.get("delay") or 30), timeout=ms)
+                loc.fill("", timeout=begin_attempt())
+            loc.press_sequentially(args.get("text") or "", delay=int(args.get("delay") or 30), timeout=begin_attempt())
             if args.get("enter"):
-                loc.press("Enter", timeout=ms)
-        return self._do_action(args, timeout, "type", run, guard=True, value=True, focus=lambda loc: loc.focus(timeout=ms))
+                loc.press("Enter", timeout=begin_attempt())
+        return self._do_action(args, timeout, "type", run, guard=True, value=True,
+                               focus=lambda loc, budget_ms: loc.focus(timeout=budget_ms()))
 
     def h_press(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        ms = self._timeout_ms(timeout)
         key = args.get("key") or ""
         if not key:
             raise core_common._tag(ValueError("press needs a key name such as Enter, Tab, or Control+a."), core_common.ERR_USAGE)
 
-        def run(page: Any, loc: Any) -> None:
+        def run(page: Any, loc: Any, budget_ms: Callable[[], int], begin_attempt: Callable[[], int]) -> None:
             if loc is not None:
-                loc.press(key, timeout=ms)
+                loc.press(key, timeout=begin_attempt())
             else:
+                begin_attempt()
                 page.keyboard.press(key)
         return self._do_action(args, timeout, "press", run, guard=True, allow_keys=list(core_common.SAFE_KEYS_ON_SECRET), value=bool(args.get("target")),
-                               focus=lambda loc: loc.focus(timeout=ms))
+                               focus=lambda loc, budget_ms: loc.focus(timeout=budget_ms()))
 
     def h_select(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        ms = self._timeout_ms(timeout)
         wanted = [str(v) for v in (args.get("values") or [])]
         if not wanted:
             raise core_common._tag(ValueError("select needs at least one value."), core_common.ERR_USAGE)
         chosen_holder: dict[str, Any] = {}
 
-        def run(page: Any, loc: Any) -> None:
+        def run(page: Any, loc: Any, budget_ms: Callable[[], int], begin_attempt: Callable[[], int]) -> None:
             try:
-                options = loc.evaluate(OPTIONS_JS, timeout=ms)
+                options = loc.evaluate(OPTIONS_JS, timeout=budget_ms())
             except Exception as exc:  # noqa: BLE001
                 raise self._classify(exc, "select") from exc
             if options is None:
@@ -1424,49 +1454,46 @@ class BrowserEngine:
                                details={"options": [core_common.sanitize_text(o[0], 120) for o in options][:100]})
                 values.append(str(match[1]))
                 labels.append(core_common.sanitize_text(match[0], 120))
-            loc.select_option(value=values, timeout=ms)
+            loc.select_option(value=values, timeout=begin_attempt())
             chosen_holder["selected"] = labels
         env = self._do_action(args, timeout, "select", run, guard=True, value=True)
         env["selected"] = chosen_holder.get("selected", [])
         return env
 
     def h_check(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        ms = self._timeout_ms(timeout)
-        return self._do_action(args, timeout, "check", lambda page, loc: loc.check(timeout=ms), value=True)
+        return self._do_action(args, timeout, "check", lambda page, loc, budget_ms, begin_attempt: loc.check(timeout=begin_attempt()), value=True)
 
     def h_uncheck(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        ms = self._timeout_ms(timeout)
-        return self._do_action(args, timeout, "uncheck", lambda page, loc: loc.uncheck(timeout=ms), value=True)
+        return self._do_action(args, timeout, "uncheck", lambda page, loc, budget_ms, begin_attempt: loc.uncheck(timeout=begin_attempt()), value=True)
 
     def h_hover(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        ms = self._timeout_ms(timeout)
-        return self._do_action(args, timeout, "hover", lambda page, loc: loc.hover(timeout=ms))
+        return self._do_action(args, timeout, "hover", lambda page, loc, budget_ms, begin_attempt: loc.hover(timeout=begin_attempt()))
 
     def h_scroll(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        ms = self._timeout_ms(timeout)
         delta = int(args.get("down") or 0) - int(args.get("up") or 0)
 
-        def run(page: Any, loc: Any) -> None:
+        def run(page: Any, loc: Any, budget_ms: Callable[[], int], begin_attempt: Callable[[], int]) -> None:
             if loc is not None:
-                loc.scroll_into_view_if_needed(timeout=ms)
+                loc.scroll_into_view_if_needed(timeout=begin_attempt())
             else:
+                begin_attempt()
                 page.mouse.wheel(0, delta or 600)
         return self._do_action(args, timeout, "scroll", run)
 
     def h_upload(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
-        ms = self._timeout_ms(timeout)
         files = list(args.get("files") or [])
 
-        def run(page: Any, loc: Any) -> None:
+        def run(page: Any, loc: Any, budget_ms: Callable[[], int], begin_attempt: Callable[[], int]) -> None:
             try:
-                is_file_input = loc.evaluate("el => el.tagName === 'INPUT' && el.type === 'file'", timeout=ms)
+                is_file_input = loc.evaluate("el => el.tagName === 'INPUT' && el.type === 'file'", timeout=budget_ms())
             except Exception as exc:  # noqa: BLE001
                 raise self._classify(exc, "upload") from exc
             if is_file_input:
-                loc.set_input_files(files, timeout=ms)
+                loc.set_input_files(files, timeout=begin_attempt())
             else:
-                with page.expect_file_chooser(timeout=ms) as chooser:
-                    loc.click(timeout=ms)
+                with page.expect_file_chooser(timeout=budget_ms()) as chooser:
+                    loc.click(timeout=begin_attempt())
+                begin_attempt()
                 chooser.value.set_files(files)
         env = self._do_action(args, timeout, "upload", run)
         env["files"] = [str(f).replace("\\", "/") for f in files]

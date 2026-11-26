@@ -127,17 +127,20 @@ class ReachMixin:
             self.table_rows.pop(page, None)
             self.table_row_epochs.pop(page, None)
             return super().h_click(args, timeout)
-        def run(page, row):
+        def run(page, row, budget_ms, begin_attempt):
+            budget_ms()
             if not row.evaluate("el => el.tagName==='TR' || el.getAttribute('role')==='row'"):
                 raise common._tag(ValueError("Table row ref changed; read table again."), common.ERR_STALE_REF)
             # Native table border-spacing can put the row center between cells. Use an
             # ordinary cell click so Playwright still checks visibility and hit targets.
             for cell in row.locator(CELL_SELECTOR).all():
+                budget_ms()
                 if cell.is_visible() and not cell.locator("a,button,input,select,textarea,[role=button],[role=link],[contenteditable=true]").count():
-                    options = {"timeout": max(timeout, .1) * 1000, "button": "right" if args.get("right") else "left"}
+                    options = {"timeout": begin_attempt(), "button": "right" if args.get("right") else "left"}
                     if args.get("double"): cell.dblclick(**options)
                     else: cell.click(**options)
                     return
+            budget_ms()
             raise common._tag(ValueError("Row has no safe plain cell; target the desired control explicitly."), common.ERR_GUARDED)
         return self._do_action(args, timeout, "click", run)
 

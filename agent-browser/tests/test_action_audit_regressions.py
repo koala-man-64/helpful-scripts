@@ -279,7 +279,7 @@ def test_text_expectation_without_a_readable_baseline_fails_closed_before_acting
 def test_expectation_cannot_succeed_when_first_observed_after_deadline(make_daemon, fake_clock, monkeypatch):
     daemon, _, page = make_daemon(snapshot_text='- button "Save" [ref=e2]\n')
     visible = {"saved": False}
-    monkeypatch.setattr(daemon, "_text_counts", lambda page, _text: {page.main_frame: int(visible["saved"])})
+    monkeypatch.setattr(daemon, "_text_counts", lambda page, _text, _deadline=None: {page.main_frame: int(visible["saved"])})
     result = daemon.dispatch("click", {"target": "e2", "expect": ["text:Saved"]}, 10)
     assert result["pending"]
     fake_clock.value += 20
@@ -295,7 +295,7 @@ def test_expectation_observation_that_crosses_deadline_cannot_succeed(make_daemo
     daemon, _, page = make_daemon(snapshot_text='- button "Save" [ref=e2]\n')
     slow = {"enabled": False}
 
-    def text_counts(page, _text):
+    def text_counts(page, _text, _deadline=None):
         if slow["enabled"]:
             fake_clock.value += 20
             return {page.main_frame: 1}
