@@ -22,7 +22,6 @@ DEFAULT_ROWS = 1_000
 MAX_COLUMNS = 256
 MAX_EXPORT_BYTES = 32 * 1024 * 1024
 MAX_TABLE_BYTES = 16 * 1024 * 1024
-PAGE_CHANGE_WAIT_SECONDS = 3.0
 PAGE_NAV_STABILITY_SECONDS = 0.5
 NEXT_DISABLED_JS = "el => el.matches(':disabled') || el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true'"
 CELL_TEXT_JS = "el => String(el.innerText || '').slice(0, 2000)"
@@ -223,7 +222,7 @@ def extract_table(engine: Any, args: dict[str, Any], timeout: float) -> dict[str
         _check_next_href(page, next_locator, page_origin)
         new_pages_before = set(getattr(engine, "new_pages", []))
         try:
-            engine.h_click({"target": values["next"], "tab": tab_id}, remaining)
+            engine.h_click({"target": values["next"], "tab": tab_id, "_deadline": deadline}, remaining)
         except Exception as exc:  # noqa: BLE001 - a click may navigate before settling times out
             if getattr(exc, "error_class", None) != common.ERR_TIMEOUT:
                 raise
@@ -239,18 +238,11 @@ def extract_table(engine: Any, args: dict[str, Any], timeout: float) -> dict[str
             break
         changed = _wait_for_table_change(
             engine, page, table_target, before_text, before_navigation, page_origin,
-            min(float(deadline), common._now() + PAGE_CHANGE_WAIT_SECONDS),
+            float(deadline),
         )
         if changed is None:
-            if _deadline_expired(deadline):
-                stop_reason, complete, truncated = "deadline", False, True
-            else:
-                next_state, _locator = _next_state(engine, page, values["next"])
-                if next_state in {"missing", "disabled"}:
-                    stop_reason = "next_missing" if next_state == "missing" else "next_disabled"
-                else:
-                    loop_count += 1
-                    stop_reason, complete, truncated = "no_progress", False, True
+            # An enabled Next was clicked. Its disappearance or disabled state can mean the page is still loading.
+            stop_reason, complete, truncated = "deadline", False, True
             break
         page, table = changed
         _ensure_page_owner(engine, page)

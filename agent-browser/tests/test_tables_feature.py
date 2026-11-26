@@ -141,7 +141,7 @@ class _Page:
 
     @property
     def next_enabled(self) -> bool:
-        return bool(self.pages[self.index].get("next", False))
+        return self.pending is None and bool(self.pages[self.index].get("next", False))
 
     def schedule_next(self) -> None:
         self.clicks += 1
@@ -276,6 +276,19 @@ def test_async_pagination_deduplicates_selects_columns_and_writes_json(tmp_path:
     assert saved["rows"] == result["rows"]
     assert saved["page_count"] == 3 and saved["duplicate_rows"] == 2 and saved["complete"] is True
     assert engine.journal.space_checks and engine.journal.space_checks[0] == Path(result["export_file"]).stat().st_size
+
+
+def test_next_disabled_while_loading_does_not_complete_export(tmp_path, fake_clock, monkeypatch):
+    engine = _Engine(tmp_path, _pages())
+    fake_clock.step = 0
+    monkeypatch.setattr(engine.page, "wait_for_timeout", lambda ms: fake_clock.sleep(ms / 1000))
+    result = tables.extract_table(engine, _args(next="#next", export_format="json"), 10)
+
+    assert engine.clicks == 1
+    assert result["pages"] == 1 and result["stop_reason"] == "deadline"
+    assert result["complete"] is False and result["truncated"] is True
+    saved = json.loads(Path(result["export_file"]).read_text(encoding="utf-8"))
+    assert saved["rows"] == result["rows"] and saved["complete"] is False
 
 
 def test_headerless_pages_use_generated_stable_column_names(tmp_path: Path) -> None:

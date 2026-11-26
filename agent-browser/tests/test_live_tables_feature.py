@@ -10,9 +10,10 @@ import pytest
 from test_live_expansion import PROFILE, cli, live_home, site, pytestmark
 
 
-def test_live_async_pagination_deduplicates_and_exports_complete_json(cli, site):
+@pytest.mark.parametrize("mode", ["normal", "slow"])
+def test_live_async_pagination_deduplicates_and_exports_complete_json(cli, site, mode):
     session = "table-pages"
-    cli.ok("goto", f"{site.url}/audit_table_pages.html", "--session", session)
+    cli.ok("goto", f"{site.url}/audit_table_pages.html?mode={mode}", "--session", session)
 
     result = cli.ok(
         "table", "#records", "--next", "#next", "--max-pages", "10", "--max-rows", "20",

@@ -66,7 +66,7 @@
         pageIndex = Math.min(pageIndex + 1, pages.length - 1);
         render();
         next.removeAttribute("aria-busy");
-      }, 125);
+      }, mode === "slow" && pageIndex === 0 ? 5500 : 125);
     });
     render();
   </script>
