@@ -10,6 +10,7 @@ import sys
 import time
 import traceback
 import urllib.parse
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
@@ -2059,27 +2060,39 @@ class _Server(socketserver.TCPServer):
 
 
 def serve(launch_file: Path) -> int:
-    launch = json.loads(launch_file.read_text(encoding="utf-8"))
-    paths = core_common.ProfilePaths(launch["profile"], Path(launch["home"]))
-    log_path = Path(launch["log"])
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log = open(log_path, "a", buffering=1, encoding="utf-8", errors="replace")  # noqa: SIM115 - closed when serve returns
-    streams = sys.stdout, sys.stderr
-    sys.stdout = sys.stderr = log
     try:
-        _log_line(f"daemon starting pid {os.getpid()} profile {paths.profile} python {sys.executable}")
-        lock = core_common._acquire_lock(paths.lock)
-        if lock is None:
-            # A live daemon owns this profile: its session.json, journal and launch record are not this process's to touch.
-            _log_line("another daemon holds the session lock; exiting")
-            return 1
-        try:
+        launch_bytes = launch_file.read_bytes()
+    except FileNotFoundError:
+        return 1
+    launch = json.loads(launch_bytes)
+    paths = core_common.ProfilePaths(launch["profile"], Path(launch["home"]))
+    lock = None
+    try:
+        with ExitStack() as streams:
+            with core_common._profile_locks(paths.admission_lock) as admitted:
+                if not admitted:
+                    return 1
+                # A delayed child may outlive its launcher. Verify the launch still exists
+                # and belongs to this start before opening a log or recreating a purged profile.
+                try:
+                    if launch_file.read_bytes() != launch_bytes:
+                        return 1
+                except FileNotFoundError:
+                    return 1
+                log_path = Path(launch["log"])
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                log = streams.enter_context(open(log_path, "a", buffering=1, encoding="utf-8", errors="replace"))
+                streams.enter_context(redirect_stdout(log))
+                streams.enter_context(redirect_stderr(log))
+                _log_line(f"daemon starting pid {os.getpid()} profile {paths.profile} python {sys.executable}")
+                lock = core_common._acquire_lock(paths.lock)
+                if lock is None:
+                    _log_line("another daemon holds the session lock; exiting")
+                    return 1
+            # The existing session lock now protects the profile for the daemon's lifetime.
             return _serve_locked(launch_file, launch, paths, log)
-        finally:
-            core_common._release_lock(lock)
     finally:
-        sys.stdout, sys.stderr = streams
-        log.close()
+        core_common._release_lock(lock)
 
 
 def _serve_locked(launch_file: Path, launch: dict[str, Any], paths: core_common.ProfilePaths, log: Any) -> int:

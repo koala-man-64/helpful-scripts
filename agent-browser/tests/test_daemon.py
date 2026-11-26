@@ -553,6 +553,32 @@ def test_serve_consumes_launch_json_once_it_holds_the_lock(serve_seams: list[boo
     assert "exited" in paths.log.read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("new_launch", [False, True], ids=["purged", "replaced"])
+def test_delayed_daemon_cannot_revive_a_purged_launch(serve_seams, monkeypatch, new_launch):
+    paths = core_common._paths("default")
+    launch_file = _write_launch(paths, "old-start", idle_seconds=0.01)
+    read = Path.read_bytes
+    paused = False
+
+    def purge_after_child_reads_launch(path):
+        nonlocal paused
+        contents = read(path)
+        if path == launch_file and not paused:
+            paused = True
+            assert core_session.clean(purge=paths.profile)["profiles_purged"] == [paths.profile]
+            if new_launch:
+                _write_launch(paths, "new-start", idle_seconds=0.01)
+        return contents
+
+    monkeypatch.setattr(Path, "read_bytes", purge_after_child_reads_launch)
+    assert core_daemon.serve(launch_file) == 1
+    assert paused and not serve_seams and not paths.log.exists() and not paths.session.exists()
+    if new_launch:
+        assert json.loads(launch_file.read_text(encoding="utf-8"))["token"] == "new-start"
+    else:
+        assert not paths.dir.exists()
+
+
 def test_serve_cleans_orphans_only_while_holding_the_profile_lock(serve_seams: list[bool],
                                                                monkeypatch: pytest.MonkeyPatch) -> None:
     paths = core_common._paths("default")

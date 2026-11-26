@@ -182,6 +182,14 @@ def live_home(request: pytest.FixtureRequest) -> Path:
     _stop_and_cleanup(home, failures, f"{request.module.__name__}-{home.name}")
 
 
+@pytest.fixture
+def purge_race_home(request: pytest.FixtureRequest) -> Path:
+    home = Path(tempfile.mkdtemp(prefix="abx-purge-race-", dir=os.getenv("TEMP") or None))
+    failures = live_support.FailureWatch(request)
+    yield home
+    _stop_and_cleanup(home, failures, f"{request.module.__name__}-{home.name}")
+
+
 @pytest.fixture(scope="module")
 def cli(live_home: Path) -> Cli:
     client = Cli(live_home)
@@ -546,4 +554,34 @@ def test_stale_stop_leaves_restarted_browser_usable(cli: Cli, site: _Site) -> No
     assert raised.value.error_class == core_common.ERR_PROFILE_IN_USE
     assert raised.value.details["cleanup_skipped"]
     assert cli.ok("status")["pid"] == replacement["pid"]
+    assert cli.ok("goto", f"{site.url}/home.html")["title"] == "Home"
+
+
+def test_purge_serializes_with_cli_start_and_preserves_navigation(purge_race_home: Path, site: _Site, monkeypatch) -> None:
+    from argparse import Namespace
+    from agent_browser_core import cli as core_cli
+
+    cli = Cli(purge_race_home)
+    paths = core_common.ProfilePaths(PROFILE, purge_race_home)
+    paths.user_data.mkdir(parents=True)
+    reached_removal: list[Path] = []
+    original_rmtree = core_common._rmtree_retry
+
+    def start_during_purge(path: Path, attempts: int = 6) -> bool:
+        if Path(path).resolve() == paths.dir.resolve():
+            reached_removal.append(path)
+            code, output, error = cli("start", "--headless", "--timeout", "6", timeout=20)
+            assert code != 0 and error.get("class") == core_common.ERR_PROFILE_IN_USE, (output.get("status"), error)
+            assert not paths.launch.exists(), "a refused start must not publish a launch record into the profile being purged"
+        return original_rmtree(path, attempts)
+
+    monkeypatch.setattr(core_common, "_rmtree_retry", start_during_purge)
+    monkeypatch.setenv("AGENT_BROWSER_HOME", str(purge_race_home))
+
+    result = core_cli._cmd_clean(Namespace(profile=PROFILE, purge_profile=PROFILE, dry_run=False))
+
+    assert reached_removal == [paths.dir]
+    assert PROFILE in result["profiles_purged"]
+    assert cli.ok("start", "--headless")["status"] == "started"
+    assert cli.ok("status")["running"] is True
     assert cli.ok("goto", f"{site.url}/home.html")["title"] == "Home"

@@ -61,6 +61,32 @@ fits one 7,000-byte tool reply; narrow with `find` or `ref` instead of paging.
 Use one explicit MCP `session_id` throughout the task. Installing repository templates
 is a separate step; editing them does not update an already-installed caller policy.
 
+### Update an existing installation after a merge
+
+On Windows, use `Get-Command agent-browser` to find the launcher on PATH. Use its
+Python interpreter to run `python -m pip show agent-browser` and check the install location.
+
+- **Editable install.** If pip lists an `Editable project location`, update that checkout
+  to the merged commit. New CLI invocations pick up the source changes. Rerun the
+  editable install with the same extras if the dependencies or entry points changed.
+- **Wheel or other regular install.** Reinstall from the merged source, even when the
+  package version is unchanged. For a per-user install, run this from the root of a
+  clean `helpful-scripts` checkout at the merged commit. Use `--no-deps` when the
+  installed Playwright and optional MCP versions already satisfy `agent-browser/pyproject.toml`.
+
+  ```powershell
+  python -m pip install --user --force-reinstall --no-deps ./agent-browser
+  ```
+
+  If requirements changed, run `python -m pip install --user ./agent-browser` first
+  (use `"./agent-browser[mcp]"` for MCP) to resolve them. In a virtual environment,
+  use that environment's Python and omit `--user`.
+
+Run `agent-browser doctor` to verify the installed command. A running daemon keeps
+its loaded code. Check `agent-browser status --profile NAME` for `stale_code: true`
+and restart that profile after its users have finished. Restart any long-running
+`agent-browser-mcp` process from its MCP client to load the updated package there too.
+
 ## Commands
 
 Global flags, before or after the verb: `--profile NAME`, `--tab TAB` (target a specific tab by stable id `t1`, `t2` or 1-based index without switching the active tab), `--timeout SECONDS`, `--snapshot` (full snapshot after an
@@ -392,6 +418,14 @@ with start gives its health response the requested start deadline.
 If a new daemon owns the profile when `stop` reaches orphan cleanup, `stop`
 returns `profile_in_use` with `details.cleanup_skipped`. Use `status` to see
 which daemon currently owns the profile.
+
+`clean --purge-profile P` refuses with `profile_in_use` if a start is claiming
+that profile. If purge is already deleting it, `start` waits within its command
+timeout or returns `profile_in_use`. A later start can create a fresh profile.
+The empty coordination files in `AGENT_BROWSER_HOME/profile-locks/` stay on
+disk across purges. During an upgrade, let any `start` or `clean` command
+from the older CLI finish before starting or purging that profile with the new
+CLI. An older daemon already holding its session lock is protected.
 
 - **Success**: JSON on stdout, exit `0`. Every reply that carries page-derived keys (`state`, `ping` and `journal`
   included) lists them in `untrusted`; hints never contain page text.

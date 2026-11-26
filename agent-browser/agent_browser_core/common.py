@@ -51,10 +51,11 @@ import subprocess
 import sys
 import time
 import urllib.parse
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Iterator, Sequence
 
 
 
@@ -568,6 +569,7 @@ HINTS = {
     "busy": "Another command held the browser, so this one was not run. Repeat it, or check: {tool} status --profile {profile}",
     "busy_status": "The browser is running another command, not hung. Do not force-stop it. Check again: {tool} status --profile {profile}",
     "profile_in_use": "Another browser holds this profile. Run: {tool} clean --profile {profile}",
+    "profile_transition": "Wait for the current start or cleanup to finish, then run: {tool} status --profile {profile}",
     "still_running": "A process that holds this profile is still running; it may be shutting down or still starting. Wait a few seconds and run the same command again. If it stays, end the pids in details.still_running in Task Manager.",
     "process_list": "The list of running processes could not be read, so a leftover browser was not looked for. Run the same command again; if a later start reports profile_in_use, run: {tool} clean --profile {profile}",
     "process_list_clean": "The list of running processes could not be read, so leftover browsers were not looked for. Run the same command again.",
@@ -794,6 +796,14 @@ class ProfilePaths:
     @property
     def lock(self) -> Path:
         return self.dir / "session.lock"
+
+    @property
+    def start_lock(self) -> Path:
+        return self.root / "profile-locks" / (self.profile + ".start.lock")
+
+    @property
+    def admission_lock(self) -> Path:
+        return self.root / "profile-locks" / (self.profile + ".admission.lock")
 
     @property
     def launch(self) -> Path:
@@ -1710,9 +1720,24 @@ def _acquire_lock(path: Path, wait: float = LOCK_ACQUIRE_GRACE) -> Any:
     deadline = _now() + wait
     while True:
         handle = _try_lock(path)
-        if handle is not None or _now() >= deadline:
+        remaining = deadline - _now()
+        if handle is not None or remaining <= 0:
             return handle
-        _sleep(0.05)
+        _sleep(min(0.05, remaining))
+
+
+@contextmanager
+def _profile_locks(*paths: Path, wait: float = LOCK_ACQUIRE_GRACE) -> Iterator[bool]:
+    """Keep the lock files outside the profile so a purge cannot remove their identity."""
+    with ExitStack() as held:
+        for path in paths:
+            handle = _acquire_lock(path, wait=wait)
+            if handle is None:
+                held.close()
+                yield False
+                return
+            held.callback(_release_lock, handle)
+        yield True
 
 
 def _lock_in_use(path: Path, recorded_pid: int) -> bool:
