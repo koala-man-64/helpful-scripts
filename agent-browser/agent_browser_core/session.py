@@ -210,24 +210,37 @@ def _raise_remote(error: dict[str, Any], profile: str) -> None:
     raise core_common._tag(exc, cls, hint=hint, details=details, untrusted=error.get("untrusted"))
 
 
-def _require_running(paths: core_common.ProfilePaths, verb: str) -> dict[str, Any]:
+def _wait_for_starting_profile(paths: core_common.ProfilePaths, timeout: float = 10.0) -> tuple[str, dict[str, Any] | None]:
     state, session = _transport_state(paths)
+    deadline = core_common._now() + timeout
+    while True:
+        # A lock can briefly be held by stop cleanup or a replacement daemon before it
+        # publishes its endpoint. The old record then looks running although its PID is gone.
+        transition = state == "starting" or (
+            state == "running" and session is not None and _recorded_pid(session) > 0
+            and not core_common._pid_alive(_recorded_pid(session))
+        )
+        if not transition:
+            return state, session
+        remaining = deadline - core_common._now()
+        if remaining <= 0:
+            return "starting", None
+        core_common._sleep(min(0.2, remaining))
+        state, session = _transport_state(paths)
+
+
+def _require_running(paths: core_common.ProfilePaths, verb: str) -> dict[str, Any]:
+    state, session = _wait_for_starting_profile(paths)
     if state == "incompatible":
         raise _restart_required(paths)
     if state == "running" and session is not None:
         return session
     if state == "starting":
-        deadline = core_common._now() + 10.0
-        while core_common._now() < deadline:
-            core_common._sleep(0.2)
-            state, session = _transport_state(paths)
-            if state == "running" and session is not None:
-                return session
         raise core_common._tag(RuntimeError("The browser is still starting."), core_common.ERR_NOT_RUNNING, hint=core_common._hint("starting", paths.profile))
     if state == "unresponsive":
         raise core_common._tag(RuntimeError("The daemon holds the lock but does not answer."), core_common.ERR_DAEMON_UNRESPONSIVE, hint=core_common._hint("daemon_unresponsive", paths.profile))
-    if state == "stale":
-        paths.session.unlink(missing_ok=True)
+    # Leave stale records for the process that acquires session.lock. Unlinking here races a
+    # concurrent start between this liveness observation and the file removal.
     raise core_common._tag(RuntimeError(f"No browser is running for profile {paths.profile!r} ({verb} needs one)."), core_common.ERR_NOT_RUNNING, hint=core_common._hint("not_running", paths.profile))
 
 
@@ -268,7 +281,9 @@ def _launch_record(paths: core_common.ProfilePaths, args: argparse.Namespace, to
 
 def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, timeout: float = core_common.START_TIMEOUT) -> dict[str, Any]:
     core_common._check_profile_path_length(paths)  # the one place a browser is spawned, whoever built `paths`
-    state, session = _transport_state(paths)
+    state, session = _wait_for_starting_profile(paths)
+    if state == "starting":
+        raise core_common._tag(RuntimeError("The browser is still starting."), core_common.ERR_NOT_RUNNING, hint=core_common._hint("starting", paths.profile))
     if state == "incompatible":
         raise _restart_required(paths)
     if state == "running" and session is not None:
@@ -282,9 +297,6 @@ def start_session(paths: core_common.ProfilePaths, args: argparse.Namespace, tim
                 "untrusted": core_common.UNTRUSTED_KEYS}
     if state == "unresponsive":
         raise core_common._tag(RuntimeError("A daemon holds the lock but does not answer."), core_common.ERR_DAEMON_UNRESPONSIVE, hint=core_common._hint("daemon_unresponsive", paths.profile))
-    if state == "starting":
-        session = _require_running(paths, "start")
-        return start_session(paths, args, timeout)
     token = secrets.token_hex(32)
     launch = _launch_record(paths, args, token)  # validates browser, exe and profile policy before any cleanup or spawn
     # A concurrent start may now own the profile. Only the daemon holding session.lock can clean up orphans.
@@ -306,6 +318,7 @@ def _await_daemon(paths: core_common.ProfilePaths, launch: dict[str, Any], timeo
     pid, launcher = core_common._spawn_daemon(argv, paths.log, paths.dir)
     deadline = core_common._now() + timeout
     exited = False
+    lock_was_held = False
     while core_common._now() < deadline:
         core_common._sleep(0.1)
         session = _read_session(paths)
@@ -322,7 +335,8 @@ def _await_daemon(paths: core_common.ProfilePaths, launch: dict[str, Any], timeo
         if exited or not core_common._pid_alive(pid):
             exited = True  # once seen exited, the pid may be reused by an unrelated process: never signal it again
             if core_common._lock_in_use(paths.lock, 0):
-                continue  # a concurrent start's daemon took the lock; wait for that daemon instead
+                lock_was_held = True
+                continue  # a concurrent start/stop owns the profile; wait for its outcome
             tail = core_common._tail(paths.log)
             reported = core_daemon._take_startup_error(paths) or {}
             cls = str(reported.get("class") or "")
@@ -337,6 +351,12 @@ def _await_daemon(paths: core_common.ProfilePaths, launch: dict[str, Any], timeo
             blockers = core_common.policy_blockers(core_common.read_policies(launch["browser"]))
             if blockers:
                 raise core_common._tag(RuntimeError("Browser policy blocks automation: " + "; ".join(blockers)), core_common.ERR_POLICY, details={"log": tail})
+            if lock_was_held:
+                raise core_common._tag(
+                    RuntimeError(f"Profile {paths.profile!r} was busy during startup; retry the start."),
+                    core_common.ERR_PROFILE_IN_USE, hint=core_common._hint("profile_in_use", paths.profile),
+                    details={"log": tail, "profile_lock_observed": True},
+                )
             message = reported.get("message") or f"The daemon exited before the browser was ready (log: {paths.log})."
             raise core_common._tag(RuntimeError(message), core_common.ERR_LAUNCH, hint=core_common._hint("launch", paths.profile), details={"log": tail})
     if not exited and core_common._pid_alive(pid):
@@ -344,11 +364,24 @@ def _await_daemon(paths: core_common.ProfilePaths, launch: dict[str, Any], timeo
     raise core_common._tag(RuntimeError(f"The browser did not become ready within {timeout:g}s (log: {paths.log})."), core_common.ERR_LAUNCH, hint=core_common._hint("launch", paths.profile), details={"log": core_common._tail(paths.log)})
 
 
-def stop_session(paths: core_common.ProfilePaths, force: bool = False) -> dict[str, Any]:
-    state, session = _liveness(paths)
+def _cleanup_refused(paths: core_common.ProfilePaths, session: dict[str, Any] | None, killed_pids: list[int]) -> None:
+    pid = _recorded_pid(session)
+    message = f"Another daemon owns or is starting profile {paths.profile!r}; stop cleanup was skipped."
+    raise core_common._tag(RuntimeError(message), core_common.ERR_PROFILE_IN_USE,
+                           hint=core_common._hint("still_running", paths.profile),
+                           details={"killed_pids": list(killed_pids), "still_running": [pid] if pid else [], "cleanup_skipped": True})
+
+
+def stop_session(paths: core_common.ProfilePaths, force: bool = False, *,
+                 observed: tuple[str, dict[str, Any] | None] | None = None) -> dict[str, Any]:
+    # The CLI passes its first observation for the none/stale path. Never re-probe and widen
+    # that request to a replacement daemon that starts between the two calls.
+    state, session = observed if observed is not None else _liveness(paths)
+    result: dict[str, Any] = {"profile": paths.profile, "stopped": False, "killed_pids": []}
+    if state == "none":
+        return result
     if state == "incompatible" and not force:
         raise _restart_required(paths)
-    result: dict[str, Any] = {"profile": paths.profile, "stopped": False, "killed_pids": []}
     pid = int(session.get("pid") or 0) if session else 0
     if state in ("running", "busy") and session is not None and not force:
         try:
@@ -359,44 +392,69 @@ def stop_session(paths: core_common.ProfilePaths, force: bool = False) -> dict[s
         while core_common._now() < deadline and core_common._pid_alive(pid):
             core_common._sleep(0.2)
         result["stopped"] = True
-    # The recorded pid is only trusted while the daemon holds the lock (running/busy/unresponsive/starting);
-    # a stale record may name a pid that the OS has since given to an unrelated process.
+    # The recorded PID is trusted only from the original liveness snapshot. A stale record
+    # can name a PID that the OS has since assigned to an unrelated process.
     if pid and state in ("running", "busy", "incompatible", "unresponsive", "starting") and core_common._pid_alive(pid):
         if not core_common._kill_tree(pid):
-            # The daemon is still there, so its record stays: status still finds it and a second stop can try again.
             raise _still_running([paths.profile], [pid], {"killed_pids": list(result["killed_pids"])})
         result["killed_pids"].append(pid)
         result["stopped"] = True
-    left: list[int] = []
-    listed = True
+
+    # A startup with no session record owns session.lock before it can publish an endpoint.
+    # Do not clean its profile while it still holds that lock.
+    if state == "starting" and core_common._lock_in_use(paths.lock, 0):
+        raise core_common._tag(RuntimeError(f"A daemon for profile {paths.profile!r} is still starting and its process is not known yet, so it was not ended."),
+                               core_common.ERR_PROFILE_IN_USE, hint=core_common._hint("still_running", paths.profile),
+                               details={"killed_pids": list(result["killed_pids"]), "still_running": []})
+
+    # Wait for the observed browser's normal shutdown before taking the profile lock. This
+    # scan is read-only; doing it first keeps the exclusive cleanup window short.
     if state in ("running", "busy", "incompatible", "unresponsive", "stale", "starting"):
-        # Chromium's helper processes (--type=...) follow the main process out; give them a moment so a
-        # `status`/`clean` right after `stop` does not see a browser that is still winding down.
         deadline = core_common._now() + 4.0
         while core_common._now() < deadline:
             rows = core_common._processes_using(str(paths.user_data))
             if rows is None or not any(p["name"].lower() in ("msedge.exe", "chrome.exe") for p in rows):
                 break
             core_common._sleep(0.3)
-        result["killed_pids"].extend(k for k in core_common._kill_browsers_using(paths.user_data) if k not in result["killed_pids"])
-        holders = core_common._profile_holders(paths.user_data)
-        listed, left = holders is not None, [p["pid"] for p in holders or []]
-        result["stopped"] = True
-    if left:
-        # The record stays while anything holds the profile. The same command then reads it as stale and looks
-        # for the leftover again, and so does the daemon of the next start.
-        raise _still_running([paths.profile], left, {"killed_pids": list(result["killed_pids"])})
-    if state == "starting" and core_common._lock_in_use(paths.lock, 0):
-        # No record yet, so the daemon's pid is not known and nothing ended it. "stopped" would be false.
-        raise core_common._tag(RuntimeError(f"A daemon for profile {paths.profile!r} is still starting and its process is not known yet, so it was not ended."),
-                               core_common.ERR_PROFILE_IN_USE, hint=core_common._hint("still_running", paths.profile),
-                               details={"killed_pids": list(result["killed_pids"]), "still_running": []})
-    if not listed:
-        # Nothing was verified, so the record stays here too.
-        result["note"] = core_common._hint("process_list", paths.profile)
+
+    # The daemon takes this same lock before it starts a browser or writes session.json.
+    # Acquire it only after signaling/waiting for the observed owner, then keep it through
+    # orphan cleanup and record removal. If a replacement won, its lock or token stops us.
+    cleanup_lock = core_common._acquire_lock(paths.lock)
+    if cleanup_lock is None:
+        _cleanup_refused(paths, _read_session(paths), result["killed_pids"])
+    try:
+        current = _read_session(paths)
+        if current is not None and (session is None or current.get("token") != session.get("token")):
+            _cleanup_refused(paths, current, result["killed_pids"])
+        if state == "stale" and current is None:
+            # Another owner already removed the observed stale pointer; there is no longer
+            # evidence that profile-wide orphan cleanup belongs to this stop.
+            result["stopped"] = True
+            return result
+
+        left: list[int] = []
+        listed = True
+        if state in ("running", "busy", "incompatible", "unresponsive", "stale", "starting"):
+            result["killed_pids"].extend(k for k in core_common._kill_browsers_using(paths.user_data) if k not in result["killed_pids"])
+            holders = core_common._profile_holders(paths.user_data)
+            listed, left = holders is not None, [p["pid"] for p in holders or []]
+            result["stopped"] = True
+        if left:
+            raise _still_running([paths.profile], left, {"killed_pids": list(result["killed_pids"])})
+        if not listed:
+            result["note"] = core_common._hint("process_list", paths.profile)
+            return result
+        # Only remove the record we originally observed; a second read makes this invariant
+        # explicit even though the profile lock already prevents a daemon replacement.
+        current = _read_session(paths)
+        if current is not None:
+            if session is None or current.get("token") != session.get("token"):
+                _cleanup_refused(paths, current, result["killed_pids"])
+            paths.session.unlink(missing_ok=True)
         return result
-    paths.session.unlink(missing_ok=True)
-    return result
+    finally:
+        core_common._release_lock(cleanup_lock)
 
 
 def _still_running(profiles: list[str], pids: list[int], details: dict[str, Any]) -> Exception:

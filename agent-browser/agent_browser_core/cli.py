@@ -121,7 +121,8 @@ def _check_trace(args: argparse.Namespace) -> None:
             raise core_common._tag(ValueError("--trace requires a synchronous browser command."), core_common.ERR_USAGE)
 
 
-def _remote(args: argparse.Namespace, verb: str, cmd: str, payload: dict[str, Any], default_timeout: float = core_common.DEFAULT_TIMEOUT, autostart: bool = False) -> dict[str, Any]:
+def _remote(args: argparse.Namespace, verb: str, cmd: str, payload: dict[str, Any], default_timeout: float = core_common.DEFAULT_TIMEOUT,
+            autostart: bool = False, session_snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
     # Every argument check runs before _session_for: a usage or validation error must not autostart a daemon.
     if getattr(args, "tab", None) is not None:
         payload.setdefault("tab", core_common._parse_tab_spec(args.tab, getattr(args, "profile", None) or core_common.DEFAULT_PROFILE))
@@ -143,7 +144,10 @@ def _remote(args: argparse.Namespace, verb: str, cmd: str, payload: dict[str, An
         payload["operation"], cmd = cmd, "commit"
     if getattr(args, "snapshot", False):
         payload["snapshot"] = True
-    paths, session = _session_for(args, verb, autostart=autostart)
+    if session_snapshot is None:
+        _paths, session = _session_for(args, verb, autostart=autostart)
+    else:
+        session = session_snapshot
     result = core_session._request(session, cmd, payload, timeout)
     while result.get("pending") and result.get("status") != "needs_human":
         core_common._sleep(0.2)
@@ -170,8 +174,11 @@ def _cmd_stop(args: argparse.Namespace) -> Any:
         paths = core_common._paths(core_session._resolve_profile(args.profile))
         state, metadata = core_session._liveness(paths)
         if state in {"none", "stale"}:
-            return core_session.stop_session(paths)
-        result = _remote(args, "stop", "stop", {"discard_changes": bool(args.discard_changes)}, core_common.STOP_GRACE)
+            return core_session.stop_session(paths, observed=(state, metadata))
+        if state == "incompatible":
+            raise core_session._restart_required(paths)
+        result = _remote(args, "stop", "stop", {"discard_changes": bool(args.discard_changes)},
+                         core_common.STOP_GRACE, session_snapshot=metadata)
         if result.get("stopping") and metadata:
             deadline = core_common._now() + core_common.STOP_GRACE
             while core_common._pid_alive(int(metadata["pid"])):

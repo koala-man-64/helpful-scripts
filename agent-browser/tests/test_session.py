@@ -270,6 +270,20 @@ def test_command_connection_does_not_depend_on_a_short_health_probe(monkeypatch)
     assert core_session._require_running(paths, "click") is record
 
 
+def test_require_running_leaves_a_stale_record_for_guarded_cleanup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    paths = core_common._paths("default")
+    _touch_lock(paths)
+    stale = {"port": 4444, "token": "stale", "protocol_version": core_common.PROTOCOL_VERSION}
+    core_session._write_json_atomic(paths.session, stale)
+    monkeypatch.setattr(core_common, "_lock_held", lambda path: False)
+
+    with pytest.raises(RuntimeError) as exc:
+        core_session._require_running(paths, "click")
+
+    assert exc.value.error_class == core_common.ERR_NOT_RUNNING
+    assert core_session._read_session(paths) == stale
+
+
 @pytest.mark.parametrize("protocol", [None, 1, 2, core_common.PROTOCOL_VERSION + 1])
 def test_incompatible_record_is_rejected_before_action_dispatch(monkeypatch, protocol):
     paths = core_common._paths("default")
@@ -350,12 +364,40 @@ def _valid_session(paths: core_common.ProfilePaths, **overrides: Any) -> dict[st
     return data
 
 
+@pytest.mark.parametrize(
+    "initial",
+    [("starting", None), ("running", {"pid": 555, "port": 4444, "token": "old"})],
+    ids=["lock-without-session", "lock-with-stale-session"],
+)
+def test_start_session_retries_after_a_short_lock_only_transition(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock, initial: tuple[str, dict[str, Any] | None]
+) -> None:
+    paths = core_common._paths("default")
+    states = iter([initial, ("none", None)])
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(core_session, "_transport_state", lambda p: next(states))
+    launch = {"token": "start-token", "profile": paths.profile}
+    monkeypatch.setattr(core_session, "_launch_record", lambda p, args, token: {**launch, "token": token})
+
+    def ready(p: core_common.ProfilePaths, record: dict[str, Any], timeout: float) -> dict[str, Any]:
+        core_session._discard_launch(p.launch, record["token"])
+        return {"profile": p.profile, "status": "started"}
+
+    monkeypatch.setattr(core_session, "_await_daemon", ready)
+
+    result = core_session.start_session(paths, _start_args(), timeout=0.5)
+
+    assert result["status"] == "started"
+    assert not paths.launch.exists()
+
+
 def test_start_session_returns_already_running_without_spawning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     paths = core_common._paths("default")
     _touch_lock(paths)
     session = _valid_session(paths)
     core_session._write_json_atomic(paths.session, session)
     monkeypatch.setattr(core_common, "_lock_held", lambda p: True)
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: True)
     monkeypatch.setattr(core_session, "_ping", lambda s, timeout=core_common.PING_TIMEOUT: {"pong": True, "current_tab": 1, "url": "about:blank"})
 
     def refuse_spawn(*a: Any, **k: Any) -> Any:
@@ -595,6 +637,26 @@ def test_start_session_waits_for_a_concurrent_starts_daemon_instead_of_failing(m
     assert not paths.launch.exists()  # this start's record, which no daemon will consume
 
 
+def test_start_session_reports_retryable_profile_busy_when_cleanup_wins_the_lock(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
+    paths = core_common._paths("default")
+    lock_probes = iter([True, False])
+    monkeypatch.setattr(core_common, "_spawn_daemon", lambda argv, log_path, cwd: (4321, "popen"))
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: False)
+    monkeypatch.setattr(core_common, "_lock_in_use", lambda path, timeout=0: next(lock_probes))
+    monkeypatch.setattr(core_session, "_read_session", lambda p: None)
+    monkeypatch.setattr(core_session.core_daemon, "_take_startup_error", lambda p: {})
+    monkeypatch.setattr(core_common, "_tail", lambda path: "")
+    monkeypatch.setattr(core_common, "policy_blockers", lambda policies: [])
+
+    with pytest.raises(RuntimeError) as exc:
+        core_session.start_session(paths, _start_args())
+
+    assert exc.value.error_class == core_common.ERR_PROFILE_IN_USE
+    assert exc.value.hint == core_common._hint("profile_in_use", paths.profile)
+    assert exc.value.details["profile_lock_observed"] is True
+    assert not paths.launch.exists()
+
+
 def test_start_session_timeout_after_a_lost_race_does_not_kill_the_exited_pid(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
     paths = core_common._paths("default")
     killed = _install_lost_race(monkeypatch, paths, winner_after=None)
@@ -712,6 +774,63 @@ def test_stop_all_on_a_busy_daemon_asks_it_to_stop_before_killing(monkeypatch: p
 
     assert requests == [("stop", {"all": True})]
     assert kill_tree_calls == [] and result["stopped"] is True
+
+
+def test_stale_stop_leaves_a_replacement_owner_untouched(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:
+    paths = core_common._paths("default")
+    observed = _valid_session(paths, pid=555)
+    replacement = _valid_session(paths, pid=777, port=6666, token="replacement")
+    core_session._write_json_atomic(paths.session, observed)
+    core_session._write_json_atomic(paths.session, replacement)  # a replacement started and exited before cleanup acquired the lock
+    monkeypatch.setattr(core_session, "_liveness", lambda p: pytest.fail("the observed stale state must be reused"))
+    monkeypatch.setattr(core_common, "_kill_browsers_using", lambda *a, **k: pytest.fail("replacement browser was targeted"))
+
+    with pytest.raises(RuntimeError) as exc:
+        core_session.stop_session(paths, observed=("stale", observed))
+    assert exc.value.error_class == core_common.ERR_PROFILE_IN_USE
+    assert exc.value.details["cleanup_skipped"] is True
+    assert core_session._read_session(paths) == replacement
+
+
+@pytest.mark.parametrize("force", [False, True], ids=["graceful", "forced"])
+def test_stop_cleanup_leaves_a_replacement_owner_untouched(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock, force: bool
+) -> None:
+    paths = core_common._paths("default")
+    old = _valid_session(paths, pid=555)
+    replacement = _valid_session(paths, pid=777, port=6666, token="replacement")
+    core_session._write_json_atomic(paths.session, old)
+    old_lock = core_common._try_lock(paths.lock)
+    assert old_lock is not None
+    replacement_lock: list[Any] = []
+
+    def replacement_takes_profile(*args: Any, **kwargs: Any) -> Any:
+        core_common._release_lock(old_lock)
+        core_session._write_json_atomic(paths.session, replacement)
+        replacement_lock.append(core_common._try_lock(paths.lock))
+        assert replacement_lock[-1] is not None
+        return {}
+
+    def kill_old(pid: int) -> bool:
+        replacement_takes_profile()
+        return True
+
+    monkeypatch.setattr(core_session, "_liveness", lambda p: ("running", old))
+    monkeypatch.setattr(core_session, "_request", replacement_takes_profile)
+    monkeypatch.setattr(core_common, "_pid_alive", lambda pid: force)
+    monkeypatch.setattr(core_common, "_kill_tree", kill_old)
+    monkeypatch.setattr(core_common, "_kill_browsers_using", lambda *a, **k: pytest.fail("replacement browser was targeted"))
+
+    try:
+        with pytest.raises(RuntimeError) as exc:
+            core_session.stop_session(paths, force=force)
+        assert exc.value.error_class == core_common.ERR_PROFILE_IN_USE
+        assert exc.value.details["cleanup_skipped"] is True
+        assert core_session._read_session(paths) == replacement
+    finally:
+        core_common._release_lock(replacement_lock[0])
+        if not old_lock.closed:
+            core_common._release_lock(old_lock)
 
 
 def test_stop_session_also_kills_browsers_using_the_profile(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, fake_clock) -> None:

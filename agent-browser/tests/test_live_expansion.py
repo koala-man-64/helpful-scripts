@@ -528,3 +528,22 @@ def test_local_diagnostics_block_outside_requests_sockets_and_popups(cli: Cli, s
     assert result["popups_closed"] == 1
     assert len(cli.ok("tabs", "--session", session)["tabs"]) == 1
     assert "Home" in cli.ok("text", "--session", session)["text"]
+
+
+def test_stale_stop_leaves_restarted_browser_usable(cli: Cli, site: _Site) -> None:
+    from agent_browser_core import session as core_session
+
+    paths = core_common.ProfilePaths(PROFILE, cli.home)
+    previous = core_session._read_session(paths)
+    assert previous is not None
+    assert cli.ok("stop", "--all")["stopped"]
+    replacement = cli.ok("start", "--headless")
+    assert replacement["status"] == "started"
+
+    with pytest.raises(RuntimeError) as raised:
+        core_session.stop_session(paths, observed=("stale", previous))
+
+    assert raised.value.error_class == core_common.ERR_PROFILE_IN_USE
+    assert raised.value.details["cleanup_skipped"]
+    assert cli.ok("status")["pid"] == replacement["pid"]
+    assert cli.ok("goto", f"{site.url}/home.html")["title"] == "Home"
