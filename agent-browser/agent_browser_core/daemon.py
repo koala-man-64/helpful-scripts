@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from . import common as core_common, session as core_session, snapshots as core_snapshots
-from . import runtime, policy
+from . import bookmarks, runtime, policy
 from . import actions
 from . import api
 from . import reach
@@ -1271,6 +1271,10 @@ class BrowserEngine:
         loading = self._settle(page)
         host = (urllib.parse.urlsplit(url).hostname or "").lower() or None
         return self.snap_envelope(page, navigated=True, requested_host=host, loading=loading, max_bytes=args.get("max_bytes") or core_common.DEFAULT_MAX_BYTES)
+
+    def h_bookmark_current(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
+        return bookmarks.BookmarkStore(self.paths).add(args["bookmark_name"], self.target_page(args).url,
+                                                       replace=args.get("replace", False))
 
     def h_snapshot(self, args: dict[str, Any], timeout: float) -> dict[str, Any]:
         page = self.target_page(args)

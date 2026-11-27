@@ -25,7 +25,7 @@ def evidence_usage(directory: Path, skip: frozenset[str] = frozenset()) -> int:
         top = Path(folder) == directory
         names[:] = [name for name in names if name not in {"user-data", "downloads"} and not (top and name in skip)]
         for name in files:
-            if name == "daemon.log":
+            if name == "daemon.log" or top and (name == common.BOOKMARKS_FILE or name.startswith(common.BOOKMARKS_FILE + ".")):
                 continue
             try:
                 total += (Path(folder) / name).stat().st_size

@@ -91,6 +91,20 @@ class Cli:
         assert code == 0, (args, err)
         return out
 
+    def stop_and_wait(self, *args: str) -> None:
+        """Verify this daemon actually exits before testing persistence or starting a replacement."""
+        pid = self.ok("status")["pid"]
+        code, out, err = self("stop", *args)
+        if code == 124:
+            assert err.get("class") == core_common.ERR_TIMEOUT and "Session released" in err["message"], err
+            assert live_support.wait_for_pid_exit(pid, 30.0), f"daemon pid {pid} still alive after a slow stop"
+            warnings.warn(live_support.LiveTeardownWarning(
+                f"stop outlasted its {core_common.STOP_GRACE:g}s wait; the daemon exited later"), stacklevel=2)
+        else:
+            assert code == 0 and out["stopped"] is True, (code, err)
+        assert not core_common._pid_alive(pid)
+        assert self.ok("status")["running"] is False
+
 
 def ref(env: dict, pattern: str) -> str:
     for line in env.get("snapshot") or []:
@@ -454,11 +468,25 @@ def test_cookie_survives_stop_and_start(cli: Cli, base_url: str) -> None:
     cli.ok("goto", f"{base_url}/home.html")
     # A cookie without max-age is a session cookie that no browser keeps across a restart.
     cli.ok("eval", "document.cookie = 'ab_live=1; path=/; max-age=3600'")
-    assert cli.ok("stop")["stopped"] is True
-    assert cli.ok("status")["running"] is False
+    cli.stop_and_wait()
     assert cli.ok("start", "--headless")["status"] == "started"
     cli.ok("goto", f"{base_url}/home.html")
     assert "ab_live=1" in cli.ok("eval", "document.cookie")["value"]
+
+
+def test_bookmark_reopens_the_exact_page_after_restart(cli: Cli, base_url: str) -> None:
+    url = f"{base_url}/home.html?view=open%20items#signed-in"
+    cli.ok("goto", url, "--session", "writer")
+    cli.ok("bookmark", "add", "dashboard", "--session", "writer")
+    cli.stop_and_wait("--all")
+    listed = cli.ok("bookmark", "list", "--session", "reader")
+    assert {"name": "dashboard", "url": core_common.redact_url(url)} in listed["bookmarks"]
+    assert cli.ok("status")["running"] is False
+    opened = cli.ok("bookmark", "open", "dashboard", "--session", "reader", "--new-tab")
+    assert opened["title"] == "Home"
+    assert cli.ok("eval", "location.search + location.hash", "--session", "reader")["value"] == "?view=open%20items#signed-in"
+    cli.ok("bookmark", "remove", "dashboard")
+    cli.stop_and_wait("--session", "reader")
 
 
 def test_killed_daemon_is_reported_and_start_recovers(cli: Cli, base_url: str) -> None:
@@ -474,16 +502,5 @@ def test_killed_daemon_is_reported_and_start_recovers(cli: Cli, base_url: str) -
 
 
 def test_stop_leaves_nothing_behind(cli: Cli, live_home: Path) -> None:
-    pid = cli.ok("status")["pid"]
-    code, out, err = cli("stop")
-    if code == 124:
-        # stop waits STOP_GRACE for the daemon's pid, which exits only once the browser has closed, and Edge closed
-        # slower than that once (PR 9). A slow close is reported; a daemon still alive 30 s later fails the test.
-        assert err.get("class") == core_common.ERR_TIMEOUT, err
-        assert live_support.wait_for_pid_exit(pid, 30.0), f"daemon pid {pid} still alive {core_common.STOP_GRACE + 30:g}s after stop"
-        warnings.warn(live_support.LiveTeardownWarning(f"stop outlasted its {core_common.STOP_GRACE:g}s wait; the daemon exited later"))
-    else:
-        assert code == 0 and out["stopped"] is True, (code, err)
-    assert not core_common._pid_alive(pid)
-    assert cli.ok("status")["running"] is False
+    cli.stop_and_wait()
     assert live_support.settle_browsers(live_home) == []

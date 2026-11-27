@@ -25,12 +25,12 @@ class JsonArgumentParser(argparse.ArgumentParser):
         raise core_common._tag(ValueError("Invalid command arguments. Use --help for command syntax."), core_common.ERR_USAGE)
 
     def parse_args(self, args: Sequence[str] | None = None, namespace: argparse.Namespace | None = None) -> argparse.Namespace:  # type: ignore[override]
-        # Sub-parsers write their namespace over the top-level one, so --expect after the verb is kept apart
-        # (expect_tail) and appended here. Sub-parsers never call parse_args, so this merges exactly once.
+        # Each parser level keeps its own --expect group. Only the top level calls parse_args.
         parsed = super().parse_args(args, namespace)
-        tail = vars(parsed).pop("expect_tail", None)
-        if tail:
-            parsed.expect = list(getattr(parsed, "expect", None) or []) + tail
+        for key in ("expect_tail", "expect_subcommand"):
+            tail = vars(parsed).pop(key, None)
+            if tail:
+                parsed.expect = list(getattr(parsed, "expect", None) or []) + tail
         return parsed
 
 
@@ -117,7 +117,8 @@ def _finish(result: dict[str, Any], session: dict[str, Any] | None = None) -> di
 def _check_trace(args: argparse.Namespace) -> None:
     if getattr(args, "trace", False):
         from .diagnostics import TRACE_COMMANDS
-        if args.command != "commit" and args.command not in TRACE_COMMANDS:
+        command = "goto" if getattr(args, "bookmark_action", None) == "open" else args.command
+        if command != "commit" and command not in TRACE_COMMANDS:
             raise core_common._tag(ValueError("--trace requires a synchronous browser command."), core_common.ERR_USAGE)
 
 
@@ -197,6 +198,12 @@ def _cmd_status(args: argparse.Namespace) -> Any:
         names = sorted(e.name for e in root.iterdir() if e.is_dir() and core_common._is_profile_name(e.name)) if root.is_dir() else []
         return {"home": str(core_common._home()), "profiles": [core_session.status_session(core_common._paths(n)) for n in names]}
     return core_session.status_session(core_common._paths(core_session._resolve_profile(args.profile)))
+
+
+def _add_goto_flags(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--wait", choices=("load", "domcontentloaded"), default="load")
+    p.add_argument("--new-tab", action="store_true")
+    p.add_argument("--discard-changes", action="store_true", help="leave a page that has unsaved edits")
 
 
 def _cmd_goto(args: argparse.Namespace) -> Any:
@@ -527,9 +534,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all", action="store_true", help="list every profile under the home folder instead of one")
     p = add("goto", _cmd_goto, "open a URL (starts the browser if needed) and print the page as refs")
     p.add_argument("url")
-    p.add_argument("--wait", choices=("load", "domcontentloaded"), default="load")
-    p.add_argument("--new-tab", action="store_true")
-    p.add_argument("--discard-changes", action="store_true", help="leave a page that has unsaved edits")
+    _add_goto_flags(p)
     p = add("snapshot", _cmd_snapshot, "print the current page as refs")
     p.add_argument("--full", action="store_true", help="the raw accessibility tree")
     p.add_argument("--find", metavar="TEXT", help="only lines containing TEXT (plus their parents)")
@@ -628,7 +633,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id")
     p.add_argument("--offset", type=int, default=0)
     from . import commands
-    commands.configure(parser, sub, add)
+    commands.configure(parser, sub, add, common)
     return parser
 
 
