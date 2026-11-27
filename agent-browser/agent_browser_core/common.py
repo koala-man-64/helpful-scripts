@@ -12,7 +12,7 @@ Requirements:
 Commands (run `agent-browser --help` for full detail):
   start stop status goto snapshot click fill type press select check uncheck hover scroll
   text value screenshot wait back reload tabs tab upload downloads eval doctor clean output
-  commit state journal needs-human fill-form table api run
+  commit state journal needs-human fill-form table api run bookmark
 
 Environment (real env vars, read lazily - no .env loading):
   AGENT_BROWSER_HOME             state root (default %LOCALAPPDATA%/agent-browser, POSIX ~/.agent-browser)
@@ -68,6 +68,7 @@ TOOL_VERSION = "0.2.0"
 
 CONTRACT_VERSION = 1
 PROTOCOL_VERSION = 3
+BOOKMARKS_FILE = "bookmarks.json"
 
 
 TESTED_PLAYWRIGHT = ("1.61", "1.64", "1.65")   # aria_snapshot(mode="ai") + aria-ref engine verified on these lines
@@ -850,9 +851,9 @@ def _check_profile_path_length(paths: ProfilePaths) -> None:
         )
 
 
-def _load_config() -> dict[str, Any]:
+def _load_config(home: Path | None = None) -> dict[str, Any]:
     """Human-written policy file. Never created or modified by the tool."""
-    path = _home() / "config.json"
+    path = (home if home is not None else _home()) / "config.json"
     if not path.is_file():
         return {}
     try:

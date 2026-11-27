@@ -5,7 +5,7 @@ import re
 from typing import Any
 from . import common
 
-READ = frozenset({"ping", "state", "journal", "output", "snapshot", "text", "value", "screenshot", "tabs", "tab", "wait", "poll", "needs-human", "goto", "back", "reload", "stop", "api", "run", "table", "diagnose"})
+READ = frozenset({"ping", "state", "journal", "output", "snapshot", "text", "value", "screenshot", "tabs", "tab", "wait", "poll", "needs-human", "goto", "back", "reload", "stop", "api", "run", "table", "diagnose", "bookmark-current"})
 CONTROL = frozenset({"ping", "state", "journal", "output", "poll", "needs-human", "stop"})
 PERMISSIONS = ("read", "act", "commit")
 # A key under `hosts`: a bare host name or IPv4 address. No scheme, port, path or wildcard: like an allowed_hosts

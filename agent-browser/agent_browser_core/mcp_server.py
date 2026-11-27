@@ -10,7 +10,7 @@ try:
     from typing_extensions import TypedDict
 except ImportError:
     from typing import TypedDict
-from . import api, client, common
+from . import api, bookmarks, client, common
 
 
 class Target(TypedDict, total=False):
@@ -94,6 +94,34 @@ def browser_goto(url: str, session_id: str, profile: str | None = None, timeout:
                  trace: bool = False) -> dict[str, Any]:
     """Navigate the caller's own tab. Sign in manually when requested."""
     return _call("goto", {"url": url, "wait": wait, "new_tab": new_tab, "tab": tab, "trace": trace}, session_id, profile, timeout)
+
+
+def browser_bookmark_list(session_id: str, profile: str | None = None) -> dict[str, Any]:
+    """List the profile's saved bookmarks, including when the browser is closed."""
+    return bookmarks.BookmarkStore.for_caller(profile, session_id).list()
+
+
+def browser_bookmark_add(name: str, session_id: str, profile: str | None = None, url: str | None = None,
+                         tab: int | str | None = None, replace: bool = False) -> dict[str, Any]:
+    """Save the caller's tab or an explicit web URL under a name. Set replace to update an existing name."""
+    if url is None:
+        return _call("bookmark-current", {"bookmark_name": bookmarks.validate_name(name), "tab": tab, "replace": replace},
+                     session_id, profile)
+    if tab is not None:
+        return _call_error("Choose either a tab or an explicit bookmark URL.")
+    return bookmarks.BookmarkStore.for_caller(profile, session_id).add(name, url, replace=replace)
+
+
+def browser_bookmark_open(name: str, session_id: str, profile: str | None = None, tab: int | str | None = None,
+                          new_tab: bool = False, timeout: float = 30) -> dict[str, Any]:
+    """Navigate to a bookmark in the caller's session using the profile's current URL policy."""
+    store = bookmarks.BookmarkStore.for_caller(profile, session_id)
+    return browser_goto(store.resolve(name), session_id, store.paths.profile, timeout, new_tab=new_tab, tab=tab)
+
+
+def browser_bookmark_remove(name: str, session_id: str, profile: str | None = None) -> dict[str, Any]:
+    """Remove a named bookmark from this profile."""
+    return bookmarks.BookmarkStore.for_caller(profile, session_id).remove(name)
 
 
 def browser_snapshot(session_id: str, profile: str | None = None, find: str | None = None, full: bool = False,
@@ -296,7 +324,7 @@ def make_server():
 
     server = BoundedServer("agent-browser")
     read_only = {"browser_snapshot", "browser_read", "browser_wait", "browser_screenshot",
-                 "browser_check_url", "browser_api", "browser_recipe", "browser_output"}
+                 "browser_check_url", "browser_api", "browser_recipe", "browser_output", "browser_bookmark_list"}
     additive = {"browser_start", "browser_needs_human"}
     for name, function in list(globals().items()):
         if name.startswith("browser_") and callable(function):

@@ -21,10 +21,13 @@ def test_mcp_lifecycle_annotations_describe_browser_mutation():
         ("browser_start", False),
         ("browser_stop", True),
         ("browser_needs_human", False),
+        ("browser_bookmark_add", True),
+        ("browser_bookmark_remove", True),
+        ("browser_bookmark_open", True),
     ):
         assert annotations[name].readOnlyHint is False, name
         assert annotations[name].destructiveHint is destructive, name
-    for name in ("browser_snapshot", "browser_read", "browser_api", "browser_recipe"):
+    for name in ("browser_snapshot", "browser_read", "browser_api", "browser_recipe", "browser_bookmark_list"):
         assert annotations[name].readOnlyHint is True, name
         assert annotations[name].destructiveHint is False, name
 
@@ -35,7 +38,6 @@ def test_mcp_schema_and_complete_result_budget(monkeypatch):
     async def run():
         server = mcp_server.make_server()
         tools = await server.list_tools()
-        assert len(tools) == 19
         commit = next(t for t in tools if t.name == "browser_commit")
         assert "api" in commit.inputSchema["properties"]["operation"]["enum"]
         assert "state" in commit.inputSchema["properties"]["operation"]["enum"]
@@ -199,7 +201,13 @@ def test_real_stdio_handshake_and_error_contract():
             async with ClientSession(reader, writer) as session:
                 await session.initialize()
                 tools = await session.list_tools()
-                assert len(tools.tools) == 19
+                assert "browser_bookmark_add" in {tool.name for tool in tools.tools}
+                saved = await session.call_tool("browser_bookmark_add", {"session_id": "gate", "name": "docs", "url": "https://example.org/docs"})
+                assert saved.structuredContent["bookmark"]["name"] == "docs"
+                listed = await session.call_tool("browser_bookmark_list", {"session_id": "other"})
+                assert listed.structuredContent["bookmarks"] == [{"name": "docs", "url": "https://example.org/docs"}]
+                removed = await session.call_tool("browser_bookmark_remove", {"session_id": "other", "name": "docs"})
+                assert removed.structuredContent["removed"] == "docs"
                 reply = await session.call_tool("browser_read", {"operation": "state", "session_id": "gate"})
                 assert reply.isError
                 assert reply.structuredContent["contract_version"] == 1
@@ -401,11 +409,33 @@ def test_mcp_tab_operation_takes_stable_ids_and_never_sends_index_zero(make_daem
     asyncio.run(run())
 
 
+def test_mcp_bookmark_saves_a_session_tab_and_opens_it_in_another(make_daemon, monkeypatch):
+    daemon, _, _ = make_daemon(config={"permission": "read"})
+    monkeypatch.setattr(mcp_server.client, "invoke", lambda command, args, **kw:
+                        daemon.dispatch(command, {**args, "_session_id": kw["session_id"]}, kw["timeout"]))
+    url = "http://x/report?sort=name#section"
+    first = mcp_server.browser_goto(url, "writer")
+    mcp_server.browser_goto("http://x/other", "writer", new_tab=True)
+    mcp_server.browser_goto("http://x/reader", "reader")
+
+    async def run():
+        server = mcp_server.make_server()
+        saved = await server.call_tool("browser_bookmark_add", {"session_id": "writer", "name": "report", "tab": first["tab_id"]})
+        assert saved.structuredContent["bookmark"] == {"name": "report", "url": common.redact_url(url)}
+        opened = await server.call_tool("browser_bookmark_open", {"session_id": "reader", "name": "report"})
+        assert opened.structuredContent["navigated"]
+        assert daemon.sessions["reader"]["current"].url == url
+        assert daemon.sessions["writer"]["current"].url == "http://x/other"
+    asyncio.run(run())
+
+
 def test_mcp_schema_exposes_the_cli_parameters(monkeypatch):
     tools = {tool.name: tool.inputSchema["properties"] for tool in asyncio.run(mcp_server.make_server().list_tools())}
-    assert len(tools) == 19
+    assert len(tools) == 23
     page_tools = {"browser_goto", "browser_snapshot", "browser_click", "browser_fill", "browser_fill_form", "browser_action", "browser_read",
-                  "browser_wait", "browser_screenshot", "browser_api", "browser_eval", "browser_commit", "browser_recipe", "browser_upload"}
+                  "browser_wait", "browser_screenshot", "browser_api", "browser_eval", "browser_commit", "browser_recipe", "browser_upload",
+                  "browser_bookmark_add", "browser_bookmark_open"}
+    assert {"browser_bookmark_list", "browser_bookmark_remove"} <= tools.keys()
     for name in page_tools:
         assert {s.get("type") for s in tools[name]["tab"]["anyOf"]} == {"integer", "string", "null"}, name
         assert tools[name]["tab"]["default"] is None, name

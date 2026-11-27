@@ -170,7 +170,9 @@ connection refused) fails as `action_failed`.
 
 Use the optional MCP extra (`pip install -e "agent-browser[mcp]"`) and register the
 `agent-browser-mcp` stdio command with your host. Pass the same explicit session ID
-through every tool in one task. The 19 typed tools share the daemon dispatcher;
+through every tool in one task. Bookmarks are shared across sessions of the same profile.
+Use `browser_bookmark_add` with a name and an optional URL or tab, `browser_bookmark_list`
+to find saved pages, `browser_bookmark_open` to navigate, and `browser_bookmark_remove` to delete a name.
 `browser_commit` and `browser_eval` are distinct approval targets, and file transfer is
 `browser_upload`, a tool of its own (it is no longer an operation of `browser_action`). A caller that had allowed
 `browser_action` must allow `browser_upload` too, or it is asked on the first upload; the repo's permission

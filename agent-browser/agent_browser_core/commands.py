@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from . import api, common, policy
+from . import api, bookmarks, common, policy
 
 
 def commit(args: argparse.Namespace):
@@ -64,19 +64,59 @@ EXPECT_HELP = ("post-action check, repeatable before and after the verb; every c
                "checked:REF, unchecked:REF, count:SELECTOR=N, download:GLOB, persisted:#id=VALUE)")
 
 
-def _shared_flags(sp):
-    """A verb's own --expect group lands in expect_tail; JsonArgumentParser.parse_args appends it to the group before the verb."""
+def bookmark(args: argparse.Namespace):
+    from . import cli
+
+    action = args.bookmark_action
+    if getattr(args, "committing", False):
+        raise common._tag(ValueError("Run bookmark commands directly."), common.ERR_USAGE)
+    store = bookmarks.BookmarkStore.for_caller(args.profile, args.session)
+    if action == "open":
+        args.url = store.resolve(args.bookmark_name)
+        return cli._cmd_goto(args)
+    if args.expect:
+        raise common._tag(ValueError("Bookmark expectations apply only to open."), common.ERR_USAGE)
+    if args.tab is not None and (action != "add" or args.url is not None):
+        raise common._tag(ValueError("--tab selects a page to bookmark or a tab to open it in."), common.ERR_USAGE)
+    if action == "list":
+        return store.list()
+    if action == "remove":
+        return store.remove(args.bookmark_name)
+    if args.url is not None:
+        return store.add(args.bookmark_name, args.url, replace=args.replace)
+    return cli._remote(args, "bookmark add", "bookmark-current",
+                       {"bookmark_name": bookmarks.validate_name(args.bookmark_name), "replace": args.replace})
+
+
+def _shared_flags(sp, expect_dest="expect_tail"):
+    """Keep each parser level's --expect group so JsonArgumentParser can merge them in order."""
     sp.add_argument("--session", default=argparse.SUPPRESS)
-    sp.add_argument("--expect", action="append", dest="expect_tail", metavar="CHECK", default=argparse.SUPPRESS, help=EXPECT_HELP)
+    sp.add_argument("--expect", action="append", dest=expect_dest, metavar="CHECK", default=argparse.SUPPRESS, help=EXPECT_HELP)
     sp.add_argument("--trace", action="store_true", default=argparse.SUPPRESS, help="save a redacted trace with this command receipt")
 
 
-def configure(parser, sub, add):
+def configure(parser, sub, add, common_flags):
+    from .cli import _add_dialog_flags, _add_goto_flags
+
     parser.add_argument("--session", default=None)
     parser.add_argument("--expect", action="append", metavar="CHECK", default=[], help=EXPECT_HELP)
     parser.add_argument("--trace", action="store_true", help="save a redacted trace with this command receipt")
     for sp in sub.choices.values():
         _shared_flags(sp)
+    p = add("bookmark", bookmark, "manage named page bookmarks shared by this profile's sessions")
+    _shared_flags(p)
+    verbs = p.add_subparsers(dest="bookmark_action", required=True)
+    for verb, description in (("add", "save the selected tab or an explicit URL"), ("list", "list saved bookmarks"),
+                              ("open", "navigate to a saved bookmark"), ("remove", "remove a saved bookmark")):
+        child = verbs.add_parser(verb, parents=[common_flags], help=description, description=description)
+        _shared_flags(child, expect_dest="expect_subcommand")
+        if verb != "list":
+            child.add_argument("bookmark_name", metavar="NAME")
+        if verb == "add":
+            child.add_argument("url", nargs="?", metavar="URL")
+            child.add_argument("--replace", action="store_true", help="update a name that already points to another URL")
+        if verb == "open":
+            _add_goto_flags(child)
     p = add("commit", commit, "explicit commit operation under caller approval policy")
     p.add_argument("arguments", nargs=argparse.REMAINDER)
     for name in ("state", "journal"):
@@ -94,7 +134,6 @@ def configure(parser, sub, add):
     p.add_argument("--signed-in")
     p = add("fill-form", extended, "preflight and fill fields without submitting")
     p.add_argument("--file", required=True)
-    from .cli import _add_dialog_flags
     _add_dialog_flags(p)
     p = add("table", extended, "read a table; optionally traverse bounded pages and export rows")
     p.add_argument("target", nargs="?")

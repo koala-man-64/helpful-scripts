@@ -44,7 +44,7 @@ Copy-Item -Recurse -Force .\agent-browser\skill\* "$HOME\.claude\skills\agent-br
 
 `python -m agent_browser` also works. The interfaces are private to helpful-scripts.
 For stdio MCP install `agent-browser[mcp]` (`mcp>=1.29,<2`), then run `agent-browser-mcp`
-or `python -m agent_browser_core.mcp_server`. The 19 typed tools share the dispatcher;
+or `python -m agent_browser_core.mcp_server`. The MCP tools use the same profile and navigation rules as the CLI.
 `browser_commit` and `browser_eval` are distinct caller approval targets, and file transfer is
 `browser_upload`, a tool of its own, so a caller's rules can single it out too.
 A tool error carries the same `error` object as CLI stderr; its hint names the equivalent
@@ -220,6 +220,9 @@ qualification requires a separately authorized test record.
 | `stop [--all] [--force] [--discard-changes]` | Release only this session. A tab with unsaved edits stays open and keeps the session (`unsaved_changes`; the other tabs still close) unless `--discard-changes`. When every other session that used the browser has stopped too (tabs a human opened by hand don't count), this stop also closes the window and ends the daemon (`stopping: true`). all/force explicitly affect the shared profile and close every tab without asking, so `--discard-changes` with them is a usage error. A stop that ends the daemon checks what it claims: the daemon, its driver and its browser are ended through the kernel (`taskkill` and the CIM query, which need WMI, are only fallbacks), and if the daemon or a browser holding the profile is still running afterwards, or the daemon is still starting and cannot be named yet, the stop fails with `profile_in_use` and `details.still_running` (the pids) instead of reporting `stopped: true`. The session record stays until a stop has seen that nothing holds the profile, so the same command, or the next `start`, finds a leftover again. `killed_pids` lists only processes that are gone. When the process list could not be read, the result carries a `note` saying a leftover browser was not looked for. This profile only: other profiles keep running. Cookies stay. |
 | `status [--all]` | Running, pid, tabs, uptime, `stale_code`; `--all` lists every profile, and so does a plain `status` (no `--profile`, no `AGENT_BROWSER_PROFILE`) while more than one profile runs. Exit 0 whether or not a browser runs; 2 for an invalid or reserved (`_doctor`) `--profile`; 1 when the profile path is too long for Chromium. |
 | `goto URL [--wait load\|domcontentloaded] [--new-tab] [--discard-changes]` | Navigate (starts the browser if needed) and return the page. |
+| `bookmark add NAME [URL] [--replace]` | Save the current tab, a tab selected with `--tab`, or an explicit URL. Use `--replace` to change an existing name's destination. |
+| `bookmark list` / `bookmark remove NAME` | List or remove bookmarks in the selected profile, including while the browser is closed. |
+| `bookmark open NAME [--new-tab]` | Open the saved page with the same tab targeting, host checks and unsaved-edit handling as `goto`. |
 | `snapshot [--full] [--find TEXT] [--ref REF]` | The page as refs. `--find` keeps matching lines plus parents; it never matches a masked value or a redacted link. |
 | `click REF [--double] [--right]` | Click. Popups become the current tab. |
 | `fill REF TEXT [--enter]` | Replace a field's text. Refuses password and code fields. |
@@ -255,6 +258,27 @@ and `fill-form` also takes `--accept-dialog`, `--dialog-text T` (a prompt answer
 `--discard-changes`; `goto`, `back`, `reload` and `tab` take `--discard-changes`. The caller permission template asks
 before any command with either flag runs. Long flags must be spelled out: an abbreviation such as `--accept` is a
 usage error, so it cannot slip past those ask rules.
+
+### Persistent bookmarks
+
+```text
+agent-browser bookmark add issues https://github.com/issues
+agent-browser bookmark add "Weekly report" --tab t2
+agent-browser bookmark list
+agent-browser bookmark open "Weekly report" --new-tab
+agent-browser bookmark remove issues
+```
+
+Bookmark names are case-sensitive and shared across sessions of the same `--profile`.
+Adding an explicit URL, listing and removing bookmarks work with the browser closed.
+Opening restores the saved HTTP(S) address, including its query and fragment. The
+list shows the usual redacted URL preview. Saving rejects addresses containing
+userinfo or credential values recognized by the URL redactor. Saving a selected tab
+requires a daemon started with bookmark support.
+
+Bookmarks survive browser restarts and journal clearing. Purging the profile deletes
+its bookmarks. MCP exposes `browser_bookmark_add`, `browser_bookmark_list`,
+`browser_bookmark_open` and `browser_bookmark_remove`.
 
 ### Reading a snapshot
 
@@ -543,6 +567,7 @@ effective list is a configuration error.
                     command error adds the file, line and function it was raised at, never its text. Past 4 MiB
                     it is trimmed to its last megabyte when the next daemon starts
   journal.sqlite3   redacted receipts, evidence references and durable human handoffs
+  bookmarks.json    named page addresses shared by this profile's sessions
   last_snapshot.txt the manual session's last filtered snapshot; with several tabs, also last_snapshot_<tab>.txt
                     per tab (`snapshot_file` names the one written)
   downloads\  shots\  outputs\

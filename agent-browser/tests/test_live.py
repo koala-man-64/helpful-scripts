@@ -461,6 +461,21 @@ def test_cookie_survives_stop_and_start(cli: Cli, base_url: str) -> None:
     assert "ab_live=1" in cli.ok("eval", "document.cookie")["value"]
 
 
+def test_bookmark_reopens_the_exact_page_after_restart(cli: Cli, base_url: str) -> None:
+    url = f"{base_url}/home.html?view=open%20items#signed-in"
+    cli.ok("goto", url, "--session", "writer")
+    cli.ok("bookmark", "add", "dashboard", "--session", "writer")
+    cli.ok("stop", "--all")
+    listed = cli.ok("bookmark", "list", "--session", "reader")
+    assert {"name": "dashboard", "url": core_common.redact_url(url)} in listed["bookmarks"]
+    assert cli.ok("status")["running"] is False
+    opened = cli.ok("bookmark", "open", "dashboard", "--session", "reader", "--new-tab")
+    assert opened["title"] == "Home"
+    assert cli.ok("eval", "location.search + location.hash", "--session", "reader")["value"] == "?view=open%20items#signed-in"
+    cli.ok("bookmark", "remove", "dashboard")
+    cli.ok("stop", "--session", "reader")
+
+
 def test_killed_daemon_is_reported_and_start_recovers(cli: Cli, base_url: str) -> None:
     pid = cli.ok("status")["pid"]
     core_common._kill_tree(pid)
